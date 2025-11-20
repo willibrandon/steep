@@ -1,0 +1,66 @@
+# YAML Configuration Schema for Steep
+# Location: ~/.config/steep/config.yaml or path specified by STEEP_CONFIG env var
+
+# Database connection configuration
+connection:
+  # PostgreSQL host (default: localhost)
+  # Can be overridden by STEEP_CONNECTION_HOST or PGHOST
+  host: localhost
+
+  # PostgreSQL port (default: 5432)
+  # Can be overridden by STEEP_CONNECTION_PORT or PGPORT
+  port: 5432
+
+  # Database name (default: postgres)
+  # Can be overridden by STEEP_CONNECTION_DATABASE or PGDATABASE
+  database: postgres
+
+  # Database user (default: OS username)
+  # Can be overridden by STEEP_CONNECTION_USER or PGUSER
+  user: brandon
+
+  # Command to retrieve password from external password manager
+  # Examples:
+  #   - "pass show postgres/local"  (Unix pass)
+  #   - "security find-generic-password -s postgres -w"  (macOS Keychain)
+  #   - "1password get item PostgreSQL --field password"  (1Password CLI)
+  # If not set, falls back to PGPASSWORD env var or interactive prompt
+  # NO PLAINTEXT PASSWORDS - use password_command or environment variables only
+  password_command: "pass show postgres/local"
+
+  # SSL mode: disable, prefer, require (default: prefer)
+  # prefer: Try SSL, fall back to non-SSL if unavailable
+  # require: Require SSL connection, fail if unavailable
+  sslmode: prefer
+
+  # Maximum connections in pool (default: 10)
+  # Higher values support more concurrent queries but consume more database resources
+  pool_max_conns: 10
+
+  # Minimum connections in pool (default: 2)
+  # Keeps pool warm for faster query execution
+  pool_min_conns: 2
+
+# User interface configuration
+ui:
+  # Color theme: dark, light (default: dark)
+  theme: dark
+
+  # Status bar refresh interval (default: 1s)
+  # Minimum: 100ms, Maximum: 60s
+  # Format: Go duration string (e.g., "1s", "500ms", "2s")
+  refresh_interval: 1s
+
+  # Date/time format for display (default: "2006-01-02 15:04:05")
+  # Uses Go time format syntax
+  # Examples:
+  #   - "2006-01-02 15:04:05"  (YYYY-MM-DD HH:MM:SS)
+  #   - "Jan 2 15:04:05"       (Mon DD HH:MM:SS)
+  #   - "15:04:05"             (HH:MM:SS only)
+  date_format: "2006-01-02 15:04:05"
+
+# Debug mode (default: false)
+# Can be overridden by STEEP_DEBUG=1 environment variable
+# When enabled, outputs Info level logs to stderr
+# When disabled, only Error and Warning logs are output
+debug: false

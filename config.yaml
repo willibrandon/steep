@@ -1,0 +1,15 @@
+connection:
+  host: localhost
+  port: 5432
+  database: brandon
+  user: brandon
+  sslmode: prefer
+  pool_max_conns: 10
+  pool_min_conns: 2
+
+ui:
+  theme: dark
+  refresh_interval: 1s
+  date_format: "2006-01-02 15:04:05"
+
+debug: true

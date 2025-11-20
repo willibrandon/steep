@@ -27,13 +27,13 @@ Project follows Go standard layout:
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Initialize Go module with go mod init github.com/yourusername/steep
-- [ ] T002 [P] Install Bubbletea dependencies: bubbletea v0.25+, bubbles v0.18+, lipgloss v0.9+
-- [ ] T003 [P] Install database dependencies: pgx/v5, pgxpool/v5
-- [ ] T004 [P] Install configuration dependency: viper v1.18+
-- [ ] T005 [P] Create directory structure: cmd/steep, internal/{app,config,db/models,ui/{components,views,styles}}, configs, tests/{integration,unit}
-- [ ] T006 Create .gitignore for Go project (binaries, test artifacts, IDE files)
-- [ ] T007 Create Makefile with targets: build, test, test-coverage, clean, run
+- [X] T001 Initialize Go module with go mod init github.com/willibrandon/steep
+- [X] T002 [P] Install Bubbletea dependencies: bubbletea v0.25+, bubbles v0.18+, lipgloss v0.9+
+- [X] T003 [P] Install database dependencies: pgx/v5, pgxpool/v5
+- [X] T004 [P] Install configuration dependency: viper v1.18+
+- [X] T005 [P] Create directory structure: cmd/steep, internal/{app,config,db/models,ui/{components,views,styles}}, configs, tests/{integration,unit}
+- [X] T006 Create .gitignore for Go project (binaries, test artifacts, IDE files)
+- [X] T007 Create Makefile with targets: build, test, test-coverage, clean, run
 
 ---
 
@@ -43,13 +43,13 @@ Project follows Go standard layout:
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T008 [P] Define Config struct in internal/config/config.go with ConnectionConfig and UIConfig fields
-- [ ] T009 [P] Define default configuration values in internal/config/defaults.go
-- [ ] T010 [P] Implement Viper configuration loading with YAML and environment variable support in internal/config/config.go
-- [ ] T011 [P] Define centralized Lipgloss theme (colors, spacing, borders) in internal/ui/styles/theme.go
-- [ ] T012 [P] Define keyboard binding constants in internal/ui/keys.go
-- [ ] T013 Create example configuration file in configs/steep.yaml.example with all fields documented
-- [ ] T014 Implement configuration validation logic (port range, pool settings, SSL mode) in internal/config/config.go
+- [X] T008 [P] Define Config struct in internal/config/config.go with ConnectionConfig and UIConfig fields
+- [X] T009 [P] Define default configuration values in internal/config/defaults.go
+- [X] T010 [P] Implement Viper configuration loading with YAML and environment variable support in internal/config/config.go
+- [X] T011 [P] Define centralized Lipgloss theme (colors, spacing, borders) in internal/ui/styles/theme.go
+- [X] T012 [P] Define keyboard binding constants in internal/ui/keys.go
+- [X] T013 Create example configuration file in configs/config.yaml.example with all fields documented
+- [X] T014 Implement configuration validation logic (port range, pool settings, SSL mode) in internal/config/config.go
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -63,19 +63,19 @@ Project follows Go standard layout:
 
 ### Implementation for User Story 1
 
-- [ ] T015 [P] [US1] Create ConnectionProfile model in internal/db/models/profile.go with host, port, database, user fields
-- [ ] T016 [P] [US1] Implement password command execution with 5-second timeout in internal/db/password.go
-- [ ] T017 [US1] Implement pgxpool connection setup with pool configuration in internal/db/connection.go
-- [ ] T018 [US1] Implement connection validation query (SELECT version()) in internal/db/connection.go
-- [ ] T019 [US1] Implement PGPASSWORD and password_command fallback logic in internal/db/password.go
-- [ ] T020 [US1] Implement interactive password prompt with hidden input in internal/db/password.go
-- [ ] T021 [US1] Create DatabaseConnectedMsg and ConnectionFailedMsg message types in internal/app/messages.go
-- [ ] T022 [US1] Implement main Bubbletea Model struct with config, dbPool, connection state in internal/app/app.go
-- [ ] T023 [US1] Implement Model.Init() to trigger config loading and database connection in internal/app/app.go
-- [ ] T024 [US1] Implement Model.Update() to handle DatabaseConnectedMsg and ConnectionFailedMsg in internal/app/app.go
-- [ ] T025 [US1] Implement actionable error message formatting for connection failures in internal/app/errors.go
-- [ ] T026 [US1] Create main.go entry point that initializes Bubbletea program in cmd/steep/main.go
-- [ ] T027 [US1] Implement graceful shutdown with pool cleanup on quit in internal/app/app.go
+- [X] T015 [P] [US1] Create ConnectionProfile model in internal/db/models/profile.go with host, port, database, user fields
+- [X] T016 [P] [US1] Implement password command execution with 5-second timeout in internal/db/password.go
+- [X] T017 [US1] Implement pgxpool connection setup with pool configuration in internal/db/connection.go
+- [X] T018 [US1] Implement connection validation query (SELECT version()) in internal/db/connection.go
+- [X] T019 [US1] Implement PGPASSWORD and password_command fallback logic in internal/db/password.go
+- [X] T020 [US1] Implement interactive password prompt with hidden input in internal/db/password.go
+- [X] T021 [US1] Create DatabaseConnectedMsg and ConnectionFailedMsg message types in internal/app/messages.go
+- [X] T022 [US1] Implement main Bubbletea Model struct with config, dbPool, connection state in internal/app/app.go
+- [X] T023 [US1] Implement Model.Init() to trigger config loading and database connection in internal/app/app.go
+- [X] T024 [US1] Implement Model.Update() to handle DatabaseConnectedMsg and ConnectionFailedMsg in internal/app/app.go
+- [X] T025 [US1] Implement actionable error message formatting for connection failures in internal/app/errors.go
+- [X] T026 [US1] Create main.go entry point that initializes Bubbletea program in cmd/steep/main.go
+- [X] T027 [US1] Implement graceful shutdown with pool cleanup on quit in internal/app/app.go
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - application launches and connects to database
 
@@ -89,14 +89,14 @@ Project follows Go standard layout:
 
 ### Implementation for User Story 2
 
-- [ ] T028 [P] [US2] Create HelpText component with keyboard shortcuts display in internal/ui/components/help.go
-- [ ] T029 [P] [US2] Define help screen content with all available shortcuts in internal/ui/components/help.go
-- [ ] T030 [US2] Add helpVisible bool field to Model struct in internal/app/app.go
-- [ ] T031 [US2] Implement keyboard handler for 'q' (quit) in Model.Update() in internal/app/app.go
-- [ ] T032 [US2] Implement keyboard handler for 'h' and '?' (toggle help) in Model.Update() in internal/app/app.go
-- [ ] T033 [US2] Implement keyboard handler for 'Esc' (close help dialog) in Model.Update() in internal/app/app.go
-- [ ] T034 [US2] Implement help overlay rendering in Model.View() in internal/app/app.go
-- [ ] T035 [US2] Style help dialog with Lipgloss (borders, padding, colors) in internal/ui/components/help.go
+- [X] T028 [P] [US2] Create HelpText component with keyboard shortcuts display in internal/ui/components/help.go
+- [X] T029 [P] [US2] Define help screen content with all available shortcuts in internal/ui/components/help.go
+- [X] T030 [US2] Add helpVisible bool field to Model struct in internal/app/app.go
+- [X] T031 [US2] Implement keyboard handler for 'q' (quit) in Model.Update() in internal/app/app.go
+- [X] T032 [US2] Implement keyboard handler for 'h' and '?' (toggle help) in Model.Update() in internal/app/app.go
+- [X] T033 [US2] Implement keyboard handler for 'Esc' (close help dialog) in Model.Update() in internal/app/app.go
+- [X] T034 [US2] Implement help overlay rendering in Model.View() in internal/app/app.go
+- [X] T035 [US2] Style help dialog with Lipgloss (borders, padding, colors) in internal/ui/components/help.go
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work - keyboard navigation is fully functional
 
