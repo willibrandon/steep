@@ -128,7 +128,7 @@ type ViewModel interface {
 
 **Version Compatibility**:
 - Minimum: PostgreSQL 11 (best effort)
-- Target: PostgreSQL 13+ (full feature support)
+- Target: PostgreSQL 18 (full feature support)
 - Detect version with `SHOW server_version` and adjust features
 
 ## Technology Stack
@@ -282,3 +282,10 @@ FROM pg_stat_replication;
 6. **Goroutine Leaks**: Always use context cancellation to clean up monitor goroutines on app exit
 7. **VACUUM Blocking**: VACUUM operations can block; show progress and allow cancellation
 8. **Read-Only Mode**: Verify `--readonly` flag before executing destructive operations
+
+## Active Technologies
+- Go 1.21+ (001-foundation)
+- PostgreSQL 11+ (target 18) for monitoring; YAML file for configuration (~/.config/steep/config.yaml) (001-foundation)
+
+## Recent Changes
+- 001-foundation: Added Go 1.21+

@@ -605,7 +605,7 @@ keybindings:
 
 ### 8.4 Compatibility
 
-- PostgreSQL versions: 11+ (primary target 13+)
+- PostgreSQL versions: 11+ (primary target 18)
 - Terminal emulators: xterm-256color and above
 - Operating systems: Linux, macOS, Windows (with WSL)
 - Graceful handling of version-specific features
