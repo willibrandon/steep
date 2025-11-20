@@ -1,0 +1,36 @@
+# Claude Code agent folder (may contain credentials/tokens)
+.claude/
+
+# Specify memory folder (may contain sensitive project context)
+.specify/memory/
+
+# Build artifacts
+/bin/
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
