@@ -126,3 +126,16 @@ func FormatPasswordCommandError(err error, command string) string {
 			"  3. Verify the password manager is configured correctly\n"+
 			"\nOriginal error: %s", command, command, errMsg)
 }
+
+// FormatReconnectionFailure formats a permanent reconnection failure message
+func FormatReconnectionFailure(err error, maxAttempts int) error {
+	return fmt.Errorf(
+		"Failed to reconnect after %d attempts.\n\n"+
+			"The database connection could not be restored.\n\n"+
+			"Troubleshooting steps:\n"+
+			"  1. Verify PostgreSQL is running and accessible\n"+
+			"  2. Check network connectivity\n"+
+			"  3. Review database logs for errors\n"+
+			"  4. Restart the application to try again\n"+
+			"\nLast error: %s", maxAttempts, err.Error())
+}

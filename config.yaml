@@ -3,7 +3,24 @@ connection:
   port: 5432
   database: brandon
   user: brandon
+
+  # SSL/TLS Configuration
+  # Valid sslmode values:
+  #   disable      - No SSL/TLS encryption
+  #   allow        - Try non-SSL first, then SSL if required
+  #   prefer       - Try SSL first, fall back to non-SSL (default)
+  #   require      - Require SSL, but don't verify certificates
+  #   verify-ca    - Require SSL and verify server certificate
+  #   verify-full  - Require SSL, verify certificate and hostname
   sslmode: prefer
+
+  # SSL Certificate paths (required for verify-ca and verify-full modes)
+  # Uncomment and set these when using verify-ca or verify-full:
+  # sslrootcert: /path/to/root.crt
+  # sslcert: /path/to/client.crt
+  # sslkey: /path/to/client.key
+
+  # Connection pool settings
   pool_max_conns: 10
   pool_min_conns: 2
 

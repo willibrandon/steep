@@ -24,6 +24,9 @@ type ConnectionConfig struct {
 	User           string `mapstructure:"user"`
 	PasswordCommand string `mapstructure:"password_command"`
 	SSLMode        string `mapstructure:"sslmode"`
+	SSLRootCert    string `mapstructure:"sslrootcert"`
+	SSLCert        string `mapstructure:"sslcert"`
+	SSLKey         string `mapstructure:"sslkey"`
 	PoolMaxConns   int    `mapstructure:"pool_max_conns"`
 	PoolMinConns   int    `mapstructure:"pool_min_conns"`
 }
@@ -109,8 +112,8 @@ func ValidateConfig(cfg *Config) error {
 		return fmt.Errorf("connection.database cannot be empty")
 	}
 
-	// Validate SSL mode
-	validSSLModes := []string{"disable", "prefer", "require"}
+	// Validate SSL mode (all PostgreSQL SSL modes)
+	validSSLModes := []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
 	validMode := false
 	for _, mode := range validSSLModes {
 		if cfg.Connection.SSLMode == mode {
@@ -120,6 +123,31 @@ func ValidateConfig(cfg *Config) error {
 	}
 	if !validMode {
 		return fmt.Errorf("connection.sslmode must be one of: %v, got %s", validSSLModes, cfg.Connection.SSLMode)
+	}
+
+	// Validate SSL certificate paths if using verify-ca or verify-full
+	if cfg.Connection.SSLMode == "verify-ca" || cfg.Connection.SSLMode == "verify-full" {
+		if cfg.Connection.SSLRootCert == "" {
+			return fmt.Errorf("connection.sslrootcert is required when sslmode is %s", cfg.Connection.SSLMode)
+		}
+		// Check if root cert file exists
+		if _, err := os.Stat(cfg.Connection.SSLRootCert); os.IsNotExist(err) {
+			return fmt.Errorf("SSL root certificate file not found: %s", cfg.Connection.SSLRootCert)
+		}
+	}
+
+	// Validate client certificate if provided
+	if cfg.Connection.SSLCert != "" {
+		if _, err := os.Stat(cfg.Connection.SSLCert); os.IsNotExist(err) {
+			return fmt.Errorf("SSL client certificate file not found: %s", cfg.Connection.SSLCert)
+		}
+		// If cert is provided, key must also be provided
+		if cfg.Connection.SSLKey == "" {
+			return fmt.Errorf("connection.sslkey is required when sslcert is provided")
+		}
+		if _, err := os.Stat(cfg.Connection.SSLKey); os.IsNotExist(err) {
+			return fmt.Errorf("SSL client key file not found: %s", cfg.Connection.SSLKey)
+		}
 	}
 
 	// Validate pool settings

@@ -12,6 +12,7 @@ import (
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
+	"github.com/willibrandon/steep/internal/ui/views"
 )
 
 // Model represents the main Bubbletea application model
@@ -33,16 +34,26 @@ type Model struct {
 	keys ui.KeyMap
 
 	// UI components
-	help *components.HelpText
+	help      *components.HelpText
+	statusBar *components.StatusBar
+
+	// Views
+	currentView views.ViewType
+	viewList    []views.ViewType
+	dashboard   *views.DashboardView
 
 	// Application state
 	helpVisible bool
 	quitting    bool
 	ready       bool
 
+	// Reconnection state
+	reconnectionState *db.ReconnectionState
+	reconnecting      bool
+
 	// Status bar data
-	statusTimestamp      time.Time
-	activeConnections    int
+	statusTimestamp   time.Time
+	activeConnections int
 }
 
 // New creates a new application model
@@ -53,11 +64,35 @@ func New() (*Model, error) {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
+	statusBar := components.NewStatusBar()
+	statusBar.SetDatabase(cfg.Connection.Database)
+	statusBar.SetDateFormat(cfg.UI.DateFormat)
+
+	// Initialize dashboard view
+	dashboard := views.NewDashboard()
+	dashboard.SetDatabase(cfg.Connection.Database)
+
+	// Define available views
+	viewList := []views.ViewType{
+		views.ViewDashboard,
+		views.ViewActivity,
+		views.ViewQueries,
+		views.ViewLocks,
+		views.ViewTables,
+		views.ViewReplication,
+	}
+
 	return &Model{
-		config:    cfg,
-		keys:      ui.DefaultKeyMap(),
-		help:      components.NewHelp(),
-		connected: false,
+		config:            cfg,
+		keys:              ui.DefaultKeyMap(),
+		help:              components.NewHelp(),
+		statusBar:         statusBar,
+		currentView:       views.ViewDashboard,
+		viewList:          viewList,
+		dashboard:         dashboard,
+		connected:         false,
+		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
+		reconnecting:      false,
 	}, nil
 }
 
@@ -79,6 +114,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.help.SetSize(msg.Width, msg.Height)
+		m.statusBar.SetSize(msg.Width)
+		m.dashboard.SetSize(msg.Width, msg.Height-5) // Reserve space for header and status bar
 		if !m.ready {
 			m.ready = true
 		}
@@ -89,15 +126,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dbPool = msg.Pool
 		m.serverVersion = msg.Version
 		m.connectionErr = nil
+		m.statusBar.SetConnected(true)
+		m.dashboard.SetConnected(true)
+		m.dashboard.SetServerVersion(msg.Version)
 		return m, nil
 
 	case ConnectionFailedMsg:
 		m.connected = false
 		m.connectionErr = msg.Err
+		m.statusBar.SetConnected(false)
+		// Trigger reconnection
+		if !m.reconnecting {
+			m.reconnecting = true
+			return m, attemptReconnection(m.config, m.reconnectionState)
+		}
 		return m, nil
 
 	case StatusBarTickMsg:
 		m.statusTimestamp = msg.Timestamp
+		m.statusBar.SetTimestamp(msg.Timestamp)
 		// Query metrics if connected
 		if m.connected && m.dbPool != nil {
 			return m, tea.Batch(
@@ -109,10 +156,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case MetricsUpdateMsg:
 		m.activeConnections = msg.ActiveConnections
+		m.statusBar.SetActiveConnections(msg.ActiveConnections)
 		return m, nil
 
 	case ErrorMsg:
 		m.connectionErr = msg.Err
+		return m, nil
+
+	case ReconnectAttemptMsg:
+		// Update reconnection status display
+		m.statusBar.SetReconnecting(true, msg.Attempt, msg.MaxAttempts)
+		// Continue reconnection attempts
+		return m, tea.Tick(msg.NextDelay, func(t time.Time) tea.Msg {
+			return attemptReconnection(m.config, m.reconnectionState)()
+		})
+
+	case ReconnectSuccessMsg:
+		m.connected = true
+		m.dbPool = msg.Pool
+		m.serverVersion = msg.Version
+		m.connectionErr = nil
+		m.reconnecting = false
+		m.statusBar.SetConnected(true)
+		m.statusBar.SetReconnecting(false, 0, 0)
+		m.dashboard.SetConnected(true)
+		m.dashboard.SetServerVersion(msg.Version)
+		return m, nil
+
+	case ReconnectFailedMsg:
+		m.reconnecting = false
+		m.connectionErr = FormatReconnectionFailure(msg.Err, m.reconnectionState.MaxAttempts)
+		m.statusBar.SetReconnecting(false, 0, 0)
 		return m, nil
 	}
 
@@ -139,7 +213,61 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Check for view jumping (1-6)
+	switch msg.String() {
+	case "1":
+		m.currentView = views.ViewDashboard
+		return m, nil
+	case "2":
+		m.currentView = views.ViewActivity
+		return m, nil
+	case "3":
+		m.currentView = views.ViewQueries
+		return m, nil
+	case "4":
+		m.currentView = views.ViewLocks
+		return m, nil
+	case "5":
+		m.currentView = views.ViewTables
+		return m, nil
+	case "6":
+		m.currentView = views.ViewReplication
+		return m, nil
+	case "tab":
+		m.nextView()
+		return m, nil
+	case "shift+tab":
+		m.prevView()
+		return m, nil
+	}
+
 	return m, nil
+}
+
+// nextView cycles to the next view
+func (m *Model) nextView() {
+	currentIndex := 0
+	for i, v := range m.viewList {
+		if v == m.currentView {
+			currentIndex = i
+			break
+		}
+	}
+	nextIndex := (currentIndex + 1) % len(m.viewList)
+	m.currentView = m.viewList[nextIndex]
+}
+
+// prevView cycles to the previous view
+func (m *Model) prevView() {
+	currentIndex := 0
+	for i, v := range m.viewList {
+		if v == m.currentView {
+			currentIndex = i
+			break
+		}
+	}
+	prevIndex := (currentIndex - 1 + len(m.viewList)) % len(m.viewList)
+	m.currentView = m.viewList[prevIndex]
 }
 
 // View renders the application UI
@@ -155,33 +283,51 @@ func (m Model) View() string {
 	// Build the UI
 	var view string
 
-	// Header
+	// Header with current view indicator
 	view += m.renderHeader()
 
-	// Main content area
-	if m.connected {
-		view += "\nConnected to PostgreSQL\n"
-		view += fmt.Sprintf("Version: %s\n", m.serverVersion)
-		view += fmt.Sprintf("Active connections: %d\n", m.activeConnections)
-	} else {
-		view += "\n"
-		if m.connectionErr != nil {
-			view += styles.ErrorStyle.Render(fmt.Sprintf("Connection Error: %s", m.connectionErr.Error()))
-		} else {
-			view += "Connecting to database..."
-		}
-		view += "\n"
-	}
-
-	// Help overlay
+	// Main content area - render current view
 	if m.helpVisible {
 		view += "\n" + m.renderHelp()
+	} else {
+		view += "\n" + m.renderCurrentView()
 	}
 
 	// Status bar
 	view += "\n" + m.renderStatusBar()
 
 	return view
+}
+
+// renderCurrentView renders the currently selected view
+func (m Model) renderCurrentView() string {
+	// If not connected and have error, show error
+	if !m.connected && m.connectionErr != nil {
+		return styles.ErrorStyle.Render(fmt.Sprintf("Connection Error: %s", m.connectionErr.Error()))
+	}
+
+	// If not connected and no error, show connecting message
+	if !m.connected {
+		return styles.InfoStyle.Render("Connecting to database...")
+	}
+
+	// Render the appropriate view based on currentView
+	switch m.currentView {
+	case views.ViewDashboard:
+		return m.dashboard.View()
+	case views.ViewActivity:
+		return styles.InfoStyle.Render("Activity monitoring view - Coming soon!")
+	case views.ViewQueries:
+		return styles.InfoStyle.Render("Query performance view - Coming soon!")
+	case views.ViewLocks:
+		return styles.InfoStyle.Render("Lock monitoring view - Coming soon!")
+	case views.ViewTables:
+		return styles.InfoStyle.Render("Table statistics view - Coming soon!")
+	case views.ViewReplication:
+		return styles.InfoStyle.Render("Replication status view - Coming soon!")
+	default:
+		return styles.ErrorStyle.Render("Unknown view")
+	}
 }
 
 // renderHeader renders the application header
@@ -191,18 +337,7 @@ func (m Model) renderHeader() string {
 
 // renderStatusBar renders the status bar
 func (m Model) renderStatusBar() string {
-	var status string
-	if m.connected {
-		status = styles.StatusConnectedStyle.Render("● Connected")
-	} else {
-		status = styles.StatusDisconnectedStyle.Render("● Disconnected")
-	}
-
-	dbName := m.config.Connection.Database
-	timestamp := m.statusTimestamp.Format(m.config.UI.DateFormat)
-
-	statusLine := fmt.Sprintf("%s | %s | %s", status, dbName, timestamp)
-	return styles.StatusBarStyle.Render(statusLine)
+	return m.statusBar.View()
 }
 
 // renderHelp renders the help screen
@@ -260,6 +395,44 @@ func queryMetrics(pool *pgxpool.Pool) tea.Cmd {
 
 		return MetricsUpdateMsg{
 			ActiveConnections: activeConns,
+		}
+	}
+}
+
+// attemptReconnection creates a command to attempt database reconnection
+func attemptReconnection(cfg *config.Config, state *db.ReconnectionState) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+
+		// Send attempt message
+		attemptMsg := ReconnectAttemptMsg{
+			Attempt:     state.Attempt + 1,
+			MaxAttempts: state.MaxAttempts,
+			NextDelay:   state.CalculateNextDelay(),
+		}
+
+		// Attempt reconnection
+		pool, err := db.AttemptReconnection(ctx, cfg, state)
+		if err != nil {
+			// Check if we've exhausted all attempts
+			if !state.HasAttemptsRemaining() {
+				return ReconnectFailedMsg{
+					Err: fmt.Errorf("all reconnection attempts failed: %w", err),
+				}
+			}
+			// Return attempt message to trigger next attempt
+			return attemptMsg
+		}
+
+		// Get server version
+		version, err := db.GetServerVersion(ctx, pool)
+		if err != nil {
+			version = "Unknown"
+		}
+
+		return ReconnectSuccessMsg{
+			Pool:    pool,
+			Version: version,
 		}
 	}
 }

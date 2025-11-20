@@ -17,12 +17,6 @@ type ConnectionFailedMsg struct {
 	Err error
 }
 
-// ReconnectAttemptMsg is sent when attempting to reconnect to the database
-type ReconnectAttemptMsg struct {
-	Attempt int
-	MaxAttempts int
-}
-
 // StatusBarTickMsg is sent periodically to update the status bar
 type StatusBarTickMsg struct {
 	Timestamp time.Time
@@ -36,5 +30,23 @@ type MetricsUpdateMsg struct {
 
 // ErrorMsg is sent when a general error occurs
 type ErrorMsg struct {
+	Err error
+}
+
+// ReconnectAttemptMsg is sent when attempting to reconnect to the database
+type ReconnectAttemptMsg struct {
+	Attempt     int
+	MaxAttempts int
+	NextDelay   time.Duration
+}
+
+// ReconnectSuccessMsg is sent when reconnection succeeds
+type ReconnectSuccessMsg struct {
+	Pool    *pgxpool.Pool
+	Version string
+}
+
+// ReconnectFailedMsg is sent when all reconnection attempts are exhausted
+type ReconnectFailedMsg struct {
 	Err error
 }
