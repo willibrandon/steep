@@ -50,6 +50,14 @@ The implementation roadmap is in `docs/GUIDE.md` with 12 planned features organi
 - Cover all critical PostgreSQL monitoring scenarios: activity, query performance, locks, replication, bloat, vacuum
 - Avoid feature gaps requiring context switching to other tools
 
+### VI. Visual Design First (NON-NEGOTIABLE)
+- ALL UI features MUST complete visual design phase BEFORE implementation
+- Study 2-3 reference tools (pg_top, htop, k9s) with screenshots
+- Create ASCII mockup showing exact layout
+- Build 3 throwaway demos testing different rendering approaches
+- Define visual acceptance criteria: "Must look like [tool X]"
+- Implement static mockup first, get approval, THEN add real-time data
+
 ## Architecture
 
 ### Directory Structure (Planned)
@@ -271,6 +279,16 @@ FROM pg_stat_replication;
 - **Implementation Guide**: `docs/GUIDE.md` - 12-feature roadmap with spec-kit commands
 - **Constitution**: `.specify/memory/constitution.md` - Non-negotiable development principles
 - **Bubbletea Examples**: `/Users/brandon/src/bubbletea` - Local reference for TUI patterns
+
+## Reference Tools (Available Locally)
+
+These reference implementations are available for studying UI/UX patterns before implementing features:
+
+- **pg_top**: `/Users/brandon/src/pg_top` - PostgreSQL activity monitor (primary reference for database monitoring UIs)
+- **htop**: `/Users/brandon/src/htop` - Process viewer with excellent graph rendering (reference for sparklines/bars)
+- **k9s**: `/Users/brandon/src/k9s` - Kubernetes TUI (reference for keyboard navigation and view switching)
+
+**Before implementing any UI feature**: Study these tools, run them, screenshot relevant views, and include visual references in spec.md per Constitution Principle VI (Visual Design First).
 
 ## Common Gotchas
 
