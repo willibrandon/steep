@@ -1,0 +1,24 @@
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+    ╭──────────────────────────────────────────────────────────────────────╮    
+    │                                                                      │    
+    │  Query Detail - PID 12345                                            │    
+    │                                                                      │    
+    │  User:          postgres                                             │    
+    │  Database:      mydb                                                 │    
+    │  State:         active                                               │    
+    │  Duration:      00:05:23                                             │    
+    │                                                                      │    
+    │  Query:                                                              │    
+    │  ───────────────────────────────────────────────────────────────    │     
+   │  SELECT * FROM users WHERE id > 100 ORDER BY created_at DESC LIMIT   │     
+   │                                                                      │     
+   │  [c]ancel query  [x]kill connection  [Esc]close                      │     
+   │                                                                      │     
+   ╰──────────────────────────────────────────────────────────────────────╯     
+                                                                                
+                                                                                
+                                                                                
+                                                                                

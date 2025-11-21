@@ -2,80 +2,439 @@ package views
 
 import (
 	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/ui"
+	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
-// DashboardView represents the main dashboard view
+// DashboardMode represents the current interaction mode.
+type DashboardMode int
+
+const (
+	ModeNormal DashboardMode = iota
+	ModeFilter
+	ModeDetail
+	ModeConfirm
+)
+
+// DashboardView represents the main dashboard with activity table.
 type DashboardView struct {
 	width  int
 	height int
 
-	// Connection info
-	connected     bool
-	serverVersion string
-	database      string
+	// Components
+	table      *components.ActivityTable
+	detailView *components.DetailView
+
+	// State
+	mode           DashboardMode
+	connected      bool
+	connectionInfo string
+	filter         models.ActivityFilter
+	pagination     *models.Pagination
+	lastUpdate     time.Time
+	refreshing     bool
+
+	// Data
+	connections []models.Connection
+	totalCount  int
+	err         error
+
+	// Filter input
+	filterInput string
+
+	// Confirm dialog
+	confirmAction string
+	confirmPID    int
 }
 
-// NewDashboard creates a new dashboard view
+// NewDashboard creates a new dashboard view.
 func NewDashboard() *DashboardView {
-	return &DashboardView{}
+	return &DashboardView{
+		table:      components.NewActivityTable(),
+		detailView: components.NewDetailView(),
+		pagination: models.NewPagination(),
+		filter:     models.ActivityFilter{ShowAllDatabases: true},
+		mode:       ModeNormal,
+	}
 }
 
-// Init initializes the dashboard view
+// Init initializes the dashboard view.
 func (d *DashboardView) Init() tea.Cmd {
 	return nil
 }
 
-// Update handles messages for the dashboard view
+// Update handles messages for the dashboard view.
 func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
-	return d, nil
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		cmd := d.handleKeyPress(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case ui.ActivityDataMsg:
+		d.refreshing = false
+		if msg.Error != nil {
+			d.err = msg.Error
+		} else {
+			d.connections = msg.Connections
+			d.totalCount = msg.TotalCount
+			d.lastUpdate = msg.FetchedAt
+			d.err = nil
+			d.table.SetConnections(d.connections)
+			d.pagination.Update(d.totalCount)
+		}
+
+	case tea.WindowSizeMsg:
+		d.SetSize(msg.Width, msg.Height)
+	}
+
+	// Update table component
+	var cmd tea.Cmd
+	d.table, cmd = d.table.Update(msg)
+	if cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	// Update detail view if in detail mode
+	if d.mode == ModeDetail {
+		d.detailView, cmd = d.detailView.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	return d, tea.Batch(cmds...)
 }
 
-// View renders the dashboard view
+// handleKeyPress processes keyboard input.
+func (d *DashboardView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
+	key := msg.String()
+
+	// Handle mode-specific keys
+	switch d.mode {
+	case ModeFilter:
+		return d.handleFilterMode(key, msg)
+	case ModeDetail:
+		return d.handleDetailMode(key)
+	case ModeConfirm:
+		return d.handleConfirmMode(key)
+	}
+
+	// Normal mode keys
+	switch key {
+	// Navigation
+	case "j", "down":
+		d.table.MoveDown()
+	case "k", "up":
+		d.table.MoveUp()
+	case "g", "home":
+		d.table.GotoTop()
+	case "G", "end":
+		d.table.GotoBottom()
+	case "pgup", "ctrl+u":
+		d.table.PageUp()
+	case "pgdown", "ctrl+d":
+		d.table.PageDown()
+
+	// Actions
+	case "d", "enter":
+		d.enterDetailMode()
+	case "c":
+		d.enterConfirmMode("cancel")
+	case "x":
+		d.enterConfirmMode("terminate")
+	case "r":
+		d.refreshing = true
+		// The actual refresh command would be sent by the parent
+
+	// Filter
+	case "/":
+		d.enterFilterMode()
+	case "s":
+		// TODO: Cycle sort column
+
+	// Help
+	case "?":
+		// TODO: Show help overlay
+	}
+
+	return nil
+}
+
+// handleFilterMode processes keys in filter mode.
+func (d *DashboardView) handleFilterMode(key string, msg tea.KeyMsg) tea.Cmd {
+	switch key {
+	case "esc":
+		d.mode = ModeNormal
+		d.filterInput = ""
+	case "enter":
+		d.filter.QueryFilter = d.filterInput
+		d.mode = ModeNormal
+		// Return command to refresh with new filter
+	case "backspace":
+		if len(d.filterInput) > 0 {
+			d.filterInput = d.filterInput[:len(d.filterInput)-1]
+		}
+	default:
+		// Add character to filter input
+		if len(key) == 1 {
+			d.filterInput += key
+		}
+	}
+	return nil
+}
+
+// handleDetailMode processes keys in detail mode.
+func (d *DashboardView) handleDetailMode(key string) tea.Cmd {
+	switch key {
+	case "esc", "q":
+		d.mode = ModeNormal
+	case "c":
+		d.enterConfirmMode("cancel")
+	case "x":
+		d.enterConfirmMode("terminate")
+	}
+	return nil
+}
+
+// handleConfirmMode processes keys in confirm mode.
+func (d *DashboardView) handleConfirmMode(key string) tea.Cmd {
+	switch key {
+	case "y", "Y":
+		// TODO: Execute action
+		d.mode = ModeNormal
+	case "n", "N", "esc":
+		d.mode = ModeNormal
+	}
+	return nil
+}
+
+// enterFilterMode switches to filter input mode.
+func (d *DashboardView) enterFilterMode() {
+	d.mode = ModeFilter
+	d.filterInput = d.filter.QueryFilter
+}
+
+// enterDetailMode switches to detail view mode.
+func (d *DashboardView) enterDetailMode() {
+	conn := d.table.SelectedConnection()
+	if conn != nil {
+		d.mode = ModeDetail
+		d.detailView.SetConnection(conn)
+	}
+}
+
+// enterConfirmMode switches to confirmation dialog mode.
+func (d *DashboardView) enterConfirmMode(action string) {
+	conn := d.table.SelectedConnection()
+	if conn != nil {
+		d.mode = ModeConfirm
+		d.confirmAction = action
+		d.confirmPID = conn.PID
+	}
+}
+
+// View renders the dashboard view.
 func (d *DashboardView) View() string {
 	if !d.connected {
 		return styles.InfoStyle.Render("Connecting to database...")
 	}
 
-	title := styles.ViewTitleStyle.Render("Dashboard")
+	// Check for detail mode overlay
+	if d.mode == ModeDetail {
+		return d.renderWithOverlay(d.detailView.View())
+	}
 
-	content := fmt.Sprintf(
-		"\n%s\n\n"+
-			"Database: %s\n"+
-			"Version: %s\n\n"+
-			"This is a placeholder dashboard view.\n"+
-			"Future features will include:\n"+
-			"  • Database overview statistics\n"+
-			"  • Current activity summary\n"+
-			"  • Performance metrics\n"+
-			"  • Quick health checks\n",
-		title,
-		d.database,
-		d.serverVersion,
-	)
+	// Check for confirm dialog overlay
+	if d.mode == ModeConfirm {
+		return d.renderWithOverlay(d.renderConfirmDialog())
+	}
 
-	return content
+	return d.renderMain()
 }
 
-// SetSize sets the dimensions of the dashboard view
+// renderMain renders the main dashboard view.
+func (d *DashboardView) renderMain() string {
+	// Status bar
+	statusBar := d.renderStatusBar()
+
+	// Metrics panel (placeholder for now - US2 will implement)
+	metricsPanel := d.renderMetricsPlaceholder()
+
+	// Activity table
+	tableView := d.table.View()
+
+	// Footer
+	footer := d.renderFooter()
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		statusBar,
+		metricsPanel,
+		tableView,
+		footer,
+	)
+}
+
+// renderStatusBar renders the top status bar.
+func (d *DashboardView) renderStatusBar() string {
+	title := styles.StatusTitleStyle.Render(d.connectionInfo)
+	timestamp := styles.StatusTimeStyle.Render(d.lastUpdate.Format("2006-01-02 15:04:05"))
+
+	gap := d.width - lipgloss.Width(title) - lipgloss.Width(timestamp) - 4
+	if gap < 1 {
+		gap = 1
+	}
+	spaces := lipgloss.NewStyle().Width(gap).Render("")
+
+	return styles.StatusBarStyle.
+		Width(d.width - 2).
+		Render(title + spaces + timestamp)
+}
+
+// renderMetricsPlaceholder renders a placeholder for the metrics panel.
+func (d *DashboardView) renderMetricsPlaceholder() string {
+	// This will be implemented in US2
+	return lipgloss.NewStyle().
+		Foreground(styles.ColorMuted).
+		Render("  [Metrics panel - US2]")
+}
+
+// renderFooter renders the bottom footer with hints and pagination.
+func (d *DashboardView) renderFooter() string {
+	var hints string
+	if d.mode == ModeFilter {
+		hints = fmt.Sprintf("Filter: %s_", d.filterInput)
+	} else {
+		hints = styles.FooterHintStyle.Render("[/]filter [s]ort [d]etail [c]ancel [x]kill [r]efresh [?]help [q]uit")
+	}
+
+	count := styles.FooterCountStyle.Render(fmt.Sprintf("%d/%d", d.table.ConnectionCount(), d.totalCount))
+
+	gap := d.width - lipgloss.Width(hints) - lipgloss.Width(count) - 4
+	if gap < 1 {
+		gap = 1
+	}
+	spaces := lipgloss.NewStyle().Width(gap).Render("")
+
+	return styles.FooterStyle.
+		Width(d.width - 2).
+		Render(hints + spaces + count)
+}
+
+// renderConfirmDialog renders the confirmation dialog.
+func (d *DashboardView) renderConfirmDialog() string {
+	var actionText string
+	if d.confirmAction == "cancel" {
+		actionText = "Cancel Query"
+	} else {
+		actionText = "Terminate Connection"
+	}
+
+	title := styles.DialogTitleStyle.Render(actionText)
+
+	conn := d.table.SelectedConnection()
+	var details string
+	if conn != nil {
+		details = fmt.Sprintf(
+			"PID: %d\nUser: %s\nQuery: %s",
+			conn.PID,
+			conn.User,
+			conn.TruncateQuery(40),
+		)
+	}
+
+	prompt := "Are you sure? [y]es [n]o"
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		details,
+		"",
+		prompt,
+	)
+
+	return styles.DialogStyle.Render(content)
+}
+
+// renderWithOverlay renders the main view with an overlay on top.
+func (d *DashboardView) renderWithOverlay(overlay string) string {
+	// Simple overlay - in production would use proper compositing
+	return lipgloss.Place(
+		d.width, d.height,
+		lipgloss.Center, lipgloss.Center,
+		overlay,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(lipgloss.Color("235")),
+	)
+}
+
+// SetSize sets the dimensions of the dashboard view.
 func (d *DashboardView) SetSize(width, height int) {
 	d.width = width
 	d.height = height
+
+	// Allocate space: status bar (3) + metrics (2) + footer (3)
+	tableHeight := height - 8
+	if tableHeight < 5 {
+		tableHeight = 5
+	}
+
+	d.table.SetSize(width-2, tableHeight)
+	d.detailView.SetSize(width-10, height-10)
 }
 
-// SetConnected sets the connection status
+// SetConnected sets the connection status.
 func (d *DashboardView) SetConnected(connected bool) {
 	d.connected = connected
 }
 
-// SetServerVersion sets the server version
-func (d *DashboardView) SetServerVersion(version string) {
-	d.serverVersion = version
+// SetConnectionInfo sets the connection info string.
+func (d *DashboardView) SetConnectionInfo(info string) {
+	d.connectionInfo = info
 }
 
-// SetDatabase sets the database name
+// SetConnections updates the activity data.
+func (d *DashboardView) SetConnections(connections []models.Connection, totalCount int) {
+	d.connections = connections
+	d.totalCount = totalCount
+	d.table.SetConnections(connections)
+	d.pagination.Update(totalCount)
+	d.lastUpdate = time.Now()
+}
+
+// GetFilter returns the current filter settings.
+func (d *DashboardView) GetFilter() models.ActivityFilter {
+	return d.filter
+}
+
+// GetPagination returns the current pagination settings.
+func (d *DashboardView) GetPagination() *models.Pagination {
+	return d.pagination
+}
+
+// IsRefreshing returns whether a refresh is in progress.
+func (d *DashboardView) IsRefreshing() bool {
+	return d.refreshing
+}
+
+// SetServerVersion sets the server version (for compatibility).
+func (d *DashboardView) SetServerVersion(version string) {
+	// Version could be included in connection info
+}
+
+// SetDatabase sets the database name (for compatibility).
 func (d *DashboardView) SetDatabase(database string) {
-	d.database = database
+	// Database is included in connection info
 }

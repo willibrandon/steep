@@ -56,28 +56,28 @@ Blocking prerequisites for all user stories. MUST complete before user story pha
 
 ### Database Layer
 
-- [ ] T030 [US1] Implement GetActivityConnections query with LIMIT/OFFSET in internal/db/queries/activity.go
-- [ ] T031 [US1] Implement GetConnectionCount query for total count in internal/db/queries/activity.go
+- [x] T030 [US1] Implement GetActivityConnections query with LIMIT/OFFSET in internal/db/queries/activity.go
+- [x] T031 [US1] Implement GetConnectionCount query for total count in internal/db/queries/activity.go
 
 ### Monitor Layer
 
-- [ ] T032 [US1] Implement ActivityMonitor goroutine with channel output in internal/monitors/activity.go
+- [x] T032 [US1] Implement ActivityMonitor goroutine with channel output in internal/monitors/activity.go
 
 ### UI Layer
 
-- [ ] T033 [US1] Implement activity table component using bubbles/table in internal/ui/components/table.go
-- [ ] T034 [US1] Implement query detail viewport for 'd' key action in internal/ui/components/detail.go
-- [ ] T035 [US1] Implement dashboard view model with activity table section in internal/ui/views/dashboard.go
-- [ ] T036 [US1] Implement keyboard navigation (hjkl, g/G, s for sort, / for filter) in internal/ui/views/dashboard.go
-- [ ] T037 [US1] Implement connection state color-coding in table rows in internal/ui/views/dashboard.go
-- [ ] T038 [US1] Implement auto-refresh with tea.Tick and configurable interval in internal/ui/views/dashboard.go
-- [ ] T039 [US1] Implement static mockup with hardcoded data for visual approval in internal/ui/views/dashboard.go
+- [x] T033 [US1] Implement activity table component using bubbles/table in internal/ui/components/activity_table.go
+- [x] T034 [US1] Implement query detail viewport for 'd' key action in internal/ui/components/detail.go
+- [x] T035 [US1] Implement dashboard view model with activity table section in internal/ui/views/dashboard.go
+- [x] T036 [US1] Implement keyboard navigation (hjkl, g/G, s for sort, / for filter) in internal/ui/views/dashboard.go
+- [x] T037 [US1] Implement connection state color-coding in table rows in internal/ui/views/dashboard.go
+- [x] T038 [US1] Implement auto-refresh with tea.Tick and configurable interval in internal/ui/views/dashboard.go
+- [x] T039 [US1] Implement static mockup with hardcoded data for visual approval in internal/ui/demos/demo_dashboard/
 
 ### Visual Verification (TUI Driver)
 
-- [ ] T040 [US1] Use tui-driver to screenshot activity table with hardcoded data, verify layout matches mockup
-- [ ] T041 [US1] Use tui-driver to test keyboard navigation (send 'j', 'k', 'g', 'G'), screenshot each state
-- [ ] T042 [US1] Use tui-driver to test 'd' key detail view, screenshot and verify query text display
+- [x] T040 [US1] Use tui-driver to screenshot activity table with hardcoded data, verify layout matches mockup
+- [x] T041 [US1] Use tui-driver to test keyboard navigation (send 'j', 'k', 'g', 'G'), screenshot each state
+- [x] T042 [US1] Use tui-driver to test 'd' key detail view, screenshot and verify query text display
 
 ## Phase 4: User Story 2 - View Dashboard Metrics (P1)
 
