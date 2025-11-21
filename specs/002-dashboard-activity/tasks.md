@@ -87,25 +87,25 @@ Blocking prerequisites for all user stories. MUST complete before user story pha
 
 ### Database Layer
 
-- [ ] T043 [US2] Implement GetDatabaseStats query for pg_stat_database in internal/db/queries/stats.go
-- [ ] T044 [US2] Implement GetDatabaseSize query in internal/db/queries/stats.go
+- [x] T043 [US2] Implement GetDatabaseStats query for pg_stat_database in internal/db/queries/stats.go
+- [x] T044 [US2] Implement GetDatabaseSize query in internal/db/queries/stats.go
 
 ### Monitor Layer
 
-- [ ] T045 [US2] Implement StatsMonitor goroutine with TPS delta calculation in internal/monitors/stats.go
+- [x] T045 [US2] Implement StatsMonitor goroutine with TPS delta calculation in internal/monitors/stats.go
 
 ### UI Layer
 
-- [ ] T046 [US2] Implement metrics panel component with 4 panels in internal/ui/components/panel.go
-- [ ] T047 [US2] Integrate metrics panel into dashboard view above activity table in internal/ui/views/dashboard.go
-- [ ] T048 [US2] Implement cache hit ratio warning highlight (<90%) in internal/ui/components/panel.go
-- [ ] T049 [US2] Implement TPS formatting with units (e.g., "1,234 tx/s") in internal/ui/components/panel.go
-- [ ] T050 [US2] Implement database size formatting (KB/MB/GB) in internal/ui/components/panel.go
+- [x] T046 [US2] Implement metrics panel component with 4 panels in internal/ui/components/metrics_panel.go
+- [x] T047 [US2] Integrate metrics panel into dashboard view above activity table in internal/ui/views/dashboard.go
+- [x] T048 [US2] Implement cache hit ratio warning highlight (<90%) in internal/ui/components/metrics_panel.go
+- [x] T049 [US2] Implement TPS formatting with units (e.g., "1,234 tx/s") in internal/ui/components/metrics_panel.go
+- [x] T050 [US2] Implement database size formatting (KB/MB/GB) in internal/ui/components/metrics_panel.go
 
 ### Visual Verification (TUI Driver)
 
-- [ ] T051 [US2] Use tui-driver to screenshot combined dashboard+activity view, verify metrics panel layout
-- [ ] T052 [US2] Use tui-driver to screenshot low cache hit ratio state (<90%), verify warning highlight visible
+- [x] T051 [US2] Use tui-driver to screenshot combined dashboard+activity view, verify metrics panel layout
+- [x] T052 [US2] Use tui-driver to screenshot low cache hit ratio state (<90%), verify warning highlight visible
 
 ## Phase 5: User Story 3 - Kill Problematic Connections (P2)
 

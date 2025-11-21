@@ -29,8 +29,9 @@ type DashboardView struct {
 	height int
 
 	// Components
-	table      *components.ActivityTable
-	detailView *components.DetailView
+	table        *components.ActivityTable
+	detailView   *components.DetailView
+	metricsPanel *components.MetricsPanel
 
 	// State
 	mode           DashboardMode
@@ -44,6 +45,7 @@ type DashboardView struct {
 	// Data
 	connections []models.Connection
 	totalCount  int
+	metrics     models.Metrics
 	err         error
 
 	// Filter input
@@ -57,11 +59,12 @@ type DashboardView struct {
 // NewDashboard creates a new dashboard view.
 func NewDashboard() *DashboardView {
 	return &DashboardView{
-		table:      components.NewActivityTable(),
-		detailView: components.NewDetailView(),
-		pagination: models.NewPagination(),
-		filter:     models.ActivityFilter{ShowAllDatabases: true},
-		mode:       ModeNormal,
+		table:        components.NewActivityTable(),
+		detailView:   components.NewDetailView(),
+		metricsPanel: components.NewMetricsPanel(),
+		pagination:   models.NewPagination(),
+		filter:       models.ActivityFilter{ShowAllDatabases: true},
+		mode:         ModeNormal,
 	}
 }
 
@@ -92,6 +95,15 @@ func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
 			d.err = nil
 			d.table.SetConnections(d.connections)
 			d.pagination.Update(d.totalCount)
+		}
+
+	case ui.MetricsDataMsg:
+		if msg.Error != nil {
+			d.err = msg.Error
+		} else {
+			d.metrics = msg.Metrics
+			d.metricsPanel.SetMetrics(d.metrics)
+			d.lastUpdate = msg.FetchedAt
 		}
 
 	case tea.WindowSizeMsg:
@@ -268,8 +280,8 @@ func (d *DashboardView) renderMain() string {
 	// Status bar
 	statusBar := d.renderStatusBar()
 
-	// Metrics panel (placeholder for now - US2 will implement)
-	metricsPanel := d.renderMetricsPlaceholder()
+	// Metrics panel
+	metricsPanel := d.renderMetricsPanel()
 
 	// Activity table
 	tableView := d.table.View()
@@ -302,12 +314,9 @@ func (d *DashboardView) renderStatusBar() string {
 		Render(title + spaces + timestamp)
 }
 
-// renderMetricsPlaceholder renders a placeholder for the metrics panel.
-func (d *DashboardView) renderMetricsPlaceholder() string {
-	// This will be implemented in US2
-	return lipgloss.NewStyle().
-		Foreground(styles.ColorMuted).
-		Render("  [Metrics panel - US2]")
+// renderMetricsPanel renders the metrics panel.
+func (d *DashboardView) renderMetricsPanel() string {
+	return d.metricsPanel.View()
 }
 
 // renderFooter renders the bottom footer with hints and pagination.
@@ -393,6 +402,13 @@ func (d *DashboardView) SetSize(width, height int) {
 
 	d.table.SetSize(width-2, tableHeight)
 	d.detailView.SetSize(width-10, height-10)
+	d.metricsPanel.SetWidth(width - 2)
+}
+
+// SetMetrics updates the metrics data.
+func (d *DashboardView) SetMetrics(metrics models.Metrics) {
+	d.metrics = metrics
+	d.metricsPanel.SetMetrics(metrics)
 }
 
 // SetConnected sets the connection status.

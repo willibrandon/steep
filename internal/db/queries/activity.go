@@ -21,7 +21,7 @@ func GetActivityConnections(ctx context.Context, pool *pgxpool.Pool, filter mode
 			COALESCE(datname, '') as datname,
 			COALESCE(state, '') as state,
 			COALESCE(EXTRACT(EPOCH FROM (now() - query_start))::int, 0) as duration_seconds,
-			COALESCE(query, '') as query,
+			COALESCE(regexp_replace(query, '\s+', ' ', 'g'), '') as query,
 			COALESCE(client_addr::text, '') as client_addr,
 			COALESCE(application_name, '') as application_name,
 			COALESCE(wait_event_type, '') as wait_event_type,
@@ -30,6 +30,7 @@ func GetActivityConnections(ctx context.Context, pool *pgxpool.Pool, filter mode
 			COALESCE(backend_start, now()) as backend_start
 		FROM pg_stat_activity
 		WHERE pid != pg_backend_pid()
+		  AND datname IS NOT NULL
 	`
 
 	args := []interface{}{}
@@ -114,6 +115,7 @@ func GetConnectionCount(ctx context.Context, pool *pgxpool.Pool, filter models.A
 		SELECT COUNT(*)
 		FROM pg_stat_activity
 		WHERE pid != pg_backend_pid()
+		  AND datname IS NOT NULL
 	`
 
 	args := []interface{}{}

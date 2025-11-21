@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/db"
+	"github.com/willibrandon/steep/internal/monitors"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
@@ -54,6 +55,10 @@ type Model struct {
 	// Status bar data
 	statusTimestamp   time.Time
 	activeConnections int
+
+	// Monitors
+	activityMonitor *monitors.ActivityMonitor
+	statsMonitor    *monitors.StatsMonitor
 }
 
 // New creates a new application model
@@ -129,7 +134,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusBar.SetConnected(true)
 		m.dashboard.SetConnected(true)
 		m.dashboard.SetServerVersion(msg.Version)
-		return m, nil
+		m.dashboard.SetConnectionInfo(fmt.Sprintf("steep - %s@%s:%d/%s",
+			m.config.Connection.User,
+			m.config.Connection.Host,
+			m.config.Connection.Port,
+			m.config.Connection.Database))
+
+		// Initialize monitors
+		refreshInterval := m.config.UI.RefreshInterval
+		m.activityMonitor = monitors.NewActivityMonitor(msg.Pool, refreshInterval)
+		m.statsMonitor = monitors.NewStatsMonitor(msg.Pool, refreshInterval)
+
+		// Start fetching data
+		return m, tea.Batch(
+			fetchActivityData(m.activityMonitor),
+			fetchStatsData(m.statsMonitor),
+		)
 
 	case ConnectionFailedMsg:
 		m.connected = false
@@ -157,6 +177,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case MetricsUpdateMsg:
 		m.activeConnections = msg.ActiveConnections
 		m.statusBar.SetActiveConnections(msg.ActiveConnections)
+		return m, nil
+
+	case ui.ActivityDataMsg:
+		// Forward to dashboard
+		m.dashboard.Update(msg)
+		// Schedule next fetch after delay
+		if m.activityMonitor != nil {
+			return m, tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
+				return activityTickMsg{}
+			})
+		}
+		return m, nil
+
+	case activityTickMsg:
+		// Fetch activity data
+		if m.activityMonitor != nil && m.connected {
+			return m, fetchActivityData(m.activityMonitor)
+		}
+		return m, nil
+
+	case ui.MetricsDataMsg:
+		// Forward to dashboard
+		m.dashboard.Update(msg)
+		// Update status bar active connections
+		m.activeConnections = msg.Metrics.ConnectionCount
+		m.statusBar.SetActiveConnections(msg.Metrics.ConnectionCount)
+		// Schedule next fetch after delay
+		if m.statsMonitor != nil {
+			return m, tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
+				return statsTickMsg{}
+			})
+		}
+		return m, nil
+
+	case statsTickMsg:
+		// Fetch stats data
+		if m.statsMonitor != nil && m.connected {
+			return m, fetchStatsData(m.statsMonitor)
+		}
 		return m, nil
 
 	case ErrorMsg:
@@ -202,13 +261,13 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Check for help toggle
-	if msg.String() == "h" || msg.String() == "?" {
+	if msg.String() == "?" {
 		m.helpVisible = !m.helpVisible
 		return m, nil
 	}
 
 	// Check for escape (close help)
-	if msg.String() == "esc" {
+	if msg.String() == "esc" && m.helpVisible {
 		m.helpVisible = false
 		return m, nil
 	}
@@ -239,6 +298,13 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		m.prevView()
 		return m, nil
+	}
+
+	// Forward key events to current view
+	if m.currentView == views.ViewDashboard && m.connected {
+		var cmd tea.Cmd
+		_, cmd = m.dashboard.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -292,9 +358,6 @@ func (m Model) View() string {
 	} else {
 		view += "\n" + m.renderCurrentView()
 	}
-
-	// Status bar
-	view += "\n" + m.renderStatusBar()
 
 	return view
 }
@@ -434,5 +497,21 @@ func attemptReconnection(cfg *config.Config, state *db.ReconnectionState) tea.Cm
 			Pool:    pool,
 			Version: version,
 		}
+	}
+}
+
+// fetchActivityData creates a command to fetch activity data
+func fetchActivityData(monitor *monitors.ActivityMonitor) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		return monitor.FetchOnce(ctx)
+	}
+}
+
+// fetchStatsData creates a command to fetch stats data
+func fetchStatsData(monitor *monitors.StatsMonitor) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		return monitor.FetchOnce(ctx)
 	}
 }

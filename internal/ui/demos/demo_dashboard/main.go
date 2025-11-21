@@ -35,6 +35,15 @@ func initialModel() model {
 
 	dash.SetConnections(connections, 42)
 
+	// Hardcoded metrics data
+	metrics := models.Metrics{
+		TPS:             1234.5,
+		CacheHitRatio:   98.7,
+		ConnectionCount: 42,
+		DatabaseSize:    1073741824, // 1 GB
+	}
+	dash.SetMetrics(metrics)
+
 	return model{dashboard: dash}
 }
 
