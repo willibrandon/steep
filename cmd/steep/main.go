@@ -15,6 +15,7 @@ import (
 func main() {
 	// Parse command-line flags
 	debugFlag := flag.Bool("debug", false, "Enable debug logging")
+	readonlyFlag := flag.Bool("readonly", false, "Disable destructive operations (kill, cancel)")
 	flag.Parse()
 
 	// Initialize logger
@@ -30,7 +31,7 @@ func main() {
 
 	// Create the application model
 	logger.Debug("Creating application model")
-	model, err := app.New()
+	model, err := app.New(*readonlyFlag)
 	if err != nil {
 		logger.Error("Failed to create application", "error", err)
 		log.Fatalf("Failed to create application: %v\n", err)

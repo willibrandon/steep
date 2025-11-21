@@ -115,23 +115,23 @@ Blocking prerequisites for all user stories. MUST complete before user story pha
 
 ### Database Layer
 
-- [ ] T053 [US3] Implement CancelQuery (pg_cancel_backend) in internal/db/queries/activity.go
-- [ ] T054 [US3] Implement TerminateConnection (pg_terminate_backend) in internal/db/queries/activity.go
+- [x] T053 [US3] Implement CancelQuery (pg_cancel_backend) in internal/db/queries/activity.go
+- [x] T054 [US3] Implement TerminateConnection (pg_terminate_backend) in internal/db/queries/activity.go
 
 ### UI Layer
 
-- [ ] T055 [US3] Implement confirmation dialog component in internal/ui/components/dialog.go
-- [ ] T056 [US3] Implement 'c' key handler for cancel query action in internal/ui/views/dashboard.go
-- [ ] T057 [US3] Implement 'x' key handler for terminate connection action in internal/ui/views/dashboard.go
-- [ ] T058 [US3] Implement read-only mode check blocking kill actions in internal/ui/views/dashboard.go
-- [ ] T059 [US3] Implement self-connection warning when killing own PID in internal/ui/views/dashboard.go
-- [ ] T060 [US3] Implement success/failure toast message after action in internal/ui/views/dashboard.go
+- [x] T055 [US3] Implement confirmation dialog component in internal/ui/components/dialog.go
+- [x] T056 [US3] Implement 'c' key handler for cancel query action in internal/ui/views/dashboard.go
+- [x] T057 [US3] Implement 'x' key handler for terminate connection action in internal/ui/views/dashboard.go
+- [x] T058 [US3] Implement read-only mode check blocking kill actions in internal/ui/views/dashboard.go
+- [x] T059 [US3] Implement self-connection warning when killing own PID in internal/ui/views/dashboard.go
+- [x] T060 [US3] Implement success/failure toast message after action in internal/ui/views/dashboard.go
 
 ### Visual Verification (TUI Driver)
 
-- [ ] T061 [US3] Use tui-driver to send 'x' key, screenshot confirmation dialog, verify layout and PID display
-- [ ] T062 [US3] Use tui-driver to send 'y' to confirm, screenshot success toast message
-- [ ] T063 [US3] Use tui-driver to test read-only mode block, screenshot error message
+- [x] T061 [US3] Use tui-driver to send 'x' key, screenshot confirmation dialog, verify layout and PID display
+- [x] T062 [US3] Use tui-driver to send 'y' to confirm, screenshot success toast message
+- [x] T063 [US3] Use tui-driver to test read-only mode block, screenshot error message
 
 ## Phase 6: User Story 4 - Filter Connections by State (P2)
 

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/db"
+	"github.com/willibrandon/steep/internal/db/queries"
 	"github.com/willibrandon/steep/internal/monitors"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
@@ -62,7 +63,7 @@ type Model struct {
 }
 
 // New creates a new application model
-func New() (*Model, error) {
+func New(readonly bool) (*Model, error) {
 	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -76,6 +77,7 @@ func New() (*Model, error) {
 	// Initialize dashboard view
 	dashboard := views.NewDashboard()
 	dashboard.SetDatabase(cfg.Connection.Database)
+	dashboard.SetReadOnly(readonly)
 
 	// Define available views
 	viewList := []views.ViewType{
@@ -220,6 +222,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ErrorMsg:
 		m.connectionErr = msg.Err
+		return m, nil
+
+	case ui.CancelQueryMsg:
+		if m.dbPool != nil {
+			return m, cancelQuery(m.dbPool, msg.PID)
+		}
+		return m, nil
+
+	case ui.CancelQueryResultMsg:
+		// Forward to dashboard
+		m.dashboard.Update(msg)
+		return m, nil
+
+	case ui.TerminateConnectionMsg:
+		if m.dbPool != nil {
+			return m, terminateConnection(m.dbPool, msg.PID)
+		}
+		return m, nil
+
+	case ui.TerminateConnectionResultMsg:
+		// Forward to dashboard
+		m.dashboard.Update(msg)
 		return m, nil
 
 	case ReconnectAttemptMsg:
@@ -513,5 +537,31 @@ func fetchStatsData(monitor *monitors.StatsMonitor) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		return monitor.FetchOnce(ctx)
+	}
+}
+
+// cancelQuery creates a command to cancel a running query
+func cancelQuery(pool *pgxpool.Pool, pid int) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		success, err := queries.CancelQuery(ctx, pool, pid)
+		return ui.CancelQueryResultMsg{
+			PID:     pid,
+			Success: success,
+			Error:   err,
+		}
+	}
+}
+
+// terminateConnection creates a command to terminate a connection
+func terminateConnection(pool *pgxpool.Pool, pid int) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		success, err := queries.TerminateConnection(ctx, pool, pid)
+		return ui.TerminateConnectionResultMsg{
+			PID:     pid,
+			Success: success,
+			Error:   err,
+		}
 	}
 }

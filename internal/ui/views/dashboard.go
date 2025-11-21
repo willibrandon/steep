@@ -54,6 +54,17 @@ type DashboardView struct {
 	// Confirm dialog
 	confirmAction string
 	confirmPID    int
+
+	// Toast message
+	toastMessage string
+	toastError   bool
+	toastTime    time.Time
+
+	// Read-only mode
+	readOnly bool
+
+	// Our own PIDs (to warn about self-kill)
+	ownPIDs []int
 }
 
 // NewDashboard creates a new dashboard view.
@@ -108,6 +119,24 @@ func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		d.SetSize(msg.Width, msg.Height)
+
+	case ui.CancelQueryResultMsg:
+		if msg.Error != nil {
+			d.showToast(fmt.Sprintf("Failed to cancel PID %d: %s", msg.PID, msg.Error), true)
+		} else if msg.Success {
+			d.showToast(fmt.Sprintf("Query cancelled (PID %d)", msg.PID), false)
+		} else {
+			d.showToast(fmt.Sprintf("Cancel failed for PID %d (process may have ended)", msg.PID), true)
+		}
+
+	case ui.TerminateConnectionResultMsg:
+		if msg.Error != nil {
+			d.showToast(fmt.Sprintf("Failed to terminate PID %d: %s", msg.PID, msg.Error), true)
+		} else if msg.Success {
+			d.showToast(fmt.Sprintf("Connection terminated (PID %d)", msg.PID), false)
+		} else {
+			d.showToast(fmt.Sprintf("Terminate failed for PID %d (process may have ended)", msg.PID), true)
+		}
 	}
 
 	// Update table component
@@ -223,8 +252,16 @@ func (d *DashboardView) handleDetailMode(key string) tea.Cmd {
 func (d *DashboardView) handleConfirmMode(key string) tea.Cmd {
 	switch key {
 	case "y", "Y":
-		// TODO: Execute action
 		d.mode = ModeNormal
+		// Return command to execute the action
+		if d.confirmAction == "cancel" {
+			return func() tea.Msg {
+				return ui.CancelQueryMsg{PID: d.confirmPID}
+			}
+		}
+		return func() tea.Msg {
+			return ui.TerminateConnectionMsg{PID: d.confirmPID}
+		}
 	case "n", "N", "esc":
 		d.mode = ModeNormal
 	}
@@ -248,12 +285,46 @@ func (d *DashboardView) enterDetailMode() {
 
 // enterConfirmMode switches to confirmation dialog mode.
 func (d *DashboardView) enterConfirmMode(action string) {
-	conn := d.table.SelectedConnection()
-	if conn != nil {
-		d.mode = ModeConfirm
-		d.confirmAction = action
-		d.confirmPID = conn.PID
+	// Check read-only mode
+	if d.readOnly {
+		d.showToast("Read-only mode: kill actions disabled", true)
+		return
 	}
+
+	conn := d.table.SelectedConnection()
+	if conn == nil {
+		return
+	}
+
+	// Check for self-kill
+	for _, pid := range d.ownPIDs {
+		if conn.PID == pid {
+			d.showToast(fmt.Sprintf("Warning: PID %d is your own connection!", conn.PID), true)
+			// Still allow it, just warn
+			break
+		}
+	}
+
+	d.mode = ModeConfirm
+	d.confirmAction = action
+	d.confirmPID = conn.PID
+}
+
+// showToast displays a toast message.
+func (d *DashboardView) showToast(message string, isError bool) {
+	d.toastMessage = message
+	d.toastError = isError
+	d.toastTime = time.Now()
+}
+
+// SetReadOnly sets read-only mode.
+func (d *DashboardView) SetReadOnly(readOnly bool) {
+	d.readOnly = readOnly
+}
+
+// SetOwnPIDs sets the PIDs of our own connections.
+func (d *DashboardView) SetOwnPIDs(pids []int) {
+	d.ownPIDs = pids
 }
 
 // View renders the dashboard view.
@@ -322,7 +393,17 @@ func (d *DashboardView) renderMetricsPanel() string {
 // renderFooter renders the bottom footer with hints and pagination.
 func (d *DashboardView) renderFooter() string {
 	var hints string
-	if d.mode == ModeFilter {
+
+	// Show toast message if recent (within 3 seconds)
+	if d.toastMessage != "" && time.Since(d.toastTime) < 3*time.Second {
+		toastStyle := styles.FooterHintStyle
+		if d.toastError {
+			toastStyle = toastStyle.Foreground(styles.ColorCriticalFg)
+		} else {
+			toastStyle = toastStyle.Foreground(styles.ColorActive)
+		}
+		hints = toastStyle.Render(d.toastMessage)
+	} else if d.mode == ModeFilter {
 		hints = fmt.Sprintf("Filter: %s_", d.filterInput)
 	} else {
 		hints = styles.FooterHintStyle.Render("[/]filter [s]ort [d]etail [c]ancel [x]kill [r]efresh [?]help [q]uit")
