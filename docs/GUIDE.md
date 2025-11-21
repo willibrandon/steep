@@ -171,7 +171,6 @@ Before starting feature development, ensure:
 - Auto-refresh mechanism with configurable intervals
 - Connection state indicators (colors for active/idle/blocked)
 - Action handler for killing connections (with confirmation)
-- Sparklines for inline trending of key metrics
 
 **Database Queries**:
 - `pg_stat_activity` for active connections
@@ -190,7 +189,7 @@ Before starting feature development, ensure:
 
 **Spec-Kit Command**:
 ```bash
-/speckit.specify Implement the Dashboard and Activity Monitoring view for Steep. Create a multi-panel dashboard showing real-time key metrics (TPS, cache hit ratio, connection count, database size) with sparklines for trending. Build an Activity view displaying all active PostgreSQL connections in a sortable, filterable table showing PID, user, database, state, duration, and query text. Support auto-refresh with 1-second intervals. Enable DBA actions: kill/terminate connections, view full query text, filter by connection state. Prioritize P1 story (viewing connections and metrics) over P2 story (killing connections). Query pg_stat_activity and pg_stat_database with optimized queries that execute in under 500ms.
+/speckit.specify Implement the Dashboard and Activity Monitoring view for Steep. Create a multi-panel dashboard showing real-time key metrics (TPS, cache hit ratio, connection count, database size). Build an Activity view displaying all active PostgreSQL connections in a sortable, filterable table showing PID, user, database, state, duration, and query text. Support auto-refresh with 1-second intervals. Enable DBA actions: kill/terminate connections, view full query text, filter by connection state. Prioritize P1 story (viewing connections and metrics) over P2 story (killing connections). Query pg_stat_activity and pg_stat_database with optimized queries that execute in under 500ms.
 ```
 
 ---
