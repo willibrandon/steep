@@ -51,8 +51,5 @@ type ReconnectFailedMsg struct {
 	Err error
 }
 
-// activityTickMsg triggers activity data fetch
-type activityTickMsg struct{}
-
-// statsTickMsg triggers stats data fetch
-type statsTickMsg struct{}
+// dataTickMsg triggers synchronized fetch of all data
+type dataTickMsg struct{}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/db"
@@ -45,9 +46,10 @@ type Model struct {
 	dashboard   *views.DashboardView
 
 	// Application state
-	helpVisible bool
-	quitting    bool
-	ready       bool
+	helpVisible  bool
+	quitting     bool
+	ready        bool
+	tooSmall     bool
 
 	// Reconnection state
 	reconnectionState *db.ReconnectionState
@@ -120,12 +122,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.help.SetSize(msg.Width, msg.Height)
-		m.statusBar.SetSize(msg.Width)
-		m.dashboard.SetSize(msg.Width, msg.Height-5) // Reserve space for header and status bar
+		m.tooSmall = msg.Width < 80 || msg.Height < 24
 		if !m.ready {
 			m.ready = true
 		}
+		// Skip component sizing if terminal is too small
+		if m.tooSmall {
+			return m, nil
+		}
+		m.help.SetSize(msg.Width, msg.Height)
+		m.statusBar.SetSize(msg.Width)
+		m.dashboard.SetSize(msg.Width, msg.Height-5) // Reserve space for header and status bar
 		return m, nil
 
 	case DatabaseConnectedMsg:
@@ -167,10 +174,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}()
 
-		// Start fetching data
+		// Start fetching data with unified tick
 		return m, tea.Batch(
 			fetchActivityData(m.activityMonitor),
 			fetchStatsData(m.statsMonitor),
+			tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
+				return dataTickMsg{}
+			}),
 		)
 
 	case ConnectionFailedMsg:
@@ -204,19 +214,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ui.ActivityDataMsg:
 		// Forward to dashboard
 		m.dashboard.Update(msg)
-		// Schedule next fetch after delay
-		if m.activityMonitor != nil {
-			return m, tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
-				return activityTickMsg{}
-			})
-		}
-		return m, nil
-
-	case activityTickMsg:
-		// Fetch activity data
-		if m.activityMonitor != nil && m.connected {
-			return m, fetchActivityData(m.activityMonitor)
-		}
 		return m, nil
 
 	case ui.MetricsDataMsg:
@@ -225,18 +222,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update status bar active connections
 		m.activeConnections = msg.Metrics.ConnectionCount
 		m.statusBar.SetActiveConnections(msg.Metrics.ConnectionCount)
-		// Schedule next fetch after delay
-		if m.statsMonitor != nil {
-			return m, tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
-				return statsTickMsg{}
-			})
-		}
 		return m, nil
 
-	case statsTickMsg:
-		// Fetch stats data
-		if m.statsMonitor != nil && m.connected {
-			return m, fetchStatsData(m.statsMonitor)
+	case dataTickMsg:
+		// Fetch all data together for synchronized updates
+		if m.connected && m.activityMonitor != nil && m.statsMonitor != nil {
+			return m, tea.Batch(
+				fetchActivityData(m.activityMonitor),
+				fetchStatsData(m.statsMonitor),
+				tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
+					return dataTickMsg{}
+				}),
+			)
 		}
 		return m, nil
 
@@ -280,6 +277,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ui.RefreshRequestMsg:
+		// Manual refresh requested - only refresh activity data
+		// Stats continue on their regular interval to avoid TPS calculation issues
+		if m.dbPool != nil && m.activityMonitor != nil {
+			return m, fetchActivityData(m.activityMonitor)
+		} else if !m.connected && !m.reconnecting {
+			// Not connected, trigger reconnection
+			m.reconnecting = true
+			return m, attemptReconnection(m.config, m.reconnectionState)
+		}
+		return m, nil
+
 	case ReconnectAttemptMsg:
 		// Update reconnection status display
 		m.statusBar.SetReconnecting(true, msg.Attempt, msg.MaxAttempts)
@@ -312,6 +321,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKeyPress processes keyboard input
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// When terminal is too small, only allow quit
+	if m.tooSmall {
+		if msg.String() == "q" || msg.String() == "ctrl+c" {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
 	// Check for quit (but not when dashboard is in input mode)
 	if msg.String() == "q" || msg.String() == "ctrl+c" {
 		if !m.dashboard.IsInputMode() {
@@ -404,6 +422,18 @@ func (m Model) View() string {
 
 	if !m.ready {
 		return "Initializing..."
+	}
+
+	// Check minimum terminal size
+	if m.tooSmall {
+		return lipgloss.Place(
+			m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			styles.ErrorStyle.Render(fmt.Sprintf(
+				"Terminal too small (%dx%d)\nMinimum size: 80x24\nPlease resize your terminal.",
+				m.width, m.height,
+			)),
+		)
 	}
 
 	// Build the UI

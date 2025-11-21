@@ -21,7 +21,7 @@ func GetActivityConnections(ctx context.Context, pool *pgxpool.Pool, filter mode
 			COALESCE(datname, '') as datname,
 			COALESCE(state, '') as state,
 			COALESCE(EXTRACT(EPOCH FROM (now() - query_start))::int, 0) as duration_seconds,
-			COALESCE(regexp_replace(query, '\s+', ' ', 'g'), '') as query,
+			COALESCE(TRIM(regexp_replace(query, '\s+', ' ', 'g')), '') as query,
 			COALESCE(client_addr::text, '') as client_addr,
 			COALESCE(application_name, '') as application_name,
 			COALESCE(wait_event_type, '') as wait_event_type,

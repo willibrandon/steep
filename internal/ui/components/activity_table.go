@@ -105,6 +105,10 @@ func (a *ActivityTable) Update(msg tea.Msg) (*ActivityTable, tea.Cmd) {
 
 // View renders the activity table.
 func (a *ActivityTable) View() string {
+	if len(a.connections) == 0 {
+		emptyMsg := styles.InfoStyle.Render("No connections found")
+		return styles.TableBorderStyle.Render(a.table.View() + "\n" + emptyMsg)
+	}
 	return styles.TableBorderStyle.Render(a.table.View())
 }
 

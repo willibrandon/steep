@@ -75,6 +75,9 @@ func (m *StatsMonitor) FetchOnce(ctx context.Context) ui.MetricsDataMsg {
 		}
 	}
 
+	// Store snapshot for next delta calculation
+	m.lastSnapshot = &snapshot
+
 	// Calculate cache hit ratio
 	totalBlocks := snapshot.BlksHit + snapshot.BlksRead
 	if totalBlocks > 0 {
@@ -82,9 +85,6 @@ func (m *StatsMonitor) FetchOnce(ctx context.Context) ui.MetricsDataMsg {
 	} else {
 		metrics.CacheHitRatio = 100 // No blocks read means perfect cache
 	}
-
-	// Store snapshot for next delta calculation
-	m.lastSnapshot = &snapshot
 
 	return ui.MetricsDataMsg{
 		Metrics:   metrics,

@@ -193,8 +193,12 @@ func (d *DashboardView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	case "x":
 		d.enterConfirmMode("terminate")
 	case "r":
-		d.refreshing = true
-		// The actual refresh command would be sent by the parent
+		if !d.refreshing {
+			d.refreshing = true
+			return func() tea.Msg {
+				return ui.RefreshRequestMsg{}
+			}
+		}
 
 	// Filter
 	case "/":
@@ -416,9 +420,16 @@ func (d *DashboardView) renderMain() string {
 // renderStatusBar renders the top status bar.
 func (d *DashboardView) renderStatusBar() string {
 	title := styles.StatusTitleStyle.Render(d.connectionInfo)
+
+	// Show stale indicator if data is older than 5 seconds
+	var staleIndicator string
+	if !d.lastUpdate.IsZero() && time.Since(d.lastUpdate) > 5*time.Second {
+		staleIndicator = styles.ErrorStyle.Render(" [STALE]")
+	}
+
 	timestamp := styles.StatusTimeStyle.Render(d.lastUpdate.Format("2006-01-02 15:04:05"))
 
-	gap := d.width - lipgloss.Width(title) - lipgloss.Width(timestamp) - 4
+	gap := d.width - lipgloss.Width(title) - lipgloss.Width(staleIndicator) - lipgloss.Width(timestamp) - 4
 	if gap < 1 {
 		gap = 1
 	}
@@ -426,7 +437,7 @@ func (d *DashboardView) renderStatusBar() string {
 
 	return styles.StatusBarStyle.
 		Width(d.width - 2).
-		Render(title + spaces + timestamp)
+		Render(title + staleIndicator + spaces + timestamp)
 }
 
 // renderMetricsPanel renders the metrics panel.
@@ -458,7 +469,7 @@ func (d *DashboardView) renderFooter() string {
 		if !d.filter.ShowAllDatabases {
 			filterIndicator += styles.FooterHintStyle.Foreground(styles.ColorActive).Render("[DB] ")
 		}
-		hints = filterIndicator + styles.FooterHintStyle.Render("[/]filter [a]ll-dbs [C]lear [d]etail [c]ancel [x]kill [q]uit")
+		hints = filterIndicator + styles.FooterHintStyle.Render("[/]filter [r]efresh [a]ll-dbs [C]lear [d]etail [c]ancel [x]kill [q]uit")
 	}
 
 	count := styles.FooterCountStyle.Render(fmt.Sprintf("%d/%d", d.table.ConnectionCount(), d.totalCount))

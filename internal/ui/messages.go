@@ -99,6 +99,9 @@ type ConnectionErrorMsg struct {
 // ConnectionRestoredMsg indicates database connection restored.
 type ConnectionRestoredMsg struct{}
 
+// RefreshRequestMsg requests manual data refresh.
+type RefreshRequestMsg struct{}
+
 // WindowTooSmallMsg indicates terminal is below minimum size.
 type WindowTooSmallMsg struct {
 	Width  int

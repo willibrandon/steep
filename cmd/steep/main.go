@@ -91,11 +91,11 @@ func validateTerminalSize() error {
 	)
 
 	if width < minWidth || height < minHeight {
-		return fmt.Errorf(
-			"Terminal too small: %dx%d (minimum required: %dx%d)\n"+
-				"Please resize your terminal and try again.",
+		fmt.Fprintf(os.Stderr,
+			"Terminal too small: %dx%d (minimum required: %dx%d)\nPlease resize your terminal and try again.\n",
 			width, height, minWidth, minHeight,
 		)
+		os.Exit(1)
 	}
 
 	return nil

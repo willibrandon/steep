@@ -152,14 +152,14 @@ Blocking prerequisites for all user stories. MUST complete before user story pha
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T071 Implement connection loss handling with exponential backoff in internal/db/connection.go
-- [ ] T072 Implement manual retry option ('r' key) for reconnection in internal/ui/views/dashboard.go
-- [ ] T073 Implement stale data indicator when queries exceed 500ms in internal/ui/views/dashboard.go
-- [ ] T074 Implement empty state message when no connections in internal/ui/views/dashboard.go
-- [ ] T075 Implement pagination controls (PgUp/PgDn) for large result sets in internal/ui/views/dashboard.go
-- [ ] T076 Implement help overlay ('?' key) showing all keyboard shortcuts in internal/ui/components/help.go
-- [ ] T077 Validate minimum terminal size (80x24) with graceful message in internal/ui/views/dashboard.go
-- [ ] T078 Implement query text truncation with "..." in table view in internal/ui/components/table.go
+- [x] T071 Implement connection loss handling with exponential backoff in internal/db/connection.go
+- [x] T072 Implement manual retry option ('r' key) for reconnection in internal/ui/views/dashboard.go
+- [x] T073 Implement stale data indicator when queries exceed 500ms in internal/ui/views/dashboard.go
+- [x] T074 Implement empty state message when no connections in internal/ui/views/dashboard.go
+- [x] T075 Implement pagination controls (PgUp/PgDn) for large result sets in internal/ui/views/dashboard.go
+- [x] T076 Implement help overlay ('?' key) showing all keyboard shortcuts in internal/ui/components/help.go
+- [x] T077 Validate minimum terminal size (80x24) with graceful message in cmd/steep/main.go
+- [x] T078 Implement query text truncation with "..." in table view in internal/ui/components/activity_table.go
 
 ### Visual Verification (TUI Driver)
 
