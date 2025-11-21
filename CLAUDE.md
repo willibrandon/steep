@@ -304,6 +304,8 @@ These reference implementations are available for studying UI/UX patterns before
 ## Active Technologies
 - Go 1.21+ (001-foundation)
 - PostgreSQL 11+ (target 18) for monitoring; YAML file for configuration (~/.config/steep/config.yaml) (001-foundation)
+- Go 1.21+ + bubbletea, bubbles (table, viewport), lipgloss, pgx/pgxpool (002-dashboard-activity)
+- PostgreSQL 11+ (pg_stat_activity, pg_stat_database system views) (002-dashboard-activity)
 
 ## Recent Changes
 - 001-foundation: Added Go 1.21+
