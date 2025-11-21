@@ -198,45 +198,57 @@ Before starting feature development, ensure:
 
 **Branch**: `003-query-performance`
 
-**Purpose**: Analyze query performance using pg_stat_statements for identifying slow queries and optimization opportunities.
+**Purpose**: Implement query performance monitoring to identify slow or frequent queries without pg_stat_statements or extensions. Uses built-in PostgreSQL features: query logging (reloadable) or pg_stat_activity sampling. Aggregates data client-side, fingerprints for deduplication, persists in SQLite.
 
 **User Stories** (Priority Order):
 1. **P1**: As a DBA, I want to see top queries by total execution time to identify the most impactful slow queries
 2. **P1**: As a DBA, I want to see top queries by call count to identify frequently executed queries
 3. **P2**: As a DBA, I want to view EXPLAIN plans for queries to understand query execution strategy
 4. **P2**: As a DBA, I want to search and filter queries by text pattern to find specific query types
-5. **P3**: As a DBA, I want to reset pg_stat_statements statistics to start fresh monitoring
+5. **P3**: As a DBA, I want to reset statistics to start fresh monitoring
 
 **Technical Scope**:
 - Queries view with tabbed interface (By Time, By Calls, By Rows)
-- Query pg_stat_statements extension (with graceful fallback if not installed)
-- Query fingerprinting for deduplication
-- EXPLAIN/EXPLAIN ANALYZE execution
-- Search and filter by query text (regex support)
+- Log-based primary approach: Parse PostgreSQL logs for query history (enable `log_min_duration_statement = 0` via reload)
+- Sampling fallback: Poll pg_stat_activity for real-time estimates when logging disabled
+- Query fingerprinting using `github.com/pganalyze/pg_query_go/v5` for deduplication
+- Log parsing using `github.com/honeycombio/honeytail/parsers/postgresql`
+- Client-side aggregation and persistence in SQLite (`query_stats.db`)
+- EXPLAIN plan execution via `EXPLAIN (FORMAT JSON) <query>`
+- Search and filter by query text (regex support via SQLite)
 - Query statistics table: Query fingerprint, Calls, Total Time, Mean Time, Min/Max, Rows
 - Copy query text to clipboard functionality
-- Extension detection and user guidance for installation
+
+**Architecture**:
+- **Sources**: Logs (primary) or pg_stat_activity polling (fallback)
+- **Pipeline**: Fetch data → Parse/extract → Fingerprint/normalize → Aggregate → Persist in SQLite → Query for views
+- **Persistence**: SQLite schema with fingerprint, query_text, calls, total_time, min_time, max_time, rows
+- **Libraries**: pg_query_go (fingerprinting), honeytail (log parsing), go-sqlite3 (persistence)
 
 **Database Queries**:
-- `SELECT * FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT N`
-- `SELECT * FROM pg_stat_statements ORDER BY calls DESC LIMIT N`
+- `SHOW log_min_duration_statement` to check logging config
+- `SELECT pg_current_logfile()` for log file location
+- `SELECT * FROM pg_stat_activity` for sampling fallback
 - `EXPLAIN (FORMAT JSON) <query>` for plan visualization
 
 **Acceptance Criteria**:
 - Queries view accessible via `3` key or tab navigation
 - Three tabs: "By Time", "By Calls", "By Rows" switchable with arrow keys
-- Table shows: Query (fingerprint, 100 chars), Calls, Total Time, Mean Time, Rows
+- Table shows: Query (normalized, 100 chars), Calls, Total Time, Mean Time, Rows
 - Sort by any column with `s` key
 - Search queries with `/` key (regex pattern matching)
 - View EXPLAIN plan with `e` key (displays formatted JSON output)
-- Copy query text to clipboard with `c` key
-- Graceful degradation: Show message if pg_stat_statements not installed with installation instructions
-- Reset statistics with `x` key (requires confirmation)
-- Auto-refresh every 5 seconds (configurable in monitors.queries.refresh_interval)
+- Copy query text to clipboard with `y` key
+- Auto-enable logging if disabled (via `ALTER SYSTEM` + `pg_reload_conf()`) with user confirmation
+- Fallback to pg_stat_activity sampling with guidance when logging unavailable
+- Reset statistics with `R` key (requires confirmation, truncates SQLite table)
+- Auto-refresh every 5 seconds (configurable)
+- Top 50 queries per view for performance
+- Queries execute in under 500ms
 
 **Spec-Kit Command**:
 ```bash
-/speckit.specify Implement Query Performance Monitoring view using pg_stat_statements extension. Create a tabbed interface showing top queries by execution time, call count, and rows returned. Display query fingerprints, execution statistics (calls, total/mean/min/max time), and row counts in a sortable table. Support EXPLAIN plan viewing, query text search with regex patterns, and copy-to-clipboard functionality. Detect pg_stat_statements extension availability and provide installation guidance if missing. Enable statistics reset with confirmation. Prioritize P1 stories (viewing top queries) over P2 (EXPLAIN) and P3 (reset). Queries must execute in under 500ms and support auto-refresh every 5 seconds.
+/speckit.specify Implement Query Performance Monitoring view without requiring pg_stat_statements extension. Use PostgreSQL query logging (log_min_duration_statement) as primary data source with log parsing via honeytail library. Fall back to pg_stat_activity sampling when logging unavailable. Fingerprint queries using pg_query_go for deduplication and normalization. Aggregate statistics client-side and persist in SQLite database. Create tabbed interface showing top queries by execution time, call count, and rows. Support EXPLAIN plan viewing, query text search with regex patterns, and copy-to-clipboard functionality. Auto-enable logging via ALTER SYSTEM with user confirmation if disabled. Enable statistics reset with confirmation. Prioritize P1 stories (viewing top queries) over P2 (EXPLAIN, search) and P3 (reset). Queries must execute in under 500ms and support auto-refresh every 5 seconds.
 ```
 
 ---
