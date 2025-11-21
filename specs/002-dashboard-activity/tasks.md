@@ -8,16 +8,16 @@
 
 Project initialization and directory structure.
 
-- [ ] T001 Create directory structure for internal/db/queries/ and internal/db/models/
-- [ ] T002 Create directory structure for internal/monitors/
-- [ ] T003 Create directory structure for internal/ui/components/, internal/ui/views/, and internal/ui/styles/
-- [ ] T004 Create directory structure for tests/unit/ and tests/integration/
-- [ ] T005 [P] Add bubbletea dependency in go.mod
-- [ ] T006 [P] Add bubbles (table, viewport) dependency in go.mod
-- [ ] T007 [P] Add lipgloss dependency in go.mod
-- [ ] T008 [P] Add pgx/pgxpool dependency in go.mod
-- [ ] T009 Build mimo tui-driver from /Users/brandon/src/mimo (cd /Users/brandon/src/mimo && zig build)
-- [ ] T010 Create symlink or add tui-driver to PATH for development workflow
+- [x] T001 Create directory structure for internal/db/queries/ and internal/db/models/
+- [x] T002 Create directory structure for internal/monitors/
+- [x] T003 Create directory structure for internal/ui/components/, internal/ui/views/, and internal/ui/styles/
+- [x] T004 Create directory structure for tests/unit/ and tests/integration/
+- [x] T005 [P] Add bubbletea dependency in go.mod
+- [x] T006 [P] Add bubbles (table, viewport) dependency in go.mod
+- [x] T007 [P] Add lipgloss dependency in go.mod
+- [x] T008 [P] Add pgx/pgxpool dependency in go.mod
+- [x] T009 Build mimo tui-driver from /Users/brandon/src/mimo (cd /Users/brandon/src/mimo && zig build)
+- [x] T010 Create symlink or add tui-driver to PATH for development workflow (~/bin/tui-driver)
 
 ## Phase 2: Foundational
 
@@ -25,17 +25,17 @@ Blocking prerequisites for all user stories. MUST complete before user story pha
 
 ### Visual Design First (Constitution VI Compliance)
 
-- [ ] T011 Study pg_top reference tool, take screenshots of activity view layout in specs/002-dashboard-activity/visual-design/
-- [ ] T012 Study htop reference tool, take screenshots of metrics panel design in specs/002-dashboard-activity/visual-design/
-- [ ] T013 Study k9s reference tool, take screenshots of keyboard navigation patterns in specs/002-dashboard-activity/visual-design/
-- [ ] T014 Create ASCII mockup of combined Dashboard/Activity view layout in specs/002-dashboard-activity/visual-design/mockup.txt
-- [ ] T015 Build throwaway demo 1: Basic table rendering with bubbles/table in internal/ui/demos/demo1/
-- [ ] T016 Use tui-driver to screenshot demo1 and save to specs/002-dashboard-activity/visual-design/demo1.txt
-- [ ] T017 Build throwaway demo 2: Metrics panel with lipgloss in internal/ui/demos/demo2/
-- [ ] T018 Use tui-driver to screenshot demo2 and save to specs/002-dashboard-activity/visual-design/demo2.txt
-- [ ] T019 Build throwaway demo 3: Combined layout with borders in internal/ui/demos/demo3/
-- [ ] T020 Use tui-driver to screenshot demo3 and save to specs/002-dashboard-activity/visual-design/demo3.txt
-- [ ] T021 Compare demo screenshots with reference tools, document visual acceptance criteria in specs/002-dashboard-activity/visual-design/decision.md
+- [x] T011 Study pg_top reference tool, take screenshots of activity view layout in specs/002-dashboard-activity/visual-design/
+- [x] T012 Study htop reference tool, take screenshots of metrics panel design in specs/002-dashboard-activity/visual-design/
+- [x] T013 Study k9s reference tool, take screenshots of keyboard navigation patterns in specs/002-dashboard-activity/visual-design/
+- [x] T014 Create ASCII mockup of combined Dashboard/Activity view layout in specs/002-dashboard-activity/visual-design/mockup.txt
+- [x] T015 Build throwaway demo 1: Basic table rendering with bubbles/table in internal/ui/demos/demo1/
+- [x] T016 Use tui-driver to screenshot demo1 and save to specs/002-dashboard-activity/visual-design/demo1.txt
+- [x] T017 Build throwaway demo 2: Metrics panel with lipgloss in internal/ui/demos/demo2/
+- [x] T018 Use tui-driver to screenshot demo2 and save to specs/002-dashboard-activity/visual-design/demo2.txt
+- [x] T019 Build throwaway demo 3: Combined layout with borders in internal/ui/demos/demo3/
+- [x] T020 Use tui-driver to screenshot demo3 and save to specs/002-dashboard-activity/visual-design/demo3.txt
+- [x] T021 Compare demo screenshots with reference tools, document visual acceptance criteria in specs/002-dashboard-activity/visual-design/decision.md
 
 ### Core Infrastructure
 

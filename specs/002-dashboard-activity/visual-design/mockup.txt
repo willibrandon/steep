@@ -1,0 +1,263 @@
+Steep Dashboard & Activity Monitoring - ASCII Mockup
+=====================================================
+
+Layout inspired by: pg_top (screen layout), htop (meter panels), k9s (vim keybindings)
+
+Minimum terminal: 80x24
+Target terminal: 120x40
+
+================================================================================
+LAYOUT: 80 columns x 24 rows (minimum)
+================================================================================
+
+Row 0: Status bar (connection info + time)
+Rows 1-4: Metrics panel (4 panels in a row, like htop header)
+Row 5: Separator
+Row 6: Table header
+Rows 7-21: Activity table (process list like pg_top)
+Rows 22-23: Status bar + help hints
+
+================================================================================
+
++------------------------------------------------------------------------------+
+| steep - postgres@localhost:5432/mydb                      2025-11-21 14:30:45|
++------------------------------------------------------------------------------+
+|  TPS        |  Cache Hit  |  Connections |  DB Size                          |
+|  1,234/s    |    98.5%    |    42/100    |  1.2 GB                           |
++------------------------------------------------------------------------------+
+| PID   User       Database   State              Duration  Query               |
++------------------------------------------------------------------------------+
+|>12345 postgres   mydb       active             00:05:23  SELECT * FROM use...|
+| 12346 webapp     mydb       idle in txn        00:12:45  UPDATE orders SET...|
+| 12347 analytics  reporting  active             00:00:01  SELECT COUNT(*) F...|
+| 12348 admin      postgres   idle               00:00:00                      |
+| 12349 webapp     mydb       active             00:00:32  INSERT INTO logs ...|
+| 12350 monitor    mydb       active             00:00:00  SELECT * FROM pg_...|
+| 12351 webapp     mydb       idle in txn (A)    00:45:12  BEGIN; SELECT ...   |
+| 12352 batch      mydb       idle               00:00:00                      |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+| [/]filter [s]ort [d]etail [c]ancel [x]kill [r]efresh [?]help [q]uit   42/500 |
++------------------------------------------------------------------------------+
+
+================================================================================
+COLOR CODING (Connection States)
+================================================================================
+
+State                        | Color   | Lipgloss Style
+-----------------------------|---------|---------------
+active                       | Green   | lipgloss.Color("10")
+idle                         | Gray    | lipgloss.Color("8")
+idle in transaction          | Yellow  | lipgloss.Color("11")
+idle in transaction (aborted)| Orange  | lipgloss.Color("208")
+fastpath                     | Blue    | lipgloss.Color("12")
+disabled                     | Red     | lipgloss.Color("9")
+
+================================================================================
+METRICS PANEL DETAIL
+================================================================================
+
+Each panel is ~19 chars wide (80/4 = 20, minus borders)
+
+Normal state:
++------------------+
+|  TPS             |
+|  1,234/s         |
++------------------+
+
+Warning state (cache < 90%):
++------------------+
+|  Cache Hit [!]   |
+|    85.2%         |  <- Yellow background
++------------------+
+
+Critical state (cache < 80%):
++------------------+
+|  Cache Hit [!!]  |
+|    72.1%         |  <- Red background
++------------------+
+
+================================================================================
+TABLE COLUMN WIDTHS
+================================================================================
+
+Column      | Width | Alignment | Notes
+------------|-------|-----------|------
+PID         |     6 | Right     | Max 999999
+User        |    10 | Left      | Truncate with ...
+Database    |    10 | Left      | Truncate with ...
+State       |    15 | Left      | Full state name
+Duration    |     8 | Right     | HH:MM:SS
+Query       | Fill  | Left      | Truncate with ... (rest of space)
+
+Total fixed: 6+10+10+15+8+5(padding) = 54 chars
+Query gets: width - 54 chars
+
+================================================================================
+KEYBOARD NAVIGATION (from k9s patterns)
+================================================================================
+
+Navigation:
+  j/Down    - Move down
+  k/Up      - Move up
+  g         - Go to top
+  G         - Go to bottom
+  PgUp      - Page up
+  PgDn      - Page down
+
+Actions:
+  Enter/d   - Show query detail (full query in viewport)
+  c         - Cancel query (pg_cancel_backend)
+  x         - Kill connection (pg_terminate_backend)
+  r         - Manual refresh
+
+Filtering:
+  /         - Enter filter mode
+  Esc       - Clear filter / Cancel
+  s         - Cycle sort column
+
+General:
+  ?         - Show help overlay
+  q         - Quit
+
+================================================================================
+DIALOG MOCKUP (Kill Confirmation)
+================================================================================
+
++------------------------------------------------------------------------------+
+|                                                                              |
+|       +------------------------------------------+                           |
+|       | Terminate Connection                      |                           |
+|       +------------------------------------------+                           |
+|       |                                          |                           |
+|       |  PID: 12345                              |                           |
+|       |  User: postgres                          |                           |
+|       |  Query: SELECT * FROM users WHERE...     |                           |
+|       |                                          |                           |
+|       |  Are you sure you want to terminate      |                           |
+|       |  this connection?                        |                           |
+|       |                                          |                           |
+|       |         [Y]es        [N]o                |                           |
+|       +------------------------------------------+                           |
+|                                                                              |
++------------------------------------------------------------------------------+
+
+================================================================================
+QUERY DETAIL VIEW (pressing 'd')
+================================================================================
+
++------------------------------------------------------------------------------+
+| Query Detail - PID 12345                                      [Esc] to close |
++------------------------------------------------------------------------------+
+|                                                                              |
+| User: postgres                                                               |
+| Database: mydb                                                               |
+| State: active                                                                |
+| Duration: 00:05:23                                                           |
+| Wait Event: ClientRead                                                       |
+| Client: 192.168.1.100                                                        |
+|                                                                              |
+| Query:                                                                       |
+| ------------------------------------------------------------------------     |
+| SELECT                                                                       |
+|     u.id,                                                                    |
+|     u.name,                                                                  |
+|     u.email,                                                                 |
+|     COUNT(o.id) as order_count                                               |
+| FROM users u                                                                 |
+| LEFT JOIN orders o ON o.user_id = u.id                                       |
+| WHERE u.created_at > '2024-01-01'                                            |
+| GROUP BY u.id, u.name, u.email                                               |
+| ORDER BY order_count DESC                                                    |
+| LIMIT 100;                                                                   |
+|                                                                              |
++------------------------------------------------------------------------------+
+| [c]ancel query  [x]kill connection                              [Esc] close |
++------------------------------------------------------------------------------+
+
+================================================================================
+FILTER MODE
+================================================================================
+
+When '/' is pressed, status bar changes to input mode:
+
++------------------------------------------------------------------------------+
+| Filter: active_                                                    [Esc]exit |
++------------------------------------------------------------------------------+
+
+Active filter shown in status:
++------------------------------------------------------------------------------+
+| [Filter: state=active] [/]clear [s]ort [d]etail ...              12/42      |
++------------------------------------------------------------------------------+
+
+================================================================================
+EMPTY STATE
+================================================================================
+
+When no connections match filter or database has no activity:
+
++------------------------------------------------------------------------------+
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                        No active connections                                 |
+|                                                                              |
+|                    Press [/] to change filter                                |
+|                    Press [r] to refresh                                      |
+|                                                                              |
+|                                                                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+
+================================================================================
+CONNECTION LOST STATE
+================================================================================
+
++------------------------------------------------------------------------------+
+|                                                                              |
+|                                                                              |
+|                        Connection Lost                                       |
+|                                                                              |
+|              Reconnecting... (attempt 3/10)                                  |
+|              Next retry in 4s                                                |
+|                                                                              |
+|              [r] Retry now   [q] Quit                                        |
+|                                                                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+
+================================================================================
+HELP OVERLAY (pressing '?')
+================================================================================
+
++------------------------------------------+
+|              Steep Help                  |
++------------------------------------------+
+|                                          |
+| Navigation:                              |
+|   j/k, arrows  Move up/down             |
+|   g/G          Top/Bottom               |
+|   PgUp/PgDn    Page up/down             |
+|                                          |
+| Actions:                                 |
+|   d/Enter      Query detail             |
+|   c            Cancel query             |
+|   x            Terminate connection     |
+|   r            Refresh                  |
+|                                          |
+| Filtering:                               |
+|   /            Filter                   |
+|   s            Sort                     |
+|   Esc          Clear/Cancel             |
+|                                          |
+| General:                                 |
+|   ?            Toggle help              |
+|   q            Quit                     |
+|                                          |
+|            Press any key to close        |
++------------------------------------------+

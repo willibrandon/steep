@@ -1,0 +1,24 @@
+ \┌─────────────────────────────────────────────────────────────────────────────
+──│ PID     User        Database    State            Duration  Query            
+  │─────────────────────────────────────────────────────────────────────────────
+──│ 12345   postgres    mydb        active           00:05:23  SELECT * FROM use
+rs│ 12346   webapp      mydb        idle in txn      00:12:45  UPDATE orders SET
+..│ 12347   analytics   reporting   active           00:00:01  SELECT COUNT(*) F
+..│ 12348   admin       postgres    idle             00:00:00                   
+  │ 12349   webapp      mydb        active           00:00:32  INSERT INTO logs 
+..│ 12350   monitor     mydb        active           00:00:00  SELECT * FROM pg_
+..│ 12351   webapp      mydb        idle in txn      00:45:12  BEGIN; SELECT ...
+  │ 12352   batch       mydb        idle             00:00:00                   
+  │                                                                             
+  └─────────────────────────────────────────────────────────────────────────────
+──  Press q to quit                                                             
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
