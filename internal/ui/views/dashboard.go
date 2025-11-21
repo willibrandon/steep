@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -52,8 +53,9 @@ type DashboardView struct {
 	filterInput string
 
 	// Confirm dialog
-	confirmAction string
-	confirmPID    int
+	confirmAction   string
+	confirmPID      int
+	confirmSelfKill bool
 
 	// Toast message
 	toastMessage string
@@ -173,11 +175,7 @@ func (d *DashboardView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 	// Normal mode keys
 	switch key {
-	// Navigation
-	case "j", "down":
-		d.table.MoveDown()
-	case "k", "up":
-		d.table.MoveUp()
+	// Navigation - j/k/up/down handled by table.Update()
 	case "g", "home":
 		d.table.GotoTop()
 	case "G", "end":
@@ -201,6 +199,26 @@ func (d *DashboardView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Filter
 	case "/":
 		d.enterFilterMode()
+	case "a":
+		// Toggle all databases filter and clear any specific database filter
+		if d.filter.DatabaseFilter != "" {
+			// If there's a specific db filter, clear it and show all
+			d.filter.DatabaseFilter = ""
+			d.filter.ShowAllDatabases = true
+		} else {
+			// Otherwise toggle
+			d.filter.ShowAllDatabases = !d.filter.ShowAllDatabases
+		}
+		return func() tea.Msg {
+			return ui.FilterChangedMsg{Filter: d.filter}
+		}
+	case "C":
+		// Clear all filters
+		d.filter.Clear()
+		d.filterInput = ""
+		return func() tea.Msg {
+			return ui.FilterChangedMsg{Filter: d.filter}
+		}
 	case "s":
 		// TODO: Cycle sort column
 
@@ -219,9 +237,30 @@ func (d *DashboardView) handleFilterMode(key string, msg tea.KeyMsg) tea.Cmd {
 		d.mode = ModeNormal
 		d.filterInput = ""
 	case "enter":
-		d.filter.QueryFilter = d.filterInput
+		// Parse prefix syntax: db:, state:, query:, user:
+		input := d.filterInput
+
+		// Clear all filters first
+		d.filter.StateFilter = ""
+		d.filter.DatabaseFilter = ""
+		d.filter.QueryFilter = ""
+
+		if strings.HasPrefix(strings.ToLower(input), "db:") {
+			d.filter.DatabaseFilter = strings.TrimPrefix(input[3:], " ")
+		} else if strings.HasPrefix(strings.ToLower(input), "state:") {
+			d.filter.StateFilter = strings.ToLower(strings.TrimPrefix(input[6:], " "))
+		} else if strings.HasPrefix(strings.ToLower(input), "query:") {
+			d.filter.QueryFilter = strings.TrimPrefix(input[6:], " ")
+		} else {
+			// Default: filter by query text
+			d.filter.QueryFilter = input
+		}
+
 		d.mode = ModeNormal
 		// Return command to refresh with new filter
+		return func() tea.Msg {
+			return ui.FilterChangedMsg{Filter: d.filter}
+		}
 	case "backspace":
 		if len(d.filterInput) > 0 {
 			d.filterInput = d.filterInput[:len(d.filterInput)-1]
@@ -297,10 +336,10 @@ func (d *DashboardView) enterConfirmMode(action string) {
 	}
 
 	// Check for self-kill
+	d.confirmSelfKill = false
 	for _, pid := range d.ownPIDs {
 		if conn.PID == pid {
-			d.showToast(fmt.Sprintf("Warning: PID %d is your own connection!", conn.PID), true)
-			// Still allow it, just warn
+			d.confirmSelfKill = true
 			break
 		}
 	}
@@ -325,6 +364,11 @@ func (d *DashboardView) SetReadOnly(readOnly bool) {
 // SetOwnPIDs sets the PIDs of our own connections.
 func (d *DashboardView) SetOwnPIDs(pids []int) {
 	d.ownPIDs = pids
+}
+
+// IsInputMode returns true if the dashboard is in an input mode (filter, etc).
+func (d *DashboardView) IsInputMode() bool {
+	return d.mode == ModeFilter
 }
 
 // View renders the dashboard view.
@@ -406,7 +450,15 @@ func (d *DashboardView) renderFooter() string {
 	} else if d.mode == ModeFilter {
 		hints = fmt.Sprintf("Filter: %s_", d.filterInput)
 	} else {
-		hints = styles.FooterHintStyle.Render("[/]filter [s]ort [d]etail [c]ancel [x]kill [r]efresh [?]help [q]uit")
+		// Build filter indicator
+		var filterIndicator string
+		if !d.filter.IsEmpty() {
+			filterIndicator = styles.FooterHintStyle.Foreground(styles.ColorActive).Render("[FILTERED] ")
+		}
+		if !d.filter.ShowAllDatabases {
+			filterIndicator += styles.FooterHintStyle.Foreground(styles.ColorActive).Render("[DB] ")
+		}
+		hints = filterIndicator + styles.FooterHintStyle.Render("[/]filter [a]ll-dbs [C]lear [d]etail [c]ancel [x]kill [q]uit")
 	}
 
 	count := styles.FooterCountStyle.Render(fmt.Sprintf("%d/%d", d.table.ConnectionCount(), d.totalCount))
@@ -444,16 +496,35 @@ func (d *DashboardView) renderConfirmDialog() string {
 		)
 	}
 
+	var warning string
+	if d.confirmSelfKill {
+		warning = styles.ErrorStyle.Render("⚠ WARNING: This is your own connection!")
+	}
+
 	prompt := "Are you sure? [y]es [n]o"
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		"",
-		details,
-		"",
-		prompt,
-	)
+	var content string
+	if warning != "" {
+		content = lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			"",
+			warning,
+			"",
+			details,
+			"",
+			prompt,
+		)
+	} else {
+		content = lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			"",
+			details,
+			"",
+			prompt,
+		)
+	}
 
 	return styles.DialogStyle.Render(content)
 }

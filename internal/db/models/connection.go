@@ -50,6 +50,7 @@ func (c *Connection) IsInTransaction() bool {
 }
 
 // FormatDuration returns the duration as HH:MM:SS string.
+// Uses DurationSeconds calculated server-side for synchronized display.
 func (c *Connection) FormatDuration() string {
 	if c.DurationSeconds <= 0 {
 		return "00:00:00"

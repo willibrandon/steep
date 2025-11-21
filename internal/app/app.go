@@ -147,6 +147,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.activityMonitor = monitors.NewActivityMonitor(msg.Pool, refreshInterval)
 		m.statsMonitor = monitors.NewStatsMonitor(msg.Pool, refreshInterval)
 
+		// Get our own PIDs for self-kill warning
+		go func() {
+			ctx := context.Background()
+			rows, err := msg.Pool.Query(ctx, "SELECT pid FROM pg_stat_activity WHERE application_name = 'steep'")
+			if err != nil {
+				return
+			}
+			defer rows.Close()
+			var pids []int
+			for rows.Next() {
+				var pid int
+				if rows.Scan(&pid) == nil {
+					pids = append(pids, pid)
+				}
+			}
+			if len(pids) > 0 {
+				m.dashboard.SetOwnPIDs(pids)
+			}
+		}()
+
 		// Start fetching data
 		return m, tea.Batch(
 			fetchActivityData(m.activityMonitor),
@@ -246,6 +266,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dashboard.Update(msg)
 		return m, nil
 
+	case ui.FilterChangedMsg:
+		// Update monitor filter and fetch fresh data
+		if m.activityMonitor != nil {
+			m.activityMonitor.SetFilter(msg.Filter)
+		}
+		// Fetch fresh data with new filter
+		if m.dbPool != nil {
+			return m, func() tea.Msg {
+				ctx := context.Background()
+				return m.activityMonitor.FetchOnce(ctx)
+			}
+		}
+		return m, nil
+
 	case ReconnectAttemptMsg:
 		// Update reconnection status display
 		m.statusBar.SetReconnecting(true, msg.Attempt, msg.MaxAttempts)
@@ -278,10 +312,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKeyPress processes keyboard input
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Check for quit
+	// Check for quit (but not when dashboard is in input mode)
 	if msg.String() == "q" || msg.String() == "ctrl+c" {
-		m.quitting = true
-		return m, tea.Quit
+		if !m.dashboard.IsInputMode() {
+			m.quitting = true
+			return m, tea.Quit
+		}
 	}
 
 	// Check for help toggle
@@ -475,7 +511,7 @@ func queryMetrics(pool *pgxpool.Pool) tea.Cmd {
 
 		// Query active connections
 		var activeConns int
-		err := pool.QueryRow(ctx, "SELECT count(*) FROM pg_stat_activity WHERE state = 'active'").Scan(&activeConns)
+		err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM pg_stat_activity WHERE state = 'active'").Scan(&activeConns)
 		if err != nil {
 			return ErrorMsg{Err: fmt.Errorf("failed to query metrics: %w", err)}
 		}

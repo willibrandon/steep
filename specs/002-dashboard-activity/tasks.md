@@ -139,16 +139,16 @@ Blocking prerequisites for all user stories. MUST complete before user story pha
 
 **Independent Test**: Apply state filter, verify only matching connections display.
 
-- [ ] T064 [US4] Implement state filter logic in ActivityMonitor in internal/monitors/activity.go
-- [ ] T065 [US4] Implement database filter toggle (all DBs vs current DB) in internal/ui/views/dashboard.go
-- [ ] T066 [US4] Implement filter input mode with '/' key in internal/ui/views/dashboard.go
-- [ ] T067 [US4] Implement filter clear action in internal/ui/views/dashboard.go
-- [ ] T068 [US4] Display active filter indicator in status bar in internal/ui/views/dashboard.go
+- [x] T064 [US4] Implement state filter logic in ActivityMonitor in internal/monitors/activity.go
+- [x] T065 [US4] Implement database filter toggle (all DBs vs current DB) in internal/ui/views/dashboard.go
+- [x] T066 [US4] Implement filter input mode with '/' key in internal/ui/views/dashboard.go
+- [x] T067 [US4] Implement filter clear action in internal/ui/views/dashboard.go
+- [x] T068 [US4] Display active filter indicator in status bar in internal/ui/views/dashboard.go
 
 ### Visual Verification (TUI Driver)
 
-- [ ] T069 [US4] Use tui-driver to send '/' then 'active', screenshot filtered table showing only active connections
-- [ ] T070 [US4] Use tui-driver to diff before/after filter screenshots, verify correct rows filtered
+- [x] T069 [US4] Use tui-driver to send '/' then 'active', screenshot filtered table showing only active connections
+- [x] T070 [US4] Use tui-driver to diff before/after filter screenshots, verify correct rows filtered
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 

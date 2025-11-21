@@ -17,7 +17,7 @@ type DatabaseMetrics struct {
 // QueryActiveConnections queries the number of active connections from pg_stat_activity
 func QueryActiveConnections(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	var count int
-	query := "SELECT count(*) FROM pg_stat_activity WHERE state = 'active'"
+	query := "SELECT COUNT(*) FROM pg_stat_activity WHERE state = 'active'"
 
 	err := pool.QueryRow(ctx, query).Scan(&count)
 	if err != nil {
@@ -30,7 +30,7 @@ func QueryActiveConnections(ctx context.Context, pool *pgxpool.Pool) (int, error
 // QueryTotalConnections queries the total number of connections from pg_stat_activity
 func QueryTotalConnections(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	var count int
-	query := "SELECT count(*) FROM pg_stat_activity"
+	query := "SELECT COUNT(*) FROM pg_stat_activity"
 
 	err := pool.QueryRow(ctx, query).Scan(&count)
 	if err != nil {

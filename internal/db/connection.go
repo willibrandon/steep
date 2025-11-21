@@ -63,6 +63,7 @@ func NewConnectionPool(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, 
 	poolConfig.MaxConnLifetime = time.Hour
 	poolConfig.MaxConnIdleTime = 30 * time.Minute
 	poolConfig.HealthCheckPeriod = time.Minute
+	poolConfig.ConnConfig.RuntimeParams["application_name"] = "steep"
 
 	logger.Debug("Connection pool configuration",
 		"max_conns", cfg.Connection.PoolMaxConns,

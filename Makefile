@@ -19,7 +19,7 @@ help: ## Display this help screen
 build: ## Build the application
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
-	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) cmd/steep/main.go
+	@$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) cmd/steep/main.go
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
 test: ## Run tests
