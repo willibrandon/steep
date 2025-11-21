@@ -39,14 +39,14 @@ Blocking prerequisites for all user stories. MUST complete before user story pha
 
 ### Core Infrastructure
 
-- [ ] T022 [P] Define ConnectionState enum in internal/db/models/connection.go
-- [ ] T023 [P] Define Connection struct in internal/db/models/connection.go
-- [ ] T024 [P] Define Metrics and MetricsSnapshot structs in internal/db/models/metrics.go
-- [ ] T025 [P] Define ActivityFilter and Pagination structs in internal/db/models/filter.go
-- [ ] T026 [P] Define PanelStatus enum and DashboardPanel struct in internal/db/models/panel.go
-- [ ] T027 Define Bubbletea message types (ActivityDataMsg, MetricsDataMsg, TickMsg, etc.) in internal/ui/messages.go
-- [ ] T028 Define color palette for connection states in internal/ui/styles/colors.go
-- [ ] T029 Define common Lipgloss styles (borders, panels, tables) in internal/ui/styles/styles.go
+- [x] T022 [P] Define ConnectionState enum in internal/db/models/connection.go
+- [x] T023 [P] Define Connection struct in internal/db/models/connection.go
+- [x] T024 [P] Define Metrics and MetricsSnapshot structs in internal/db/models/metrics.go
+- [x] T025 [P] Define ActivityFilter and Pagination structs in internal/db/models/filter.go
+- [x] T026 [P] Define PanelStatus enum and DashboardPanel struct in internal/db/models/panel.go
+- [x] T027 Define Bubbletea message types (ActivityDataMsg, MetricsDataMsg, TickMsg, etc.) in internal/ui/messages.go
+- [x] T028 Define color palette for connection states in internal/ui/styles/colors.go
+- [x] T029 Define common Lipgloss styles (borders, panels, tables) in internal/ui/styles/styles.go
 
 ## Phase 3: User Story 1 - View Active Connections (P1)
 
