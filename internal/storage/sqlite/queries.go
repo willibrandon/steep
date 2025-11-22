@@ -50,18 +50,19 @@ func NewQueryStatsStore(db *DB) *QueryStatsStore {
 }
 
 // Upsert inserts a new query stat or updates an existing one.
-func (s *QueryStatsStore) Upsert(ctx context.Context, fingerprint uint64, query string, durationMs float64, rows int64) error {
+func (s *QueryStatsStore) Upsert(ctx context.Context, fingerprint uint64, query string, durationMs float64, rows int64, sampleParams string) error {
 	_, err := s.db.conn.ExecContext(ctx, `
-		INSERT INTO query_stats (fingerprint, normalized_query, calls, total_time_ms, min_time_ms, max_time_ms, total_rows, last_seen)
-		VALUES (?, ?, 1, ?, ?, ?, ?, datetime('now'))
+		INSERT INTO query_stats (fingerprint, normalized_query, calls, total_time_ms, min_time_ms, max_time_ms, total_rows, last_seen, sample_params)
+		VALUES (?, ?, 1, ?, ?, ?, ?, datetime('now'), ?)
 		ON CONFLICT(fingerprint) DO UPDATE SET
 			calls = calls + 1,
 			total_time_ms = total_time_ms + excluded.total_time_ms,
 			min_time_ms = MIN(COALESCE(min_time_ms, excluded.min_time_ms), excluded.min_time_ms),
 			max_time_ms = MAX(COALESCE(max_time_ms, excluded.max_time_ms), excluded.max_time_ms),
 			total_rows = total_rows + excluded.total_rows,
-			last_seen = datetime('now')
-	`, fingerprint, query, durationMs, durationMs, durationMs, rows)
+			last_seen = datetime('now'),
+			sample_params = COALESCE(excluded.sample_params, sample_params)
+	`, fingerprint, query, durationMs, durationMs, durationMs, rows, sampleParams)
 	return err
 }
 

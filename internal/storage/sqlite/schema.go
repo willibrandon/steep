@@ -13,7 +13,8 @@ func (db *DB) initSchema() error {
 		max_time_ms REAL,
 		total_rows INTEGER NOT NULL DEFAULT 0,
 		first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-		last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+		last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+		sample_params TEXT
 	);
 
 	-- Indexes for common queries
@@ -24,5 +25,12 @@ func (db *DB) initSchema() error {
 	`
 
 	_, err := db.conn.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Migration: add sample_params column if it doesn't exist (for existing databases)
+	_, _ = db.conn.Exec("ALTER TABLE query_stats ADD COLUMN sample_params TEXT")
+
+	return nil
 }

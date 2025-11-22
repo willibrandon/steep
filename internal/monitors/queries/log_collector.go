@@ -19,6 +19,7 @@ type QueryEvent struct {
 	Timestamp  time.Time
 	Database   string
 	User       string
+	Params     map[string]string // Captured bound parameters ($1 -> value)
 }
 
 // LogCollector parses PostgreSQL log files for query events.
@@ -27,6 +28,8 @@ type LogCollector struct {
 	logLinePrefix string
 	lastPosition  int64
 	events        chan QueryEvent
+	lastParams    map[string]string // Parameters from most recent DETAIL line
+	lastQuery     string            // Query from most recent execute line
 }
 
 // NewLogCollector creates a new LogCollector.
@@ -56,6 +59,9 @@ func (c *LogCollector) Stop() error {
 
 // run is the main collection loop.
 func (c *LogCollector) run(ctx context.Context) {
+	// Read immediately on start
+	_ = c.readNewEntries(ctx)
+
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -121,15 +127,30 @@ func (c *LogCollector) readNewEntries(ctx context.Context) error {
 }
 
 // parseLine parses a PostgreSQL log line into a QueryEvent.
-// Supports multiple log formats based on log_line_prefix setting.
+// Also captures bound parameters from DETAIL lines.
 //
-// Format 1 (with log_min_duration_statement):
-//   2025-01-01 12:00:00.000 UTC [1234] user@db LOG: duration: 1.234 ms statement: SELECT 1
-//
-// Format 2 (with auto_explain or log_statement_stats):
-//   2025-01-01 12:00:00.000 UTC [1234] user@db LOG: duration: 1.234 ms plan:
-//   2025-01-01 12:00:00.000 UTC [1234] user@db LOG: duration: 1.234 ms rows: 100 statement: SELECT 1
+// Format with %m [%p] %i:
+//   2025-01-01 12:00:00.000 UTC [1234] SELECT 42  duration: 1.234 ms  statement: SELECT count(*) FROM table
+//   2025-01-01 12:00:00.000 UTC [1234] INSERT 0 5  duration: 1.234 ms  statement: INSERT INTO table ...
+//   2025-01-01 12:00:00.000 UTC [1234] UPDATE 10  duration: 1.234 ms  execute stmtcache_xxx: UPDATE table ...
+//   2025-01-01 12:00:00.000 UTC [1234] DETAIL:  parameters: $1 = '500', $2 = 'text'
 func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
+	// Check for DETAIL line with parameters - store for association
+	if strings.Contains(line, "DETAIL:") && strings.Contains(strings.ToLower(line), "parameters:") {
+		c.lastParams = c.parseParams(line)
+		return QueryEvent{}, false
+	}
+
+	// Check for execute line (query without duration) - store for association
+	executeRe := regexp.MustCompile(`LOG:\s+execute\s+\S+:\s*(.+)$`)
+	if executeMatch := executeRe.FindStringSubmatch(line); executeMatch != nil {
+		query := strings.TrimSpace(executeMatch[1])
+		if query != "" && !strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") {
+			c.lastQuery = query
+		}
+		return QueryEvent{}, false
+	}
+
 	// Match duration
 	durationRe := regexp.MustCompile(`duration:\s+([\d.]+)\s+ms`)
 	durationMatch := durationRe.FindStringSubmatch(line)
@@ -142,23 +163,36 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 		return QueryEvent{}, false
 	}
 
-	// Match statement
-	statementRe := regexp.MustCompile(`statement:\s+(.+)$`)
-	statementMatch := statementRe.FindStringSubmatch(line)
-	if statementMatch == nil {
-		return QueryEvent{}, false
+	// Try to get query from same line (old format) or from stored lastQuery (new format)
+	var query string
+	statementRe := regexp.MustCompile(`(?:statement|execute\s+\S+):\s*(.+)$`)
+	if statementMatch := statementRe.FindStringSubmatch(line); statementMatch != nil {
+		query = strings.TrimSpace(statementMatch[1])
+	} else if c.lastQuery != "" {
+		// Use stored query from previous execute line
+		query = c.lastQuery
+		c.lastQuery = ""
 	}
 
-	query := strings.TrimSpace(statementMatch[1])
 	if query == "" {
 		return QueryEvent{}, false
 	}
 
-	// Extract rows if present (from log_statement_stats or custom logging)
+	// Filter out steep's internal EXPLAIN queries
+	if strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") {
+		c.lastQuery = ""
+		c.lastParams = nil
+		return QueryEvent{}, false
+	}
+
+	// Extract rows from command tag (%i in log_line_prefix)
+	// Format: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3", "COPY 100"
 	var rows int64
-	rowsRe := regexp.MustCompile(`rows:\s+(\d+)`)
-	if rowsMatch := rowsRe.FindStringSubmatch(line); rowsMatch != nil {
-		rows, _ = strconv.ParseInt(rowsMatch[1], 10, 64)
+	// Look for command tag after [pid] and before "duration:"
+	// Pattern: ] COMMAND [OID] ROWS  duration:
+	cmdTagRe := regexp.MustCompile(`\]\s+(SELECT|INSERT|UPDATE|DELETE|COPY)\s+(?:\d+\s+)?(\d+)\s+duration:`)
+	if cmdMatch := cmdTagRe.FindStringSubmatch(line); cmdMatch != nil {
+		rows, _ = strconv.ParseInt(cmdMatch[2], 10, 64)
 	}
 
 	// Extract user and database from log line prefix
@@ -192,6 +226,10 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 		}
 	}
 
+	// Capture params and clear for next query
+	params := c.lastParams
+	c.lastParams = nil
+
 	return QueryEvent{
 		Query:      query,
 		DurationMs: durationMs,
@@ -199,5 +237,33 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 		Timestamp:  timestamp,
 		Database:   database,
 		User:       user,
+		Params:     params,
 	}, true
+}
+
+// parseParams extracts parameters from a DETAIL line.
+// Format: "DETAIL:  Parameters: $1 = '500', $2 = 'text'"
+func (c *LogCollector) parseParams(line string) map[string]string {
+	params := make(map[string]string)
+
+	// Find the parameters part (case-insensitive)
+	lowerLine := strings.ToLower(line)
+	paramsIdx := strings.Index(lowerLine, "parameters:")
+	if paramsIdx == -1 {
+		return params
+	}
+
+	paramsStr := line[paramsIdx+len("parameters:"):]
+
+	// Parse each parameter: $1 = 'value', $2 = 'value'
+	paramRe := regexp.MustCompile(`\$(\d+)\s*=\s*'([^']*)'`)
+	matches := paramRe.FindAllStringSubmatch(paramsStr, -1)
+
+	for _, match := range matches {
+		if len(match) >= 3 {
+			params["$"+match[1]] = match[2]
+		}
+	}
+
+	return params
 }

@@ -13,6 +13,7 @@ import (
 type Config struct {
 	Connection ConnectionConfig `mapstructure:"connection"`
 	UI         UIConfig         `mapstructure:"ui"`
+	Queries    QueriesConfig    `mapstructure:"queries"`
 	Debug      bool             `mapstructure:"debug"`
 }
 
@@ -93,7 +94,8 @@ func createDefaultConfig() (*Config, error) {
 			RefreshInterval: viper.GetDuration("ui.refresh_interval"),
 			DateFormat:      viper.GetString("ui.date_format"),
 		},
-		Debug: viper.GetBool("debug"),
+		Queries: DefaultQueriesConfig(),
+		Debug:   viper.GetBool("debug"),
 	}
 
 	return config, nil

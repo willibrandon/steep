@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,10 +13,13 @@ import (
 	"github.com/willibrandon/steep/internal/db"
 	"github.com/willibrandon/steep/internal/db/queries"
 	"github.com/willibrandon/steep/internal/monitors"
+	querymonitor "github.com/willibrandon/steep/internal/monitors/queries"
+	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
 	"github.com/willibrandon/steep/internal/ui/views"
+	queriesview "github.com/willibrandon/steep/internal/ui/views/queries"
 )
 
 // Model represents the main Bubbletea application model
@@ -44,6 +48,7 @@ type Model struct {
 	currentView views.ViewType
 	viewList    []views.ViewType
 	dashboard   *views.DashboardView
+	queriesView *queriesview.QueriesView
 
 	// Application state
 	helpVisible  bool
@@ -62,6 +67,11 @@ type Model struct {
 	// Monitors
 	activityMonitor *monitors.ActivityMonitor
 	statsMonitor    *monitors.StatsMonitor
+
+	// Query performance monitoring
+	queryStatsDB    *sqlite.DB
+	queryStatsStore *sqlite.QueryStatsStore
+	queryMonitor    *querymonitor.Monitor
 }
 
 // New creates a new application model
@@ -81,6 +91,9 @@ func New(readonly bool) (*Model, error) {
 	dashboard.SetDatabase(cfg.Connection.Database)
 	dashboard.SetReadOnly(readonly)
 
+	// Initialize queries view
+	queriesView := queriesview.NewQueriesView()
+
 	// Define available views
 	viewList := []views.ViewType{
 		views.ViewDashboard,
@@ -99,6 +112,7 @@ func New(readonly bool) (*Model, error) {
 		currentView:       views.ViewDashboard,
 		viewList:          viewList,
 		dashboard:         dashboard,
+		queriesView:       queriesView,
 		connected:         false,
 		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
 		reconnecting:      false,
@@ -133,6 +147,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help.SetSize(msg.Width, msg.Height)
 		m.statusBar.SetSize(msg.Width)
 		m.dashboard.SetSize(msg.Width, msg.Height-5) // Reserve space for header and status bar
+		m.queriesView.SetSize(msg.Width, msg.Height-5)
 		return m, nil
 
 	case DatabaseConnectedMsg:
@@ -143,16 +158,49 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusBar.SetConnected(true)
 		m.dashboard.SetConnected(true)
 		m.dashboard.SetServerVersion(msg.Version)
-		m.dashboard.SetConnectionInfo(fmt.Sprintf("steep - %s@%s:%d/%s",
+		connectionInfo := fmt.Sprintf("steep - %s@%s:%d/%s",
 			m.config.Connection.User,
 			m.config.Connection.Host,
 			m.config.Connection.Port,
-			m.config.Connection.Database))
+			m.config.Connection.Database)
+		m.dashboard.SetConnectionInfo(connectionInfo)
+		m.queriesView.SetConnected(true)
+		m.queriesView.SetConnectionInfo(connectionInfo)
 
 		// Initialize monitors
 		refreshInterval := m.config.UI.RefreshInterval
 		m.activityMonitor = monitors.NewActivityMonitor(msg.Pool, refreshInterval)
 		m.statsMonitor = monitors.NewStatsMonitor(msg.Pool, refreshInterval)
+
+		// Initialize query stats storage
+		storagePath := m.config.Queries.StoragePath
+		if storagePath == "" {
+			// Use default cache directory
+			cacheDir, _ := os.UserCacheDir()
+			storagePath = fmt.Sprintf("%s/steep/query_stats.db", cacheDir)
+		}
+		queryDB, err := sqlite.Open(storagePath)
+		if err == nil {
+			m.queryStatsDB = queryDB
+			m.queryStatsStore = sqlite.NewQueryStatsStore(queryDB)
+
+			// Initialize query monitor
+			monitorConfig := querymonitor.MonitorConfig{
+				RefreshInterval: refreshInterval,
+				RetentionDays:   m.config.Queries.RetentionDays,
+				LogPath:         m.config.Queries.LogPath,
+				LogLinePrefix:   m.config.Queries.LogLinePrefix,
+			}
+			m.queryMonitor = querymonitor.NewMonitor(msg.Pool, m.queryStatsStore, monitorConfig)
+			_ = m.queryMonitor.Start(context.Background())
+
+			// Check logging status and show dialog if disabled
+			ctx := context.Background()
+			status, err := m.queryMonitor.CheckLoggingStatus(ctx)
+			if err == nil && !status.Enabled {
+				m.queriesView.SetLoggingDisabled()
+			}
+		}
 
 		// Get our own PIDs for self-kill warning
 		go func() {
@@ -227,13 +275,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dataTickMsg:
 		// Fetch all data together for synchronized updates
 		if m.connected && m.activityMonitor != nil && m.statsMonitor != nil {
-			return m, tea.Batch(
+			cmds := []tea.Cmd{
 				fetchActivityData(m.activityMonitor),
 				fetchStatsData(m.statsMonitor),
 				tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
 					return dataTickMsg{}
 				}),
-			)
+			}
+			// Also fetch query stats if store is available
+			if m.queryStatsStore != nil {
+				cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queriesView.GetSortColumn(), m.queriesView.GetFilter()))
+			}
+			return m, tea.Batch(cmds...)
 		}
 		return m, nil
 
@@ -289,6 +342,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case queriesview.RefreshQueriesMsg:
+		// Fetch query stats from SQLite store
+		if m.queryStatsStore != nil {
+			return m, fetchQueryStats(m.queryStatsStore, msg.SortColumn, msg.Filter)
+		}
+		return m, nil
+
+	case queriesview.QueriesDataMsg:
+		// Forward to queries view
+		m.queriesView.Update(msg)
+		return m, nil
+
+	case queriesview.ResetQueryStatsMsg:
+		// Reset query statistics
+		if m.queryStatsStore != nil {
+			return m, resetQueryStats(m.queryStatsStore)
+		}
+		return m, nil
+
+	case queriesview.ResetQueryStatsResultMsg:
+		// Forward to queries view
+		m.queriesView.Update(msg)
+		return m, nil
+
+	case queriesview.CheckLoggingStatusMsg:
+		// Check logging status
+		if m.queryMonitor != nil {
+			return m, checkLoggingStatus(m.queryMonitor)
+		}
+		return m, nil
+
+	case queriesview.LoggingStatusMsg:
+		// Forward to queries view
+		m.queriesView.Update(msg)
+		return m, nil
+
+	case queriesview.EnableLoggingMsg:
+		// Enable query logging
+		if m.queryMonitor != nil {
+			return m, enableLogging(m.queryMonitor)
+		}
+		return m, nil
+
+	case queriesview.EnableLoggingResultMsg:
+		// Forward to queries view and restart monitor
+		m.queriesView.Update(msg)
+		if msg.Success && m.queryMonitor != nil {
+			// Restart monitor to use log collector
+			m.queryMonitor.Stop()
+			_ = m.queryMonitor.Start(context.Background())
+		}
+		return m, nil
+
 	case ReconnectAttemptMsg:
 		// Update reconnection status display
 		m.statusBar.SetReconnecting(true, msg.Attempt, msg.MaxAttempts)
@@ -330,9 +436,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Check for quit (but not when dashboard is in input mode)
+	// Check for quit (but not when view is in input mode)
 	if msg.String() == "q" || msg.String() == "ctrl+c" {
-		if !m.dashboard.IsInputMode() {
+		inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode()
+		if !inInputMode {
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -379,10 +486,19 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Forward key events to current view
-	if m.currentView == views.ViewDashboard && m.connected {
-		var cmd tea.Cmd
-		_, cmd = m.dashboard.Update(msg)
-		return m, cmd
+	switch m.currentView {
+	case views.ViewDashboard:
+		if m.connected {
+			var cmd tea.Cmd
+			_, cmd = m.dashboard.Update(msg)
+			return m, cmd
+		}
+	case views.ViewQueries:
+		if m.connected {
+			var cmd tea.Cmd
+			_, cmd = m.queriesView.Update(msg)
+			return m, cmd
+		}
 	}
 
 	return m, nil
@@ -471,7 +587,7 @@ func (m Model) renderCurrentView() string {
 	case views.ViewActivity:
 		return styles.InfoStyle.Render("Activity monitoring view - Coming soon!")
 	case views.ViewQueries:
-		return styles.InfoStyle.Render("Query performance view - Coming soon!")
+		return m.queriesView.View()
 	case views.ViewLocks:
 		return styles.InfoStyle.Render("Lock monitoring view - Coming soon!")
 	case views.ViewTables:
@@ -500,6 +616,12 @@ func (m Model) renderHelp() string {
 
 // Cleanup performs cleanup operations before the application exits
 func (m *Model) Cleanup() {
+	if m.queryMonitor != nil {
+		m.queryMonitor.Stop()
+	}
+	if m.queryStatsDB != nil {
+		m.queryStatsDB.Close()
+	}
 	if m.dbPool != nil {
 		m.dbPool.Close()
 	}
@@ -628,6 +750,84 @@ func terminateConnection(pool *pgxpool.Pool, pid int) tea.Cmd {
 			PID:     pid,
 			Success: success,
 			Error:   err,
+		}
+	}
+}
+
+// resetQueryStats creates a command to reset query statistics
+func resetQueryStats(store *sqlite.QueryStatsStore) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		err := store.Reset(ctx)
+		return queriesview.ResetQueryStatsResultMsg{
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// checkLoggingStatus creates a command to check PostgreSQL logging status
+func checkLoggingStatus(monitor *querymonitor.Monitor) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		status, err := monitor.CheckLoggingStatus(ctx)
+		if err != nil {
+			return queriesview.LoggingStatusMsg{
+				Error: err,
+			}
+		}
+		return queriesview.LoggingStatusMsg{
+			Enabled: status.Enabled,
+			LogPath: status.LogPath,
+		}
+	}
+}
+
+// enableLogging creates a command to enable query logging
+func enableLogging(monitor *querymonitor.Monitor) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		err := monitor.EnableLogging(ctx)
+		return queriesview.EnableLoggingResultMsg{
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// fetchQueryStats creates a command to fetch query statistics
+func fetchQueryStats(store *sqlite.QueryStatsStore, sortCol queriesview.SortColumn, filter string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+
+		// Map view sort column to store sort field
+		var storeSort sqlite.SortField
+		switch sortCol {
+		case queriesview.SortByTotalTime:
+			storeSort = sqlite.SortByTotalTime
+		case queriesview.SortByCalls:
+			storeSort = sqlite.SortByCalls
+		case queriesview.SortByMeanTime:
+			storeSort = sqlite.SortByMeanTime
+		case queriesview.SortByRows:
+			storeSort = sqlite.SortByRows
+		default:
+			storeSort = sqlite.SortByTotalTime
+		}
+
+		var stats []sqlite.QueryStats
+		var err error
+
+		if filter != "" {
+			stats, err = store.SearchQueries(ctx, filter, storeSort, 100)
+		} else {
+			stats, err = store.GetTopQueries(ctx, storeSort, 100)
+		}
+
+		return queriesview.QueriesDataMsg{
+			Stats:     stats,
+			FetchedAt: time.Now(),
+			Error:     err,
 		}
 	}
 }

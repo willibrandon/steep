@@ -62,21 +62,21 @@ Based on plan.md structure:
 
 ### Visual Design (Constitution VI)
 
-- [ ] T015 [US1] Study pg_top and htop query displays, document visual patterns in specs/003-query-performance/visual-research.md
-- [ ] T016 [US1] Create ASCII mockup of Queries view in specs/003-query-performance/mockup.md
-- [ ] T017 [US1] Build throwaway demo testing table rendering approaches in internal/ui/views/queries/demo/
+- [x] T015 [US1] Study pg_top and htop query displays, document visual patterns in specs/003-query-performance/visual-research.md
+- [x] T016 [US1] Create ASCII mockup of Queries view in specs/003-query-performance/mockup.md
+- [x] T017 [US1] Build throwaway demo testing table rendering approaches in internal/ui/views/queries/demo/
 
 ### Implementation for User Story 1
 
-- [ ] T018 [US1] Create base QueriesView model implementing ViewModel interface in internal/ui/views/queries/view.go
-- [ ] T019 [US1] Implement query table component with columns (Query, Calls, Total Time, Mean Time, Rows) in internal/ui/views/queries/table.go
-- [ ] T020 [US1] Add vim-style navigation (j/k/g/G) to table in internal/ui/views/queries/table.go
-- [ ] T021 [US1] Implement column sorting with `s` key in internal/ui/views/queries/table.go
-- [ ] T022 [US1] Add auto-refresh timer (5s configurable) in internal/ui/views/queries/view.go
-- [ ] T023 [US1] Register Queries view with main app and `3` key navigation in cmd/steep/main.go
-- [ ] T024 [US1] Wire monitor data to view via tea.Msg in internal/ui/views/queries/view.go
+- [x] T018 [US1] Create base QueriesView model implementing ViewModel interface in internal/ui/views/queries/view.go
+- [x] T019 [US1] Implement query table component with columns (Query, Calls, Total Time, Mean Time, Rows) in internal/ui/views/queries/view.go
+- [x] T020 [US1] Add vim-style navigation (j/k/g/G) to table in internal/ui/views/queries/view.go
+- [x] T021 [US1] Implement column sorting with `s` key in internal/ui/views/queries/view.go
+- [x] T022 [US1] Add auto-refresh timer (configurable) in internal/app/app.go
+- [x] T023 [US1] Register Queries view with main app and `3` key navigation in internal/app/app.go
+- [x] T024 [US1] Wire monitor data to view via tea.Msg in internal/app/app.go
 
-**Checkpoint**: User Story 1 complete - can view top queries by time with sorting and auto-refresh
+**Checkpoint**: User Story 1 complete - can view top queries by time with sorting and auto-refresh ✅
 
 ---
 
