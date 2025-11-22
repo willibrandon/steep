@@ -26,9 +26,9 @@ Based on plan.md structure:
 
 **Purpose**: Project initialization, dependencies, and directory structure
 
-- [ ] T001 Add Go dependencies: pg_query_go/v5, honeytail, go-sqlite3, golang.design/x/clipboard
-- [ ] T002 [P] Create directory structure: internal/monitors/queries/, internal/storage/sqlite/, internal/ui/views/queries/
-- [ ] T003 [P] Create test directory structure: tests/unit/monitors/queries/, tests/integration/queries/
+- [x] T001 Add Go dependencies: pg_query_go/v6, go-sqlite3, testcontainers-go
+- [x] T002 [P] Create directory structure: internal/monitors/queries/, internal/storage/sqlite/, internal/ui/views/queries/
+- [x] T003 [P] Create test directory structure: tests/unit/monitors/queries/, tests/integration/queries/
 
 ---
 
@@ -38,19 +38,19 @@ Based on plan.md structure:
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Implement SQLite database connection manager in internal/storage/sqlite/db.go
-- [ ] T005 Create SQLite schema with query_stats table and indexes in internal/storage/sqlite/schema.go
-- [ ] T006 [P] Implement QueryFingerprinter using pg_query_go in internal/monitors/queries/fingerprint.go
-- [ ] T007 [P] Implement QueryStatsStore interface in internal/storage/sqlite/queries.go
-- [ ] T008 Implement LogCollector for PostgreSQL log parsing in internal/monitors/queries/log_collector.go
-- [ ] T009 Implement SamplingCollector for pg_stat_activity polling in internal/monitors/queries/sampling_collector.go
-- [ ] T010 Implement QueryMonitor goroutine orchestrating collection pipeline in internal/monitors/queries/monitor.go
-- [ ] T011 [P] Add queries-specific configuration to internal/config/queries.go
-- [ ] T012 Unit tests for fingerprinting in tests/unit/monitors/queries/fingerprint_test.go
-- [ ] T013 Unit tests for statistics aggregation in tests/unit/monitors/queries/stats_test.go
-- [ ] T014 Integration tests for SQLite storage in tests/integration/queries/storage_test.go
+- [x] T004 Implement SQLite database connection manager in internal/storage/sqlite/db.go
+- [x] T005 Create SQLite schema with query_stats table and indexes in internal/storage/sqlite/schema.go
+- [x] T006 [P] Implement QueryFingerprinter using pg_query_go in internal/monitors/queries/fingerprint.go
+- [x] T007 [P] Implement QueryStatsStore interface in internal/storage/sqlite/queries.go
+- [x] T008 Implement LogCollector for PostgreSQL log parsing in internal/monitors/queries/log_collector.go
+- [x] T009 Implement SamplingCollector for pg_stat_activity polling in internal/monitors/queries/sampling_collector.go
+- [x] T010 Implement QueryMonitor goroutine orchestrating collection pipeline in internal/monitors/queries/monitor.go
+- [x] T011 [P] Add queries-specific configuration to internal/config/queries.go
+- [x] T012 Unit tests for fingerprinting in tests/unit/monitors/queries/fingerprint_test.go
+- [x] T013 Unit tests for statistics aggregation in tests/unit/monitors/queries/stats_test.go
+- [x] T014 Integration tests for SQLite storage in tests/integration/queries/storage_test.go
 
-**Checkpoint**: Foundation ready - data collection pipeline operational, user story implementation can begin
+**Checkpoint**: Foundation ready - data collection pipeline operational, user story implementation can begin ✅
 
 ---
 
