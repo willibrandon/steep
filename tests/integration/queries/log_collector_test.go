@@ -32,11 +32,11 @@ func TestLogCollector_ParseLine_MultipleQueries(t *testing.T) {
 	testLogParsing(t, logContent, 3, "", 0) // Just check count
 }
 
-func TestLogCollector_ParseLine_BindIgnored(t *testing.T) {
-	// Bind statements should be ignored (no duration with statement)
+func TestLogCollector_ParseLine_BindWithDuration(t *testing.T) {
+	// Bind statements with duration are captured (needed for dynamic updates)
 	logContent := `2025-11-21 18:25:26.180 PST [43293] LOG:  duration: 0.007 ms  bind stmtcache_95b470e8e2dde5f8a633776b765a0c8662cf13c2f1890f1f: SELECT pg_database_size(current_database())
 `
-	testLogParsing(t, logContent, 0, "", 0)
+	testLogParsing(t, logContent, 1, "SELECT pg_database_size(current_database())", 0.007)
 }
 
 func TestLogCollector_ParseLine_DetailIgnored(t *testing.T) {

@@ -194,7 +194,6 @@ func (v *QueriesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		v.SetSize(msg.Width, msg.Height)
 
 	case tea.MouseMsg:
-		// Only handle mouse in normal mode
 		if v.mode == ModeNormal {
 			switch msg.Button {
 			case tea.MouseButtonWheelUp:
@@ -214,6 +213,13 @@ func (v *QueriesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				}
+			}
+		} else if v.mode == ModeExplain {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				v.explainView.ScrollUp(1)
+			case tea.MouseButtonWheelDown:
+				v.explainView.ScrollDown(1)
 			}
 		}
 	}
@@ -391,6 +397,24 @@ func (v *QueriesView) handleExplainMode(key string) tea.Cmd {
 		v.explainView.PageDown()
 	case "ctrl+u", "pgup":
 		v.explainView.PageUp()
+	case "y":
+		// Copy formatted query to clipboard
+		if !v.clipboard.IsAvailable() {
+			v.showToast("Clipboard unavailable: "+v.clipboard.Error(), true)
+		} else if err := v.clipboard.Write(v.explainView.Query()); err != nil {
+			v.showToast("Failed to copy: "+err.Error(), true)
+		} else {
+			v.showToast("Query copied to clipboard", false)
+		}
+	case "Y":
+		// Copy plan JSON to clipboard
+		if !v.clipboard.IsAvailable() {
+			v.showToast("Clipboard unavailable: "+v.clipboard.Error(), true)
+		} else if err := v.clipboard.Write(v.explainView.Plan()); err != nil {
+			v.showToast("Failed to copy: "+err.Error(), true)
+		} else {
+			v.showToast("Plan copied to clipboard", false)
+		}
 	case "esc", "q":
 		v.mode = ModeNormal
 	}

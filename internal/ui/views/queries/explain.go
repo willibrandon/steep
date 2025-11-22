@@ -4,21 +4,24 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2/quick"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
 // ExplainView renders an EXPLAIN plan result.
 type ExplainView struct {
-	query        string
-	plan         string
-	formattedPlan string
-	err          string
-	scrollOffset int
-	width        int
-	height       int
+	query          string
+	plan           string
+	formattedQuery string
+	formattedPlan  string
+	err            string
+	scrollOffset   int
+	width          int
+	height         int
 }
 
 // NewExplainView creates a new EXPLAIN view.
@@ -32,7 +35,25 @@ func (v *ExplainView) SetPlan(query, plan string) {
 	v.plan = plan
 	v.err = ""
 	v.scrollOffset = 0
-	v.formattedPlan = v.formatJSON(plan)
+	// Store formatted query without highlighting for clipboard
+	v.formattedQuery = v.formatSQLPlain(query)
+	// Combine formatted query and plan for unified scrolling
+	formattedQuery := v.formatSQL(query)
+	formattedJSON := v.formatJSON(plan)
+	v.formattedPlan = formattedQuery + "\n\n" + formattedJSON
+}
+
+// Query returns the formatted query string (for clipboard).
+func (v *ExplainView) Query() string {
+	if v.formattedQuery != "" {
+		return v.formattedQuery
+	}
+	return v.query
+}
+
+// Plan returns the raw plan JSON string.
+func (v *ExplainView) Plan() string {
+	return v.plan
 }
 
 // SetError sets an error message to display.
@@ -93,18 +114,7 @@ func (v *ExplainView) View() string {
 
 	title := titleStyle.Render("EXPLAIN Plan")
 
-	// Query (truncated)
-	queryStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("245")).
-		MarginBottom(1)
-
-	queryDisplay := v.query
-	if len(queryDisplay) > v.width-4 {
-		queryDisplay = queryDisplay[:v.width-7] + "..."
-	}
-	queryLine := queryStyle.Render(queryDisplay)
-
-	// Content
+	// Content (query + plan combined, scrollable)
 	var content string
 	if v.err != "" {
 		errorStyle := lipgloss.NewStyle().
@@ -125,12 +135,11 @@ func (v *ExplainView) View() string {
 		scrollInfo = fmt.Sprintf(" (%d/%d)", v.scrollOffset+1, len(lines))
 	}
 
-	footer := footerStyle.Render("[j/k]scroll [g/G]top/bottom [esc/q]back" + scrollInfo)
+	footer := footerStyle.Render("[j/k]scroll [g/G]top/bottom [y]copy query [Y]copy plan [esc/q]back" + scrollInfo)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		title,
-		queryLine,
 		content,
 		footer,
 	)
@@ -166,8 +175,8 @@ func (v *ExplainView) getLines() []string {
 
 // contentHeight returns the height available for plan content.
 func (v *ExplainView) contentHeight() int {
-	// height - title(1) - query(1) - footer(1) - margins(2)
-	return max(1, v.height-5)
+	// height - title(1) - footer(1) - margins(2)
+	return max(1, v.height-4)
 }
 
 // formatJSON formats the EXPLAIN JSON for readability.
@@ -186,6 +195,49 @@ func (v *ExplainView) formatJSON(jsonStr string) string {
 
 	// Apply syntax highlighting
 	return v.highlightJSON(prettyJSON.String())
+}
+
+// formatSQLPlain formats a SQL query without syntax highlighting (for clipboard).
+func (v *ExplainView) formatSQLPlain(sql string) string {
+	if sql == "" {
+		return ""
+	}
+
+	// Use pgFormatter (pg_format) for proper PostgreSQL formatting
+	cmd := exec.Command("pg_format", "-s", "2", "-w", "80")
+	cmd.Stdin = strings.NewReader(sql)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err == nil {
+		return strings.TrimSpace(out.String())
+	}
+
+	return sql
+}
+
+// formatSQL formats a SQL query with syntax highlighting.
+func (v *ExplainView) formatSQL(sql string) string {
+	if sql == "" {
+		return ""
+	}
+
+	// Use pgFormatter (pg_format) for proper PostgreSQL formatting
+	formatted := sql
+	cmd := exec.Command("pg_format", "-s", "2", "-w", "80")
+	cmd.Stdin = strings.NewReader(sql)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err == nil {
+		formatted = strings.TrimSpace(out.String())
+	}
+
+	// Apply syntax highlighting
+	var buf bytes.Buffer
+	if err := quick.Highlight(&buf, formatted, "postgresql", "terminal256", "monokai"); err != nil {
+		return formatted
+	}
+
+	return buf.String()
 }
 
 // highlightJSON applies simple syntax highlighting to JSON.

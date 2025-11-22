@@ -174,7 +174,19 @@ func (c *LogCollector) readNewEntries(ctx context.Context) error {
 
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			break // EOF or error
+			// EOF reached - process any remaining buffered entry
+			if c.lineBuffer != "" {
+				event, ok := c.parseLine(c.lineBuffer)
+				if ok {
+					select {
+					case c.events <- event:
+					default:
+						// Channel full, skip event
+					}
+				}
+				c.lineBuffer = ""
+			}
+			break
 		}
 
 		bytesRead += int64(len(line))
@@ -203,9 +215,6 @@ func (c *LogCollector) readNewEntries(ctx context.Context) error {
 			c.lineBuffer += " " + strings.TrimSpace(line)
 		}
 	}
-
-	// Don't process the last buffered entry - it may be incomplete
-	// It will be processed when the next entry arrives
 
 	// Update position based on bytes actually read
 	c.lastPosition += bytesRead
