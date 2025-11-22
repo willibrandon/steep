@@ -223,13 +223,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}()
 
 		// Start fetching data with unified tick
-		return m, tea.Batch(
+		cmds := []tea.Cmd{
 			fetchActivityData(m.activityMonitor),
 			fetchStatsData(m.statsMonitor),
 			tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
 				return dataTickMsg{}
 			}),
-		)
+		}
+		// Also fetch query stats if store is available
+		if m.queryStatsStore != nil {
+			cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queriesView.GetSortColumn(), m.queriesView.GetFilter()))
+		}
+		return m, tea.Batch(cmds...)
 
 	case ConnectionFailedMsg:
 		m.connected = false
@@ -463,8 +468,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Check for escape (close help)
-	if msg.String() == "esc" && m.helpVisible {
+	// Check for escape (close help) - but only if not in input mode
+	inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode()
+	if msg.String() == "esc" && m.helpVisible && !inInputMode {
 		m.helpVisible = false
 		return m, nil
 	}

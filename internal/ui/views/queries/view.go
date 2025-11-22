@@ -238,6 +238,14 @@ func (v *QueriesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		v.mode = ModeFilter
 		v.filterInput = v.filterActive
 
+	// Clear filter (C or Esc)
+	case "C", "esc":
+		if v.filterActive != "" {
+			v.filterActive = ""
+			v.filterInput = ""
+			return v.requestRefresh()
+		}
+
 	// Refresh
 	case "r":
 		if !v.refreshing {
@@ -336,14 +344,22 @@ func (v *QueriesView) SetLoggingDisabled() {
 
 // handleFilterMode processes keys in filter mode.
 func (v *QueriesView) handleFilterMode(key string, msg tea.KeyMsg) tea.Cmd {
-	switch key {
-	case "esc":
-		v.mode = ModeNormal
-		v.filterInput = ""
-	case "enter":
+	switch msg.Type {
+	case tea.KeyEnter:
+		// Apply current input as filter (empty = clear filter)
 		v.filterActive = v.filterInput
 		v.mode = ModeNormal
+		v.filterInput = ""
 		return v.requestRefresh()
+	case tea.KeyEsc:
+		// Clear filter and exit filter mode
+		v.filterActive = ""
+		v.mode = ModeNormal
+		v.filterInput = ""
+		return v.requestRefresh()
+	}
+
+	switch key {
 	case "backspace":
 		if len(v.filterInput) > 0 {
 			v.filterInput = v.filterInput[:len(v.filterInput)-1]
@@ -705,8 +721,10 @@ func (v *QueriesView) renderFooter() string {
 		var filterIndicator string
 		if v.filterActive != "" {
 			filterIndicator = styles.FooterHintStyle.Foreground(styles.ColorActive).Render(fmt.Sprintf("[FILTERED: %s] ", v.filterActive))
+			hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [/]filter [r]efresh [R]eset [q]uit")
+		} else {
+			hints = styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [/]filter [r]efresh [R]eset [q]uit")
 		}
-		hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [/]filter [r]efresh [R]eset [q]uit")
 	}
 
 	sortInfo := fmt.Sprintf("Sort: %s ↓", v.sortColumn.String())

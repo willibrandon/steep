@@ -87,28 +87,48 @@ func (c *LogCollector) readNewEntries(ctx context.Context) error {
 	}
 	defer file.Close()
 
+	// Get current file size to detect rotation
+	stat, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat log file: %w", err)
+	}
+	fileSize := stat.Size()
+
+	// If file is smaller than last position, it was rotated
+	if fileSize < c.lastPosition {
+		c.lastPosition = 0
+	}
+
 	// Seek to last position
 	if c.lastPosition > 0 {
 		_, err = file.Seek(c.lastPosition, 0)
 		if err != nil {
-			// File may have been rotated, start from beginning
 			c.lastPosition = 0
 		}
 	}
 
-	scanner := bufio.NewScanner(file)
-	// Increase buffer size for long queries
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	// Use bufio.Reader instead of Scanner to track position accurately
+	reader := bufio.NewReader(file)
+	bytesRead := int64(0)
 
-	for scanner.Scan() {
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		line := scanner.Text()
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break // EOF or error
+		}
+
+		bytesRead += int64(len(line))
+
+		// Remove trailing newline for parsing
+		line = strings.TrimSuffix(line, "\n")
+		line = strings.TrimSuffix(line, "\r")
+
 		event, ok := c.parseLine(line)
 		if ok {
 			select {
@@ -119,21 +139,21 @@ func (c *LogCollector) readNewEntries(ctx context.Context) error {
 		}
 	}
 
-	// Update position
-	pos, _ := file.Seek(0, 1)
-	c.lastPosition = pos
+	// Update position based on bytes actually read
+	c.lastPosition += bytesRead
 
-	return scanner.Err()
+	return nil
 }
 
 // parseLine parses a PostgreSQL log line into a QueryEvent.
 // Also captures bound parameters from DETAIL lines.
 //
 // Format with %m [%p] %i:
-//   2025-01-01 12:00:00.000 UTC [1234] SELECT 42  duration: 1.234 ms  statement: SELECT count(*) FROM table
-//   2025-01-01 12:00:00.000 UTC [1234] INSERT 0 5  duration: 1.234 ms  statement: INSERT INTO table ...
-//   2025-01-01 12:00:00.000 UTC [1234] UPDATE 10  duration: 1.234 ms  execute stmtcache_xxx: UPDATE table ...
-//   2025-01-01 12:00:00.000 UTC [1234] DETAIL:  parameters: $1 = '500', $2 = 'text'
+//
+//	2025-01-01 12:00:00.000 UTC [1234] SELECT 42  duration: 1.234 ms  statement: SELECT count(*) FROM table
+//	2025-01-01 12:00:00.000 UTC [1234] INSERT 0 5  duration: 1.234 ms  statement: INSERT INTO table ...
+//	2025-01-01 12:00:00.000 UTC [1234] UPDATE 10  duration: 1.234 ms  execute stmtcache_xxx: UPDATE table ...
+//	2025-01-01 12:00:00.000 UTC [1234] DETAIL:  parameters: $1 = '500', $2 = 'text'
 func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 	// Check for DETAIL line with parameters - store for association
 	if strings.Contains(line, "DETAIL:") && strings.Contains(strings.ToLower(line), "parameters:") {

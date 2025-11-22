@@ -51,6 +51,8 @@ func NewQueryStatsStore(db *DB) *QueryStatsStore {
 
 // Upsert inserts a new query stat or updates an existing one.
 func (s *QueryStatsStore) Upsert(ctx context.Context, fingerprint uint64, query string, durationMs float64, rows int64, sampleParams string) error {
+	// Convert uint64 to int64 for SQLite (preserves bit pattern)
+	fpInt := int64(fingerprint)
 	_, err := s.db.conn.ExecContext(ctx, `
 		INSERT INTO query_stats (fingerprint, normalized_query, calls, total_time_ms, min_time_ms, max_time_ms, total_rows, last_seen, sample_params)
 		VALUES (?, ?, 1, ?, ?, ?, ?, datetime('now'), ?)
@@ -62,7 +64,7 @@ func (s *QueryStatsStore) Upsert(ctx context.Context, fingerprint uint64, query 
 			total_rows = total_rows + excluded.total_rows,
 			last_seen = datetime('now'),
 			sample_params = COALESCE(excluded.sample_params, sample_params)
-	`, fingerprint, query, durationMs, durationMs, durationMs, rows, sampleParams)
+	`, fpInt, query, durationMs, durationMs, durationMs, rows, sampleParams)
 	return err
 }
 
@@ -213,9 +215,10 @@ func scanQueryStats(rows *sql.Rows) ([]QueryStats, error) {
 	var stats []QueryStats
 	for rows.Next() {
 		var stat QueryStats
+		var fingerprint int64 // SQLite stores as signed int64
 		var firstSeen, lastSeen string
 		err := rows.Scan(
-			&stat.Fingerprint,
+			&fingerprint,
 			&stat.NormalizedQuery,
 			&stat.Calls,
 			&stat.TotalTimeMs,
@@ -228,6 +231,7 @@ func scanQueryStats(rows *sql.Rows) ([]QueryStats, error) {
 		if err != nil {
 			return nil, err
 		}
+		stat.Fingerprint = uint64(fingerprint) // Convert to uint64
 		stat.FirstSeen, _ = time.Parse("2006-01-02 15:04:05", firstSeen)
 		stat.LastSeen, _ = time.Parse("2006-01-02 15:04:05", lastSeen)
 		stats = append(stats, stat)

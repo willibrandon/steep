@@ -140,13 +140,13 @@ Based on plan.md structure:
 
 ### Implementation for User Story 5
 
-- [ ] T038 [US5] Create search input component in internal/ui/views/queries/search.go
-- [ ] T039 [US5] Add `/` key handler to activate search mode in internal/ui/views/queries/view.go
-- [ ] T040 [US5] Implement regex pattern matching in SQLite query in internal/storage/sqlite/queries.go
-- [ ] T041 [US5] Display active filter indicator in status bar in internal/ui/views/queries/view.go
-- [ ] T042 [US5] Add Esc key to clear filter and restore full list in internal/ui/views/queries/search.go
+- [x] T038 [US5] Create search input component in internal/ui/views/queries/view.go
+- [x] T039 [US5] Add `/` key handler to activate search mode in internal/ui/views/queries/view.go
+- [x] T040 [US5] Implement regex pattern matching in SQLite query in internal/storage/sqlite/queries.go
+- [x] T041 [US5] Display active filter indicator in status bar in internal/ui/views/queries/view.go
+- [x] T042 [US5] Add Esc key to clear filter and restore full list in internal/ui/views/queries/view.go
 
-**Checkpoint**: User Story 5 complete - can search and filter queries by pattern
+**Checkpoint**: User Story 5 complete - can search and filter queries by pattern ✅
 
 ---
 
