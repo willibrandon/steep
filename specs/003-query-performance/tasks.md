@@ -188,14 +188,14 @@ Based on plan.md structure:
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T051 [P] Add data source status indicator (log_parsing/sampling) in internal/ui/views/queries/view.go
-- [ ] T052 [P] Implement auto-enable logging prompt with ALTER SYSTEM in internal/monitors/queries/monitor.go
-- [ ] T053 [P] Add 7-day cleanup on each refresh cycle in internal/monitors/queries/monitor.go
-- [ ] T054 [P] Add help text overlay with keybindings in internal/ui/views/queries/help.go
-- [ ] T055 [P] Ensure 80x24 minimum terminal size rendering in internal/ui/views/queries/view.go
-- [ ] T056 [P] Add error handling for log file permissions with guidance in internal/monitors/queries/log_collector.go
+- [x] T051 [P] Add data source status indicator (log_parsing/sampling) in internal/ui/views/queries/view.go
+- [x] T052 [P] Implement auto-enable logging prompt with ALTER SYSTEM in internal/monitors/queries/monitor.go
+- [x] T053 [P] Add 7-day cleanup on each refresh cycle in internal/monitors/queries/monitor.go
+- [x] T054 [P] Add help text overlay with keybindings in internal/ui/views/queries/help.go
+- [x] T055 [P] Ensure 80x24 minimum terminal size rendering in internal/ui/views/queries/view.go
+- [x] T056 [P] Add error handling for log file permissions with guidance in internal/monitors/queries/log_collector.go
 - [ ] T057 Run quickstart.md validation scenarios
-- [ ] T058 Performance validation: verify <500ms query execution, <100ms UI response
+- [x] T058 Performance validation: verify <500ms query execution, <100ms UI response
 
 ---
 
