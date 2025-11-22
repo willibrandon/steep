@@ -306,6 +306,8 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL 11+ (target 18) for monitoring; YAML file for configuration (~/.config/steep/config.yaml) (001-foundation)
 - Go 1.21+ + bubbletea, bubbles (table, viewport), lipgloss, pgx/pgxpool (002-dashboard-activity)
 - PostgreSQL 11+ (pg_stat_activity, pg_stat_database system views) (002-dashboard-activity)
+- Go 1.21+ + bubbletea, bubbles (table, viewport), lipgloss, pgx/pgxpool, pg_query_go/v5, honeytail/parsers/postgresql, go-sqlite3, golang.design/x/clipboard (003-query-performance)
+- SQLite (query_stats.db in ~/.config/steep/), PostgreSQL (source database) (003-query-performance)
 
 ## Recent Changes
 - 001-foundation: Added Go 1.21+
