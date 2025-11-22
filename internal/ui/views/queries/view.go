@@ -28,7 +28,7 @@ const (
 func (s SortColumn) String() string {
 	switch s {
 	case SortByTotalTime:
-		return "Total"
+		return "Time"
 	case SortByCalls:
 		return "Calls"
 	case SortByMeanTime:
@@ -207,6 +207,14 @@ func (v *QueriesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		v.cycleSort()
 		return v.requestRefresh()
 
+	// Tab navigation (left/right arrows)
+	case "left":
+		v.sortColumn = PrevTab(v.sortColumn)
+		return v.requestRefresh()
+	case "right":
+		v.sortColumn = NextTab(v.sortColumn)
+		return v.requestRefresh()
+
 	// Filter
 	case "/":
 		v.mode = ModeFilter
@@ -346,8 +354,8 @@ func (v *QueriesView) ensureVisible() {
 
 // tableHeight returns the number of visible table rows.
 func (v *QueriesView) tableHeight() int {
-	// height - status(1) - header(1) - footer(1) - padding
-	return max(1, v.height-4)
+	// height - status(1) - header(1) - tabs(1) - footer(1) - padding
+	return max(1, v.height-5)
 }
 
 // cycleSort cycles through sort columns.
@@ -419,6 +427,9 @@ func (v *QueriesView) View() string {
 	// Header
 	header := v.renderHeader()
 
+	// Tab bar
+	tabBar := TabBar(v.sortColumn, v.width)
+
 	// Table
 	table := v.renderTable()
 
@@ -429,6 +440,7 @@ func (v *QueriesView) View() string {
 		lipgloss.Left,
 		statusBar,
 		header,
+		tabBar,
 		table,
 		footer,
 	)
@@ -530,7 +542,7 @@ func (v *QueriesView) renderHeader() string {
 	var headers []string
 	headers = append(headers, padRight("Query", queryWidth))
 	headers = append(headers, padLeft(v.sortIndicator("Calls", SortByCalls), 8))
-	headers = append(headers, padLeft(v.sortIndicator("Total", SortByTotalTime), 12))
+	headers = append(headers, padLeft(v.sortIndicator("Time", SortByTotalTime), 12))
 	headers = append(headers, padLeft(v.sortIndicator("Mean", SortByMeanTime), 12))
 	headers = append(headers, padLeft(v.sortIndicator("Rows", SortByRows), 10))
 
@@ -626,7 +638,7 @@ func (v *QueriesView) renderFooter() string {
 		if v.filterActive != "" {
 			filterIndicator = styles.FooterHintStyle.Foreground(styles.ColorActive).Render(fmt.Sprintf("[FILTERED: %s] ", v.filterActive))
 		}
-		hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [s]ort [/]filter [r]efresh [R]eset [q]uit")
+		hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [/]filter [r]efresh [R]eset [q]uit")
 	}
 
 	sortInfo := fmt.Sprintf("Sort: %s ↓", v.sortColumn.String())

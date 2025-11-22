@@ -88,12 +88,12 @@ Based on plan.md structure:
 
 ### Implementation for User Story 2
 
-- [ ] T025 [US2] Implement tab component with "By Time", "By Calls", "By Rows" in internal/ui/views/queries/tabs.go
-- [ ] T026 [US2] Add left/right arrow key navigation between tabs in internal/ui/views/queries/tabs.go
-- [ ] T027 [US2] Update table query to sort by calls when "By Calls" tab active in internal/ui/views/queries/view.go
-- [ ] T028 [US2] Style active tab indicator in internal/ui/views/queries/tabs.go
+- [x] T025 [US2] Implement tab component with "By Time", "By Calls", "By Rows" in internal/ui/views/queries/tabs.go
+- [x] T026 [US2] Add left/right arrow key navigation between tabs in internal/ui/views/queries/tabs.go
+- [x] T027 [US2] Update table query to sort by calls when "By Calls" tab active in internal/ui/views/queries/view.go
+- [x] T028 [US2] Style active tab indicator in internal/ui/views/queries/tabs.go
 
-**Checkpoint**: User Story 2 complete - can switch tabs to view by calls
+**Checkpoint**: User Story 2 complete - can switch tabs to view by calls ✅
 
 ---
 
