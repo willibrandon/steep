@@ -3,6 +3,7 @@ package queries
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -22,12 +23,27 @@ type QueryEvent struct {
 	Params     map[string]string // Captured bound parameters ($1 -> value)
 }
 
+// LogCollectorError represents an error from the log collector with guidance.
+type LogCollectorError struct {
+	Err      error
+	Guidance string
+}
+
+func (e *LogCollectorError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *LogCollectorError) Unwrap() error {
+	return e.Err
+}
+
 // LogCollector parses PostgreSQL log files for query events.
 type LogCollector struct {
 	logPath       string
 	logLinePrefix string
 	lastPosition  int64
 	events        chan QueryEvent
+	errors        chan error
 	lastParams    map[string]string // Parameters from most recent DETAIL line
 	lastQuery     string            // Query from most recent execute line
 }
@@ -38,7 +54,13 @@ func NewLogCollector(logPath, logLinePrefix string) *LogCollector {
 		logPath:       logPath,
 		logLinePrefix: logLinePrefix,
 		events:        make(chan QueryEvent, 100),
+		errors:        make(chan error, 10),
 	}
+}
+
+// Errors returns the channel of collector errors.
+func (c *LogCollector) Errors() <-chan error {
+	return c.errors
 }
 
 // Events returns the channel of query events.
@@ -60,7 +82,9 @@ func (c *LogCollector) Stop() error {
 // run is the main collection loop.
 func (c *LogCollector) run(ctx context.Context) {
 	// Read immediately on start
-	_ = c.readNewEntries(ctx)
+	if err := c.readNewEntries(ctx); err != nil {
+		c.sendError(err)
+	}
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -69,13 +93,22 @@ func (c *LogCollector) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			close(c.events)
+			close(c.errors)
 			return
 		case <-ticker.C:
 			if err := c.readNewEntries(ctx); err != nil {
-				// Log error but continue
-				continue
+				c.sendError(err)
 			}
 		}
+	}
+}
+
+// sendError sends an error to the errors channel without blocking.
+func (c *LogCollector) sendError(err error) {
+	select {
+	case c.errors <- err:
+	default:
+		// Channel full, skip error
 	}
 }
 
@@ -83,6 +116,19 @@ func (c *LogCollector) run(ctx context.Context) {
 func (c *LogCollector) readNewEntries(ctx context.Context) error {
 	file, err := os.Open(c.logPath)
 	if err != nil {
+		// Provide helpful guidance for common permission errors
+		if errors.Is(err, os.ErrNotExist) {
+			return &LogCollectorError{
+				Err:      fmt.Errorf("log file not found: %s", c.logPath),
+				Guidance: "Verify log_directory and log_filename in postgresql.conf",
+			}
+		}
+		if errors.Is(err, os.ErrPermission) {
+			return &LogCollectorError{
+				Err:      fmt.Errorf("permission denied reading log file: %s", c.logPath),
+				Guidance: "Ensure steep has read access to PostgreSQL log directory. Try: chmod o+rx <log_dir> && chmod o+r <log_file>",
+			}
+		}
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
 	defer file.Close()

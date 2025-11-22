@@ -159,6 +159,10 @@ var (
 	InfoStyle = lipgloss.NewStyle().
 			Foreground(ColorMuted)
 
+	// DimStyle is for dimmed/secondary text
+	DimStyle = lipgloss.NewStyle().
+			Foreground(ColorMuted)
+
 	// ViewTitleStyle is for view titles
 	ViewTitleStyle = lipgloss.NewStyle().
 			Foreground(ColorAccent).

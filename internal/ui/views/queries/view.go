@@ -50,13 +50,23 @@ const (
 	ModeConfirmReset
 	ModeConfirmEnableLogging
 	ModeExplain
+	ModeHelp
+)
+
+// DataSourceType indicates the source of query data.
+type DataSourceType int
+
+const (
+	DataSourceSampling DataSourceType = iota
+	DataSourceLogParsing
 )
 
 // QueriesDataMsg contains query stats data from the monitor.
 type QueriesDataMsg struct {
-	Stats     []sqlite.QueryStats
-	FetchedAt time.Time
-	Error     error
+	Stats      []sqlite.QueryStats
+	FetchedAt  time.Time
+	Error      error
+	DataSource DataSourceType
 }
 
 // QueriesView displays query performance statistics.
@@ -94,6 +104,9 @@ type QueriesView struct {
 	loggingEnabled bool
 	loggingChecked bool
 
+	// Data source
+	dataSource DataSourceType
+
 	// EXPLAIN view
 	explainView *ExplainView
 
@@ -127,6 +140,7 @@ func (v *QueriesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case QueriesDataMsg:
 		v.refreshing = false
+		v.dataSource = msg.DataSource
 		if msg.Error != nil {
 			v.err = msg.Error
 		} else {
@@ -207,8 +221,21 @@ func (v *QueriesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return v.handleExplainMode(key)
 	}
 
+	// Handle help mode
+	if v.mode == ModeHelp {
+		switch key {
+		case "h", "esc", "q":
+			v.mode = ModeNormal
+		}
+		return nil
+	}
+
 	// Normal mode keys
 	switch key {
+	// Help
+	case "h":
+		v.mode = ModeHelp
+
 	// Navigation
 	case "j", "down":
 		v.moveSelection(1)
@@ -522,6 +549,9 @@ func (v *QueriesView) View() string {
 	if v.mode == ModeExplain {
 		return v.explainView.View()
 	}
+	if v.mode == ModeHelp {
+		return HelpOverlay(v.width, v.height)
+	}
 
 	// Status bar
 	statusBar := v.renderStatusBar()
@@ -614,6 +644,14 @@ func (v *QueriesView) renderWithOverlay(overlay string) string {
 func (v *QueriesView) renderStatusBar() string {
 	title := styles.StatusTitleStyle.Render(v.connectionInfo)
 
+	// Data source indicator
+	var dataSourceIndicator string
+	if v.dataSource == DataSourceLogParsing {
+		dataSourceIndicator = styles.InfoStyle.Render(" [LOG]")
+	} else {
+		dataSourceIndicator = styles.DimStyle.Render(" [SAMPLE]")
+	}
+
 	var staleIndicator string
 	if !v.lastUpdate.IsZero() && time.Since(v.lastUpdate) > 5*time.Second {
 		staleIndicator = styles.ErrorStyle.Render(" [STALE]")
@@ -621,7 +659,7 @@ func (v *QueriesView) renderStatusBar() string {
 
 	timestamp := styles.StatusTimeStyle.Render(v.lastUpdate.Format("2006-01-02 15:04:05"))
 
-	gap := v.width - lipgloss.Width(title) - lipgloss.Width(staleIndicator) - lipgloss.Width(timestamp) - 4
+	gap := v.width - lipgloss.Width(title) - lipgloss.Width(dataSourceIndicator) - lipgloss.Width(staleIndicator) - lipgloss.Width(timestamp) - 4
 	if gap < 1 {
 		gap = 1
 	}
@@ -629,7 +667,7 @@ func (v *QueriesView) renderStatusBar() string {
 
 	return styles.StatusBarStyle.
 		Width(v.width - 2).
-		Render(title + staleIndicator + spaces + timestamp)
+		Render(title + dataSourceIndicator + staleIndicator + spaces + timestamp)
 }
 
 // renderHeader renders the column headers.
@@ -739,9 +777,9 @@ func (v *QueriesView) renderFooter() string {
 		var filterIndicator string
 		if v.filterActive != "" {
 			filterIndicator = styles.FooterHintStyle.Foreground(styles.ColorActive).Render(fmt.Sprintf("[FILTERED: %s] ", v.filterActive))
-			hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [y]ank [/]filter [r]efresh [R]eset [q]uit")
+			hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [e]xplain [y]ank [/]filter [R]eset [h]elp")
 		} else {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [y]ank [/]filter [r]efresh [R]eset [q]uit")
+			hints = styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [y]ank [/]filter [R]eset [h]elp")
 		}
 	}
 

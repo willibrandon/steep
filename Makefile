@@ -1,4 +1,4 @@
-.PHONY: build test test-coverage clean run help
+.PHONY: build test test-short test-integration test-coverage bench clean run help
 
 # Binary name
 BINARY_NAME=steep
@@ -22,9 +22,21 @@ build: ## Build the application
 	@$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) cmd/steep/main.go
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
-test: ## Run tests
+test: ## Run all tests
 	@echo "Running tests..."
-	$(GOTEST) -v ./...
+	$(GOTEST) -v -count=1 ./...
+
+test-short: ## Run tests (skip integration)
+	@echo "Running short tests..."
+	$(GOTEST) -short -count=1 -v ./...
+
+test-integration: ## Run integration tests only
+	@echo "Running integration tests..."
+	$(GOTEST) -v -count=1 ./tests/integration/...
+
+bench: ## Run performance benchmarks
+	@echo "Running benchmarks..."
+	$(GOTEST) -bench=. -benchmem ./tests/integration/queries/ -run=^$$
 
 test-coverage: ## Run tests with coverage
 	@echo "Running tests with coverage..."

@@ -232,7 +232,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Also fetch query stats if store is available
 		if m.queryStatsStore != nil {
-			cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queriesView.GetSortColumn(), m.queriesView.GetFilter()))
+			cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queryMonitor, m.queriesView.GetSortColumn(), m.queriesView.GetFilter()))
 		}
 		return m, tea.Batch(cmds...)
 
@@ -289,7 +289,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Also fetch query stats if store is available
 			if m.queryStatsStore != nil {
-				cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queriesView.GetSortColumn(), m.queriesView.GetFilter()))
+				cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queryMonitor, m.queriesView.GetSortColumn(), m.queriesView.GetFilter()))
 			}
 			return m, tea.Batch(cmds...)
 		}
@@ -350,7 +350,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case queriesview.RefreshQueriesMsg:
 		// Fetch query stats from SQLite store
 		if m.queryStatsStore != nil {
-			return m, fetchQueryStats(m.queryStatsStore, msg.SortColumn, msg.Filter)
+			return m, fetchQueryStats(m.queryStatsStore, m.queryMonitor, msg.SortColumn, msg.Filter)
 		}
 		return m, nil
 
@@ -814,7 +814,7 @@ func enableLogging(monitor *querymonitor.Monitor) tea.Cmd {
 }
 
 // fetchQueryStats creates a command to fetch query statistics
-func fetchQueryStats(store *sqlite.QueryStatsStore, sortCol queriesview.SortColumn, filter string) tea.Cmd {
+func fetchQueryStats(store *sqlite.QueryStatsStore, monitor *querymonitor.Monitor, sortCol queriesview.SortColumn, filter string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
@@ -842,10 +842,22 @@ func fetchQueryStats(store *sqlite.QueryStatsStore, sortCol queriesview.SortColu
 			stats, err = store.GetTopQueries(ctx, storeSort, 100)
 		}
 
+		// Get data source from monitor
+		var dataSource queriesview.DataSourceType
+		if monitor != nil {
+			switch monitor.DataSource() {
+			case querymonitor.DataSourceLogParsing:
+				dataSource = queriesview.DataSourceLogParsing
+			default:
+				dataSource = queriesview.DataSourceSampling
+			}
+		}
+
 		return queriesview.QueriesDataMsg{
-			Stats:     stats,
-			FetchedAt: time.Now(),
-			Error:     err,
+			Stats:      stats,
+			FetchedAt:  time.Now(),
+			Error:      err,
+			DataSource: dataSource,
 		}
 	}
 }

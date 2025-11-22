@@ -5,6 +5,7 @@ A terminal-based PostgreSQL monitoring tool built with Go and [Bubbletea](https:
 ## Features
 
 - **Real-time Dashboard** - Monitor database metrics, connections, and server status
+- **Query Performance Monitoring** - Track slow queries, view EXPLAIN plans, search/filter by pattern
 - **Multiple Views** - Dashboard, Activity, Queries, Locks, Tables, and Replication monitoring
 - **Keyboard Navigation** - Vim-style and intuitive keyboard shortcuts
 - **Automatic Reconnection** - Resilient connection handling with exponential backoff
@@ -38,9 +39,13 @@ make build
 ### Build Options
 
 ```bash
-make build      # Build the steep binary
-make clean      # Remove build artifacts
-make help       # Show available targets
+make build            # Build the steep binary
+make test             # Run all tests
+make test-short       # Run tests (skip integration)
+make test-integration # Run integration tests only
+make bench            # Run performance benchmarks
+make clean            # Remove build artifacts
+make help             # Show available targets
 ```
 
 ## Quick Start
@@ -198,10 +203,15 @@ connection:
 - Session statistics
 - Wait events
 
-#### Queries (Coming Soon)
-- Long-running queries
-- Query performance metrics
-- Statement statistics
+#### Queries
+- Query performance statistics with fingerprinting
+- Sort by total time, calls, mean time, or rows
+- EXPLAIN plan viewer with syntax highlighting
+- Search/filter queries by regex pattern
+- Copy queries to clipboard
+- Reset statistics
+- Data source indicator (sampling or log parsing)
+- Press `h` for keybinding help
 
 #### Locks (Coming Soon)
 - Lock monitoring
@@ -392,8 +402,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Roadmap
 
+- [x] Query performance view
 - [ ] Table statistics view
-- [ ] Query performance view
 - [ ] Lock monitoring view
 - [ ] Replication monitoring
 - [ ] Export metrics to Prometheus
