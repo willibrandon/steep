@@ -175,12 +175,12 @@ Based on plan.md structure:
 
 ### Implementation for User Story 7
 
-- [ ] T047 [US7] Create confirmation dialog component in internal/ui/components/confirm.go
-- [ ] T048 [US7] Add `R` key handler to show reset confirmation in internal/ui/views/queries/view.go
-- [ ] T049 [US7] Implement Reset() method in QueryStatsStore in internal/storage/sqlite/queries.go
-- [ ] T050 [US7] Refresh view after reset to show empty state in internal/ui/views/queries/view.go
+- [x] T047 [US7] Create confirmation dialog component in internal/ui/components/confirm.go
+- [x] T048 [US7] Add `R` key handler to show reset confirmation in internal/ui/views/queries/view.go
+- [x] T049 [US7] Implement Reset() method in QueryStatsStore in internal/storage/sqlite/queries.go
+- [x] T050 [US7] Refresh view after reset to show empty state in internal/ui/views/queries/view.go
 
-**Checkpoint**: User Story 7 complete - can reset statistics with confirmation
+**Checkpoint**: User Story 7 complete - can reset statistics with confirmation ✅
 
 ---
 
