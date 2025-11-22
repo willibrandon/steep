@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 )
+
+var whitespaceRe = regexp.MustCompile(`\s+`)
 
 // SortField defines the column to sort query results by.
 type SortField int
@@ -232,6 +235,7 @@ func scanQueryStats(rows *sql.Rows) ([]QueryStats, error) {
 			return nil, err
 		}
 		stat.Fingerprint = uint64(fingerprint) // Convert to uint64
+		stat.NormalizedQuery = strings.TrimSpace(whitespaceRe.ReplaceAllString(stat.NormalizedQuery, " "))
 		stat.FirstSeen, _ = time.Parse("2006-01-02 15:04:05", firstSeen)
 		stat.LastSeen, _ = time.Parse("2006-01-02 15:04:05", lastSeen)
 		stats = append(stats, stat)
