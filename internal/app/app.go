@@ -288,14 +288,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case dataTickMsg:
+		// Always schedule the next tick to keep the refresh loop alive
+		nextTick := tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
+			return dataTickMsg{}
+		})
 		// Fetch all data together for synchronized updates
 		if m.connected && m.activityMonitor != nil && m.statsMonitor != nil {
 			cmds := []tea.Cmd{
 				fetchActivityData(m.activityMonitor),
 				fetchStatsData(m.statsMonitor),
-				tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
-					return dataTickMsg{}
-				}),
+				nextTick,
 			}
 			// Also fetch query stats if store is available
 			if m.queryStatsStore != nil {
@@ -303,7 +305,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmds...)
 		}
-		return m, nil
+		return m, nextTick
 
 	case ErrorMsg:
 		m.connectionErr = msg.Err

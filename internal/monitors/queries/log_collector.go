@@ -46,6 +46,13 @@ type LogCollector struct {
 	errors        chan error
 	lastParams    map[string]string // Parameters from most recent DETAIL line
 	lastQuery     string            // Query from most recent execute line
+	lineBuffer    string            // Buffer for multi-line log entries
+}
+
+// isNewLogEntry checks if a line starts a new log entry (has timestamp prefix)
+func isNewLogEntry(line string) bool {
+	// PostgreSQL log entries start with: 2025-01-01 12:00:00.000
+	return len(line) >= 23 && line[4] == '-' && line[7] == '-' && line[10] == ' ' && line[13] == ':' && line[16] == ':'
 }
 
 // NewLogCollector creates a new LogCollector.
@@ -81,6 +88,7 @@ func (c *LogCollector) Stop() error {
 
 // run is the main collection loop.
 func (c *LogCollector) run(ctx context.Context) {
+
 	// Read immediately on start
 	if err := c.readNewEntries(ctx); err != nil {
 		c.sendError(err)
@@ -175,15 +183,29 @@ func (c *LogCollector) readNewEntries(ctx context.Context) error {
 		line = strings.TrimSuffix(line, "\n")
 		line = strings.TrimSuffix(line, "\r")
 
-		event, ok := c.parseLine(line)
-		if ok {
-			select {
-			case c.events <- event:
-			default:
-				// Channel full, skip event
+		// Handle multi-line log entries
+		if isNewLogEntry(line) {
+			// Process previous buffered entry
+			if c.lineBuffer != "" {
+				event, ok := c.parseLine(c.lineBuffer)
+				if ok {
+					select {
+					case c.events <- event:
+					default:
+						// Channel full, skip event
+					}
+				}
 			}
+			// Start new buffer
+			c.lineBuffer = line
+		} else if c.lineBuffer != "" {
+			// Continuation line - append to buffer
+			c.lineBuffer += " " + strings.TrimSpace(line)
 		}
 	}
+
+	// Don't process the last buffered entry - it may be incomplete
+	// It will be processed when the next entry arrives
 
 	// Update position based on bytes actually read
 	c.lastPosition += bytesRead
@@ -207,8 +229,18 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 		return QueryEvent{}, false
 	}
 
-	// Check for execute line (query without duration) - store for association
-	executeRe := regexp.MustCompile(`LOG:\s+execute\s+\S+:\s*(.+)$`)
+	// Check for statement line (query without duration) - store for association
+	statementOnlyRe := regexp.MustCompile(`LOG:\s+statement:\s*(.+)$`)
+	if stmtMatch := statementOnlyRe.FindStringSubmatch(line); stmtMatch != nil {
+		query := strings.TrimSpace(stmtMatch[1])
+		if query != "" && !strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") {
+			c.lastQuery = query
+		}
+		return QueryEvent{}, false
+	}
+
+	// Check for execute/bind line (query without duration) - store for association
+	executeRe := regexp.MustCompile(`LOG:\s+(?:execute|bind)\s+\S+:\s*(.+)$`)
 	if executeMatch := executeRe.FindStringSubmatch(line); executeMatch != nil {
 		query := strings.TrimSpace(executeMatch[1])
 		if query != "" && !strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") {
@@ -231,7 +263,7 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 
 	// Try to get query from same line (old format) or from stored lastQuery (new format)
 	var query string
-	statementRe := regexp.MustCompile(`(?:statement|execute\s+\S+):\s*(.+)$`)
+	statementRe := regexp.MustCompile(`(?:statement|execute\s+\S+|bind\s+\S+):\s*(.+)$`)
 	if statementMatch := statementRe.FindStringSubmatch(line); statementMatch != nil {
 		query = strings.TrimSpace(statementMatch[1])
 	} else if c.lastQuery != "" {
