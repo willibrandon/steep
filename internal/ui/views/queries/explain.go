@@ -14,14 +14,16 @@ import (
 
 // ExplainView renders an EXPLAIN plan result.
 type ExplainView struct {
-	query          string
-	plan           string
-	formattedQuery string
-	formattedPlan  string
-	err            string
-	scrollOffset   int
-	width          int
-	height         int
+	query            string
+	plan             string
+	formattedQuery   string
+	formattedPlan    string
+	err              string
+	scrollOffset     int
+	width            int
+	height           int
+	pgFormatMissing  bool
+	pgFormatChecked  bool
 }
 
 // NewExplainView creates a new EXPLAIN view.
@@ -137,6 +139,15 @@ func (v *ExplainView) View() string {
 
 	footer := footerStyle.Render("[j/k]scroll [g/G]top/bottom [y]copy query [Y]copy plan [esc/q]back" + scrollInfo)
 
+	// Warning if pgFormatter is missing
+	if v.pgFormatMissing {
+		warningStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("11")). // Yellow
+			Bold(true)
+		warning := warningStyle.Render("⚠ pgFormatter not available - SQL not formatted (docker pull backplane/pgformatter)")
+		footer = warning + "\n" + footer
+	}
+
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		title,
@@ -203,13 +214,20 @@ func (v *ExplainView) formatSQLPlain(sql string) string {
 		return ""
 	}
 
-	// Use pgFormatter (pg_format) for proper PostgreSQL formatting
-	cmd := exec.Command("pg_format", "-s", "2", "-w", "80")
+	// Try pg_format via Docker
+	cmd := exec.Command("docker", "run", "--rm", "-i", "backplane/pgformatter", "-s", "2", "-w", "80")
 	cmd.Stdin = strings.NewReader(sql)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err == nil {
+		v.pgFormatChecked = true
 		return strings.TrimSpace(out.String())
+	}
+
+	// Check if Docker/image is missing
+	if !v.pgFormatChecked {
+		v.pgFormatChecked = true
+		v.pgFormatMissing = true
 	}
 
 	return sql
@@ -221,9 +239,9 @@ func (v *ExplainView) formatSQL(sql string) string {
 		return ""
 	}
 
-	// Use pgFormatter (pg_format) for proper PostgreSQL formatting
+	// Try pg_format via Docker
 	formatted := sql
-	cmd := exec.Command("pg_format", "-s", "2", "-w", "80")
+	cmd := exec.Command("docker", "run", "--rm", "-i", "backplane/pgformatter", "-s", "2", "-w", "80")
 	cmd.Stdin = strings.NewReader(sql)
 	var out bytes.Buffer
 	cmd.Stdout = &out
