@@ -158,12 +158,12 @@ Based on plan.md structure:
 
 ### Implementation for User Story 6
 
-- [ ] T043 [US6] Implement ClipboardWriter wrapper with graceful degradation in internal/ui/clipboard.go
-- [ ] T044 [US6] Add `y` key handler to copy full query text in internal/ui/views/queries/view.go
-- [ ] T045 [US6] Display confirmation message in status bar after copy in internal/ui/views/queries/view.go
-- [ ] T046 [US6] Handle clipboard unavailability (headless) with error message in internal/ui/clipboard.go
+- [x] T043 [US6] Implement ClipboardWriter wrapper with graceful degradation in internal/ui/clipboard.go
+- [x] T044 [US6] Add `y` key handler to copy full query text in internal/ui/views/queries/view.go
+- [x] T045 [US6] Display confirmation message in status bar after copy in internal/ui/views/queries/view.go
+- [x] T046 [US6] Handle clipboard unavailability (headless) with error message in internal/ui/clipboard.go
 
-**Checkpoint**: User Story 6 complete - can copy queries to clipboard
+**Checkpoint**: User Story 6 complete - can copy queries to clipboard ✅
 
 ---
 

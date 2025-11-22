@@ -11,6 +11,7 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/willibrandon/steep/internal/storage/sqlite"
+	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
@@ -95,6 +96,9 @@ type QueriesView struct {
 
 	// EXPLAIN view
 	explainView *ExplainView
+
+	// Clipboard
+	clipboard *ui.ClipboardWriter
 }
 
 // NewQueriesView creates a new queries view.
@@ -103,6 +107,7 @@ func NewQueriesView() *QueriesView {
 		mode:        ModeNormal,
 		sortColumn:  SortByTotalTime,
 		explainView: NewExplainView(),
+		clipboard:   ui.NewClipboardWriter(),
 	}
 }
 
@@ -272,6 +277,19 @@ func (v *QueriesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 					Query:       stat.NormalizedQuery,
 					Fingerprint: stat.Fingerprint,
 				}
+			}
+		}
+
+	// Copy query to clipboard
+	case "y":
+		if len(v.stats) > 0 && v.selectedIdx < len(v.stats) {
+			stat := v.stats[v.selectedIdx]
+			if !v.clipboard.IsAvailable() {
+				v.showToast("Clipboard unavailable: "+v.clipboard.Error(), true)
+			} else if err := v.clipboard.Write(stat.NormalizedQuery); err != nil {
+				v.showToast("Copy failed: "+err.Error(), true)
+			} else {
+				v.showToast("Query copied to clipboard", false)
 			}
 		}
 	}
@@ -721,9 +739,9 @@ func (v *QueriesView) renderFooter() string {
 		var filterIndicator string
 		if v.filterActive != "" {
 			filterIndicator = styles.FooterHintStyle.Foreground(styles.ColorActive).Render(fmt.Sprintf("[FILTERED: %s] ", v.filterActive))
-			hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [/]filter [r]efresh [R]eset [q]uit")
+			hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [y]ank [/]filter [r]efresh [R]eset [q]uit")
 		} else {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [/]filter [r]efresh [R]eset [q]uit")
+			hints = styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [y]ank [/]filter [r]efresh [R]eset [q]uit")
 		}
 	}
 
