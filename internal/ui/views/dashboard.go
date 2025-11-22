@@ -97,6 +97,27 @@ func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case tea.MouseMsg:
+		if d.mode == ModeNormal && len(d.connections) > 0 {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				d.table.MoveUp()
+			case tea.MouseButtonWheelDown:
+				d.table.MoveDown()
+			case tea.MouseButtonLeft:
+				if msg.Action == tea.MouseActionPress {
+					row := msg.Y - 12
+					if row >= 0 && row < len(d.connections) {
+						d.table.GotoTop()
+						for i := 0; i < row; i++ {
+							d.table.MoveDown()
+						}
+					}
+				}
+			}
+		}
+		return d, nil
+
 	case ui.ActivityDataMsg:
 		d.refreshing = false
 		if msg.Error != nil {

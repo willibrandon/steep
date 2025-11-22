@@ -133,6 +133,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
 
+	case tea.MouseMsg:
+		// Forward mouse events to the active view
+		switch m.currentView {
+		case views.ViewQueries:
+			m.queriesView.Update(msg)
+		case views.ViewDashboard:
+			m.dashboard.Update(msg)
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height

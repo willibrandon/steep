@@ -192,6 +192,30 @@ func (v *QueriesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		v.SetSize(msg.Width, msg.Height)
+
+	case tea.MouseMsg:
+		// Only handle mouse in normal mode
+		if v.mode == ModeNormal {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				v.moveSelection(-1)
+			case tea.MouseButtonWheelDown:
+				v.moveSelection(1)
+			case tea.MouseButtonLeft:
+				if msg.Action == tea.MouseActionPress {
+					// Calculate which row was clicked
+					// Empirically determined offset for correct row selection
+					tableStartY := 7
+					clickedRow := msg.Y - tableStartY
+					if clickedRow >= 0 {
+						newIdx := v.scrollOffset + clickedRow
+						if newIdx >= 0 && newIdx < len(v.stats) {
+							v.selectedIdx = newIdx
+						}
+					}
+				}
+			}
+		}
 	}
 
 	return v, nil
