@@ -120,15 +120,15 @@ Based on plan.md structure:
 
 ### Implementation for User Story 4
 
-- [ ] T031 [US4] Implement ExplainCache with LRU eviction in internal/monitors/queries/explain_cache.go
-- [ ] T032 [US4] Add EXPLAIN (FORMAT JSON) execution in internal/monitors/queries/monitor.go
-- [ ] T033 [US4] Create EXPLAIN plan display component with viewport in internal/ui/views/queries/explain.go
-- [ ] T034 [US4] Add `e` key handler to execute EXPLAIN for selected query in internal/ui/views/queries/view.go
-- [ ] T035 [US4] Format JSON output for readability in internal/ui/views/queries/explain.go
-- [ ] T036 [US4] Add Esc/q key to return from EXPLAIN view in internal/ui/views/queries/explain.go
-- [ ] T037 [US4] Handle EXPLAIN errors (permissions, syntax) with user-friendly messages in internal/ui/views/queries/explain.go
+- [x] T031 [US4] Implement ExplainCache with LRU eviction in internal/monitors/queries/explain_cache.go
+- [x] T032 [US4] Add EXPLAIN (FORMAT JSON) execution in internal/monitors/queries/monitor.go
+- [x] T033 [US4] Create EXPLAIN plan display component with viewport in internal/ui/views/queries/explain.go
+- [x] T034 [US4] Add `e` key handler to execute EXPLAIN for selected query in internal/ui/views/queries/view.go
+- [x] T035 [US4] Format JSON output for readability in internal/ui/views/queries/explain.go
+- [x] T036 [US4] Add Esc/q key to return from EXPLAIN view in internal/ui/views/queries/explain.go
+- [x] T037 [US4] Handle EXPLAIN errors (permissions, syntax) with user-friendly messages in internal/ui/views/queries/explain.go
 
-**Checkpoint**: User Story 4 complete - can view EXPLAIN plans for any query
+**Checkpoint**: User Story 4 complete - can view EXPLAIN plans for any query ✅
 
 ---
 

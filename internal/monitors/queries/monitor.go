@@ -336,3 +336,27 @@ func (m *Monitor) estimateRows(ctx context.Context, query string, params map[str
 
 	return 0
 }
+
+// GetExplainPlan runs EXPLAIN (FORMAT JSON) and returns the formatted plan.
+func (m *Monitor) GetExplainPlan(ctx context.Context, query string) (string, error) {
+	// Replace parameter placeholders with NULL for EXPLAIN
+	// (we don't have params here, so use NULL which is valid for any type)
+	paramRe := regexp.MustCompile(`\$\d+`)
+	queryForExplain := paramRe.ReplaceAllString(query, "NULL")
+
+	// Run EXPLAIN (FORMAT JSON) to get full plan
+	explainQuery := fmt.Sprintf("EXPLAIN (FORMAT JSON) %s", queryForExplain)
+
+	var planJSON string
+	err := m.pool.QueryRow(ctx, explainQuery).Scan(&planJSON)
+	if err != nil {
+		return "", fmt.Errorf("EXPLAIN failed: %w", err)
+	}
+
+	return planJSON, nil
+}
+
+// Pool returns the database connection pool.
+func (m *Monitor) Pool() *pgxpool.Pool {
+	return m.pool
+}

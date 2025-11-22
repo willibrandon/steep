@@ -48,6 +48,7 @@ const (
 	ModeFilter
 	ModeConfirmReset
 	ModeConfirmEnableLogging
+	ModeExplain
 )
 
 // QueriesDataMsg contains query stats data from the monitor.
@@ -91,13 +92,17 @@ type QueriesView struct {
 	// Logging status
 	loggingEnabled bool
 	loggingChecked bool
+
+	// EXPLAIN view
+	explainView *ExplainView
 }
 
 // NewQueriesView creates a new queries view.
 func NewQueriesView() *QueriesView {
 	return &QueriesView{
-		mode:       ModeNormal,
-		sortColumn: SortByTotalTime,
+		mode:        ModeNormal,
+		sortColumn:  SortByTotalTime,
+		explainView: NewExplainView(),
 	}
 }
 
@@ -158,6 +163,14 @@ func (v *QueriesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.loggingEnabled = true
 		}
 
+	case ExplainResultMsg:
+		if msg.Error != nil {
+			v.explainView.SetError(msg.Query, msg.Error)
+		} else {
+			v.explainView.SetPlan(msg.Query, msg.Plan)
+		}
+		v.mode = ModeExplain
+
 	case tea.WindowSizeMsg:
 		v.SetSize(msg.Width, msg.Height)
 	}
@@ -182,6 +195,11 @@ func (v *QueriesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Handle confirm enable logging mode
 	if v.mode == ModeConfirmEnableLogging {
 		return v.handleConfirmEnableLoggingMode(key)
+	}
+
+	// Handle EXPLAIN mode
+	if v.mode == ModeExplain {
+		return v.handleExplainMode(key)
 	}
 
 	// Normal mode keys
@@ -236,6 +254,18 @@ func (v *QueriesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Enable logging (manual trigger)
 	case "L":
 		v.mode = ModeConfirmEnableLogging
+
+	// EXPLAIN plan
+	case "e":
+		if len(v.stats) > 0 && v.selectedIdx < len(v.stats) {
+			stat := v.stats[v.selectedIdx]
+			return func() tea.Msg {
+				return ExplainQueryMsg{
+					Query:       stat.NormalizedQuery,
+					Fingerprint: stat.Fingerprint,
+				}
+			}
+		}
 	}
 
 	return nil
@@ -264,6 +294,27 @@ func (v *QueriesView) handleConfirmEnableLoggingMode(key string) tea.Cmd {
 			return EnableLoggingMsg{}
 		}
 	case "n", "N", "esc":
+		v.mode = ModeNormal
+	}
+	return nil
+}
+
+// handleExplainMode processes keys in EXPLAIN view mode.
+func (v *QueriesView) handleExplainMode(key string) tea.Cmd {
+	switch key {
+	case "j", "down":
+		v.explainView.ScrollDown(1)
+	case "k", "up":
+		v.explainView.ScrollUp(1)
+	case "g", "home":
+		v.explainView.ScrollToTop()
+	case "G", "end":
+		v.explainView.ScrollToBottom()
+	case "ctrl+d", "pgdown":
+		v.explainView.PageDown()
+	case "ctrl+u", "pgup":
+		v.explainView.PageUp()
+	case "esc", "q":
 		v.mode = ModeNormal
 	}
 	return nil
@@ -407,6 +458,20 @@ type LoggingStatusMsg struct {
 	Error    error
 }
 
+// ExplainQueryMsg requests an EXPLAIN plan for a query.
+type ExplainQueryMsg struct {
+	Query       string
+	Fingerprint uint64
+}
+
+// ExplainResultMsg contains the EXPLAIN plan result.
+type ExplainResultMsg struct {
+	Query       string
+	Plan        string
+	Fingerprint uint64
+	Error       error
+}
+
 // View renders the queries view.
 func (v *QueriesView) View() string {
 	if !v.connected {
@@ -419,6 +484,9 @@ func (v *QueriesView) View() string {
 	}
 	if v.mode == ModeConfirmEnableLogging {
 		return v.renderWithOverlay(v.renderEnableLoggingDialog())
+	}
+	if v.mode == ModeExplain {
+		return v.explainView.View()
 	}
 
 	// Status bar
@@ -638,7 +706,7 @@ func (v *QueriesView) renderFooter() string {
 		if v.filterActive != "" {
 			filterIndicator = styles.FooterHintStyle.Foreground(styles.ColorActive).Render(fmt.Sprintf("[FILTERED: %s] ", v.filterActive))
 		}
-		hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [/]filter [r]efresh [R]eset [q]uit")
+		hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [/]filter [r]efresh [R]eset [q]uit")
 	}
 
 	sortInfo := fmt.Sprintf("Sort: %s ↓", v.sortColumn.String())
@@ -660,6 +728,7 @@ func (v *QueriesView) renderFooter() string {
 func (v *QueriesView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
+	v.explainView.SetSize(width, height)
 }
 
 // SetConnected sets the connection status.
@@ -684,7 +753,7 @@ func (v *QueriesView) GetFilter() string {
 
 // IsInputMode returns true if in filter input mode.
 func (v *QueriesView) IsInputMode() bool {
-	return v.mode == ModeFilter
+	return v.mode == ModeFilter || v.mode == ModeExplain
 }
 
 // Helper functions

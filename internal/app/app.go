@@ -395,6 +395,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case queriesview.ExplainQueryMsg:
+		// Execute EXPLAIN for the query
+		if m.queryMonitor != nil {
+			return m, executeExplain(m.queryMonitor, msg.Query, msg.Fingerprint)
+		}
+		return m, nil
+
+	case queriesview.ExplainResultMsg:
+		// Forward to queries view
+		m.queriesView.Update(msg)
+		return m, nil
+
 	case ReconnectAttemptMsg:
 		// Update reconnection status display
 		m.statusBar.SetReconnecting(true, msg.Attempt, msg.MaxAttempts)
@@ -828,6 +840,20 @@ func fetchQueryStats(store *sqlite.QueryStatsStore, sortCol queriesview.SortColu
 			Stats:     stats,
 			FetchedAt: time.Now(),
 			Error:     err,
+		}
+	}
+}
+
+// executeExplain creates a command to run EXPLAIN for a query
+func executeExplain(monitor *querymonitor.Monitor, query string, fingerprint uint64) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		plan, err := monitor.GetExplainPlan(ctx, query)
+		return queriesview.ExplainResultMsg{
+			Query:       query,
+			Plan:        plan,
+			Fingerprint: fingerprint,
+			Error:       err,
 		}
 	}
 }
