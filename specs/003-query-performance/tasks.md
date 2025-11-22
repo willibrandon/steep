@@ -105,10 +105,10 @@ Based on plan.md structure:
 
 ### Implementation for User Story 3
 
-- [ ] T029 [US3] Update table query to sort by rows when "By Rows" tab active in internal/ui/views/queries/view.go
-- [ ] T030 [US3] Ensure all three sort modes work correctly with column re-sorting in internal/ui/views/queries/table.go
+- [x] T029 [US3] Update table query to sort by rows when "By Rows" tab active in internal/ui/views/queries/view.go
+- [x] T030 [US3] Ensure all three sort modes work correctly with column re-sorting in internal/ui/views/queries/view.go
 
-**Checkpoint**: User Story 3 complete - all three tabs functional
+**Checkpoint**: User Story 3 complete - all three tabs functional ✅
 
 ---
 
