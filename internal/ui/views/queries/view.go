@@ -536,8 +536,16 @@ func (v *QueriesView) ensureVisible() {
 
 // tableHeight returns the number of visible table rows.
 func (v *QueriesView) tableHeight() int {
-	// height - status(1) - header(1) - tabs(1) - footer(1) - padding
-	return max(1, v.height-5)
+	// height - status(1) - title(1) - header(1) - tabs(1) - footer(1) - padding
+	return max(1, v.height-6)
+}
+
+// renderTitle renders the view title.
+func (v *QueriesView) renderTitle() string {
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(styles.ColorAccent)
+	return titleStyle.Render("Query Performance")
 }
 
 // cycleSort cycles through sort columns.
@@ -628,6 +636,9 @@ func (v *QueriesView) View() string {
 	// Status bar
 	statusBar := v.renderStatusBar()
 
+	// Title
+	title := v.renderTitle()
+
 	// Header
 	header := v.renderHeader()
 
@@ -643,6 +654,7 @@ func (v *QueriesView) View() string {
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		statusBar,
+		title,
 		header,
 		tabBar,
 		table,

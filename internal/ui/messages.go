@@ -107,3 +107,17 @@ type WindowTooSmallMsg struct {
 	Width  int
 	Height int
 }
+
+// LocksDataMsg contains lock data from the monitor goroutine.
+type LocksDataMsg struct {
+	Data      *models.LocksData
+	FetchedAt time.Time
+	Error     error
+}
+
+// KillQueryResultMsg contains the result of a kill query attempt.
+type KillQueryResultMsg struct {
+	PID     int
+	Success bool
+	Error   error
+}

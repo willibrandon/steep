@@ -240,14 +240,21 @@ func (v *ExplainView) formatSQLPlain(sql string) string {
 		return ""
 	}
 
-	// Try pg_format via Docker
-	cmd := exec.Command("docker", "run", "--rm", "-i", "backplane/pgformatter", "-s", "2", "-w", "80")
-	cmd.Stdin = strings.NewReader(sql)
+	// Workaround for pgFormatter bug: empty strings ('') prevent proper column wrapping
+	// Replace with placeholder before formatting, then restore after
+	const placeholder = "'__EMPTY_STRING_PLACEHOLDER__'"
+	sqlToFormat := strings.ReplaceAll(sql, "''", placeholder)
+
+	// Try pg_format via Docker with -W 1 for one column per line
+	cmd := exec.Command("docker", "run", "--rm", "-i", "backplane/pgformatter", "-s", "2", "-W", "1")
+	cmd.Stdin = strings.NewReader(sqlToFormat)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err == nil {
 		v.pgFormatChecked = true
-		return strings.TrimSpace(out.String())
+		formatted := strings.TrimSpace(out.String())
+		// Restore empty strings
+		return strings.ReplaceAll(formatted, placeholder, "''")
 	}
 
 	// Check if Docker/image is missing
@@ -265,14 +272,21 @@ func (v *ExplainView) formatSQL(sql string) string {
 		return ""
 	}
 
-	// Try pg_format via Docker
+	// Workaround for pgFormatter bug: empty strings ('') prevent proper column wrapping
+	// Replace with placeholder before formatting, then restore after
+	const placeholder = "'__EMPTY_STRING_PLACEHOLDER__'"
+	sqlToFormat := strings.ReplaceAll(sql, "''", placeholder)
+
+	// Try pg_format via Docker with -W 1 for one column per line
 	formatted := sql
-	cmd := exec.Command("docker", "run", "--rm", "-i", "backplane/pgformatter", "-s", "2", "-w", "80")
-	cmd.Stdin = strings.NewReader(sql)
+	cmd := exec.Command("docker", "run", "--rm", "-i", "backplane/pgformatter", "-s", "2", "-W", "1")
+	cmd.Stdin = strings.NewReader(sqlToFormat)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err == nil {
 		formatted = strings.TrimSpace(out.String())
+		// Restore empty strings
+		formatted = strings.ReplaceAll(formatted, placeholder, "''")
 	}
 
 	// Apply syntax highlighting

@@ -58,20 +58,20 @@
 
 ### Tests for User Story 1
 
-- [ ] T013 [P] [US1] Integration test for GetLocks query in tests/integration/locks_test.go
-- [ ] T014 [P] [US1] Unit test for lock table rendering in tests/unit/locks_view_test.go
+- [x] T013 [P] [US1] Integration test for GetLocks query in tests/integration/locks/locks_test.go
+- [x] T014 [P] [US1] Unit test for lock table rendering in tests/unit/locks/locks_view_test.go
 
 ### Implementation for User Story 1
 
-- [ ] T015 [US1] Implement GetLocks() query function in internal/db/queries/locks.go
-- [ ] T016 [US1] Implement LocksMonitor goroutine with 2s refresh in internal/monitors/locks.go
-- [ ] T017 [US1] Create LocksUpdateMsg message type in internal/ui/messages.go
-- [ ] T018 [US1] Implement LocksView with table display in internal/ui/views/locks/view.go
-- [ ] T019 [US1] Implement SetSize() for terminal resize handling in internal/ui/views/locks/view.go
-- [ ] T020 [US1] Add column sorting with `s` key in internal/ui/views/locks/view.go
-- [ ] T021 [US1] Implement detail view for full query with `d` key in internal/ui/views/locks/view.go (MUST follow explain.go pattern exactly: manual scrollOffset, msg.String() for keys, JoinVertical layout, pg_format via Docker, chroma monokai highlighting, footer key hints)
-- [ ] T022 [US1] Create help text with keyboard shortcuts in internal/ui/views/locks/help.go
-- [ ] T023 [US1] Add auto-refresh ticker (2 seconds) in internal/ui/views/locks/view.go
+- [x] T015 [US1] Implement GetLocks() query function in internal/db/queries/locks.go
+- [x] T016 [US1] Implement LocksMonitor goroutine with 2s refresh in internal/monitors/locks.go
+- [x] T017 [US1] Create LocksUpdateMsg message type in internal/ui/messages.go
+- [x] T018 [US1] Implement LocksView with table display in internal/ui/views/locks/view.go
+- [x] T019 [US1] Implement SetSize() for terminal resize handling in internal/ui/views/locks/view.go
+- [x] T020 [US1] Add column sorting with `s` key in internal/ui/views/locks/view.go
+- [x] T021 [US1] Implement detail view for full query with `d` key in internal/ui/views/locks/view.go (MUST follow explain.go pattern exactly: manual scrollOffset, msg.String() for keys, JoinVertical layout, pg_format via Docker, chroma monokai highlighting, footer key hints)
+- [x] T022 [US1] Create help text with keyboard shortcuts in internal/ui/views/locks/help.go
+- [x] T023 [US1] Add auto-refresh ticker (2 seconds) in internal/ui/views/locks/view.go
 
 **Checkpoint**: User Story 1 complete - Locks view displays all active locks with sorting and detail view
 

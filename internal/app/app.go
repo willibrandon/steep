@@ -19,6 +19,7 @@ import (
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
 	"github.com/willibrandon/steep/internal/ui/views"
+	locksview "github.com/willibrandon/steep/internal/ui/views/locks"
 	queriesview "github.com/willibrandon/steep/internal/ui/views/queries"
 )
 
@@ -49,6 +50,7 @@ type Model struct {
 	viewList    []views.ViewType
 	dashboard   *views.DashboardView
 	queriesView *queriesview.QueriesView
+	locksView   *locksview.LocksView
 
 	// Application state
 	helpVisible  bool
@@ -67,6 +69,7 @@ type Model struct {
 	// Monitors
 	activityMonitor *monitors.ActivityMonitor
 	statsMonitor    *monitors.StatsMonitor
+	locksMonitor    *monitors.LocksMonitor
 
 	// Query performance monitoring
 	queryStatsDB    *sqlite.DB
@@ -94,6 +97,10 @@ func New(readonly bool) (*Model, error) {
 	// Initialize queries view
 	queriesView := queriesview.NewQueriesView()
 
+	// Initialize locks view
+	locksView := locksview.NewLocksView()
+	locksView.SetReadOnly(readonly)
+
 	// Define available views
 	viewList := []views.ViewType{
 		views.ViewDashboard,
@@ -113,6 +120,7 @@ func New(readonly bool) (*Model, error) {
 		viewList:          viewList,
 		dashboard:         dashboard,
 		queriesView:       queriesView,
+		locksView:         locksView,
 		connected:         false,
 		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
 		reconnecting:      false,
@@ -140,6 +148,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.queriesView.Update(msg)
 		case views.ViewDashboard:
 			m.dashboard.Update(msg)
+		case views.ViewLocks:
+			m.locksView.Update(msg)
 		}
 		return m, nil
 
@@ -158,6 +168,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusBar.SetSize(msg.Width)
 		m.dashboard.SetSize(msg.Width, msg.Height-5) // Reserve space for header and status bar
 		m.queriesView.SetSize(msg.Width, msg.Height-5)
+		m.locksView.SetSize(msg.Width, msg.Height-5)
 		return m, nil
 
 	case DatabaseConnectedMsg:
@@ -176,11 +187,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dashboard.SetConnectionInfo(connectionInfo)
 		m.queriesView.SetConnected(true)
 		m.queriesView.SetConnectionInfo(connectionInfo)
+		m.locksView.SetConnected(true)
+		m.locksView.SetConnectionInfo(connectionInfo)
 
 		// Initialize monitors
 		refreshInterval := m.config.UI.RefreshInterval
 		m.activityMonitor = monitors.NewActivityMonitor(msg.Pool, refreshInterval)
 		m.statsMonitor = monitors.NewStatsMonitor(msg.Pool, refreshInterval)
+		m.locksMonitor = monitors.NewLocksMonitor(msg.Pool, 2*time.Second) // 2s refresh for locks
 
 		// Initialize query stats storage
 		storagePath := m.config.Queries.StoragePath
@@ -236,6 +250,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{
 			fetchActivityData(m.activityMonitor),
 			fetchStatsData(m.statsMonitor),
+			fetchLocksData(m.locksMonitor),
 			tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
 				return dataTickMsg{}
 			}),
@@ -298,6 +313,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				fetchActivityData(m.activityMonitor),
 				fetchStatsData(m.statsMonitor),
 				nextTick,
+			}
+			// Fetch locks data if monitor is available
+			if m.locksMonitor != nil {
+				cmds = append(cmds, fetchLocksData(m.locksMonitor))
 			}
 			// Also fetch query stats if store is available
 			if m.queryStatsStore != nil {
@@ -424,6 +443,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.queriesView.Update(msg)
 		return m, nil
 
+	case ui.LocksDataMsg:
+		// Forward to locks view
+		m.locksView.Update(msg)
+		return m, nil
+
+	case locksview.RefreshLocksMsg:
+		// Fetch locks data
+		if m.locksMonitor != nil {
+			return m, fetchLocksData(m.locksMonitor)
+		}
+		return m, nil
+
+	case locksview.KillLockMsg:
+		// Kill blocking process
+		if m.dbPool != nil {
+			return m, killLockingProcess(m.dbPool, msg.PID)
+		}
+		return m, nil
+
+	case ui.KillQueryResultMsg:
+		// Forward to locks view
+		m.locksView.Update(msg)
+		return m, nil
+
 	case ReconnectAttemptMsg:
 		// Update reconnection status display
 		m.statusBar.SetReconnecting(true, msg.Attempt, msg.MaxAttempts)
@@ -467,7 +510,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Check for quit (but not when view is in input mode)
 	if msg.String() == "q" || msg.String() == "ctrl+c" {
-		inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode()
+		inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode()
 		if !inInputMode {
 			m.quitting = true
 			return m, tea.Quit
@@ -481,7 +524,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Check for escape (close help) - but only if not in input mode
-	inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode()
+	inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode()
 	if msg.String() == "esc" && m.helpVisible && !inInputMode {
 		m.helpVisible = false
 		return m, nil
@@ -527,6 +570,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.connected {
 			var cmd tea.Cmd
 			_, cmd = m.queriesView.Update(msg)
+			return m, cmd
+		}
+	case views.ViewLocks:
+		if m.connected {
+			var cmd tea.Cmd
+			_, cmd = m.locksView.Update(msg)
 			return m, cmd
 		}
 	}
@@ -619,7 +668,7 @@ func (m Model) renderCurrentView() string {
 	case views.ViewQueries:
 		return m.queriesView.View()
 	case views.ViewLocks:
-		return styles.InfoStyle.Render("Lock monitoring view - Coming soon!")
+		return m.locksView.View()
 	case views.ViewTables:
 		return styles.InfoStyle.Render("Table statistics view - Coming soon!")
 	case views.ViewReplication:
@@ -885,6 +934,27 @@ func executeExplain(monitor *querymonitor.Monitor, query string, fingerprint uin
 			Fingerprint: fingerprint,
 			Error:       err,
 			Analyze:     analyze,
+		}
+	}
+}
+
+// fetchLocksData creates a command to fetch lock data
+func fetchLocksData(monitor *monitors.LocksMonitor) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		return monitor.FetchOnce(ctx)
+	}
+}
+
+// killLockingProcess creates a command to terminate a blocking process
+func killLockingProcess(pool *pgxpool.Pool, pid int) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		success, err := queries.TerminateBackend(ctx, pool, pid)
+		return ui.KillQueryResultMsg{
+			PID:     pid,
+			Success: success,
+			Error:   err,
 		}
 	}
 }
