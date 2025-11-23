@@ -11,6 +11,7 @@ import (
 
 	"github.com/alecthomas/chroma/v2/quick"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
@@ -87,6 +88,8 @@ type LocksView struct {
 	deadlockSelectedIdx  int
 	deadlockScrollOffset int
 	deadlockEnabled      bool
+	deadlockLoading      bool
+	deadlockSpinner      spinner.Model
 
 	// Deadlock detail view state
 	deadlockDetail       *sqlite.DeadlockEvent
@@ -122,17 +125,23 @@ type LocksView struct {
 
 // NewLocksView creates a new locks view.
 func NewLocksView() *LocksView {
+	s := spinner.New()
+	s.Spinner = spinner.MiniDot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+
 	return &LocksView{
-		mode:       ModeNormal,
-		sortColumn: SortByPID,
-		data:       models.NewLocksData(),
-		clipboard:  ui.NewClipboardWriter(),
+		mode:            ModeNormal,
+		sortColumn:      SortByPID,
+		data:            models.NewLocksData(),
+		clipboard:       ui.NewClipboardWriter(),
+		deadlockSpinner: s,
+		deadlockLoading: true, // Start in loading state
 	}
 }
 
 // Init initializes the locks view.
 func (v *LocksView) Init() tea.Cmd {
-	return nil
+	return v.deadlockSpinner.Tick
 }
 
 // Update handles messages for the locks view.
@@ -174,6 +183,7 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ui.DeadlockHistoryMsg:
 		v.deadlockEnabled = msg.Enabled
+		v.deadlockLoading = false // Stop loading spinner
 		if msg.Error == nil {
 			v.deadlocks = msg.Deadlocks
 			// Ensure selection is valid
@@ -181,6 +191,11 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				v.deadlockSelectedIdx = max(0, len(v.deadlocks)-1)
 			}
 		}
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		v.deadlockSpinner, cmd = v.deadlockSpinner.Update(msg)
+		return v, cmd
 
 	case ui.DeadlockDetailMsg:
 		if msg.Error == nil && msg.Event != nil {
@@ -433,7 +448,7 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 	// Reset deadlock history
 	case "R":
-		if v.activeTab == TabDeadlockHistory && len(v.deadlocks) > 0 {
+		if v.activeTab == TabDeadlockHistory && v.deadlockEnabled {
 			v.mode = ModeConfirmResetDeadlocks
 		}
 	}
@@ -1203,6 +1218,11 @@ func (v *LocksView) renderFooter() string {
 
 // renderDeadlockHistory renders the deadlock history table.
 func (v *LocksView) renderDeadlockHistory() string {
+	// Show spinner while loading (before we know if enabled)
+	if v.deadlockLoading {
+		return styles.InfoStyle.Render(v.deadlockSpinner.View() + " Scanning logs for deadlock history...")
+	}
+
 	if !v.deadlockEnabled {
 		return styles.InfoStyle.Render("Deadlock history requires logging_collector = on in PostgreSQL")
 	}
@@ -1392,6 +1412,9 @@ func (v *LocksView) formatDeadlockDetail(event *sqlite.DeadlockEvent) []string {
 			}
 		}
 	}
+
+	// Add blank line before footer
+	lines = append(lines, "")
 
 	return lines
 }

@@ -75,6 +75,11 @@ func NewDeadlockMonitor(ctx context.Context, pool *pgxpool.Pool, store *sqlite.D
 	m.parser = NewLogParser(format, logDir, logPattern, store, dbName, m.sessionCache)
 	m.enabled = true
 
+	// Load persisted log positions for faster startup
+	if positions, err := store.GetLogPositions(ctx); err == nil && len(positions) > 0 {
+		m.parser.SetPositions(positions)
+	}
+
 	return m, nil
 }
 
@@ -125,6 +130,10 @@ func (m *DeadlockMonitor) ParseOnce(ctx context.Context) (int, error) {
 		}
 		if newFormat != currentFormat {
 			m.parser = NewLogParser(newFormat, m.logDir, m.logPattern, m.store, m.dbName, m.sessionCache)
+			// Load persisted positions for new parser
+			if positions, err := m.store.GetLogPositions(ctx); err == nil && len(positions) > 0 {
+				m.parser.SetPositions(positions)
+			}
 		}
 	}
 
@@ -132,7 +141,17 @@ func (m *DeadlockMonitor) ParseOnce(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
-	return m.parser.ParseNewEntries(ctx)
+	count, err := m.parser.ParseNewEntries(ctx)
+
+	// Save log positions for faster startup next time
+	if m.store != nil {
+		positions := m.parser.GetPositions()
+		for filePath, pos := range positions {
+			m.store.SaveLogPosition(ctx, filePath, pos)
+		}
+	}
+
+	return count, err
 }
 
 // Run starts the monitor goroutine that parses logs periodically.
@@ -203,4 +222,11 @@ func (m *DeadlockMonitor) GetDeadlockCount(ctx context.Context) (int64, error) {
 // CleanupOldEvents removes deadlock events older than the retention period.
 func (m *DeadlockMonitor) CleanupOldEvents(ctx context.Context, retention time.Duration) (int64, error) {
 	return m.store.Cleanup(ctx, retention)
+}
+
+// ResetPositions clears in-memory log positions after a reset.
+func (m *DeadlockMonitor) ResetPositions() {
+	if m.parser != nil {
+		m.parser.ResetPositions()
+	}
 }

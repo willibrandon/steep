@@ -59,6 +59,13 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_deadlock_processes_pid ON deadlock_processes(pid);
 	CREATE INDEX IF NOT EXISTS idx_deadlock_processes_relation ON deadlock_processes(relation_name);
 	CREATE INDEX IF NOT EXISTS idx_deadlock_processes_fingerprint ON deadlock_processes(query_fingerprint);
+
+	-- Log file positions for resuming parsing
+	CREATE TABLE IF NOT EXISTS log_positions (
+		file_path TEXT PRIMARY KEY,
+		position INTEGER NOT NULL,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
 	_, err := db.conn.Exec(schema)

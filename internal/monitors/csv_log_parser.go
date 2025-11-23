@@ -77,6 +77,33 @@ func (p *CSVLogParser) ParseNewEntries(ctx context.Context) (int, error) {
 	return totalParsed, nil
 }
 
+// SetPositions sets the initial file positions from persisted storage.
+func (p *CSVLogParser) SetPositions(positions map[string]int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for k, v := range positions {
+		p.lastPosition[k] = v
+	}
+}
+
+// GetPositions returns the current file positions for persistence.
+func (p *CSVLogParser) GetPositions() map[string]int64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	result := make(map[string]int64, len(p.lastPosition))
+	for k, v := range p.lastPosition {
+		result[k] = v
+	}
+	return result
+}
+
+// ResetPositions clears all file positions to start fresh.
+func (p *CSVLogParser) ResetPositions() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lastPosition = make(map[string]int64)
+}
+
 // parseFile parses a single CSV log file for deadlock events.
 func (p *CSVLogParser) parseFile(ctx context.Context, filePath string) (int, error) {
 	file, err := os.Open(filePath)

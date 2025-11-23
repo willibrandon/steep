@@ -4,22 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
 	"time"
 )
-
-var debugLog *os.File
-
-func init() {
-	debugLog, _ = os.OpenFile("/tmp/steep_debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-}
-
-func debugf(format string, args ...interface{}) {
-	if debugLog != nil {
-		fmt.Fprintf(debugLog, format+"\n", args...)
-		debugLog.Sync()
-	}
-}
 
 // DeadlockEvent represents a single deadlock incident.
 type DeadlockEvent struct {
@@ -151,11 +137,8 @@ func (s *DeadlockStore) GetRecentEvents(ctx context.Context, days int, limit int
 
 	daysArg := fmt.Sprintf("-%d days", days)
 
-	debugf("GetRecentEvents: days=%d limit=%d daysArg=%s", days, limit, daysArg)
-
 	rows, err := s.db.conn.QueryContext(ctx, query, daysArg, limit)
 	if err != nil {
-		debugf("GetRecentEvents query error: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -176,11 +159,9 @@ func (s *DeadlockStore) GetRecentEvents(ctx context.Context, days int, limit int
 			&detectionTimeMs,
 		)
 		if err != nil {
-			debugf("GetRecentEvents scan error: %v", err)
 			return nil, err
 		}
 
-		debugf("row: ID=%d detectedAt=%q db=%s procs=%d", summary.ID, detectedAt, summary.DatabaseName, summary.ProcessCount)
 		// Try RFC3339 first (from _loc=auto), then standard format
 		summary.DetectedAt, _ = time.Parse(time.RFC3339, detectedAt)
 		if summary.DetectedAt.IsZero() {
@@ -197,7 +178,6 @@ func (s *DeadlockStore) GetRecentEvents(ctx context.Context, days int, limit int
 		summaries = append(summaries, summary)
 	}
 
-	debugf("GetRecentEvents: returning %d summaries", len(summaries))
 	return summaries, rows.Err()
 }
 
@@ -227,8 +207,15 @@ func (s *DeadlockStore) GetEvent(ctx context.Context, eventID int64) (*DeadlockE
 		return nil, err
 	}
 
-	event.DetectedAt, _ = time.Parse("2006-01-02 15:04:05", detectedAt)
-	event.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	// Try RFC3339 first (from _loc=auto), then standard format
+	event.DetectedAt, _ = time.Parse(time.RFC3339, detectedAt)
+	if event.DetectedAt.IsZero() {
+		event.DetectedAt, _ = time.Parse("2006-01-02 15:04:05", detectedAt)
+	}
+	event.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	}
 
 	// Get processes
 	rows, err := s.db.conn.QueryContext(ctx, `
@@ -270,11 +257,17 @@ func (s *DeadlockStore) GetEvent(ctx context.Context, eventID int64) (*DeadlockE
 		}
 
 		if backendStart.Valid {
-			t, _ := time.Parse("2006-01-02 15:04:05", backendStart.String)
+			t, _ := time.Parse(time.RFC3339, backendStart.String)
+			if t.IsZero() {
+				t, _ = time.Parse("2006-01-02 15:04:05", backendStart.String)
+			}
 			proc.BackendStart = &t
 		}
 		if xactStart.Valid {
-			t, _ := time.Parse("2006-01-02 15:04:05", xactStart.String)
+			t, _ := time.Parse(time.RFC3339, xactStart.String)
+			if t.IsZero() {
+				t, _ = time.Parse("2006-01-02 15:04:05", xactStart.String)
+			}
 			proc.XactStart = &t
 		}
 		if fingerprint.Valid {
@@ -330,7 +323,10 @@ func (s *DeadlockStore) GetTableStats(ctx context.Context, days int, limit int) 
 			return nil, err
 		}
 
-		stat.LastOccurrence, _ = time.Parse("2006-01-02 15:04:05", lastOccurrence)
+		stat.LastOccurrence, _ = time.Parse(time.RFC3339, lastOccurrence)
+		if stat.LastOccurrence.IsZero() {
+			stat.LastOccurrence, _ = time.Parse("2006-01-02 15:04:05", lastOccurrence)
+		}
 		stats = append(stats, stat)
 	}
 
@@ -379,12 +375,49 @@ func (s *DeadlockStore) Count(ctx context.Context) (int64, error) {
 	return count, err
 }
 
-// Reset deletes all deadlock history.
+// Reset deletes all deadlock history and log positions.
 func (s *DeadlockStore) Reset(ctx context.Context) error {
 	_, err := s.db.conn.ExecContext(ctx, "DELETE FROM deadlock_processes")
 	if err != nil {
 		return err
 	}
 	_, err = s.db.conn.ExecContext(ctx, "DELETE FROM deadlock_events")
+	if err != nil {
+		return err
+	}
+	// Also reset log positions so parsing starts fresh
+	_, err = s.db.conn.ExecContext(ctx, "DELETE FROM log_positions")
+	return err
+}
+
+// GetLogPositions returns all saved log file positions.
+func (s *DeadlockStore) GetLogPositions(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.db.conn.QueryContext(ctx, "SELECT file_path, position FROM log_positions")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	positions := make(map[string]int64)
+	for rows.Next() {
+		var filePath string
+		var position int64
+		if err := rows.Scan(&filePath, &position); err != nil {
+			return nil, err
+		}
+		positions[filePath] = position
+	}
+	return positions, rows.Err()
+}
+
+// SaveLogPosition saves or updates a log file position.
+func (s *DeadlockStore) SaveLogPosition(ctx context.Context, filePath string, position int64) error {
+	_, err := s.db.conn.ExecContext(ctx, `
+		INSERT INTO log_positions (file_path, position, updated_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(file_path) DO UPDATE SET
+			position = excluded.position,
+			updated_at = CURRENT_TIMESTAMP
+	`, filePath, position)
 	return err
 }

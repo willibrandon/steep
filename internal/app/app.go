@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -134,6 +135,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		connectToDatabase(m.config),
 		tickStatusBar(),
+		m.locksView.Init(),
 	)
 }
 
@@ -529,9 +531,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ui.ResetDeadlocksResultMsg:
+		// Reset in-memory positions if successful
+		if msg.Success && m.deadlockMonitor != nil {
+			m.deadlockMonitor.ResetPositions()
+		}
 		// Forward to locks view
 		m.locksView.Update(msg)
 		return m, nil
+
+	case spinner.TickMsg:
+		// Forward spinner ticks to locks view
+		_, cmd := m.locksView.Update(msg)
+		return m, cmd
 
 	case ReconnectAttemptMsg:
 		// Update reconnection status display

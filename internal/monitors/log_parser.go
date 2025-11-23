@@ -21,6 +21,15 @@ type LogParser interface {
 	// ParseNewEntries scans log files for new deadlock events.
 	// Returns the number of events parsed.
 	ParseNewEntries(ctx context.Context) (int, error)
+
+	// SetPositions sets the initial file positions from persisted storage.
+	SetPositions(positions map[string]int64)
+
+	// GetPositions returns the current file positions for persistence.
+	GetPositions() map[string]int64
+
+	// ResetPositions clears all file positions to start fresh.
+	ResetPositions()
 }
 
 // NewLogParser creates a log parser based on the detected format.
