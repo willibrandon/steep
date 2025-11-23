@@ -1453,57 +1453,63 @@ func truncateString(s string, maxLen int) string {
 func (v *LocksView) formatDeadlockDetail(event *sqlite.DeadlockEvent) []string {
 	var lines []string
 
+	// Styles
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+	labelStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
+	processStyle := lipgloss.NewStyle().Bold(true)
+	warningStyle := lipgloss.NewStyle().Foreground(styles.ColorBlocking) // Yellow for blocked by
+
 	// Header
-	lines = append(lines, fmt.Sprintf("Deadlock Event #%d", event.ID))
+	lines = append(lines, sectionStyle.Render(fmt.Sprintf("Deadlock Event #%d", event.ID)))
 	lines = append(lines, strings.Repeat("─", 60))
 	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("Detected:    %s", event.DetectedAt.Format("2006-01-02 15:04:05")))
-	lines = append(lines, fmt.Sprintf("Database:    %s", event.DatabaseName))
+	lines = append(lines, labelStyle.Render("Detected:    ")+event.DetectedAt.Format("2006-01-02 15:04:05"))
+	lines = append(lines, labelStyle.Render("Database:    ")+event.DatabaseName)
 	if event.ResolvedByPID != nil {
-		lines = append(lines, fmt.Sprintf("Resolved by: PID %d", *event.ResolvedByPID))
+		lines = append(lines, labelStyle.Render("Resolved by: ")+fmt.Sprintf("PID %d", *event.ResolvedByPID))
 	}
 	if event.DetectionTimeMs != nil {
-		lines = append(lines, fmt.Sprintf("Detection:   %dms", *event.DetectionTimeMs))
+		lines = append(lines, labelStyle.Render("Detection:   ")+fmt.Sprintf("%dms", *event.DetectionTimeMs))
 	}
 	lines = append(lines, "")
 
 	// Processes
-	lines = append(lines, fmt.Sprintf("Processes Involved: %d", len(event.Processes)))
+	lines = append(lines, sectionStyle.Render(fmt.Sprintf("Processes Involved: %d", len(event.Processes))))
 	lines = append(lines, strings.Repeat("─", 60))
 
 	for i, proc := range event.Processes {
 		lines = append(lines, "")
-		lines = append(lines, fmt.Sprintf("Process %d:", i+1))
-		lines = append(lines, fmt.Sprintf("  PID:         %d", proc.PID))
+		lines = append(lines, processStyle.Render(fmt.Sprintf("Process %d:", i+1)))
+		lines = append(lines, "  "+labelStyle.Render("PID:         ")+fmt.Sprintf("%d", proc.PID))
 		if proc.Username != "" {
-			lines = append(lines, fmt.Sprintf("  User:        %s", proc.Username))
+			lines = append(lines, "  "+labelStyle.Render("User:        ")+proc.Username)
 		}
 		if proc.ApplicationName != "" {
-			lines = append(lines, fmt.Sprintf("  Application: %s", proc.ApplicationName))
+			lines = append(lines, "  "+labelStyle.Render("Application: ")+proc.ApplicationName)
 		}
 		if proc.ClientAddr != "" {
-			lines = append(lines, fmt.Sprintf("  Client:      %s", proc.ClientAddr))
+			lines = append(lines, "  "+labelStyle.Render("Client:      ")+proc.ClientAddr)
 		}
 		if proc.BackendStart != nil {
-			lines = append(lines, fmt.Sprintf("  Backend:     %s", proc.BackendStart.Format("2006-01-02 15:04:05")))
+			lines = append(lines, "  "+labelStyle.Render("Backend:     ")+proc.BackendStart.Format("2006-01-02 15:04:05"))
 		}
 		if proc.XactStart != nil {
-			lines = append(lines, fmt.Sprintf("  Xact Start:  %s", proc.XactStart.Format("2006-01-02 15:04:05")))
+			lines = append(lines, "  "+labelStyle.Render("Xact Start:  ")+proc.XactStart.Format("2006-01-02 15:04:05"))
 		}
 		if proc.LockType != "" {
-			lines = append(lines, fmt.Sprintf("  Lock Type:   %s", proc.LockType))
+			lines = append(lines, "  "+labelStyle.Render("Lock Type:   ")+proc.LockType)
 		}
 		if proc.LockMode != "" {
-			lines = append(lines, fmt.Sprintf("  Lock Mode:   %s", proc.LockMode))
+			lines = append(lines, "  "+labelStyle.Render("Lock Mode:   ")+proc.LockMode)
 		}
 		if proc.RelationName != "" {
-			lines = append(lines, fmt.Sprintf("  Relation:    %s", proc.RelationName))
+			lines = append(lines, "  "+labelStyle.Render("Relation:    ")+proc.RelationName)
 		}
 		if proc.BlockedByPID != nil {
-			lines = append(lines, fmt.Sprintf("  Blocked by:  PID %d", *proc.BlockedByPID))
+			lines = append(lines, "  "+warningStyle.Render(fmt.Sprintf("Blocked by:  PID %d", *proc.BlockedByPID)))
 		}
 		if proc.Query != "" {
-			lines = append(lines, "  Query:")
+			lines = append(lines, "  "+labelStyle.Render("Query:"))
 			// Format query with pgFormatter and apply syntax highlighting
 			formattedQuery := v.formatDeadlockSQL(proc.Query)
 			queryLines := strings.Split(formattedQuery, "\n")
