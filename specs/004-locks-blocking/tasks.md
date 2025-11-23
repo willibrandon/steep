@@ -275,9 +275,13 @@ Task: "T011 [P] Create BlockingChain struct for tree rendering in internal/db/mo
 
 ## UI Consistency Requirements (NON-NEGOTIABLE)
 
-**Before implementing any UI component, study these reference files:**
+**Before implementing any UI component:**
+1. **READ THE ENTIRE `internal/ui/views/queries/view.go` FILE (all ~990 lines)** - Do not skim. Do not stop early.
+2. Copy-paste working code as starting template, then modify. Do not write from scratch.
+
+**Reference files:**
+- `internal/ui/views/queries/view.go` - **MUST READ COMPLETELY** before writing view.go
 - `internal/ui/views/queries/explain.go` - PRIMARY REFERENCE for detail view
-- `internal/ui/views/queries/view.go` - footer and table patterns
 
 **Detail view (T021) MUST follow explain.go exactly:**
 1. Manual `scrollOffset` for scrolling (NOT viewport - it causes Esc delay)

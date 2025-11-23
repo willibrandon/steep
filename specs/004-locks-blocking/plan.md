@@ -109,8 +109,8 @@ The locks view MUST exactly follow the queries view implementation patterns. Thi
 
 ### Reference Files (MUST study before implementation)
 
+- `internal/ui/views/queries/view.go` - **READ ENTIRE FILE (all ~990 lines)** before writing any view code
 - `internal/ui/views/queries/explain.go` - PRIMARY REFERENCE for detail view
-- `internal/ui/views/queries/view.go` - footer and table patterns
 
 ## Complexity Tracking
 
