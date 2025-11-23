@@ -130,6 +130,12 @@ type DeadlockHistoryMsg struct {
 	Error     error
 }
 
+// DeadlockScanProgressMsg reports file scanning progress.
+type DeadlockScanProgressMsg struct {
+	CurrentFile int
+	TotalFiles  int
+}
+
 // DeadlockDetailMsg contains a single deadlock event with full details.
 type DeadlockDetailMsg struct {
 	Event *sqlite.DeadlockEvent
@@ -141,6 +147,15 @@ type ResetDeadlocksMsg struct{}
 
 // ResetDeadlocksResultMsg contains the result of resetting deadlock history.
 type ResetDeadlocksResultMsg struct {
+	Success bool
+	Error   error
+}
+
+// ResetLogPositionsMsg is sent to request resetting log positions.
+type ResetLogPositionsMsg struct{}
+
+// ResetLogPositionsResultMsg contains the result of resetting log positions.
+type ResetLogPositionsResultMsg struct {
 	Success bool
 	Error   error
 }

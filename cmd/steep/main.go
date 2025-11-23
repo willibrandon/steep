@@ -68,6 +68,9 @@ func main() {
 		tea.WithMouseCellMotion(), // Enable mouse support
 	)
 
+	// Set program reference for progress updates from goroutines
+	model.SetProgram(p)
+
 	// Run the program
 	finalModel, err := p.Run()
 	if err != nil {

@@ -16,11 +16,17 @@ const (
 	LogFormatUnknown LogFormat = "unknown"
 )
 
+// ProgressFunc is called to report file scanning progress.
+type ProgressFunc func(currentFile, totalFiles int)
+
 // LogParser defines the interface for parsing PostgreSQL log files.
 type LogParser interface {
 	// ParseNewEntries scans log files for new deadlock events.
 	// Returns the number of events parsed.
 	ParseNewEntries(ctx context.Context) (int, error)
+
+	// ParseNewEntriesWithProgress scans with progress reporting.
+	ParseNewEntriesWithProgress(ctx context.Context, progress ProgressFunc) (int, error)
 
 	// SetPositions sets the initial file positions from persisted storage.
 	SetPositions(positions map[string]int64)

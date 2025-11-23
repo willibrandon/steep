@@ -16,6 +16,7 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
@@ -62,6 +63,7 @@ const (
 	ModeDeadlockDetail
 	ModeConfirmEnableLogging
 	ModeConfirmResetDeadlocks
+	ModeConfirmResetLogPositions
 )
 
 // LocksView displays lock information and blocking relationships.
@@ -89,6 +91,8 @@ type LocksView struct {
 	deadlockScrollOffset int
 	deadlockEnabled      bool
 	deadlockLoading      bool
+	deadlockCurrentFile  int
+	deadlockTotalFiles   int
 	deadlockSpinner      spinner.Model
 
 	// Deadlock detail view state
@@ -181,6 +185,10 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.showToast(fmt.Sprintf("Failed to terminate process %d", msg.PID), true)
 		}
 
+	case ui.DeadlockScanProgressMsg:
+		v.deadlockCurrentFile = msg.CurrentFile
+		v.deadlockTotalFiles = msg.TotalFiles
+
 	case ui.DeadlockHistoryMsg:
 		v.deadlockEnabled = msg.Enabled
 		v.deadlockLoading = false // Stop loading spinner
@@ -214,13 +222,26 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case ui.ResetDeadlocksResultMsg:
+		logger.Info("LocksView: ResetDeadlocksResultMsg received", "success", msg.Success, "error", msg.Error)
 		if msg.Error != nil {
 			v.showToast("Reset failed: "+msg.Error.Error(), true)
 		} else if msg.Success {
+			logger.Info("LocksView: clearing deadlocks")
 			v.deadlocks = nil
 			v.deadlockSelectedIdx = 0
 			v.deadlockScrollOffset = 0
 			v.showToast("Deadlock history cleared", false)
+			logger.Info("LocksView: toast shown")
+		}
+
+	case ui.ResetLogPositionsResultMsg:
+		if msg.Error != nil {
+			v.showToast("Reset log positions failed: "+msg.Error.Error(), true)
+		} else if msg.Success {
+			v.deadlockLoading = true
+			v.deadlockCurrentFile = 0
+			v.deadlockTotalFiles = 0
+			v.showToast("Log positions reset - re-parsing logs...", false)
 		}
 
 	case tea.WindowSizeMsg:
@@ -348,6 +369,20 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	// Handle reset log positions confirmation mode
+	if v.mode == ModeConfirmResetLogPositions {
+		switch key {
+		case "y", "Y":
+			v.mode = ModeNormal
+			return func() tea.Msg {
+				return ui.ResetLogPositionsMsg{}
+			}
+		case "n", "N", "esc":
+			v.mode = ModeNormal
+		}
+		return nil
+	}
+
 	// Normal mode keys
 	switch key {
 	// Help
@@ -450,6 +485,12 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	case "R":
 		if v.activeTab == TabDeadlockHistory && v.deadlockEnabled {
 			v.mode = ModeConfirmResetDeadlocks
+		}
+
+	// Reset log positions
+	case "P":
+		if v.activeTab == TabDeadlockHistory && v.deadlockEnabled {
+			v.mode = ModeConfirmResetLogPositions
 		}
 	}
 
@@ -865,6 +906,9 @@ func (v *LocksView) View() string {
 	if v.mode == ModeConfirmResetDeadlocks {
 		return v.renderWithOverlay(v.renderResetDeadlocksDialog())
 	}
+	if v.mode == ModeConfirmResetLogPositions {
+		return v.renderWithOverlay(v.renderResetLogPositionsDialog())
+	}
 	if v.mode == ModeDetail {
 		return v.renderDetailView()
 	}
@@ -966,6 +1010,26 @@ func (v *LocksView) renderResetDeadlocksDialog() string {
 		"This will clear all %d recorded deadlocks.\n\nThis action cannot be undone.",
 		len(v.deadlocks),
 	)
+
+	prompt := "Are you sure? [y]es [n]o"
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		details,
+		"",
+		prompt,
+	)
+
+	return styles.DialogStyle.Render(content)
+}
+
+// renderResetLogPositionsDialog renders the reset log positions confirmation dialog.
+func (v *LocksView) renderResetLogPositionsDialog() string {
+	title := styles.DialogTitleStyle.Render("Reset Log Positions")
+
+	details := "This will reset all log file positions.\n\nNext refresh will re-parse all log files from the beginning,\nwhich may re-detect previously recorded deadlocks."
 
 	prompt := "Are you sure? [y]es [n]o"
 
@@ -1220,7 +1284,11 @@ func (v *LocksView) renderFooter() string {
 func (v *LocksView) renderDeadlockHistory() string {
 	// Show spinner while loading (before we know if enabled)
 	if v.deadlockLoading {
-		return styles.InfoStyle.Render(v.deadlockSpinner.View() + " Scanning logs for deadlock history...")
+		msg := " Scanning logs for deadlock history..."
+		if v.deadlockTotalFiles > 0 {
+			msg = fmt.Sprintf(" Scanning log file %d/%d for deadlock history...", v.deadlockCurrentFile, v.deadlockTotalFiles)
+		}
+		return styles.InfoStyle.Render(v.deadlockSpinner.View() + msg)
 	}
 
 	if !v.deadlockEnabled {
@@ -1286,7 +1354,7 @@ func (v *LocksView) renderDeadlockFooter() string {
 		}
 		hints = toastStyle.Render(v.toastMessage)
 	} else {
-		hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [R]eset [←/→]tabs [h]elp")
+		hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [R]eset [P]ositions [←/→]tabs [h]elp")
 	}
 
 	count := fmt.Sprintf("%d / %d", min(v.deadlockSelectedIdx+1, len(v.deadlocks)), len(v.deadlocks))

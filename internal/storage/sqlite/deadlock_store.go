@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/willibrandon/steep/internal/logger"
 )
 
 // DeadlockEvent represents a single deadlock incident.
@@ -375,19 +377,41 @@ func (s *DeadlockStore) Count(ctx context.Context) (int64, error) {
 	return count, err
 }
 
-// Reset deletes all deadlock history and log positions.
+// Reset deletes all deadlock history (events and processes only).
 func (s *DeadlockStore) Reset(ctx context.Context) error {
-	_, err := s.db.conn.ExecContext(ctx, "DELETE FROM deadlock_processes")
+	logger.Info("DeadlockStore.Reset: starting DELETE FROM deadlock_processes")
+	result, err := s.db.conn.ExecContext(ctx, "DELETE FROM deadlock_processes")
 	if err != nil {
+		logger.Error("DeadlockStore.Reset: failed to delete processes", "error", err)
 		return err
 	}
-	_, err = s.db.conn.ExecContext(ctx, "DELETE FROM deadlock_events")
+	rows1, _ := result.RowsAffected()
+	logger.Info("DeadlockStore.Reset: deleted processes", "count", rows1)
+
+	logger.Info("DeadlockStore.Reset: starting DELETE FROM deadlock_events")
+	result, err = s.db.conn.ExecContext(ctx, "DELETE FROM deadlock_events")
 	if err != nil {
+		logger.Error("DeadlockStore.Reset: failed to delete events", "error", err)
 		return err
 	}
-	// Also reset log positions so parsing starts fresh
-	_, err = s.db.conn.ExecContext(ctx, "DELETE FROM log_positions")
-	return err
+	rows2, _ := result.RowsAffected()
+	logger.Info("DeadlockStore.Reset: deleted events", "count", rows2)
+
+	return nil
+}
+
+// ResetLogPositions deletes all log positions so parsing starts fresh.
+func (s *DeadlockStore) ResetLogPositions(ctx context.Context) error {
+	logger.Info("DeadlockStore.ResetLogPositions: starting DELETE FROM log_positions")
+	result, err := s.db.conn.ExecContext(ctx, "DELETE FROM log_positions")
+	if err != nil {
+		logger.Error("DeadlockStore.ResetLogPositions: failed to delete positions", "error", err)
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	logger.Info("DeadlockStore.ResetLogPositions: deleted positions", "count", rows)
+
+	return nil
 }
 
 // GetLogPositions returns all saved log file positions.

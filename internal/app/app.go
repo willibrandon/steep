@@ -13,6 +13,7 @@ import (
 	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/db"
 	"github.com/willibrandon/steep/internal/db/queries"
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/monitors"
 	querymonitor "github.com/willibrandon/steep/internal/monitors/queries"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
@@ -28,6 +29,9 @@ import (
 type Model struct {
 	// Configuration
 	config *config.Config
+
+	// Program reference for sending messages from goroutines
+	program *tea.Program
 
 	// Database connection
 	dbPool    *pgxpool.Pool
@@ -78,6 +82,7 @@ type Model struct {
 	queryStatsDB    *sqlite.DB
 	queryStatsStore *sqlite.QueryStatsStore
 	queryMonitor    *querymonitor.Monitor
+
 }
 
 // New creates a new application model
@@ -128,6 +133,11 @@ func New(readonly bool) (*Model, error) {
 		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
 		reconnecting:      false,
 	}, nil
+}
+
+// SetProgram sets the tea.Program reference for sending messages from goroutines.
+func (m *Model) SetProgram(p *tea.Program) {
+	m.program = p
 }
 
 // Init initializes the application
@@ -261,7 +271,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fetchActivityData(m.activityMonitor),
 			fetchStatsData(m.statsMonitor),
 			fetchLocksData(m.locksMonitor),
-			fetchDeadlockHistory(m.deadlockMonitor),
+			fetchDeadlockHistory(m.deadlockMonitor, m.program),
 			tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
 				return dataTickMsg{}
 			}),
@@ -331,7 +341,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Fetch deadlock history if monitor is available
 			if m.deadlockMonitor != nil {
-				cmds = append(cmds, fetchDeadlockHistory(m.deadlockMonitor))
+				cmds = append(cmds, fetchDeadlockHistory(m.deadlockMonitor, m.program))
 			}
 			// Also fetch query stats if store is available
 			if m.queryStatsStore != nil {
@@ -463,6 +473,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.locksView.Update(msg)
 		return m, nil
 
+	case ui.DeadlockScanProgressMsg:
+		// Forward progress to locks view
+		m.locksView.Update(msg)
+		return m, nil
+
 	case ui.DeadlockHistoryMsg:
 		// Forward to locks view
 		m.locksView.Update(msg)
@@ -525,18 +540,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ui.ResetDeadlocksMsg:
 		// Reset deadlock history
+		logger.Info("ResetDeadlocksMsg: received")
 		if m.deadlockStore != nil {
 			return m, resetDeadlockHistory(m.deadlockStore)
 		}
 		return m, nil
 
 	case ui.ResetDeadlocksResultMsg:
-		// Reset in-memory positions if successful
-		if msg.Success && m.deadlockMonitor != nil {
-			m.deadlockMonitor.ResetPositions()
-		}
-		// Forward to locks view
+		// Forward result to locks view
+		logger.Info("ResetDeadlocksResultMsg: received", "success", msg.Success, "error", msg.Error)
 		m.locksView.Update(msg)
+		logger.Info("ResetDeadlocksResultMsg: forwarded to locks view")
+		return m, nil
+
+	case ui.ResetLogPositionsMsg:
+		// Reset log positions
+		logger.Info("ResetLogPositionsMsg: received")
+		if m.deadlockStore != nil {
+			return m, resetLogPositions(m.deadlockStore, m.deadlockMonitor)
+		}
+		return m, nil
+
+	case ui.ResetLogPositionsResultMsg:
+		// Forward result to locks view
+		logger.Info("ResetLogPositionsResultMsg: received", "success", msg.Success, "error", msg.Error)
+		m.locksView.Update(msg)
+		// Trigger re-parse after successful reset
+		if msg.Success && m.deadlockMonitor != nil {
+			return m, fetchDeadlockHistory(m.deadlockMonitor, m.program)
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -1037,7 +1069,7 @@ func fetchLocksData(monitor *monitors.LocksMonitor) tea.Cmd {
 }
 
 // fetchDeadlockHistory creates a command to fetch deadlock history
-func fetchDeadlockHistory(monitor *monitors.DeadlockMonitor) tea.Cmd {
+func fetchDeadlockHistory(monitor *monitors.DeadlockMonitor, program *tea.Program) tea.Cmd {
 	if monitor == nil {
 		return func() tea.Msg {
 			return ui.DeadlockHistoryMsg{Enabled: false}
@@ -1045,10 +1077,20 @@ func fetchDeadlockHistory(monitor *monitors.DeadlockMonitor) tea.Cmd {
 	}
 	return func() tea.Msg {
 		ctx := context.Background()
-		// Parse any new entries first
-		monitor.ParseOnce(ctx)
+		logger.Info("fetchDeadlockHistory: starting parse")
+		// Parse any new entries with progress reporting
+		monitor.ParseOnceWithProgress(ctx, func(current, total int) {
+			if program != nil {
+				program.Send(ui.DeadlockScanProgressMsg{
+					CurrentFile: current,
+					TotalFiles:  total,
+				})
+			}
+		})
+		logger.Info("fetchDeadlockHistory: parse complete, getting recent deadlocks")
 		// Get recent deadlocks (last 30 days, limit 100)
 		deadlocks, err := monitor.GetRecentDeadlocks(ctx, 30, 100)
+		logger.Info("fetchDeadlockHistory: complete", "count", len(deadlocks), "error", err)
 		return ui.DeadlockHistoryMsg{
 			Deadlocks: deadlocks,
 			Enabled:   monitor.IsEnabled(),
@@ -1087,9 +1129,29 @@ func enableLoggingCollector(pool *pgxpool.Pool) tea.Cmd {
 // resetDeadlockHistory creates a command to reset deadlock history
 func resetDeadlockHistory(store *sqlite.DeadlockStore) tea.Cmd {
 	return func() tea.Msg {
+		logger.Info("resetDeadlockHistory: starting")
 		ctx := context.Background()
 		err := store.Reset(ctx)
+		logger.Info("resetDeadlockHistory: complete", "error", err)
 		return ui.ResetDeadlocksResultMsg{
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// resetLogPositions creates a command to reset log positions
+func resetLogPositions(store *sqlite.DeadlockStore, monitor *monitors.DeadlockMonitor) tea.Cmd {
+	return func() tea.Msg {
+		logger.Info("resetLogPositions: starting")
+		ctx := context.Background()
+		err := store.ResetLogPositions(ctx)
+		if err == nil && monitor != nil {
+			// Also reset in-memory positions
+			monitor.ResetPositions()
+		}
+		logger.Info("resetLogPositions: complete", "error", err)
+		return ui.ResetLogPositionsResultMsg{
 			Success: err == nil,
 			Error:   err,
 		}

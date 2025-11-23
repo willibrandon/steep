@@ -31,10 +31,20 @@ func EnableLoggingCollector(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	// Read and modify postgresql.conf
+	// Configure logging with proper rotation to prevent log file accumulation:
+	// - log_filename with %a (day of week) enables weekly rotation
+	// - log_truncate_on_rotation overwrites old logs instead of appending
+	// - log_rotation_age of 1440 (1 day) rotates daily
+	// - log_rotation_size of 0 disables size-based rotation for predictable names
+	// This keeps exactly 7 days of logs, one file per day
 	err = modifyPostgresConfig(configFile, map[string]string{
-		"logging_collector": "on",
-		"log_lock_waits":    "on",
-		"log_directory":     "log",
+		"logging_collector":        "on",
+		"log_lock_waits":           "on",
+		"log_directory":            "log",
+		"log_filename":             "'postgresql-%a.log'",
+		"log_truncate_on_rotation": "on",
+		"log_rotation_age":         "1440",
+		"log_rotation_size":        "0",
 	})
 	if err != nil {
 		return fmt.Errorf("modify config: %w", err)

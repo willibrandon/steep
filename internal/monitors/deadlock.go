@@ -113,6 +113,11 @@ func (m *DeadlockMonitor) GetLogDirectory() string {
 
 // ParseOnce parses log files once and returns number of new deadlocks found.
 func (m *DeadlockMonitor) ParseOnce(ctx context.Context) (int, error) {
+	return m.ParseOnceWithProgress(ctx, nil)
+}
+
+// ParseOnceWithProgress parses log files with progress reporting.
+func (m *DeadlockMonitor) ParseOnceWithProgress(ctx context.Context, progress ProgressFunc) (int, error) {
 	if !m.enabled {
 		return 0, nil
 	}
@@ -141,7 +146,7 @@ func (m *DeadlockMonitor) ParseOnce(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
-	count, err := m.parser.ParseNewEntries(ctx)
+	count, err := m.parser.ParseNewEntriesWithProgress(ctx, progress)
 
 	// Save log positions for faster startup next time
 	if m.store != nil {

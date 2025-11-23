@@ -69,6 +69,11 @@ func NewJSONLogParser(logDir, logPattern string, store *sqlite.DeadlockStore, db
 
 // ParseNewEntries scans JSON log files for new deadlock events.
 func (p *JSONLogParser) ParseNewEntries(ctx context.Context) (int, error) {
+	return p.ParseNewEntriesWithProgress(ctx, nil)
+}
+
+// ParseNewEntriesWithProgress scans JSON log files with progress reporting.
+func (p *JSONLogParser) ParseNewEntriesWithProgress(ctx context.Context, progress ProgressFunc) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -87,8 +92,12 @@ func (p *JSONLogParser) ParseNewEntries(ctx context.Context) (int, error) {
 		files = append(files, files2...)
 	}
 
+	totalFiles := len(files)
 	totalParsed := 0
-	for _, file := range files {
+	for i, file := range files {
+		if progress != nil {
+			progress(i+1, totalFiles)
+		}
 		count, err := p.parseFile(ctx, file)
 		if err != nil {
 			continue
