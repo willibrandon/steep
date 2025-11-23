@@ -89,8 +89,10 @@ sleep 0.5
 # Connection 4: Try to lock the table (BLOCKED - will appear RED)
 echo "[Blocked 3] Starting blocked LOCK TABLE query..."
 psql -d "$DB" <<EOF &
+BEGIN;
 -- BLOCKED waiting for table lock (will appear RED in Steep)
 LOCK TABLE $TABLE IN ACCESS EXCLUSIVE MODE;
+COMMIT;
 EOF
 BLOCKED3_PID=$!
 

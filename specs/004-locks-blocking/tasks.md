@@ -108,15 +108,15 @@
 
 ### Tests for User Story 3
 
-- [ ] T031 [P] [US3] Unit test for RenderLockTree with various chain depths in tests/unit/lock_tree_test.go
+- [x] T031 [P] [US3] Unit test for RenderLockTree with various chain depths in tests/unit/locks/lock_tree_test.go
 
 ### Implementation for User Story 3
 
-- [ ] T032 [US3] Implement BuildBlockingChains() to construct tree from relationships in internal/monitors/locks.go
-- [ ] T033 [US3] Implement RenderLockTree() using treeprint library in internal/ui/components/lock_tree.go
-- [ ] T034 [US3] Add truncateQuery() helper for tree node display in internal/ui/components/lock_tree.go
-- [ ] T035 [US3] Integrate tree view below table in locks view in internal/ui/views/locks/view.go
-- [ ] T036 [US3] Handle empty tree state (no blocking) gracefully in internal/ui/views/locks/view.go
+- [x] T032 [US3] Implement BuildBlockingChains() to construct tree from relationships in internal/monitors/locks.go
+- [x] T033 [US3] Implement RenderLockTree() using treeprint library in internal/ui/components/lock_tree.go
+- [x] T034 [US3] Add truncateQuery() helper for tree node display in internal/ui/components/lock_tree.go
+- [x] T035 [US3] Integrate tree view below table in locks view in internal/ui/views/locks/view.go
+- [x] T036 [US3] Handle empty tree state (no blocking) gracefully in internal/ui/views/locks/view.go
 
 **Checkpoint**: User Story 3 complete - Blocking relationships visualized as hierarchical tree
 

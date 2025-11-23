@@ -16,6 +16,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/ui"
+	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
@@ -135,6 +136,8 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if v.selectedIdx >= len(v.data.Locks) {
 				v.selectedIdx = max(0, len(v.data.Locks)-1)
 			}
+			// Ensure selected row is visible (reset scroll if needed)
+			v.ensureVisible()
 		}
 
 	case ui.KillQueryResultMsg:
@@ -379,6 +382,18 @@ func (v *LocksView) openDetailView() {
 	// Add formatted SQL lines
 	sqlLines := strings.Split(formatted, "\n")
 	lines = append(lines, sqlLines...)
+
+	// Add blocking chain tree if this lock is involved in blocking
+	if status != models.LockStatusNormal && len(v.data.Chains) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render("Blocking Chain"))
+		lines = append(lines, "")
+
+		// Render the tree
+		tree := components.RenderLockTree(v.data.Chains, v.width-4)
+		treeLines := strings.Split(tree, "\n")
+		lines = append(lines, treeLines...)
+	}
 
 	v.detailLines = lines
 	v.mode = ModeDetail
