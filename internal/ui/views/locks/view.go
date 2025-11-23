@@ -250,19 +250,39 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		switch v.mode {
 		case ModeNormal:
-			switch msg.Button {
-			case tea.MouseButtonWheelUp:
-				v.moveSelection(-1)
-			case tea.MouseButtonWheelDown:
-				v.moveSelection(1)
-			case tea.MouseButtonLeft:
-				if msg.Action == tea.MouseActionPress {
-					// Table starts after: status(1) + title(1) + header(1)
-					clickedRow := msg.Y - 7
-					if clickedRow >= 0 {
-						newIdx := v.scrollOffset + clickedRow
-						if newIdx >= 0 && newIdx < len(v.data.Locks) {
-							v.selectedIdx = newIdx
+			if v.activeTab == TabActiveLocks {
+				switch msg.Button {
+				case tea.MouseButtonWheelUp:
+					v.moveSelection(-1)
+				case tea.MouseButtonWheelDown:
+					v.moveSelection(1)
+				case tea.MouseButtonLeft:
+					if msg.Action == tea.MouseActionPress {
+						// Table starts after: status(1) + title(1) + tabs(1) + header(1)
+						clickedRow := msg.Y - 5
+						if clickedRow >= 0 {
+							newIdx := v.scrollOffset + clickedRow
+							if newIdx >= 0 && newIdx < len(v.data.Locks) {
+								v.selectedIdx = newIdx
+							}
+						}
+					}
+				}
+			} else if v.activeTab == TabDeadlockHistory {
+				switch msg.Button {
+				case tea.MouseButtonWheelUp:
+					v.moveDeadlockSelection(-1)
+				case tea.MouseButtonWheelDown:
+					v.moveDeadlockSelection(1)
+				case tea.MouseButtonLeft:
+					if msg.Action == tea.MouseActionPress {
+						// Empirically determined offset for deadlock history table
+						clickedRow := msg.Y - 9
+						if clickedRow >= 0 {
+							newIdx := v.deadlockScrollOffset + clickedRow
+							if newIdx >= 0 && newIdx < len(v.deadlocks) {
+								v.deadlockSelectedIdx = newIdx
+							}
 						}
 					}
 				}
@@ -273,6 +293,13 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				v.detailScrollUp(1)
 			case tea.MouseButtonWheelDown:
 				v.detailScrollDown(1)
+			}
+		case ModeDeadlockDetail:
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				v.deadlockDetailScrollUp(1)
+			case tea.MouseButtonWheelDown:
+				v.deadlockDetailScrollDown(1)
 			}
 		}
 	}
@@ -303,6 +330,11 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			v.deadlockDetailScrollDown(1)
 		case "k", "up":
 			v.deadlockDetailScrollUp(1)
+		case "g", "home":
+			v.deadlockDetailScroll = 0
+		case "G", "end":
+			maxScroll := max(0, len(v.deadlockDetailLines)-(v.height-4))
+			v.deadlockDetailScroll = maxScroll
 		case "ctrl+d", "pgdown":
 			v.deadlockDetailScrollDown(10)
 		case "ctrl+u", "pgup":
@@ -784,8 +816,8 @@ func (v *LocksView) ensureVisible() {
 
 // tableHeight returns the number of visible table rows.
 func (v *LocksView) tableHeight() int {
-	// height - status(1) - title(1) - header(1) - footer(1) - padding
-	return max(1, v.height-5)
+	// height - app header(1) - status(1) - title(1) - tabs(1) - header(1) - footer(1)
+	return max(1, v.height-7)
 }
 
 // renderTitle renders the view title.
@@ -1567,7 +1599,7 @@ func (v *LocksView) renderDeadlockDetailView() string {
 	if len(v.deadlockDetailLines) > contentHeight {
 		scrollInfo = fmt.Sprintf(" (%d/%d)", v.deadlockDetailScroll+1, len(v.deadlockDetailLines))
 	}
-	footer := footerStyle.Render(fmt.Sprintf("[↑/↓]scroll [c]copy [Esc]close%s", scrollInfo))
+	footer := footerStyle.Render(fmt.Sprintf("[j/k]scroll [g/G]top/bottom [c]copy [esc/q]back%s", scrollInfo))
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -1611,7 +1643,7 @@ func (v *LocksView) SetReadOnly(readOnly bool) {
 
 // IsInputMode returns true if in an input mode.
 func (v *LocksView) IsInputMode() bool {
-	return v.mode == ModeDetail
+	return v.mode == ModeDetail || v.mode == ModeDeadlockDetail
 }
 
 // Helper functions
