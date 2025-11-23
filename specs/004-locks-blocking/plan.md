@@ -78,6 +78,40 @@ tests/
 
 **Structure Decision**: Following existing patterns from dashboard.go and queries/ subdirectory. The locks view mirrors the queries view structure with its own subdirectory for related components (view, help, detail).
 
+## UI Consistency Requirements (NON-NEGOTIABLE)
+
+The locks view MUST exactly follow the queries view implementation patterns. This is critical for:
+- Consistent user experience across all views
+- Avoiding known bugs (e.g., viewport component causes Esc key delay)
+- Maintainability
+
+### Required Patterns from Queries View
+
+1. **Detail View**: Copy `internal/ui/views/queries/explain.go` pattern exactly
+   - Manual `scrollOffset` for scrolling (NOT viewport component)
+   - `msg.String() == "esc"` key handling (NOT `msg.Type == tea.KeyEsc`)
+   - `lipgloss.JoinVertical` layout
+
+2. **SQL Formatting**: Docker pgFormatter
+   ```go
+   exec.Command("docker", "run", "--rm", "-i", "ghcr.io/darold/pgformatter:latest", "pg_format")
+   ```
+
+3. **Syntax Highlighting**: Chroma monokai
+   ```go
+   import "github.com/alecthomas/chroma/v2/quick"
+   quick.Highlight(&buf, sql, "sql", "terminal16m", "monokai")
+   ```
+
+4. **Footer**: Key hints in queries view format: `[key]action [key]action`
+
+5. **Table Focus**: `table.Blur()` on modal enter, `table.Focus()` on modal exit
+
+### Reference Files (MUST study before implementation)
+
+- `internal/ui/views/queries/explain.go` - PRIMARY REFERENCE for detail view
+- `internal/ui/views/queries/view.go` - footer and table patterns
+
 ## Complexity Tracking
 
 No constitution violations requiring justification. Architecture follows established patterns.

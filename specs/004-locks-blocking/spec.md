@@ -106,6 +106,9 @@ As a DBA, I want to see deadlock history so that I can analyze recurring deadloc
 - **FR-004**: System MUST highlight blocked queries in red and blocking queries in yellow to visually distinguish their status
 - **FR-005**: System MUST support sorting the lock table by any column using the `s` key
 - **FR-006**: System MUST display the full query text when the `d` key is pressed on a selected lock row
+- **FR-006a**: Detail view MUST follow the exact same implementation pattern as queries/explain view: manual scrollOffset (no viewport component), same key handling for Esc/q, same footer format
+- **FR-006b**: Detail view MUST format SQL using pg_format via Docker (pgFormatter) exactly like explain view
+- **FR-006c**: Detail view MUST syntax highlight SQL using chroma with monokai theme exactly like explain view
 - **FR-007**: System MUST auto-refresh the Locks view every 2 seconds
 - **FR-008**: System MUST render a lock dependency tree below the lock table using ASCII art to show blocking chains hierarchically
 - **FR-009**: System MUST support terminating blocking queries via the `x` key with a confirmation dialog
@@ -137,3 +140,36 @@ As a DBA, I want to see deadlock history so that I can analyze recurring deadloc
 - Users with kill capability have appropriate database privileges (pg_signal_backend or superuser)
 - The treeprint library (github.com/xlab/treeprint) will be used for ASCII tree rendering as specified in the user input
 - Lock counts in typical monitoring scenarios are under 100; performance optimization for higher counts is best-effort
+
+## Implementation Constraints
+
+### UI Consistency Requirements (NON-NEGOTIABLE)
+
+The locks view MUST follow the exact same patterns as the queries view for consistency across the application:
+
+1. **Detail View Implementation**:
+   - MUST use manual `scrollOffset` for scrolling (NOT bubbles viewport component)
+   - MUST handle Esc/q key events exactly like explain view (`msg.String() == "esc"` or `msg.String() == "q"`)
+   - MUST NOT have any delay on Esc key press
+   - MUST use `lipgloss.JoinVertical` for layout with title, content, footer sections
+
+2. **SQL Formatting and Highlighting**:
+   - MUST format SQL using pg_format via Docker: `docker run --rm -i ghcr.io/darold/pgformatter:latest pg_format`
+   - MUST syntax highlight using chroma with monokai theme
+   - MUST import `github.com/alecthomas/chroma/v2/quick`
+   - Reference implementation: `internal/ui/views/queries/explain.go`
+
+3. **Footer Key Hints**:
+   - MUST display key hints at bottom like queries view
+   - Format: `[key]action [key]action [key]action`
+   - MUST include: scroll (j/k or ↑/↓), close (Esc), and any view-specific actions
+
+4. **Table Focus Management**:
+   - MUST call `table.Blur()` when entering detail/modal mode
+   - MUST call `table.Focus()` when exiting detail/modal mode
+   - This prevents table from capturing key events in modal state
+
+5. **Reference Files** (study these before implementation):
+   - `internal/ui/views/queries/view.go` - table layout and footer pattern
+   - `internal/ui/views/queries/explain.go` - detail view with SQL formatting/highlighting, scroll handling
+   - `internal/ui/views/queries/detail.go` - modal pattern

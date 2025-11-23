@@ -69,7 +69,7 @@
 - [ ] T018 [US1] Implement LocksView with table display in internal/ui/views/locks/view.go
 - [ ] T019 [US1] Implement SetSize() for terminal resize handling in internal/ui/views/locks/view.go
 - [ ] T020 [US1] Add column sorting with `s` key in internal/ui/views/locks/view.go
-- [ ] T021 [US1] Implement detail modal for full query view with `d` key in internal/ui/views/locks/detail.go
+- [ ] T021 [US1] Implement detail view for full query with `d` key in internal/ui/views/locks/view.go (MUST follow explain.go pattern exactly: manual scrollOffset, msg.String() for keys, JoinVertical layout, pg_format via Docker, chroma monokai highlighting, footer key hints)
 - [ ] T022 [US1] Create help text with keyboard shortcuts in internal/ui/views/locks/help.go
 - [ ] T023 [US1] Add auto-refresh ticker (2 seconds) in internal/ui/views/locks/view.go
 
@@ -272,3 +272,20 @@ Task: "T011 [P] Create BlockingChain struct for tree rendering in internal/db/mo
 - Verify tests fail before implementing
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
+
+## UI Consistency Requirements (NON-NEGOTIABLE)
+
+**Before implementing any UI component, study these reference files:**
+- `internal/ui/views/queries/explain.go` - PRIMARY REFERENCE for detail view
+- `internal/ui/views/queries/view.go` - footer and table patterns
+
+**Detail view (T021) MUST follow explain.go exactly:**
+1. Manual `scrollOffset` for scrolling (NOT viewport - it causes Esc delay)
+2. Key handling: `msg.String() == "esc"` (NOT `msg.Type == tea.KeyEsc`)
+3. Layout: `lipgloss.JoinVertical` with title, content, footer
+4. SQL formatting: Docker pgFormatter
+5. Syntax highlighting: chroma with monokai theme
+6. Footer: `[↑/↓]scroll [Esc]close [c]copy` format
+7. Table focus: `table.Blur()` on enter, `table.Focus()` on exit
+
+**Failure to follow these patterns will result in Esc key delay bugs.**

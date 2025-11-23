@@ -45,6 +45,37 @@ After building and evaluating three prototype demos:
 2. **Adjustable table/tree split ratio**
 3. **Tree collapse/expand controls**
 
+## UI Consistency Requirements (NON-NEGOTIABLE)
+
+The locks view MUST exactly follow the queries view patterns for visual and behavioral consistency:
+
+### Detail View (Query Display)
+
+1. **Layout**: Use `lipgloss.JoinVertical` with title, scrollable content, footer - exactly like explain view
+2. **Scrolling**: Manual `scrollOffset` integer, NOT bubbles viewport component (viewport causes Esc delay)
+3. **Key handling**: Use `msg.String() == "esc"` or `msg.String() == "q"` - NOT `msg.Type == tea.KeyEsc`
+4. **SQL Formatting**: Format via Docker pgFormatter: `docker run --rm -i ghcr.io/darold/pgformatter:latest pg_format`
+5. **Syntax Highlighting**: Chroma with monokai theme (`github.com/alecthomas/chroma/v2/quick`)
+
+### Footer Key Hints
+
+Must match queries view format:
+```
+[↑/↓]scroll [Esc]close [c]copy
+```
+
+### Table Behavior
+
+- Call `table.Blur()` when entering detail mode
+- Call `table.Focus()` when exiting detail mode
+
+### Reference Implementation
+
+Study these files before implementing locks view:
+- `internal/ui/views/queries/view.go` - footer pattern, table integration
+- `internal/ui/views/queries/explain.go` - detail view with SQL formatting, scroll handling (PRIMARY REFERENCE)
+- `internal/ui/views/queries/detail.go` - modal pattern
+
 ## Implementation Specifications
 
 ### Colors (Dracula Theme)
