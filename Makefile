@@ -54,6 +54,6 @@ clean: ## Clean build artifacts
 
 run: build ## Build and run the application
 	@echo "Running $(BINARY_NAME)..."
-	@$(BUILD_DIR)/$(BINARY_NAME)
+	@$(BUILD_DIR)/$(BINARY_NAME) --banner
 
 .DEFAULT_GOAL := help
