@@ -465,6 +465,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ui.KillQueryResultMsg:
 		// Forward to locks view
 		m.locksView.Update(msg)
+		// Auto-refresh locks data after kill
+		if m.locksMonitor != nil {
+			return m, fetchLocksData(m.locksMonitor)
+		}
 		return m, nil
 
 	case ReconnectAttemptMsg:
@@ -833,6 +837,19 @@ func terminateConnection(pool *pgxpool.Pool, pid int) tea.Cmd {
 	}
 }
 
+// killLockingProcess creates a command to terminate a blocking process
+func killLockingProcess(pool *pgxpool.Pool, pid int) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		success, err := queries.TerminateBackend(ctx, pool, pid)
+		return ui.KillQueryResultMsg{
+			PID:     pid,
+			Success: success,
+			Error:   err,
+		}
+	}
+}
+
 // resetQueryStats creates a command to reset query statistics
 func resetQueryStats(store *sqlite.QueryStatsStore) tea.Cmd {
 	return func() tea.Msg {
@@ -943,18 +960,5 @@ func fetchLocksData(monitor *monitors.LocksMonitor) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		return monitor.FetchOnce(ctx)
-	}
-}
-
-// killLockingProcess creates a command to terminate a blocking process
-func killLockingProcess(pool *pgxpool.Pool, pid int) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		success, err := queries.TerminateBackend(ctx, pool, pid)
-		return ui.KillQueryResultMsg{
-			PID:     pid,
-			Success: success,
-			Error:   err,
-		}
 	}
 }

@@ -93,6 +93,13 @@ type LocksView struct {
 	detailScrollOffset   int
 	detailLines          []string
 
+	// Kill confirmation state
+	killPID          int
+	killUser         string
+	killQuery        string
+	killScrollOffset int
+	killLines        []string
+
 	// Clipboard
 	clipboard *ui.ClipboardWriter
 }
@@ -256,7 +263,7 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 				lock := v.data.Locks[v.selectedIdx]
 				// Only allow killing blocking processes
 				if v.data.BlockingPIDs[lock.PID] {
-					v.mode = ModeConfirmKill
+					v.openKillConfirmation(lock)
 				} else {
 					v.showToast("Can only kill blocking processes", true)
 				}
@@ -284,19 +291,74 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 func (v *LocksView) handleConfirmKillMode(key string) tea.Cmd {
 	switch key {
 	case "y", "Y":
-		if v.selectedIdx < len(v.data.Locks) {
-			lock := v.data.Locks[v.selectedIdx]
-			pid := lock.PID
-			v.mode = ModeNormal
-			return func() tea.Msg {
-				return KillLockMsg{PID: pid}
-			}
-		}
+		pid := v.killPID
 		v.mode = ModeNormal
+		return func() tea.Msg {
+			return KillLockMsg{PID: pid}
+		}
 	case "n", "N", "esc":
 		v.mode = ModeNormal
+	case "j", "down":
+		v.killScrollDown(1)
+	case "k", "up":
+		v.killScrollUp(1)
+	case "ctrl+d", "pgdown":
+		v.killScrollDown(v.killContentHeight())
+	case "ctrl+u", "pgup":
+		v.killScrollUp(v.killContentHeight())
 	}
 	return nil
+}
+
+// openKillConfirmation opens the kill confirmation dialog with captured data.
+func (v *LocksView) openKillConfirmation(lock models.Lock) {
+	v.killPID = lock.PID
+	v.killUser = lock.User
+	v.killQuery = lock.Query
+	v.killScrollOffset = 0
+
+	// Build dialog content
+	var lines []string
+
+	// Header
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorCriticalFg)
+	lines = append(lines, headerStyle.Render("Terminate Process"))
+	lines = append(lines, "")
+
+	// Lock info
+	lines = append(lines, fmt.Sprintf("PID:  %d", lock.PID))
+	lines = append(lines, fmt.Sprintf("User: %s", lock.User))
+	lines = append(lines, "")
+
+	// Format and highlight SQL
+	lines = append(lines, "Query:")
+	formatted := v.formatSQLPlain(lock.Query)
+	highlighted := v.formatSQLHighlighted(formatted)
+	sqlLines := strings.Split(highlighted, "\n")
+	lines = append(lines, sqlLines...)
+
+	lines = append(lines, "")
+	lines = append(lines, styles.WarningStyle.Render("This will terminate the blocking process."))
+
+	v.killLines = lines
+	v.mode = ModeConfirmKill
+}
+
+// killScrollDown scrolls the kill dialog down.
+func (v *LocksView) killScrollDown(n int) {
+	maxOffset := max(0, len(v.killLines)-v.killContentHeight())
+	v.killScrollOffset = min(v.killScrollOffset+n, maxOffset)
+}
+
+// killScrollUp scrolls the kill dialog up.
+func (v *LocksView) killScrollUp(n int) {
+	v.killScrollOffset = max(0, v.killScrollOffset-n)
+}
+
+// killContentHeight returns the height available for kill dialog content.
+func (v *LocksView) killContentHeight() int {
+	// Dialog height minus title, footer, borders
+	return max(1, min(20, v.height-10))
 }
 
 // handleDetailMode processes keys in detail view mode.
@@ -531,6 +593,8 @@ func (v *LocksView) cycleSort() {
 }
 
 // sortLocks sorts the locks by the current sort column.
+// Blocking and blocked locks are always sorted to the top (priority section),
+// then user's chosen sort is applied within each group.
 func (v *LocksView) sortLocks() {
 	if v.data == nil || len(v.data.Locks) == 0 {
 		return
@@ -538,6 +602,21 @@ func (v *LocksView) sortLocks() {
 
 	sort.SliceStable(v.data.Locks, func(i, j int) bool {
 		a, b := v.data.Locks[i], v.data.Locks[j]
+
+		// Get status for priority sorting
+		statusA := v.data.GetStatus(a.PID)
+		statusB := v.data.GetStatus(b.PID)
+
+		// Priority: Blocking (1) > Blocked (2) > Normal (3)
+		priorityA := v.lockPriority(statusA)
+		priorityB := v.lockPriority(statusB)
+
+		// If different priorities, sort by priority first
+		if priorityA != priorityB {
+			return priorityA < priorityB
+		}
+
+		// Same priority group - apply user's chosen sort
 		switch v.sortColumn {
 		case SortByPID:
 			return a.PID < b.PID
@@ -557,6 +636,19 @@ func (v *LocksView) sortLocks() {
 			return a.PID < b.PID
 		}
 	})
+}
+
+// lockPriority returns sort priority for a lock status.
+// Lower number = higher priority (appears first).
+func (v *LocksView) lockPriority(status models.LockStatus) int {
+	switch status {
+	case models.LockStatusBlocking:
+		return 1 // Yellow - blocking others
+	case models.LockStatusBlocked:
+		return 2 // Red - waiting
+	default:
+		return 3 // Normal
+	}
 }
 
 // requestRefresh returns a command to request data refresh.
@@ -618,37 +710,33 @@ func (v *LocksView) View() string {
 
 // renderConfirmKillDialog renders the kill confirmation dialog.
 func (v *LocksView) renderConfirmKillDialog() string {
-	if v.selectedIdx >= len(v.data.Locks) {
+	if len(v.killLines) == 0 {
 		return ""
 	}
 
-	lock := v.data.Locks[v.selectedIdx]
-	title := styles.DialogTitleStyle.Render("Terminate Process")
+	// Get visible content with scroll
+	height := v.killContentHeight()
+	endIdx := min(v.killScrollOffset+height, len(v.killLines))
+	visibleLines := v.killLines[v.killScrollOffset:endIdx]
+	content := strings.Join(visibleLines, "\n")
 
-	query := lock.Query
-	if len(query) > 60 {
-		query = query[:57] + "..."
+	// Footer with scroll info and prompt
+	footerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	scrollInfo := ""
+	if len(v.killLines) > height {
+		scrollInfo = fmt.Sprintf(" (%d/%d)", v.killScrollOffset+1, len(v.killLines))
 	}
 
-	details := fmt.Sprintf(
-		"PID: %d\nUser: %s\nQuery: %s\n\nThis will terminate the blocking process.",
-		lock.PID,
-		lock.User,
-		query,
-	)
+	prompt := "[y]es [n]o [j/k]scroll" + scrollInfo
 
-	prompt := "Are you sure? [y]es [n]o"
-
-	content := lipgloss.JoinVertical(
+	fullContent := lipgloss.JoinVertical(
 		lipgloss.Left,
-		title,
+		content,
 		"",
-		details,
-		"",
-		prompt,
+		footerStyle.Render(prompt),
 	)
 
-	return styles.DialogStyle.Render(content)
+	return styles.DialogStyle.Render(fullContent)
 }
 
 // renderDetailView renders the detail view.

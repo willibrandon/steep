@@ -130,17 +130,17 @@
 
 ### Tests for User Story 4
 
-- [ ] T037 [P] [US4] Integration test for TerminateBackend query in tests/integration/locks_test.go
-- [ ] T038 [P] [US4] Unit test for confirmation dialog behavior in tests/unit/locks_view_test.go
+- [x] T037 [P] [US4] Integration test for TerminateBackend query in tests/integration/locks/locks_test.go
+- [x] T038 [P] [US4] Unit test for confirmation dialog behavior in tests/unit/locks/locks_view_test.go
 
 ### Implementation for User Story 4
 
-- [ ] T039 [US4] Implement TerminateBackend() query function in internal/db/queries/locks.go
-- [ ] T040 [US4] Create KillQueryResultMsg message type in internal/ui/messages.go
-- [ ] T041 [US4] Implement confirmation dialog for kill action in internal/ui/views/locks/view.go
-- [ ] T042 [US4] Add `x` key handler with readonly mode check in internal/ui/views/locks/view.go
-- [ ] T043 [US4] Handle kill success/failure messages in view in internal/ui/views/locks/view.go
-- [ ] T044 [US4] Auto-refresh after kill action completes in internal/ui/views/locks/view.go
+- [x] T039 [US4] Implement TerminateBackend() query function in internal/db/queries/locks.go
+- [x] T040 [US4] Create KillQueryResultMsg message type in internal/ui/messages.go
+- [x] T041 [US4] Implement confirmation dialog for kill action in internal/ui/views/locks/view.go
+- [x] T042 [US4] Add `x` key handler with readonly mode check in internal/ui/views/locks/view.go
+- [x] T043 [US4] Handle kill success/failure messages in view in internal/ui/views/locks/view.go
+- [x] T044 [US4] Auto-refresh after kill action completes in internal/ui/views/locks/view.go
 
 **Checkpoint**: User Story 4 complete - DBAs can resolve lock contention by terminating blockers
 

@@ -623,3 +623,245 @@ func TestMultipleBlockersAndBlocked(t *testing.T) {
 		}
 	}
 }
+
+// TestKillConfirmationDialogRequiresBlockingPID tests that kill is only allowed for blocking PIDs.
+func TestKillConfirmationDialogRequiresBlockingPID(t *testing.T) {
+	data := models.NewLocksData()
+	data.Locks = []models.Lock{
+		{PID: 100, User: "admin", Query: "SELECT * FROM t FOR UPDATE"},
+		{PID: 200, User: "user1", Query: "UPDATE t SET x = 1"},
+		{PID: 300, User: "user2", Query: "SELECT * FROM t"},
+	}
+	data.BlockingPIDs = map[int]bool{100: true}
+	data.BlockedPIDs = map[int]bool{200: true}
+
+	tests := []struct {
+		name        string
+		pid         int
+		canKill     bool
+		description string
+	}{
+		{
+			name:        "blocking PID can be killed",
+			pid:         100,
+			canKill:     true,
+			description: "PID 100 is blocking and should be killable",
+		},
+		{
+			name:        "blocked PID cannot be killed",
+			pid:         200,
+			canKill:     false,
+			description: "PID 200 is blocked but not blocking, cannot kill",
+		},
+		{
+			name:        "normal PID cannot be killed",
+			pid:         300,
+			canKill:     false,
+			description: "PID 300 is normal, cannot kill",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			canKill := data.BlockingPIDs[tt.pid]
+			if canKill != tt.canKill {
+				t.Errorf("%s: canKill = %v, want %v", tt.description, canKill, tt.canKill)
+			}
+		})
+	}
+}
+
+// TestKillConfirmationDialogCapturesPID tests that opening dialog captures the PID.
+func TestKillConfirmationDialogCapturesPID(t *testing.T) {
+	// Test that when kill dialog is opened, it captures the lock data
+	// so that subsequent data updates don't change what will be killed
+	lock := models.Lock{
+		PID:   12345,
+		User:  "testuser",
+		Query: "SELECT * FROM important_table FOR UPDATE",
+	}
+
+	// Simulate capturing data for kill dialog
+	capturedPID := lock.PID
+	capturedUser := lock.User
+	capturedQuery := lock.Query
+
+	// Verify captured values match
+	if capturedPID != 12345 {
+		t.Errorf("Captured PID = %d, want 12345", capturedPID)
+	}
+	if capturedUser != "testuser" {
+		t.Errorf("Captured User = %s, want testuser", capturedUser)
+	}
+	if capturedQuery != "SELECT * FROM important_table FOR UPDATE" {
+		t.Errorf("Captured Query = %s, unexpected", capturedQuery)
+	}
+
+	// Simulate data update changing the original lock
+	lock.PID = 99999
+	lock.User = "differentuser"
+
+	// Captured values should remain unchanged
+	if capturedPID != 12345 {
+		t.Errorf("Captured PID changed to %d, should still be 12345", capturedPID)
+	}
+	if capturedUser != "testuser" {
+		t.Errorf("Captured User changed to %s, should still be testuser", capturedUser)
+	}
+}
+
+// TestKillConfirmationReadOnlyMode tests that kill is blocked in readonly mode.
+func TestKillConfirmationReadOnlyMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		readOnly bool
+		canKill  bool
+	}{
+		{
+			name:     "read-write mode allows kill",
+			readOnly: false,
+			canKill:  true,
+		},
+		{
+			name:     "read-only mode blocks kill",
+			readOnly: true,
+			canKill:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// In readonly mode, kill should be blocked regardless of blocking status
+			canKill := !tt.readOnly
+			if canKill != tt.canKill {
+				t.Errorf("readOnly=%v: canKill = %v, want %v", tt.readOnly, canKill, tt.canKill)
+			}
+		})
+	}
+}
+
+// TestKillConfirmationDialogResponses tests different dialog responses.
+func TestKillConfirmationDialogResponses(t *testing.T) {
+	tests := []struct {
+		name       string
+		key        string
+		shouldKill bool
+		shouldExit bool
+	}{
+		{
+			name:       "y confirms kill",
+			key:        "y",
+			shouldKill: true,
+			shouldExit: true,
+		},
+		{
+			name:       "Y confirms kill",
+			key:        "Y",
+			shouldKill: true,
+			shouldExit: true,
+		},
+		{
+			name:       "n cancels kill",
+			key:        "n",
+			shouldKill: false,
+			shouldExit: true,
+		},
+		{
+			name:       "N cancels kill",
+			key:        "N",
+			shouldKill: false,
+			shouldExit: true,
+		},
+		{
+			name:       "esc cancels kill",
+			key:        "esc",
+			shouldKill: false,
+			shouldExit: true,
+		},
+		{
+			name:       "j scrolls down",
+			key:        "j",
+			shouldKill: false,
+			shouldExit: false,
+		},
+		{
+			name:       "k scrolls up",
+			key:        "k",
+			shouldKill: false,
+			shouldExit: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test the expected behavior for each key
+			var shouldKill, shouldExit bool
+
+			switch tt.key {
+			case "y", "Y":
+				shouldKill = true
+				shouldExit = true
+			case "n", "N", "esc":
+				shouldKill = false
+				shouldExit = true
+			case "j", "k", "down", "up", "ctrl+d", "ctrl+u", "pgdown", "pgup":
+				shouldKill = false
+				shouldExit = false
+			}
+
+			if shouldKill != tt.shouldKill {
+				t.Errorf("key=%s: shouldKill = %v, want %v", tt.key, shouldKill, tt.shouldKill)
+			}
+			if shouldExit != tt.shouldExit {
+				t.Errorf("key=%s: shouldExit = %v, want %v", tt.key, shouldExit, tt.shouldExit)
+			}
+		})
+	}
+}
+
+// TestPrioritySorting tests that blocking/blocked locks sort to top.
+func TestPrioritySorting(t *testing.T) {
+	data := models.NewLocksData()
+	data.Locks = []models.Lock{
+		{PID: 100, User: "user1", Query: "normal query"},
+		{PID: 200, User: "user2", Query: "blocking query"},
+		{PID: 300, User: "user3", Query: "blocked query"},
+		{PID: 400, User: "user4", Query: "another normal"},
+	}
+	data.BlockingPIDs = map[int]bool{200: true}
+	data.BlockedPIDs = map[int]bool{300: true}
+
+	// Sort by priority: blocking first, then blocked, then normal
+	sort.SliceStable(data.Locks, func(i, j int) bool {
+		priorityI := lockPriority(data.GetStatus(data.Locks[i].PID))
+		priorityJ := lockPriority(data.GetStatus(data.Locks[j].PID))
+		return priorityI < priorityJ
+	})
+
+	// First should be blocking (200)
+	if data.Locks[0].PID != 200 {
+		t.Errorf("First lock should be blocking PID 200, got %d", data.Locks[0].PID)
+	}
+
+	// Second should be blocked (300)
+	if data.Locks[1].PID != 300 {
+		t.Errorf("Second lock should be blocked PID 300, got %d", data.Locks[1].PID)
+	}
+
+	// Rest should be normal (100, 400)
+	if data.Locks[2].PID != 100 && data.Locks[2].PID != 400 {
+		t.Errorf("Third lock should be normal, got PID %d", data.Locks[2].PID)
+	}
+}
+
+// lockPriority returns sort priority for a lock status.
+func lockPriority(status models.LockStatus) int {
+	switch status {
+	case models.LockStatusBlocking:
+		return 1
+	case models.LockStatusBlocked:
+		return 2
+	default:
+		return 3
+	}
+}

@@ -384,6 +384,267 @@ func TestTerminateBackend(t *testing.T) {
 	}
 }
 
+// TestTerminateBackend_BlockingProcess verifies termination of a blocking process.
+func TestTerminateBackend_BlockingProcess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	pool := setupPostgres(t, ctx)
+
+	// Create test table with row
+	_, err := pool.Exec(ctx, "CREATE TABLE test_terminate (id SERIAL PRIMARY KEY, data TEXT)")
+	if err != nil {
+		t.Fatalf("Failed to create test table: %v", err)
+	}
+	_, err = pool.Exec(ctx, "INSERT INTO test_terminate (data) VALUES ('test')")
+	if err != nil {
+		t.Fatalf("Failed to insert test row: %v", err)
+	}
+
+	// Connection 1: Blocker - hold lock
+	conn1, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("Failed to acquire connection 1: %v", err)
+	}
+	defer conn1.Release()
+
+	// Get blocker PID
+	var blockerPID int
+	err = conn1.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&blockerPID)
+	if err != nil {
+		t.Fatalf("Failed to get blocker PID: %v", err)
+	}
+
+	tx1, err := conn1.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Failed to begin transaction 1: %v", err)
+	}
+	defer tx1.Rollback(ctx)
+
+	// Lock the row
+	_, err = tx1.Exec(ctx, "SELECT * FROM test_terminate WHERE id = 1 FOR UPDATE")
+	if err != nil {
+		t.Fatalf("Failed to lock row: %v", err)
+	}
+
+	// Connection 2: Blocked - will wait for lock
+	conn2, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("Failed to acquire connection 2: %v", err)
+	}
+	defer conn2.Release()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	blockedStarted := make(chan struct{})
+	blockedDone := make(chan error, 1)
+
+	go func() {
+		defer wg.Done()
+		tx2, err := conn2.Begin(ctx)
+		if err != nil {
+			blockedDone <- err
+			return
+		}
+		defer tx2.Rollback(ctx)
+
+		close(blockedStarted)
+
+		// This will block waiting for tx1's lock
+		_, err = tx2.Exec(ctx, "UPDATE test_terminate SET data = 'updated' WHERE id = 1")
+		blockedDone <- err
+	}()
+
+	// Wait for blocked transaction to start
+	<-blockedStarted
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify blocking relationship exists
+	rels, err := queries.GetBlockingRelationships(ctx, pool)
+	if err != nil {
+		t.Fatalf("GetBlockingRelationships failed: %v", err)
+	}
+
+	if len(rels) == 0 {
+		t.Fatal("Expected blocking relationship before termination")
+	}
+
+	// Find the blocking relationship
+	var foundBlocking bool
+	for _, rel := range rels {
+		if rel.BlockingPID == blockerPID {
+			foundBlocking = true
+			t.Logf("Found blocking: PID %d blocking PID %d", rel.BlockingPID, rel.BlockedPID)
+			break
+		}
+	}
+
+	if !foundBlocking {
+		t.Fatalf("Blocker PID %d not found in relationships", blockerPID)
+	}
+
+	// Terminate the blocker
+	success, err := queries.TerminateBackend(ctx, pool, blockerPID)
+	if err != nil {
+		t.Fatalf("TerminateBackend failed: %v", err)
+	}
+
+	if !success {
+		t.Error("TerminateBackend returned false, expected true")
+	}
+
+	// Wait for blocked transaction to complete (should error due to terminated connection)
+	wg.Wait()
+
+	// Check that blocking relationship is gone
+	time.Sleep(100 * time.Millisecond)
+	rels, err = queries.GetBlockingRelationships(ctx, pool)
+	if err != nil {
+		t.Fatalf("GetBlockingRelationships failed after termination: %v", err)
+	}
+
+	// Should have no blocking relationships now
+	for _, rel := range rels {
+		if rel.BlockingPID == blockerPID {
+			t.Errorf("Blocker PID %d still present after termination", blockerPID)
+		}
+	}
+
+	t.Log("Successfully terminated blocking process")
+}
+
+// TestTerminateBackend_NonExistentPID verifies behavior with invalid PID.
+func TestTerminateBackend_NonExistentPID(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	pool := setupPostgres(t, ctx)
+
+	// Use a PID that definitely doesn't exist
+	success, err := queries.TerminateBackend(ctx, pool, 999999)
+	if err != nil {
+		t.Fatalf("TerminateBackend failed: %v", err)
+	}
+
+	// Should return false for non-existent PID
+	if success {
+		t.Error("Expected false for non-existent PID, got true")
+	}
+}
+
+// TestTerminateBackend_MultipleBlocked verifies termination unblocks all waiting.
+func TestTerminateBackend_MultipleBlocked(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	pool := setupPostgres(t, ctx)
+
+	// Create test table with row
+	_, err := pool.Exec(ctx, "CREATE TABLE test_multi_blocked (id SERIAL PRIMARY KEY, data TEXT)")
+	if err != nil {
+		t.Fatalf("Failed to create test table: %v", err)
+	}
+	_, err = pool.Exec(ctx, "INSERT INTO test_multi_blocked (data) VALUES ('test')")
+	if err != nil {
+		t.Fatalf("Failed to insert test row: %v", err)
+	}
+
+	// Connection 1: Blocker
+	conn1, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("Failed to acquire connection 1: %v", err)
+	}
+	defer conn1.Release()
+
+	var blockerPID int
+	err = conn1.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&blockerPID)
+	if err != nil {
+		t.Fatalf("Failed to get blocker PID: %v", err)
+	}
+
+	tx1, err := conn1.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Failed to begin transaction 1: %v", err)
+	}
+	defer tx1.Rollback(ctx)
+
+	_, err = tx1.Exec(ctx, "SELECT * FROM test_multi_blocked WHERE id = 1 FOR UPDATE")
+	if err != nil {
+		t.Fatalf("Failed to lock row: %v", err)
+	}
+
+	// Create multiple blocked connections
+	var wg sync.WaitGroup
+	numBlocked := 3
+
+	for i := 0; i < numBlocked; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+
+			conn, err := pool.Acquire(ctx)
+			if err != nil {
+				t.Logf("Blocked %d: Failed to acquire connection: %v", idx, err)
+				return
+			}
+			defer conn.Release()
+
+			tx, err := conn.Begin(ctx)
+			if err != nil {
+				return
+			}
+			defer tx.Rollback(ctx)
+
+			// This will block
+			_, _ = tx.Exec(ctx, "UPDATE test_multi_blocked SET data = 'blocked' WHERE id = 1")
+		}(i)
+	}
+
+	// Wait for all to start blocking
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify multiple blocked
+	rels, err := queries.GetBlockingRelationships(ctx, pool)
+	if err != nil {
+		t.Fatalf("GetBlockingRelationships failed: %v", err)
+	}
+
+	blockedCount := 0
+	for _, rel := range rels {
+		if rel.BlockingPID == blockerPID {
+			blockedCount++
+		}
+	}
+
+	if blockedCount < 2 {
+		t.Logf("Expected at least 2 blocked by PID %d, found %d", blockerPID, blockedCount)
+	} else {
+		t.Logf("Found %d blocked by PID %d", blockedCount, blockerPID)
+	}
+
+	// Terminate blocker
+	success, err := queries.TerminateBackend(ctx, pool, blockerPID)
+	if err != nil {
+		t.Fatalf("TerminateBackend failed: %v", err)
+	}
+
+	if !success {
+		t.Error("TerminateBackend returned false")
+	}
+
+	// Wait for all blocked to complete
+	wg.Wait()
+
+	t.Logf("Successfully terminated blocker, all %d blocked connections released", numBlocked)
+}
+
 // TestGetLocks_Performance validates query performance < 500ms.
 func TestGetLocks_Performance(t *testing.T) {
 	if testing.Short() {
