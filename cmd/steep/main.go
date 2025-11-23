@@ -5,18 +5,34 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/willibrandon/steep/internal/app"
 	"github.com/willibrandon/steep/internal/logger"
 	"golang.org/x/term"
 )
 
 func main() {
+	// Custom usage
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Steep - PostgreSQL Monitoring TUI")
+		fmt.Fprintf(os.Stderr, "\nUsage: %s [options]\n\n", os.Args[0])
+		fmt.Fprintln(os.Stderr, "Options:")
+		flag.PrintDefaults()
+	}
+
 	// Parse command-line flags
 	debugFlag := flag.Bool("debug", false, "Enable debug logging")
 	readonlyFlag := flag.Bool("readonly", false, "Disable destructive operations (kill, cancel)")
+	bannerFlag := flag.Bool("banner", false, "Show animated banner")
 	flag.Parse()
+
+	// Show animated banner then continue to TUI
+	if *bannerFlag {
+		showAnimatedBanner()
+	}
 
 	// Initialize logger
 	if *debugFlag {
@@ -99,4 +115,45 @@ func validateTerminalSize() error {
 	}
 
 	return nil
+}
+
+// showAnimatedBanner displays an animated ASCII banner then clears for TUI
+func showAnimatedBanner() {
+	// PostgreSQL blue (#336791)
+	logoColor := lipgloss.Color("67") // Closest to PostgreSQL brand blue
+
+	lines := []string{
+		" ██████╗████████╗███████╗███████╗██████╗ ",
+		"██╔════╝╚══██╔══╝██╔════╝██╔════╝██╔══██╗",
+		"╚█████╗    ██║   █████╗  █████╗  ██████╔╝",
+		" ╚═══██╗   ██║   ██╔══╝  ██╔══╝  ██╔═══╝ ",
+		"██████╔╝   ██║   ███████╗███████╗██║     ",
+		"╚═════╝    ╚═╝   ╚══════╝╚══════╝╚═╝     ",
+	}
+
+	tagline := "PostgreSQL Monitoring TUI"
+	version := "v0.1.0"
+
+	// Clear screen and move cursor to top
+	fmt.Print("\033[2J\033[H")
+	fmt.Println()
+
+	// Animate each line appearing
+	style := lipgloss.NewStyle().Foreground(logoColor).Bold(true)
+	for _, line := range lines {
+		fmt.Println(style.Render(line))
+		time.Sleep(60 * time.Millisecond)
+	}
+
+	// Show tagline and version
+	fmt.Println()
+	tagStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Italic(true)
+	fmt.Println(tagStyle.Render(tagline))
+	fmt.Println(version)
+
+	// Hold for a moment before transitioning to TUI
+	time.Sleep(1500 * time.Millisecond)
+
+	// Clear screen before TUI takes over
+	fmt.Print("\033[2J\033[H")
 }
