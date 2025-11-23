@@ -21,6 +21,7 @@ import (
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
+	"github.com/willibrandon/steep/internal/ui/views/locks/deadviz"
 )
 
 // SortColumn represents the available sort columns.
@@ -1452,78 +1453,21 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// formatDeadlockDetail formats a deadlock event for display.
+// formatDeadlockDetail formats a deadlock event for display using deadviz.
 func (v *LocksView) formatDeadlockDetail(event *sqlite.DeadlockEvent) []string {
-	var lines []string
+	var buf strings.Builder
 
-	// Styles
-	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
-	labelStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
-	processStyle := lipgloss.NewStyle().Bold(true)
-	warningStyle := lipgloss.NewStyle().Foreground(styles.ColorBlocking) // Yellow for blocked by
-
-	// Header
-	lines = append(lines, sectionStyle.Render(fmt.Sprintf("Deadlock Event #%d", event.ID)))
-	lines = append(lines, strings.Repeat("─", 60))
-	lines = append(lines, "")
-	lines = append(lines, labelStyle.Render("Detected:    ")+event.DetectedAt.Format("2006-01-02 15:04:05"))
-	lines = append(lines, labelStyle.Render("Database:    ")+event.DatabaseName)
-	if event.ResolvedByPID != nil {
-		lines = append(lines, labelStyle.Render("Resolved by: ")+fmt.Sprintf("PID %d", *event.ResolvedByPID))
+	// Use the deadviz visualizer for the main output
+	width := uint(v.width)
+	if width < 60 {
+		width = 60
 	}
-	if event.DetectionTimeMs != nil {
-		lines = append(lines, labelStyle.Render("Detection:   ")+fmt.Sprintf("%dms", *event.DetectionTimeMs))
-	}
-	lines = append(lines, "")
-
-	// Processes
-	lines = append(lines, sectionStyle.Render(fmt.Sprintf("Processes Involved: %d", len(event.Processes))))
-	lines = append(lines, strings.Repeat("─", 60))
-
-	for i, proc := range event.Processes {
-		lines = append(lines, "")
-		lines = append(lines, processStyle.Render(fmt.Sprintf("Process %d:", i+1)))
-		lines = append(lines, "  "+labelStyle.Render("PID:         ")+fmt.Sprintf("%d", proc.PID))
-		if proc.Username != "" {
-			lines = append(lines, "  "+labelStyle.Render("User:        ")+proc.Username)
-		}
-		if proc.ApplicationName != "" {
-			lines = append(lines, "  "+labelStyle.Render("Application: ")+proc.ApplicationName)
-		}
-		if proc.ClientAddr != "" {
-			lines = append(lines, "  "+labelStyle.Render("Client:      ")+proc.ClientAddr)
-		}
-		if proc.BackendStart != nil {
-			lines = append(lines, "  "+labelStyle.Render("Backend:     ")+proc.BackendStart.Format("2006-01-02 15:04:05"))
-		}
-		if proc.XactStart != nil {
-			lines = append(lines, "  "+labelStyle.Render("Xact Start:  ")+proc.XactStart.Format("2006-01-02 15:04:05"))
-		}
-		if proc.LockType != "" {
-			lines = append(lines, "  "+labelStyle.Render("Lock Type:   ")+proc.LockType)
-		}
-		if proc.LockMode != "" {
-			lines = append(lines, "  "+labelStyle.Render("Lock Mode:   ")+proc.LockMode)
-		}
-		if proc.RelationName != "" {
-			lines = append(lines, "  "+labelStyle.Render("Relation:    ")+proc.RelationName)
-		}
-		if proc.BlockedByPID != nil {
-			lines = append(lines, "  "+warningStyle.Render(fmt.Sprintf("Blocked by:  PID %d", *proc.BlockedByPID)))
-		}
-		if proc.Query != "" {
-			lines = append(lines, "  "+labelStyle.Render("Query:"))
-			// Format query with pgFormatter and apply syntax highlighting
-			formattedQuery := v.formatDeadlockSQL(proc.Query)
-			queryLines := strings.Split(formattedQuery, "\n")
-			for _, ql := range queryLines {
-				lines = append(lines, "    "+ql)
-			}
-		}
+	if err := deadviz.Visualize(&buf, event, width, v.formatDeadlockSQL); err != nil {
+		return []string{fmt.Sprintf("Error rendering deadlock: %v", err)}
 	}
 
-	// Add blank line before footer
-	lines = append(lines, "")
+	// Split into lines
+	lines := strings.Split(buf.String(), "\n")
 
 	return lines
 }
