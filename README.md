@@ -5,7 +5,7 @@ A terminal-based PostgreSQL monitoring tool built with Go and [Bubbletea](https:
 ## Features
 
 - **Real-time Dashboard** - Monitor database metrics, connections, and server status
-- **Query Performance Monitoring** - Track slow queries, view EXPLAIN plans, search/filter by pattern
+- **Query Performance Monitoring** - Track slow queries, view EXPLAIN plans with tree visualization, search/filter by pattern
 - **Multiple Views** - Dashboard, Activity, Queries, Locks, Tables, and Replication monitoring
 - **Keyboard Navigation** - Vim-style and intuitive keyboard shortcuts
 - **Automatic Reconnection** - Resilient connection handling with exponential backoff
@@ -206,7 +206,8 @@ connection:
 #### Queries
 - Query performance statistics with fingerprinting
 - Sort by total time, calls, mean time, or rows
-- EXPLAIN plan viewer with syntax highlighting
+- EXPLAIN plan viewer with JSON output (`e` key)
+- EXPLAIN ANALYZE with tree visualization (`E` key) - shows timing, cost percentages, and highlights slowest/costliest nodes
 - Search/filter queries by regex pattern
 - Copy queries to clipboard
 - Reset statistics
@@ -393,6 +394,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [Lipgloss](https://github.com/charmbracelet/lipgloss) - Terminal styling
 - [pgx](https://github.com/jackc/pgx) - PostgreSQL driver
 - [Viper](https://github.com/spf13/viper) - Configuration management
+- [gocmdpev](https://github.com/simon-engledew/gocmdpev) - EXPLAIN ANALYZE visualization
 
 ## Support
 

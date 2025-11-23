@@ -28,6 +28,7 @@ func HelpOverlay(width, height int) string {
 			header: "Actions",
 			keys: []string{
 				"e        Show EXPLAIN plan",
+				"E        Show EXPLAIN ANALYZE (executes query)",
 				"y        Copy query to clipboard",
 				"/        Search/filter queries",
 				"Esc      Clear filter",

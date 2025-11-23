@@ -415,7 +415,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case queriesview.ExplainQueryMsg:
 		// Execute EXPLAIN for the query
 		if m.queryMonitor != nil {
-			return m, executeExplain(m.queryMonitor, msg.Query, msg.Fingerprint)
+			return m, executeExplain(m.queryMonitor, msg.Query, msg.Fingerprint, msg.Analyze)
 		}
 		return m, nil
 
@@ -875,15 +875,16 @@ func fetchQueryStats(store *sqlite.QueryStatsStore, monitor *querymonitor.Monito
 }
 
 // executeExplain creates a command to run EXPLAIN for a query
-func executeExplain(monitor *querymonitor.Monitor, query string, fingerprint uint64) tea.Cmd {
+func executeExplain(monitor *querymonitor.Monitor, query string, fingerprint uint64, analyze bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		plan, err := monitor.GetExplainPlan(ctx, query)
+		plan, err := monitor.GetExplainPlan(ctx, query, analyze)
 		return queriesview.ExplainResultMsg{
 			Query:       query,
 			Plan:        plan,
 			Fingerprint: fingerprint,
 			Error:       err,
+			Analyze:     analyze,
 		}
 	}
 }

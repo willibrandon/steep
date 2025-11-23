@@ -310,7 +310,7 @@ These reference implementations are available for studying UI/UX patterns before
 - SQLite (query_stats.db in ~/.config/steep/), PostgreSQL (source database) (003-query-performance)
 
 ## Recent Changes
-- 003-query-performance: Query performance monitoring with fingerprinting, EXPLAIN plans, search/filter, clipboard, reset stats
+- 003-query-performance: Query performance monitoring with fingerprinting, EXPLAIN plans (JSON) and EXPLAIN ANALYZE (tree visualization with pev), search/filter, clipboard, reset stats
 - 003-query-performance: Performance benchmarks validating <500ms query, <100ms UI targets
 - 003-query-performance: Make targets: bench, test-short, test-integration
 - 001-foundation: Added Go 1.21+

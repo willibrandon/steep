@@ -5,25 +5,32 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2/quick"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/willibrandon/steep/internal/ui/styles"
+	"github.com/willibrandon/steep/internal/ui/views/queries/pev"
 )
+
+// ansiRegex matches ANSI escape sequences
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 // ExplainView renders an EXPLAIN plan result.
 type ExplainView struct {
 	query            string
 	plan             string
 	formattedQuery   string
-	formattedPlan    string
+	formattedPlan    string // just the plan visualization
+	formattedContent string // query + plan combined for display
 	err              string
 	scrollOffset     int
 	width            int
 	height           int
 	pgFormatMissing  bool
 	pgFormatChecked  bool
+	analyze          bool
 }
 
 // NewExplainView creates a new EXPLAIN view.
@@ -32,17 +39,26 @@ func NewExplainView() *ExplainView {
 }
 
 // SetPlan sets the EXPLAIN plan to display.
-func (v *ExplainView) SetPlan(query, plan string) {
+func (v *ExplainView) SetPlan(query, plan string, analyze bool) {
 	v.query = query
 	v.plan = plan
+	v.analyze = analyze
 	v.err = ""
 	v.scrollOffset = 0
 	// Store formatted query without highlighting for clipboard
 	v.formattedQuery = v.formatSQLPlain(query)
 	// Combine formatted query and plan for unified scrolling
 	formattedQuery := v.formatSQL(query)
-	formattedJSON := v.formatJSON(plan)
-	v.formattedPlan = formattedQuery + "\n\n" + formattedJSON
+
+	if analyze {
+		// Use pev visualization for EXPLAIN ANALYZE (has actual timing data)
+		v.formattedPlan = v.formatPev(plan)
+	} else {
+		// Use JSON format for regular EXPLAIN
+		v.formattedPlan = v.formatJSON(plan)
+	}
+
+	v.formattedContent = formattedQuery + "\n\n" + v.formattedPlan
 }
 
 // Query returns the formatted query string (for clipboard).
@@ -58,11 +74,17 @@ func (v *ExplainView) Plan() string {
 	return v.plan
 }
 
+// FormattedPlan returns the formatted plan output (visual or JSON) with ANSI codes stripped.
+func (v *ExplainView) FormattedPlan() string {
+	return ansiRegex.ReplaceAllString(v.formattedPlan, "")
+}
+
 // SetError sets an error message to display.
 func (v *ExplainView) SetError(query string, err error) {
 	v.query = query
 	v.plan = ""
 	v.formattedPlan = ""
+	v.formattedContent = ""
 	v.err = err.Error()
 	v.scrollOffset = 0
 }
@@ -114,7 +136,11 @@ func (v *ExplainView) View() string {
 		Foreground(styles.ColorAccent).
 		MarginBottom(1)
 
-	title := titleStyle.Render("EXPLAIN Plan")
+	titleText := "EXPLAIN Plan"
+	if v.analyze {
+		titleText = "EXPLAIN ANALYZE Plan"
+	}
+	title := titleStyle.Render(titleText)
 
 	// Content (query + plan combined, scrollable)
 	var content string
@@ -176,12 +202,12 @@ func (v *ExplainView) renderContent() string {
 	return strings.Join(visibleLines, "\n")
 }
 
-// getLines returns the formatted plan split into lines.
+// getLines returns the formatted content split into lines.
 func (v *ExplainView) getLines() []string {
-	if v.formattedPlan == "" {
+	if v.formattedContent == "" {
 		return nil
 	}
-	return strings.Split(v.formattedPlan, "\n")
+	return strings.Split(v.formattedContent, "\n")
 }
 
 // contentHeight returns the height available for plan content.
@@ -310,4 +336,30 @@ func (v *ExplainView) highlightJSON(jsonStr string) string {
 	}
 
 	return strings.Join(highlighted, "\n")
+}
+
+// formatPev formats the EXPLAIN plan using pev visualization.
+func (v *ExplainView) formatPev(planJSON string) string {
+	if planJSON == "" {
+		return ""
+	}
+
+	// Use pev to visualize the plan
+	var buf bytes.Buffer
+	reader := strings.NewReader(planJSON)
+
+	// Use terminal width for wrapping, default to 80
+	width := uint(80)
+	if v.width > 0 {
+		width = uint(v.width)
+	}
+
+	err := pev.Visualize(&buf, reader, width)
+	if err != nil {
+		// Show error and fall back to JSON format
+		errorMsg := fmt.Sprintf("PEV visualization failed: %v\n\n", err)
+		return errorMsg + v.formatJSON(planJSON)
+	}
+
+	return buf.String()
 }

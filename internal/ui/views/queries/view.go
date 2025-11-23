@@ -186,7 +186,7 @@ func (v *QueriesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Error != nil {
 			v.explainView.SetError(msg.Query, msg.Error)
 		} else {
-			v.explainView.SetPlan(msg.Query, msg.Plan)
+			v.explainView.SetPlan(msg.Query, msg.Plan, msg.Analyze)
 		}
 		v.mode = ModeExplain
 
@@ -329,10 +329,32 @@ func (v *QueriesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	case "e":
 		if len(v.stats) > 0 && v.selectedIdx < len(v.stats) {
 			stat := v.stats[v.selectedIdx]
+			if !isExplainable(stat.NormalizedQuery) {
+				v.showToast("Cannot EXPLAIN this query type (only SELECT/INSERT/UPDATE/DELETE)", true)
+				return nil
+			}
 			return func() tea.Msg {
 				return ExplainQueryMsg{
 					Query:       stat.NormalizedQuery,
 					Fingerprint: stat.Fingerprint,
+					Analyze:     false,
+				}
+			}
+		}
+
+	// EXPLAIN ANALYZE plan (actually executes the query)
+	case "E":
+		if len(v.stats) > 0 && v.selectedIdx < len(v.stats) {
+			stat := v.stats[v.selectedIdx]
+			if !isSelectQuery(stat.NormalizedQuery) {
+				v.showToast("EXPLAIN ANALYZE only available for SELECT queries", true)
+				return nil
+			}
+			return func() tea.Msg {
+				return ExplainQueryMsg{
+					Query:       stat.NormalizedQuery,
+					Fingerprint: stat.Fingerprint,
+					Analyze:     true,
 				}
 			}
 		}
@@ -407,10 +429,10 @@ func (v *QueriesView) handleExplainMode(key string) tea.Cmd {
 			v.showToast("Query copied to clipboard", false)
 		}
 	case "Y":
-		// Copy plan JSON to clipboard
+		// Copy formatted plan to clipboard (visual output)
 		if !v.clipboard.IsAvailable() {
 			v.showToast("Clipboard unavailable: "+v.clipboard.Error(), true)
-		} else if err := v.clipboard.Write(v.explainView.Plan()); err != nil {
+		} else if err := v.clipboard.Write(v.explainView.FormattedPlan()); err != nil {
 			v.showToast("Failed to copy: "+err.Error(), true)
 		} else {
 			v.showToast("Plan copied to clipboard", false)
@@ -571,6 +593,7 @@ type LoggingStatusMsg struct {
 type ExplainQueryMsg struct {
 	Query       string
 	Fingerprint uint64
+	Analyze     bool
 }
 
 // ExplainResultMsg contains the EXPLAIN plan result.
@@ -579,6 +602,7 @@ type ExplainResultMsg struct {
 	Plan        string
 	Fingerprint uint64
 	Error       error
+	Analyze     bool
 }
 
 // View renders the queries view.
@@ -825,9 +849,9 @@ func (v *QueriesView) renderFooter() string {
 		var filterIndicator string
 		if v.filterActive != "" {
 			filterIndicator = styles.FooterHintStyle.Foreground(styles.ColorActive).Render(fmt.Sprintf("[FILTERED: %s] ", v.filterActive))
-			hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [e]xplain [y]ank [/]filter [R]eset [h]elp")
+			hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [e/E]xplain [y]ank [/]filter [R]eset [h]elp")
 		} else {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e]xplain [y]ank [/]filter [R]eset [h]elp")
+			hints = styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e/E]xplain [y]ank [/]filter [R]eset [h]elp")
 		}
 	}
 
@@ -901,6 +925,23 @@ func padLeft(s string, width int) string {
 		return runewidth.Truncate(s, width, "")
 	}
 	return strings.Repeat(" ", width-w) + s
+}
+
+// isExplainable returns true if the query type supports EXPLAIN.
+func isExplainable(query string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(query))
+	return strings.HasPrefix(upper, "SELECT") ||
+		strings.HasPrefix(upper, "INSERT") ||
+		strings.HasPrefix(upper, "UPDATE") ||
+		strings.HasPrefix(upper, "DELETE") ||
+		strings.HasPrefix(upper, "WITH") // CTEs
+}
+
+// isSelectQuery returns true if the query is a SELECT (safe for EXPLAIN ANALYZE).
+func isSelectQuery(query string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(query))
+	return strings.HasPrefix(upper, "SELECT") ||
+		strings.HasPrefix(upper, "WITH") // CTEs typically end in SELECT
 }
 
 func formatDuration(ms float64) string {

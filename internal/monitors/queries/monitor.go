@@ -338,7 +338,8 @@ func (m *Monitor) estimateRows(ctx context.Context, query string, params map[str
 }
 
 // GetExplainPlan runs EXPLAIN (FORMAT JSON) and returns the formatted plan.
-func (m *Monitor) GetExplainPlan(ctx context.Context, query string) (string, error) {
+// If analyze is true, runs EXPLAIN ANALYZE which actually executes the query.
+func (m *Monitor) GetExplainPlan(ctx context.Context, query string, analyze bool) (string, error) {
 	// Replace parameters with safe values for EXPLAIN
 	queryForExplain := query
 
@@ -356,8 +357,14 @@ func (m *Monitor) GetExplainPlan(ctx context.Context, query string) (string, err
 	paramRe := regexp.MustCompile(`\$\d+`)
 	queryForExplain = paramRe.ReplaceAllString(queryForExplain, "NULL")
 
-	// Run EXPLAIN (FORMAT JSON)
-	explainQuery := fmt.Sprintf("EXPLAIN (FORMAT JSON) %s", queryForExplain)
+	// Run EXPLAIN with appropriate options
+	var explainQuery string
+	if analyze {
+		// ANALYZE actually runs the query - use for detailed timing info
+		explainQuery = fmt.Sprintf("EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT JSON) %s", queryForExplain)
+	} else {
+		explainQuery = fmt.Sprintf("EXPLAIN (FORMAT JSON) %s", queryForExplain)
+	}
 
 	var planJSON string
 	err := m.pool.QueryRow(ctx, explainQuery).Scan(&planJSON)
