@@ -156,10 +156,10 @@
 
 ### Implementation for User Story 5
 
-- [ ] T045 [US5] Design deadlock history storage schema (evaluate SQLite vs in-memory)
-- [ ] T046 [US5] Implement deadlock event capture from PostgreSQL logs or polling
-- [ ] T047 [US5] Create deadlock history view or tab in locks view
-- [ ] T048 [US5] Display deadlock details with timestamps, PIDs, and queries
+- [x] T045 [US5] Design deadlock history storage schema (evaluate SQLite vs in-memory)
+- [x] T046 [US5] Implement deadlock event capture from PostgreSQL logs or polling
+- [x] T047 [US5] Create deadlock history view or tab in locks view
+- [x] T048 [US5] Display deadlock details with timestamps, PIDs, and queries
 
 **Checkpoint**: User Story 5 complete - Historical deadlock patterns visible for analysis
 

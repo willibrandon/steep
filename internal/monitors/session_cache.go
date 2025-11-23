@@ -1,0 +1,231 @@
+package monitors
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+
+// SessionState holds cached session information from pg_stat_activity.
+type SessionState struct {
+	PID          int
+	BackendStart time.Time
+	XactStart    *time.Time
+	CapturedAt   time.Time
+}
+
+// SessionCache maintains a cache of session state for PIDs with waiting locks.
+// This allows capturing xact_start before deadlocks are resolved.
+type SessionCache struct {
+	pool    *pgxpool.Pool
+	cache   map[int]*SessionState
+	mu      sync.RWMutex
+	ttl     time.Duration
+	running bool
+	cancel  context.CancelFunc
+}
+
+// NewSessionCache creates a new session cache.
+func NewSessionCache(pool *pgxpool.Pool) *SessionCache {
+	return &SessionCache{
+		pool:  pool,
+		cache: make(map[int]*SessionState),
+		ttl:   60 * time.Second, // Keep state for 60 seconds after capture
+	}
+}
+
+// Start begins polling for lock waits and caching session state.
+func (c *SessionCache) Start(ctx context.Context) {
+	ctx, c.cancel = context.WithCancel(ctx)
+	c.running = true
+
+	go c.pollLoop(ctx)
+	go c.cleanupLoop(ctx)
+}
+
+// Stop stops the cache polling.
+func (c *SessionCache) Stop() {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	c.running = false
+}
+
+// GetSessionState returns cached session state for a PID.
+func (c *SessionCache) GetSessionState(pid int) *SessionState {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.cache[pid]
+}
+
+// pollLoop polls for lock waits every second.
+func (c *SessionCache) pollLoop(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.checkAndCapture(ctx)
+		}
+	}
+}
+
+// cleanupLoop removes stale entries from the cache.
+func (c *SessionCache) cleanupLoop(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.cleanup()
+		}
+	}
+}
+
+// checkAndCapture checks for waiting locks and captures session state.
+func (c *SessionCache) checkAndCapture(ctx context.Context) {
+	// Capture full lock graph - both blocked and blocking PIDs
+	c.captureFullLockGraph(ctx)
+}
+
+// getWaitingPIDs returns PIDs that have non-granted locks.
+func (c *SessionCache) getWaitingPIDs(ctx context.Context) ([]int, error) {
+	rows, err := c.pool.Query(ctx, `
+		SELECT DISTINCT pid
+		FROM pg_locks
+		WHERE NOT granted
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var pids []int
+	for rows.Next() {
+		var pid int
+		if err := rows.Scan(&pid); err != nil {
+			continue
+		}
+		pids = append(pids, pid)
+	}
+
+	return pids, rows.Err()
+}
+
+// captureSessionState captures backend_start and xact_start for the given PIDs.
+func (c *SessionCache) captureSessionState(ctx context.Context, pids []int) {
+	if len(pids) == 0 {
+		return
+	}
+
+	rows, err := c.pool.Query(ctx, `
+		SELECT pid, backend_start, xact_start
+		FROM pg_stat_activity
+		WHERE pid = ANY($1)
+	`, pids)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	for rows.Next() {
+		var pid int
+		var backendStart time.Time
+		var xactStart *time.Time
+
+		if err := rows.Scan(&pid, &backendStart, &xactStart); err != nil {
+			continue
+		}
+
+		c.cache[pid] = &SessionState{
+			PID:          pid,
+			BackendStart: backendStart,
+			XactStart:    xactStart,
+			CapturedAt:   now,
+		}
+	}
+}
+
+// captureFullLockGraph captures both blocked and blocking PIDs in a single atomic query.
+func (c *SessionCache) captureFullLockGraph(ctx context.Context) {
+	rows, err := c.pool.Query(ctx, `
+		SELECT DISTINCT
+			blocked.pid,
+			blocked_activity.backend_start,
+			blocked_activity.xact_start,
+			blocker.pid,
+			blocker_activity.backend_start,
+			blocker_activity.xact_start
+		FROM pg_locks blocked
+		JOIN pg_locks blocker ON (
+			blocker.locktype = blocked.locktype
+			AND blocker.database IS NOT DISTINCT FROM blocked.database
+			AND blocker.relation IS NOT DISTINCT FROM blocked.relation
+			AND blocker.granted = true
+			AND blocked.granted = false
+		)
+		JOIN pg_stat_activity blocked_activity ON blocked_activity.pid = blocked.pid
+		JOIN pg_stat_activity blocker_activity ON blocker_activity.pid = blocker.pid
+	`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	for rows.Next() {
+		var blockedPID, blockerPID int
+		var blockedBackend, blockerBackend time.Time
+		var blockedXact, blockerXact *time.Time
+
+		if err := rows.Scan(&blockedPID, &blockedBackend, &blockedXact,
+			&blockerPID, &blockerBackend, &blockerXact); err != nil {
+			continue
+		}
+
+		// Cache blocked (victim)
+		c.cache[blockedPID] = &SessionState{
+			PID:          blockedPID,
+			BackendStart: blockedBackend,
+			XactStart:    blockedXact,
+			CapturedAt:   now,
+		}
+
+		// Cache blocker
+		c.cache[blockerPID] = &SessionState{
+			PID:          blockerPID,
+			BackendStart: blockerBackend,
+			XactStart:    blockerXact,
+			CapturedAt:   now,
+		}
+	}
+}
+
+// cleanup removes entries older than TTL.
+func (c *SessionCache) cleanup() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	cutoff := time.Now().Add(-c.ttl)
+	for pid, state := range c.cache {
+		if state.CapturedAt.Before(cutoff) {
+			delete(c.cache, pid)
+		}
+	}
+}

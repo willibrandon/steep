@@ -25,7 +25,8 @@ func Open(path string) (*DB, error) {
 	}
 
 	// Open database with WAL mode for better concurrent access
-	conn, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_busy_timeout=5000")
+	// _loc=auto enables proper datetime parsing
+	conn, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_busy_timeout=5000&_loc=auto")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

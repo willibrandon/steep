@@ -15,6 +15,7 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
@@ -57,6 +58,9 @@ const (
 	ModeDetail
 	ModeConfirmKill
 	ModeHelp
+	ModeDeadlockDetail
+	ModeConfirmEnableLogging
+	ModeConfirmResetDeadlocks
 )
 
 // LocksView displays lock information and blocking relationships.
@@ -66,6 +70,7 @@ type LocksView struct {
 
 	// State
 	mode           LocksMode
+	activeTab      ViewTab
 	connected      bool
 	connectionInfo string
 	lastUpdate     time.Time
@@ -76,6 +81,17 @@ type LocksView struct {
 	data       *models.LocksData
 	totalCount int
 	err        error
+
+	// Deadlock history data
+	deadlocks            []sqlite.DeadlockSummary
+	deadlockSelectedIdx  int
+	deadlockScrollOffset int
+	deadlockEnabled      bool
+
+	// Deadlock detail view state
+	deadlockDetail       *sqlite.DeadlockEvent
+	deadlockDetailScroll int
+	deadlockDetailLines  []string
 
 	// Table state
 	selectedIdx  int
@@ -156,6 +172,42 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.showToast(fmt.Sprintf("Failed to terminate process %d", msg.PID), true)
 		}
 
+	case ui.DeadlockHistoryMsg:
+		v.deadlockEnabled = msg.Enabled
+		if msg.Error == nil {
+			v.deadlocks = msg.Deadlocks
+			// Ensure selection is valid
+			if v.deadlockSelectedIdx >= len(v.deadlocks) {
+				v.deadlockSelectedIdx = max(0, len(v.deadlocks)-1)
+			}
+		}
+
+	case ui.DeadlockDetailMsg:
+		if msg.Error == nil && msg.Event != nil {
+			v.deadlockDetail = msg.Event
+			v.deadlockDetailScroll = 0
+			v.deadlockDetailLines = v.formatDeadlockDetail(msg.Event)
+			v.mode = ModeDeadlockDetail
+		}
+
+	case EnableLoggingCollectorResultMsg:
+		if msg.Error != nil {
+			v.showToast("Enable logging failed: "+msg.Error.Error(), true)
+		} else if msg.Success {
+			v.showToast("Logging enabled - PostgreSQL restarting...", false)
+			v.deadlockEnabled = true
+		}
+
+	case ui.ResetDeadlocksResultMsg:
+		if msg.Error != nil {
+			v.showToast("Reset failed: "+msg.Error.Error(), true)
+		} else if msg.Success {
+			v.deadlocks = nil
+			v.deadlockSelectedIdx = 0
+			v.deadlockScrollOffset = 0
+			v.showToast("Deadlock history cleared", false)
+		}
+
 	case tea.WindowSizeMsg:
 		v.SetSize(msg.Width, msg.Height)
 
@@ -206,10 +258,76 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return v.handleDetailMode(key)
 	}
 
+	// Handle deadlock detail mode
+	if v.mode == ModeDeadlockDetail {
+		switch key {
+		case "esc", "q":
+			v.mode = ModeNormal
+		case "j", "down":
+			v.deadlockDetailScrollDown(1)
+		case "k", "up":
+			v.deadlockDetailScrollUp(1)
+		case "ctrl+d", "pgdown":
+			v.deadlockDetailScrollDown(10)
+		case "ctrl+u", "pgup":
+			v.deadlockDetailScrollUp(10)
+		case "c":
+			// Copy all queries to clipboard
+			if v.deadlockDetail != nil {
+				var queries []string
+				for i, proc := range v.deadlockDetail.Processes {
+					if proc.Query != "" {
+						formatted := v.formatDeadlockSQLPlain(proc.Query)
+						queries = append(queries, fmt.Sprintf("-- Process %d (PID %d)\n%s", i+1, proc.PID, formatted))
+					}
+				}
+				if len(queries) > 0 {
+					allQueries := strings.Join(queries, "\n\n")
+					if !v.clipboard.IsAvailable() {
+						v.showToast("Clipboard unavailable: "+v.clipboard.Error(), true)
+					} else if err := v.clipboard.Write(allQueries); err != nil {
+						v.showToast("Copy failed: "+err.Error(), true)
+					} else {
+						v.showToast("Queries copied to clipboard", false)
+					}
+				}
+			}
+		}
+		return nil
+	}
+
 	// Handle help mode
 	if v.mode == ModeHelp {
 		switch key {
 		case "h", "esc", "q":
+			v.mode = ModeNormal
+		}
+		return nil
+	}
+
+	// Handle enable logging confirmation mode
+	if v.mode == ModeConfirmEnableLogging {
+		switch key {
+		case "y", "Y":
+			v.mode = ModeNormal
+			return func() tea.Msg {
+				return EnableLoggingCollectorMsg{}
+			}
+		case "n", "N", "esc":
+			v.mode = ModeNormal
+		}
+		return nil
+	}
+
+	// Handle reset deadlocks confirmation mode
+	if v.mode == ModeConfirmResetDeadlocks {
+		switch key {
+		case "y", "Y":
+			v.mode = ModeNormal
+			return func() tea.Msg {
+				return ui.ResetDeadlocksMsg{}
+			}
+		case "n", "N", "esc":
 			v.mode = ModeNormal
 		}
 		return nil
@@ -221,11 +339,25 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	case "h":
 		v.mode = ModeHelp
 
+	// Tab switching
+	case "left":
+		v.activeTab = PrevTab(v.activeTab)
+	case "right":
+		v.activeTab = NextTab(v.activeTab)
+
 	// Navigation
 	case "j", "down":
-		v.moveSelection(1)
+		if v.activeTab == TabActiveLocks {
+			v.moveSelection(1)
+		} else {
+			v.moveDeadlockSelection(1)
+		}
 	case "k", "up":
-		v.moveSelection(-1)
+		if v.activeTab == TabActiveLocks {
+			v.moveSelection(-1)
+		} else {
+			v.moveDeadlockSelection(-1)
+		}
 	case "g", "home":
 		v.selectedIdx = 0
 		v.scrollOffset = 0
@@ -243,8 +375,18 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 	// Detail view
 	case "d", "enter":
-		if len(v.data.Locks) > 0 && v.selectedIdx < len(v.data.Locks) {
-			v.openDetailView()
+		if v.activeTab == TabActiveLocks {
+			if len(v.data.Locks) > 0 && v.selectedIdx < len(v.data.Locks) {
+				v.openDetailView()
+			}
+		} else {
+			// Deadlock history detail - return command to fetch full event
+			if len(v.deadlocks) > 0 && v.deadlockSelectedIdx < len(v.deadlocks) {
+				eventID := v.deadlocks[v.deadlockSelectedIdx].ID
+				return func() tea.Msg {
+					return FetchDeadlockDetailMsg{EventID: eventID}
+				}
+			}
 		}
 
 	// Refresh
@@ -281,6 +423,18 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			} else {
 				v.showToast("Query copied to clipboard", false)
 			}
+		}
+
+	// Enable logging collector (for deadlock history)
+	case "L":
+		if v.activeTab == TabDeadlockHistory && !v.deadlockEnabled {
+			v.mode = ModeConfirmEnableLogging
+		}
+
+	// Reset deadlock history
+	case "R":
+		if v.activeTab == TabDeadlockHistory && len(v.deadlocks) > 0 {
+			v.mode = ModeConfirmResetDeadlocks
 		}
 	}
 
@@ -666,6 +820,20 @@ type KillLockMsg struct {
 // RefreshLocksMsg requests lock data refresh.
 type RefreshLocksMsg struct{}
 
+// FetchDeadlockDetailMsg requests full deadlock event details.
+type FetchDeadlockDetailMsg struct {
+	EventID int64
+}
+
+// EnableLoggingCollectorMsg requests enabling logging_collector.
+type EnableLoggingCollectorMsg struct{}
+
+// EnableLoggingCollectorResultMsg contains the result of enabling logging.
+type EnableLoggingCollectorResultMsg struct {
+	Success bool
+	Error   error
+}
+
 // View renders the locks view.
 func (v *LocksView) View() string {
 	if !v.connected {
@@ -676,8 +844,17 @@ func (v *LocksView) View() string {
 	if v.mode == ModeConfirmKill {
 		return v.renderWithOverlay(v.renderConfirmKillDialog())
 	}
+	if v.mode == ModeConfirmEnableLogging {
+		return v.renderWithOverlay(v.renderEnableLoggingDialog())
+	}
+	if v.mode == ModeConfirmResetDeadlocks {
+		return v.renderWithOverlay(v.renderResetDeadlocksDialog())
+	}
 	if v.mode == ModeDetail {
 		return v.renderDetailView()
+	}
+	if v.mode == ModeDeadlockDetail {
+		return v.renderDeadlockDetailView()
 	}
 	if v.mode == ModeHelp {
 		return HelpOverlay(v.width, v.height)
@@ -689,21 +866,32 @@ func (v *LocksView) View() string {
 	// Title
 	title := v.renderTitle()
 
-	// Column headers
-	header := v.renderHeader()
+	// Tab bar
+	tabBar := TabBar(v.activeTab, v.width)
 
-	// Table
-	table := v.renderTable()
+	// Render based on active tab
+	var content string
+	var footer string
 
-	// Footer
-	footer := v.renderFooter()
+	if v.activeTab == TabActiveLocks {
+		// Column headers
+		header := v.renderHeader()
+		// Table
+		table := v.renderTable()
+		content = lipgloss.JoinVertical(lipgloss.Left, header, table)
+		footer = v.renderFooter()
+	} else {
+		// Deadlock history
+		content = v.renderDeadlockHistory()
+		footer = v.renderDeadlockFooter()
+	}
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		statusBar,
 		title,
-		header,
-		table,
+		tabBar,
+		content,
 		footer,
 	)
 }
@@ -737,6 +925,45 @@ func (v *LocksView) renderConfirmKillDialog() string {
 	)
 
 	return styles.DialogStyle.Render(fullContent)
+}
+
+// renderEnableLoggingDialog renders the enable logging confirmation dialog.
+func (v *LocksView) renderEnableLoggingDialog() string {
+	content := `Enable PostgreSQL Logging Collector?
+
+This will:
+  • Modify postgresql.conf
+  • Restart PostgreSQL server
+  • Enable deadlock history capture
+
+Connection will be briefly interrupted.
+
+Continue? [y/n]`
+
+	return content
+}
+
+// renderResetDeadlocksDialog renders the reset deadlocks confirmation dialog.
+func (v *LocksView) renderResetDeadlocksDialog() string {
+	title := styles.DialogTitleStyle.Render("Reset Deadlock History")
+
+	details := fmt.Sprintf(
+		"This will clear all %d recorded deadlocks.\n\nThis action cannot be undone.",
+		len(v.deadlocks),
+	)
+
+	prompt := "Are you sure? [y]es [n]o"
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		details,
+		"",
+		prompt,
+	)
+
+	return styles.DialogStyle.Render(content)
 }
 
 // renderDetailView renders the detail view.
@@ -972,6 +1199,302 @@ func (v *LocksView) renderFooter() string {
 	return styles.FooterStyle.
 		Width(v.width - 2).
 		Render(hints + spaces + rightSide)
+}
+
+// renderDeadlockHistory renders the deadlock history table.
+func (v *LocksView) renderDeadlockHistory() string {
+	if !v.deadlockEnabled {
+		return styles.InfoStyle.Render("Deadlock history requires logging_collector = on in PostgreSQL")
+	}
+
+	if len(v.deadlocks) == 0 {
+		return styles.InfoStyle.Render("No deadlocks recorded")
+	}
+
+	// Header
+	headerStyle := styles.TableHeaderStyle.Width(v.width - 2)
+	header := headerStyle.Render(fmt.Sprintf("  %-20s  %-15s  %8s  %-30s",
+		"Detected", "Database", "Procs", "Tables"))
+
+	// Table rows
+	tableHeight := v.deadlockTableHeight()
+	endIdx := min(v.deadlockScrollOffset+tableHeight, len(v.deadlocks))
+	visibleDeadlocks := v.deadlocks[v.deadlockScrollOffset:endIdx]
+
+	var rows []string
+	for i, dl := range visibleDeadlocks {
+		actualIdx := v.deadlockScrollOffset + i
+		detected := dl.DetectedAt.Format("2006-01-02 15:04:05")
+		tables := dl.Tables
+		if len(tables) > 30 {
+			tables = tables[:27] + "..."
+		}
+
+		row := fmt.Sprintf("  %-20s  %-15s  %8d  %-30s",
+			detected,
+			truncateString(dl.DatabaseName, 15),
+			dl.ProcessCount,
+			tables)
+
+		if actualIdx == v.deadlockSelectedIdx {
+			row = styles.TableSelectedStyle.Width(v.width - 2).Render(row)
+		} else {
+			row = styles.TableCellStyle.Width(v.width - 2).Render(row)
+		}
+		rows = append(rows, row)
+	}
+
+	// Pad with empty rows
+	for len(rows) < tableHeight {
+		rows = append(rows, styles.TableCellStyle.Width(v.width-2).Render(""))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
+}
+
+// renderDeadlockFooter renders the footer for deadlock history tab.
+func (v *LocksView) renderDeadlockFooter() string {
+	var hints string
+
+	// Show toast message if recent
+	if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
+		toastStyle := styles.FooterHintStyle
+		if v.toastError {
+			toastStyle = toastStyle.Foreground(styles.ColorCriticalFg)
+		} else {
+			toastStyle = toastStyle.Foreground(styles.ColorActive)
+		}
+		hints = toastStyle.Render(v.toastMessage)
+	} else {
+		hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [R]eset [←/→]tabs [h]elp")
+	}
+
+	count := fmt.Sprintf("%d / %d", min(v.deadlockSelectedIdx+1, len(v.deadlocks)), len(v.deadlocks))
+	rightSide := styles.FooterCountStyle.Render(count)
+
+	gap := v.width - lipgloss.Width(hints) - lipgloss.Width(rightSide) - 4
+	if gap < 1 {
+		gap = 1
+	}
+	spaces := lipgloss.NewStyle().Width(gap).Render("")
+
+	return styles.FooterStyle.
+		Width(v.width - 2).
+		Render(hints + spaces + rightSide)
+}
+
+// deadlockTableHeight returns the number of visible deadlock table rows.
+func (v *LocksView) deadlockTableHeight() int {
+	// height - status(1) - title(1) - tabs(1) - header(1) - footer(1) - padding
+	return max(1, v.height-7)
+}
+
+// moveDeadlockSelection moves the deadlock selection by delta rows.
+func (v *LocksView) moveDeadlockSelection(delta int) {
+	if len(v.deadlocks) == 0 {
+		return
+	}
+	v.deadlockSelectedIdx += delta
+	if v.deadlockSelectedIdx < 0 {
+		v.deadlockSelectedIdx = 0
+	}
+	if v.deadlockSelectedIdx >= len(v.deadlocks) {
+		v.deadlockSelectedIdx = len(v.deadlocks) - 1
+	}
+	v.ensureDeadlockVisible()
+}
+
+// ensureDeadlockVisible adjusts scroll to keep selection visible.
+func (v *LocksView) ensureDeadlockVisible() {
+	tableHeight := v.deadlockTableHeight()
+	if tableHeight <= 0 {
+		return
+	}
+	if v.deadlockSelectedIdx < v.deadlockScrollOffset {
+		v.deadlockScrollOffset = v.deadlockSelectedIdx
+	}
+	if v.deadlockSelectedIdx >= v.deadlockScrollOffset+tableHeight {
+		v.deadlockScrollOffset = v.deadlockSelectedIdx - tableHeight + 1
+	}
+}
+
+// truncateString truncates a string to maxLen with ellipsis.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// formatDeadlockDetail formats a deadlock event for display.
+func (v *LocksView) formatDeadlockDetail(event *sqlite.DeadlockEvent) []string {
+	var lines []string
+
+	// Header
+	lines = append(lines, fmt.Sprintf("Deadlock Event #%d", event.ID))
+	lines = append(lines, strings.Repeat("─", 60))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("Detected:    %s", event.DetectedAt.Format("2006-01-02 15:04:05")))
+	lines = append(lines, fmt.Sprintf("Database:    %s", event.DatabaseName))
+	if event.ResolvedByPID != nil {
+		lines = append(lines, fmt.Sprintf("Resolved by: PID %d", *event.ResolvedByPID))
+	}
+	if event.DetectionTimeMs != nil {
+		lines = append(lines, fmt.Sprintf("Detection:   %dms", *event.DetectionTimeMs))
+	}
+	lines = append(lines, "")
+
+	// Processes
+	lines = append(lines, fmt.Sprintf("Processes Involved: %d", len(event.Processes)))
+	lines = append(lines, strings.Repeat("─", 60))
+
+	for i, proc := range event.Processes {
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("Process %d:", i+1))
+		lines = append(lines, fmt.Sprintf("  PID:         %d", proc.PID))
+		if proc.Username != "" {
+			lines = append(lines, fmt.Sprintf("  User:        %s", proc.Username))
+		}
+		if proc.ApplicationName != "" {
+			lines = append(lines, fmt.Sprintf("  Application: %s", proc.ApplicationName))
+		}
+		if proc.ClientAddr != "" {
+			lines = append(lines, fmt.Sprintf("  Client:      %s", proc.ClientAddr))
+		}
+		if proc.BackendStart != nil {
+			lines = append(lines, fmt.Sprintf("  Backend:     %s", proc.BackendStart.Format("2006-01-02 15:04:05")))
+		}
+		if proc.XactStart != nil {
+			lines = append(lines, fmt.Sprintf("  Xact Start:  %s", proc.XactStart.Format("2006-01-02 15:04:05")))
+		}
+		if proc.LockType != "" {
+			lines = append(lines, fmt.Sprintf("  Lock Type:   %s", proc.LockType))
+		}
+		if proc.LockMode != "" {
+			lines = append(lines, fmt.Sprintf("  Lock Mode:   %s", proc.LockMode))
+		}
+		if proc.RelationName != "" {
+			lines = append(lines, fmt.Sprintf("  Relation:    %s", proc.RelationName))
+		}
+		if proc.BlockedByPID != nil {
+			lines = append(lines, fmt.Sprintf("  Blocked by:  PID %d", *proc.BlockedByPID))
+		}
+		if proc.Query != "" {
+			lines = append(lines, "  Query:")
+			// Format query with pgFormatter and apply syntax highlighting
+			formattedQuery := v.formatDeadlockSQL(proc.Query)
+			queryLines := strings.Split(formattedQuery, "\n")
+			for _, ql := range queryLines {
+				lines = append(lines, "    "+ql)
+			}
+		}
+	}
+
+	return lines
+}
+
+// formatDeadlockSQL formats a SQL query with pgFormatter and chroma syntax highlighting.
+func (v *LocksView) formatDeadlockSQL(sql string) string {
+	if sql == "" {
+		return ""
+	}
+
+	// Workaround for pgFormatter bug: empty strings ('') prevent proper column wrapping
+	const placeholder = "'__EMPTY_STRING_PLACEHOLDER__'"
+	sqlToFormat := strings.ReplaceAll(sql, "''", placeholder)
+
+	// Try pg_format via Docker
+	formatted := sql
+	cmd := exec.Command("docker", "run", "--rm", "-i", "backplane/pgformatter", "-s", "2", "-W", "1")
+	cmd.Stdin = strings.NewReader(sqlToFormat)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err == nil {
+		formatted = strings.TrimSpace(out.String())
+		formatted = strings.ReplaceAll(formatted, placeholder, "''")
+	}
+
+	// Apply syntax highlighting
+	var buf bytes.Buffer
+	if err := quick.Highlight(&buf, formatted, "postgresql", "terminal256", "monokai"); err != nil {
+		return formatted
+	}
+
+	return buf.String()
+}
+
+// formatDeadlockSQLPlain formats a SQL query without highlighting (for clipboard).
+func (v *LocksView) formatDeadlockSQLPlain(sql string) string {
+	if sql == "" {
+		return ""
+	}
+
+	const placeholder = "'__EMPTY_STRING_PLACEHOLDER__'"
+	sqlToFormat := strings.ReplaceAll(sql, "''", placeholder)
+
+	cmd := exec.Command("docker", "run", "--rm", "-i", "backplane/pgformatter", "-s", "2", "-W", "1")
+	cmd.Stdin = strings.NewReader(sqlToFormat)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err == nil {
+		formatted := strings.TrimSpace(out.String())
+		return strings.ReplaceAll(formatted, placeholder, "''")
+	}
+
+	return sql
+}
+
+// renderDeadlockDetailView renders the deadlock detail view.
+func (v *LocksView) renderDeadlockDetailView() string {
+	if len(v.deadlockDetailLines) == 0 {
+		return ""
+	}
+
+	// Title
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(styles.ColorAccent).
+		Padding(0, 1)
+	title := titleStyle.Render("Deadlock Details")
+
+	// Content area
+	contentHeight := v.height - 4 // title + footer + padding
+	endIdx := min(v.deadlockDetailScroll+contentHeight, len(v.deadlockDetailLines))
+	visibleLines := v.deadlockDetailLines[v.deadlockDetailScroll:endIdx]
+
+	contentStyle := lipgloss.NewStyle().
+		Padding(0, 2)
+	content := contentStyle.Render(strings.Join(visibleLines, "\n"))
+
+	// Footer
+	footerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("241"))
+	scrollInfo := ""
+	if len(v.deadlockDetailLines) > contentHeight {
+		scrollInfo = fmt.Sprintf(" (%d/%d)", v.deadlockDetailScroll+1, len(v.deadlockDetailLines))
+	}
+	footer := footerStyle.Render(fmt.Sprintf("[↑/↓]scroll [c]copy [Esc]close%s", scrollInfo))
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		content,
+		footer,
+	)
+}
+
+// deadlockDetailScrollDown scrolls down in the deadlock detail view.
+func (v *LocksView) deadlockDetailScrollDown(n int) {
+	maxScroll := max(0, len(v.deadlockDetailLines)-(v.height-4))
+	v.deadlockDetailScroll = min(v.deadlockDetailScroll+n, maxScroll)
+}
+
+// deadlockDetailScrollUp scrolls up in the deadlock detail view.
+func (v *LocksView) deadlockDetailScrollUp(n int) {
+	v.deadlockDetailScroll = max(0, v.deadlockDetailScroll-n)
 }
 
 // SetSize sets the dimensions of the view.

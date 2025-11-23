@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/storage/sqlite"
 )
 
 // Data messages (from monitors to UI)
@@ -118,6 +119,28 @@ type LocksDataMsg struct {
 // KillQueryResultMsg contains the result of a kill query attempt.
 type KillQueryResultMsg struct {
 	PID     int
+	Success bool
+	Error   error
+}
+
+// DeadlockHistoryMsg contains deadlock history data.
+type DeadlockHistoryMsg struct {
+	Deadlocks []sqlite.DeadlockSummary
+	Enabled   bool
+	Error     error
+}
+
+// DeadlockDetailMsg contains a single deadlock event with full details.
+type DeadlockDetailMsg struct {
+	Event *sqlite.DeadlockEvent
+	Error error
+}
+
+// ResetDeadlocksMsg is sent to request resetting deadlock history.
+type ResetDeadlocksMsg struct{}
+
+// ResetDeadlocksResultMsg contains the result of resetting deadlock history.
+type ResetDeadlocksResultMsg struct {
 	Success bool
 	Error   error
 }

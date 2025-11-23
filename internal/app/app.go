@@ -67,9 +67,11 @@ type Model struct {
 	activeConnections int
 
 	// Monitors
-	activityMonitor *monitors.ActivityMonitor
-	statsMonitor    *monitors.StatsMonitor
-	locksMonitor    *monitors.LocksMonitor
+	activityMonitor  *monitors.ActivityMonitor
+	statsMonitor     *monitors.StatsMonitor
+	locksMonitor     *monitors.LocksMonitor
+	deadlockMonitor  *monitors.DeadlockMonitor
+	deadlockStore    *sqlite.DeadlockStore
 
 	// Query performance monitoring
 	queryStatsDB    *sqlite.DB
@@ -201,12 +203,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if storagePath == "" {
 			// Use default cache directory
 			cacheDir, _ := os.UserCacheDir()
-			storagePath = fmt.Sprintf("%s/steep/query_stats.db", cacheDir)
+			storagePath = fmt.Sprintf("%s/steep/steep.db", cacheDir)
 		}
 		queryDB, err := sqlite.Open(storagePath)
 		if err == nil {
 			m.queryStatsDB = queryDB
 			m.queryStatsStore = sqlite.NewQueryStatsStore(queryDB)
+
+			// Initialize deadlock store (shares same DB)
+			m.deadlockStore = sqlite.NewDeadlockStore(queryDB)
+
+			// Initialize deadlock monitor
+			ctx := context.Background()
+			m.deadlockMonitor, _ = monitors.NewDeadlockMonitor(ctx, msg.Pool, m.deadlockStore, 30*time.Second)
 
 			// Initialize query monitor
 			monitorConfig := querymonitor.MonitorConfig{
@@ -219,7 +228,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_ = m.queryMonitor.Start(context.Background())
 
 			// Check logging status and show dialog if disabled
-			ctx := context.Background()
 			status, err := m.queryMonitor.CheckLoggingStatus(ctx)
 			if err == nil && !status.Enabled {
 				m.queriesView.SetLoggingDisabled()
@@ -251,6 +259,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fetchActivityData(m.activityMonitor),
 			fetchStatsData(m.statsMonitor),
 			fetchLocksData(m.locksMonitor),
+			fetchDeadlockHistory(m.deadlockMonitor),
 			tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
 				return dataTickMsg{}
 			}),
@@ -317,6 +326,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Fetch locks data if monitor is available
 			if m.locksMonitor != nil {
 				cmds = append(cmds, fetchLocksData(m.locksMonitor))
+			}
+			// Fetch deadlock history if monitor is available
+			if m.deadlockMonitor != nil {
+				cmds = append(cmds, fetchDeadlockHistory(m.deadlockMonitor))
 			}
 			// Also fetch query stats if store is available
 			if m.queryStatsStore != nil {
@@ -448,6 +461,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.locksView.Update(msg)
 		return m, nil
 
+	case ui.DeadlockHistoryMsg:
+		// Forward to locks view
+		m.locksView.Update(msg)
+		return m, nil
+
 	case locksview.RefreshLocksMsg:
 		// Fetch locks data
 		if m.locksMonitor != nil {
@@ -469,6 +487,50 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.locksMonitor != nil {
 			return m, fetchLocksData(m.locksMonitor)
 		}
+		return m, nil
+
+	case locksview.FetchDeadlockDetailMsg:
+		// Fetch full deadlock event details
+		return m, fetchDeadlockDetail(m.deadlockStore, msg.EventID)
+
+	case ui.DeadlockDetailMsg:
+		// Forward to locks view
+		m.locksView.Update(msg)
+		return m, nil
+
+	case locksview.EnableLoggingCollectorMsg:
+		// Enable logging_collector and restart PostgreSQL
+		if m.dbPool != nil {
+			return m, enableLoggingCollector(m.dbPool)
+		}
+		return m, nil
+
+	case locksview.EnableLoggingCollectorResultMsg:
+		// Forward to locks view
+		m.locksView.Update(msg)
+		// PostgreSQL was restarted - need to reconnect
+		if msg.Success {
+			m.connected = false
+			m.reconnecting = true
+			m.reconnectionState = db.NewReconnectionState(5)
+			m.statusBar.SetConnected(false)
+			// Give PostgreSQL a moment to start, then reconnect
+			return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+				return attemptReconnection(m.config, m.reconnectionState)()
+			})
+		}
+		return m, nil
+
+	case ui.ResetDeadlocksMsg:
+		// Reset deadlock history
+		if m.deadlockStore != nil {
+			return m, resetDeadlockHistory(m.deadlockStore)
+		}
+		return m, nil
+
+	case ui.ResetDeadlocksResultMsg:
+		// Forward to locks view
+		m.locksView.Update(msg)
 		return m, nil
 
 	case ReconnectAttemptMsg:
@@ -960,5 +1022,65 @@ func fetchLocksData(monitor *monitors.LocksMonitor) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		return monitor.FetchOnce(ctx)
+	}
+}
+
+// fetchDeadlockHistory creates a command to fetch deadlock history
+func fetchDeadlockHistory(monitor *monitors.DeadlockMonitor) tea.Cmd {
+	if monitor == nil {
+		return func() tea.Msg {
+			return ui.DeadlockHistoryMsg{Enabled: false}
+		}
+	}
+	return func() tea.Msg {
+		ctx := context.Background()
+		// Parse any new entries first
+		monitor.ParseOnce(ctx)
+		// Get recent deadlocks (last 30 days, limit 100)
+		deadlocks, err := monitor.GetRecentDeadlocks(ctx, 30, 100)
+		return ui.DeadlockHistoryMsg{
+			Deadlocks: deadlocks,
+			Enabled:   monitor.IsEnabled(),
+			Error:     err,
+		}
+	}
+}
+
+// fetchDeadlockDetail creates a command to fetch a single deadlock event
+func fetchDeadlockDetail(store *sqlite.DeadlockStore, eventID int64) tea.Cmd {
+	if store == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx := context.Background()
+		event, err := store.GetEvent(ctx, eventID)
+		return ui.DeadlockDetailMsg{
+			Event: event,
+			Error: err,
+		}
+	}
+}
+
+// enableLoggingCollector creates a command to enable logging_collector
+func enableLoggingCollector(pool *pgxpool.Pool) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		err := queries.EnableLoggingCollector(ctx, pool)
+		return locksview.EnableLoggingCollectorResultMsg{
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// resetDeadlockHistory creates a command to reset deadlock history
+func resetDeadlockHistory(store *sqlite.DeadlockStore) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		err := store.Reset(ctx)
+		return ui.ResetDeadlocksResultMsg{
+			Success: err == nil,
+			Error:   err,
+		}
 	}
 }

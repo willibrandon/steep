@@ -171,6 +171,27 @@ func (m *Monitor) EnableLogging(ctx context.Context) error {
 		return fmt.Errorf("failed to set log_executor_stats: %w", err)
 	}
 
+	// Set log_line_prefix to include useful metadata
+	// %t=timestamp, %p=PID, %a=application, %u=username, %h=client host
+	_, err = m.pool.Exec(ctx, "ALTER SYSTEM SET log_line_prefix = '%t [%p] [%a] [%u@%h] '")
+	if err != nil {
+		return fmt.Errorf("failed to set log_line_prefix: %w", err)
+	}
+
+	// Enable JSON logging for rich metadata (includes session_start for backend_start)
+	// Also enable logging_collector which is required for jsonlog
+	_, err = m.pool.Exec(ctx, "ALTER SYSTEM SET logging_collector = on")
+	if err != nil {
+		return fmt.Errorf("failed to set logging_collector: %w", err)
+	}
+
+	// Add jsonlog and csvlog to log_destination (keeps stderr for console output)
+	// jsonlog is preferred but csvlog provides backup
+	_, err = m.pool.Exec(ctx, "ALTER SYSTEM SET log_destination = 'stderr,jsonlog,csvlog'")
+	if err != nil {
+		return fmt.Errorf("failed to set log_destination: %w", err)
+	}
+
 	_, err = m.pool.Exec(ctx, "SELECT pg_reload_conf()")
 	if err != nil {
 		return fmt.Errorf("failed to reload config: %w", err)

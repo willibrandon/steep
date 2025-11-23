@@ -22,6 +22,43 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_query_stats_calls ON query_stats(calls DESC);
 	CREATE INDEX IF NOT EXISTS idx_query_stats_total_rows ON query_stats(total_rows DESC);
 	CREATE INDEX IF NOT EXISTS idx_query_stats_last_seen ON query_stats(last_seen DESC);
+
+	-- Deadlock events table
+	CREATE TABLE IF NOT EXISTS deadlock_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		detected_at DATETIME NOT NULL,
+		database_name TEXT NOT NULL,
+		resolved_by_pid INTEGER,
+		detection_time_ms INTEGER,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_deadlock_events_detected_at ON deadlock_events(detected_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_deadlock_events_database ON deadlock_events(database_name);
+
+	-- Processes involved in deadlocks (supports N-way deadlocks)
+	CREATE TABLE IF NOT EXISTS deadlock_processes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		event_id INTEGER NOT NULL,
+		pid INTEGER NOT NULL,
+		username TEXT,
+		application_name TEXT,
+		client_addr TEXT,
+		backend_start DATETIME,
+		xact_start DATETIME,
+		lock_type TEXT,
+		lock_mode TEXT,
+		relation_name TEXT,
+		query TEXT NOT NULL,
+		query_fingerprint INTEGER,
+		blocked_by_pid INTEGER,
+		FOREIGN KEY (event_id) REFERENCES deadlock_events(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_deadlock_processes_event_id ON deadlock_processes(event_id);
+	CREATE INDEX IF NOT EXISTS idx_deadlock_processes_pid ON deadlock_processes(pid);
+	CREATE INDEX IF NOT EXISTS idx_deadlock_processes_relation ON deadlock_processes(relation_name);
+	CREATE INDEX IF NOT EXISTS idx_deadlock_processes_fingerprint ON deadlock_processes(query_fingerprint);
 	`
 
 	_, err := db.conn.Exec(schema)
