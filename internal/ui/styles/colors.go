@@ -33,6 +33,10 @@ var (
 	// Selection colors
 	ColorSelectedFg = lipgloss.Color("229") // Light yellow text
 	ColorSelectedBg = lipgloss.Color("57")  // Purple background
+
+	// Lock blocking colors
+	ColorBlocked  = lipgloss.Color("9")   // Red - blocked queries (waiting)
+	ColorBlocking = lipgloss.Color("11")  // Yellow - blocking queries (holding lock)
 )
 
 // ConnectionStateColor returns the appropriate color for a connection state.

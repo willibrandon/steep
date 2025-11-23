@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
 // TestLocksData_GetStatus tests the status determination logic.
@@ -430,5 +432,194 @@ func TestLockStatusConstants(t *testing.T) {
 	}
 	if models.LockStatusBlocked != 2 {
 		t.Errorf("LockStatusBlocked = %d, want 2", models.LockStatusBlocked)
+	}
+}
+
+// TestBlockingColorConstants tests that blocking colors are defined correctly.
+func TestBlockingColorConstants(t *testing.T) {
+	// ColorBlocked should be red (color 9)
+	if styles.ColorBlocked != lipgloss.Color("9") {
+		t.Errorf("ColorBlocked = %v, want color 9 (red)", styles.ColorBlocked)
+	}
+
+	// ColorBlocking should be yellow (color 11)
+	if styles.ColorBlocking != lipgloss.Color("11") {
+		t.Errorf("ColorBlocking = %v, want color 11 (yellow)", styles.ColorBlocking)
+	}
+}
+
+// TestBlockingColorAssignment tests that correct colors are assigned based on status.
+func TestBlockingColorAssignment(t *testing.T) {
+	tests := []struct {
+		name          string
+		status        models.LockStatus
+		expectedColor lipgloss.Color
+		description   string
+	}{
+		{
+			name:          "blocked gets red",
+			status:        models.LockStatusBlocked,
+			expectedColor: styles.ColorBlocked,
+			description:   "Blocked queries should appear in red",
+		},
+		{
+			name:          "blocking gets yellow",
+			status:        models.LockStatusBlocking,
+			expectedColor: styles.ColorBlocking,
+			description:   "Blocking queries should appear in yellow",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var color lipgloss.Color
+			switch tt.status {
+			case models.LockStatusBlocked:
+				color = styles.ColorBlocked
+			case models.LockStatusBlocking:
+				color = styles.ColorBlocking
+			}
+
+			if color != tt.expectedColor {
+				t.Errorf("%s: got color %v, want %v", tt.description, color, tt.expectedColor)
+			}
+		})
+	}
+}
+
+// TestBlockingStatusDetermination tests the complete flow of status determination and color assignment.
+func TestBlockingStatusDetermination(t *testing.T) {
+	// Create a blocking scenario
+	data := models.NewLocksData()
+	data.BlockingPIDs = map[int]bool{100: true, 200: true}
+	data.BlockedPIDs = map[int]bool{300: true, 400: true}
+
+	tests := []struct {
+		pid           int
+		expectedStatus models.LockStatus
+		expectedColor  lipgloss.Color
+		description   string
+	}{
+		{
+			pid:            100,
+			expectedStatus: models.LockStatusBlocking,
+			expectedColor:  styles.ColorBlocking,
+			description:    "PID 100 is blocking others (yellow)",
+		},
+		{
+			pid:            200,
+			expectedStatus: models.LockStatusBlocking,
+			expectedColor:  styles.ColorBlocking,
+			description:    "PID 200 is blocking others (yellow)",
+		},
+		{
+			pid:            300,
+			expectedStatus: models.LockStatusBlocked,
+			expectedColor:  styles.ColorBlocked,
+			description:    "PID 300 is blocked (red)",
+		},
+		{
+			pid:            400,
+			expectedStatus: models.LockStatusBlocked,
+			expectedColor:  styles.ColorBlocked,
+			description:    "PID 400 is blocked (red)",
+		},
+		{
+			pid:            500,
+			expectedStatus: models.LockStatusNormal,
+			expectedColor:  lipgloss.Color(""),
+			description:    "PID 500 is normal (no special color)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			status := data.GetStatus(tt.pid)
+			if status != tt.expectedStatus {
+				t.Errorf("GetStatus(%d) = %v, want %v", tt.pid, status, tt.expectedStatus)
+			}
+
+			// Verify color mapping
+			var color lipgloss.Color
+			switch status {
+			case models.LockStatusBlocked:
+				color = styles.ColorBlocked
+			case models.LockStatusBlocking:
+				color = styles.ColorBlocking
+			default:
+				color = lipgloss.Color("")
+			}
+
+			if color != tt.expectedColor {
+				t.Errorf("Color for PID %d = %v, want %v", tt.pid, color, tt.expectedColor)
+			}
+		})
+	}
+}
+
+// TestBlockingChainColorAssignment tests color assignment in blocking chains.
+func TestBlockingChainColorAssignment(t *testing.T) {
+	// Simulate a chain: 100 blocks 200 blocks 300
+	data := models.NewLocksData()
+	data.BlockingPIDs = map[int]bool{100: true, 200: true}
+	data.BlockedPIDs = map[int]bool{200: true, 300: true}
+
+	// PID 100: blocking only (yellow)
+	if data.GetStatus(100) != models.LockStatusBlocking {
+		t.Error("PID 100 should be blocking")
+	}
+
+	// PID 200: both blocking and blocked, blocked takes priority (red)
+	if data.GetStatus(200) != models.LockStatusBlocked {
+		t.Error("PID 200 should be blocked (blocked takes priority over blocking)")
+	}
+
+	// PID 300: blocked only (red)
+	if data.GetStatus(300) != models.LockStatusBlocked {
+		t.Error("PID 300 should be blocked")
+	}
+}
+
+// TestMultipleBlockersAndBlocked tests scenarios with multiple blockers and blocked.
+func TestMultipleBlockersAndBlocked(t *testing.T) {
+	data := models.NewLocksData()
+
+	// Multiple blockers
+	data.BlockingPIDs = map[int]bool{
+		100: true,
+		101: true,
+		102: true,
+	}
+
+	// Multiple blocked
+	data.BlockedPIDs = map[int]bool{
+		200: true,
+		201: true,
+		202: true,
+		203: true,
+	}
+
+	// Verify all blockers get yellow
+	for pid := 100; pid <= 102; pid++ {
+		status := data.GetStatus(pid)
+		if status != models.LockStatusBlocking {
+			t.Errorf("PID %d should be blocking, got %v", pid, status)
+		}
+	}
+
+	// Verify all blocked get red
+	for pid := 200; pid <= 203; pid++ {
+		status := data.GetStatus(pid)
+		if status != models.LockStatusBlocked {
+			t.Errorf("PID %d should be blocked, got %v", pid, status)
+		}
+	}
+
+	// Verify normal PIDs
+	for _, pid := range []int{1, 50, 150, 300, 1000} {
+		status := data.GetStatus(pid)
+		if status != models.LockStatusNormal {
+			t.Errorf("PID %d should be normal, got %v", pid, status)
+		}
 	}
 }

@@ -780,9 +780,9 @@ func (v *LocksView) renderTable() string {
 	tableHeight := v.tableHeight()
 	endIdx := min(v.scrollOffset+tableHeight, len(v.data.Locks))
 
-	// Define blocking styles
-	blockedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))   // Red
-	blockingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("11")) // Yellow
+	// Define blocking styles using centralized colors
+	blockedStyle := lipgloss.NewStyle().Foreground(styles.ColorBlocked)   // Red
+	blockingStyle := lipgloss.NewStyle().Foreground(styles.ColorBlocking) // Yellow
 
 	for i := v.scrollOffset; i < endIdx; i++ {
 		lock := v.data.Locks[i]

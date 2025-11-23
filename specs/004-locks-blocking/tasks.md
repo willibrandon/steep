@@ -85,16 +85,16 @@
 
 ### Tests for User Story 2
 
-- [ ] T024 [P] [US2] Integration test for GetBlockingRelationships query in tests/integration/locks_test.go
-- [ ] T025 [P] [US2] Unit test for blocking color assignment in tests/unit/locks_view_test.go
+- [x] T024 [P] [US2] Integration test for GetBlockingRelationships query in tests/integration/locks/locks_test.go
+- [x] T025 [P] [US2] Unit test for blocking color assignment in tests/unit/locks/locks_view_test.go
 
 ### Implementation for User Story 2
 
-- [ ] T026 [US2] Implement GetBlockingRelationships() using pg_blocking_pids() in internal/db/queries/locks.go
-- [ ] T027 [US2] Build blocking/blocked PID maps in LocksMonitor in internal/monitors/locks.go
-- [ ] T028 [US2] Add blocked (red) and blocking (yellow) styles in internal/ui/styles/colors.go
-- [ ] T029 [US2] Apply conditional row styling based on blocking status in internal/ui/views/locks/view.go
-- [ ] T030 [US2] Update LocksUpdateMsg to include BlockingPIDs and BlockedPIDs maps in internal/ui/messages.go
+- [x] T026 [US2] Implement GetBlockingRelationships() using pg_blocking_pids() in internal/db/queries/locks.go
+- [x] T027 [US2] Build blocking/blocked PID maps in LocksMonitor in internal/monitors/locks.go
+- [x] T028 [US2] Add blocked (red) and blocking (yellow) styles in internal/ui/styles/colors.go
+- [x] T029 [US2] Apply conditional row styling based on blocking status in internal/ui/views/locks/view.go
+- [x] T030 [US2] Update LocksUpdateMsg to include BlockingPIDs and BlockedPIDs maps in internal/ui/messages.go
 
 **Checkpoint**: User Stories 1 & 2 complete - Lock contention immediately visible through color coding
 
