@@ -223,7 +223,7 @@ func writeExplain(writer io.Writer, explain *Explain, width uint) {
 	fmt.Fprintf(writer, "○ Total Cost: %s\n", humanize.Commaf(explain.TotalCost))
 	fmt.Fprintf(writer, "○ Planning Time: %s\n", durationToString(explain.PlanningTime))
 	fmt.Fprintf(writer, "○ Execution Time: %s\n", durationToString(explain.ExecutionTime))
-	fmt.Fprintf(writer, prefixFormat("┬\n"))
+	fmt.Fprintf(writer, "%s", prefixFormat("┬\n"))
 
 	writePlan(writer, explain, &explain.Plan, "", 0, width, len(explain.Plan.Plans) == 1)
 }

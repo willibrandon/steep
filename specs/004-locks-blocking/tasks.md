@@ -24,8 +24,8 @@
 
 **Purpose**: Project initialization and dependency setup
 
-- [ ] T001 Add github.com/xlab/treeprint dependency with `go get github.com/xlab/treeprint`
-- [ ] T002 [P] Create locks view directory structure at internal/ui/views/locks/
+- [x] T001 Add github.com/xlab/treeprint dependency with `go get github.com/xlab/treeprint`
+- [x] T002 [P] Create locks view directory structure at internal/ui/views/locks/
 
 ---
 
@@ -35,16 +35,16 @@
 
 **CRITICAL - Constitution Principle VI**: Visual Design First must be completed here before any UI implementation.
 
-- [ ] T003 Study reference tools (pg_top, htop, k9s) and capture screenshots of lock/tree displays
-- [ ] T004 Create ASCII mockup of locks view layout in specs/004-locks-blocking/mockups.md
-- [ ] T005 Build Demo 1: Simple lock table with lipgloss borders in internal/ui/demos/demo_locks_table/main.go
-- [ ] T006 Build Demo 2: Split view (table top, tree bottom) in internal/ui/demos/demo_locks_split/main.go
-- [ ] T007 Build Demo 3: Alternative layout for comparison in internal/ui/demos/demo_locks_alt/main.go
-- [ ] T008 Document visual acceptance criteria and chosen approach in specs/004-locks-blocking/visual-design.md
-- [ ] T009 [P] Create Lock model struct in internal/db/models/lock.go
-- [ ] T010 [P] Create BlockingRelationship struct in internal/db/models/lock.go
-- [ ] T011 [P] Create BlockingChain struct for tree rendering in internal/db/models/lock.go
-- [ ] T012 Wire `5` key navigation to ViewLocks in internal/app/app.go
+- [x] T003 Study reference tools (pg_top, htop, k9s) and capture screenshots of lock/tree displays
+- [x] T004 Create ASCII mockup of locks view layout in specs/004-locks-blocking/mockups.md
+- [x] T005 Build Demo 1: Simple lock table with lipgloss borders in internal/ui/demos/demo_locks_table/main.go
+- [x] T006 Build Demo 2: Split view (table top, tree bottom) in internal/ui/demos/demo_locks_split/main.go
+- [x] T007 Build Demo 3: Alternative layout for comparison in internal/ui/demos/demo_locks_alt/main.go
+- [x] T008 Document visual acceptance criteria and chosen approach in specs/004-locks-blocking/visual-design.md
+- [x] T009 [P] Create Lock model struct in internal/db/models/lock.go
+- [x] T010 [P] Create BlockingRelationship struct in internal/db/models/lock.go
+- [x] T011 [P] Create BlockingChain struct for tree rendering in internal/db/models/lock.go
+- [x] T012 Wire `4` key navigation to ViewLocks in internal/app/app.go (was already wired)
 
 **Checkpoint**: Foundation ready - Visual design approved, models defined, navigation wired
 
