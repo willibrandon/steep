@@ -948,6 +948,9 @@ func (v *LocksView) View() string {
 		return v.renderDeadlockDetailView()
 	}
 	if v.mode == ModeHelp {
+		if v.activeTab == TabDeadlockHistory {
+			return DeadlockHelpOverlay(v.width, v.height)
+		}
 		return HelpOverlay(v.width, v.height)
 	}
 
