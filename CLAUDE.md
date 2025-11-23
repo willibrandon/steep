@@ -308,6 +308,8 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL 11+ (pg_stat_activity, pg_stat_database system views) (002-dashboard-activity)
 - Go 1.21+ + bubbletea, bubbles (table, viewport), lipgloss, pgx/pgxpool, pg_query_go/v5, honeytail/parsers/postgresql, go-sqlite3, golang.design/x/clipboard (003-query-performance)
 - SQLite (query_stats.db in ~/.config/steep/), PostgreSQL (source database) (003-query-performance)
+- Go 1.21+ (using Go 1.25.4 per go.mod) + bubbletea, bubbles (table, viewport), lipgloss, pgx/pgxpool, xlab/treeprin (004-locks-blocking)
+- PostgreSQL (pg_locks, pg_stat_activity system views) (004-locks-blocking)
 
 ## Recent Changes
 - 003-query-performance: Query performance monitoring with fingerprinting, EXPLAIN plans (JSON) and EXPLAIN ANALYZE (tree visualization with pev), search/filter, clipboard, reset stats
