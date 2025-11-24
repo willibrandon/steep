@@ -309,7 +309,8 @@ Before starting feature development, ensure:
 2. **P1**: As a DBA, I want to see table sizes and row counts to understand storage usage
 3. **P2**: As a DBA, I want to see index usage statistics to identify unused or inefficient indexes
 4. **P2**: As a DBA, I want to see bloat estimates for tables and indexes to plan VACUUM operations
-5. **P3**: As a DBA, I want to execute VACUUM, ANALYZE, or REINDEX on selected tables to maintain database health
+5. **P2**: As a DBA, I want Steep to offer to install pgstattuple extension if not available to enable bloat detection
+6. **P3**: As a DBA, I want to execute VACUUM, ANALYZE, or REINDEX on selected tables to maintain database health
 
 **Technical Scope**:
 - Hierarchical tree view: Database → Schema → Table
@@ -317,6 +318,7 @@ Before starting feature development, ensure:
 - Index usage from `pg_stat_all_indexes`
 - Table and index size queries using `pg_relation_size()`, `pg_total_relation_size()`
 - Bloat estimation using pgstattuple extension (with graceful fallback)
+- Auto-install pgstattuple extension via `CREATE EXTENSION pgstattuple` with user confirmation
 - Table details panel: columns, types, constraints, indexes
 - Cache hit ratio per table
 - Sequential vs index scan ratio
@@ -326,10 +328,12 @@ Before starting feature development, ensure:
 - `pg_stat_all_indexes` for index usage
 - `pg_relation_size()` for size calculations
 - `pgstattuple()` for bloat detection (if available)
+- `SELECT * FROM pg_extension WHERE extname = 'pgstattuple'` to check extension status
+- `CREATE EXTENSION pgstattuple` for auto-install (requires superuser or create privilege)
 - System catalogs for schema/table metadata
 
 **Acceptance Criteria**:
-- Tables view accessible via `4` key
+- Tables view accessible via `5` key
 - Hierarchical browser with expand/collapse (arrow keys or `Enter`)
 - Table list shows: Name, Size (MB), Row Count, Bloat %, Cache Hit %
 - Index list shows: Name, Size (MB), Scans, Rows Read, Cache Hit %
@@ -339,10 +343,12 @@ Before starting feature development, ensure:
 - Sort tables by size, bloat, or cache hit ratio
 - Auto-refresh every 30 seconds (static data, slower refresh)
 - Graceful degradation: Skip bloat if pgstattuple not available
+- Prompt to install pgstattuple if not available with confirmation dialog
+- Show clear error if extension install fails (insufficient privileges)
 
 **Spec-Kit Command**:
 ```bash
-/speckit.specify Implement Tables and Statistics Viewer with hierarchical database browser (Database → Schema → Table). Display table statistics including size, row count, bloat percentage, and cache hit ratio from pg_stat_all_tables. Show index usage statistics with scan counts and unused index detection from pg_stat_all_indexes. Include table details panel showing columns, constraints, and foreign keys. Support bloat estimation using pgstattuple extension with graceful fallback. Prioritize P1 stories (browsing and viewing table stats) over P2 (bloat detection). Use auto-refresh every 30 seconds. Queries must execute under 500ms.
+/speckit.specify Implement Tables and Statistics Viewer with hierarchical database browser (Database → Schema → Table). Display table statistics including size, row count, bloat percentage, and cache hit ratio from pg_stat_all_tables. Show index usage statistics with scan counts and unused index detection from pg_stat_all_indexes. Include table details panel showing columns, constraints, and foreign keys. Support bloat estimation using pgstattuple extension with graceful fallback. Auto-install pgstattuple via CREATE EXTENSION with user confirmation if not available. Prioritize all P1 stories (browsing and viewing table stats) and P2 (bloat detection, auto-install extension). Use auto-refresh every 30 seconds. Queries must execute under 500ms.
 ```
 
 ---
