@@ -203,7 +203,8 @@ func (v *QueriesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		v.SetSize(msg.Width, msg.Height)
 
 	case tea.MouseMsg:
-		if v.mode == ModeNormal {
+		switch v.mode {
+		case ModeNormal:
 			switch msg.Button {
 			case tea.MouseButtonWheelUp:
 				v.moveSelection(-1)
@@ -223,7 +224,7 @@ func (v *QueriesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
-		} else if v.mode == ModeExplain {
+		case ModeExplain:
 			switch msg.Button {
 			case tea.MouseButtonWheelUp:
 				v.explainView.ScrollUp(1)
@@ -880,7 +881,7 @@ func (v *QueriesView) renderTable() string {
 			emptyMsg = "No queries match filter"
 		}
 		return lipgloss.NewStyle().
-			Width(v.width - 2).
+			Width(v.width-2).
 			Height(v.tableHeight()).
 			Align(lipgloss.Center, lipgloss.Center).
 			Foreground(styles.ColorTextDim).
