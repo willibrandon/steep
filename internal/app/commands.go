@@ -159,9 +159,25 @@ func resetQueryLogPositions(store *sqlite.QueryStatsStore, monitor *querymonitor
 		ctx := context.Background()
 		logger.Info("resetQueryLogPositions: starting")
 		err := store.ResetLogPositions(ctx)
-		if err == nil && monitor != nil {
+
+		if err != nil {
+			return queriesview.ResetQueryLogPositionsResultMsg{
+				Success: false,
+				Error:   err,
+			}
+		}
+
+		// Send success message immediately to show toast before scanning
+		if program != nil {
+			program.Send(queriesview.ResetQueryLogPositionsResultMsg{
+				Success: true,
+				Error:   nil,
+			})
+		}
+
+		// Now parse logs with progress reporting
+		if monitor != nil {
 			logger.Info("resetQueryLogPositions: calling ParseWithProgress")
-			// Parse logs with progress reporting
 			monitor.ParseWithProgress(ctx, func(current, total int) {
 				if program != nil {
 					program.Send(queriesview.QueryScanProgressMsg{
@@ -171,11 +187,10 @@ func resetQueryLogPositions(store *sqlite.QueryStatsStore, monitor *querymonitor
 				}
 			})
 		}
-		logger.Info("resetQueryLogPositions: complete", "error", err)
-		return queriesview.ResetQueryLogPositionsResultMsg{
-			Success: err == nil,
-			Error:   err,
-		}
+
+		logger.Info("resetQueryLogPositions: complete")
+		// Return nil since we already sent the result message
+		return nil
 	}
 }
 
