@@ -102,7 +102,7 @@ func TestPerformance_QueryExecution(t *testing.T) {
 	// Benchmark GetTopQueries - should complete in <500ms
 	t.Run("GetTopQueries", func(t *testing.T) {
 		start := time.Now()
-		_, err := store.GetTopQueries(ctx, sqlite.SortByTotalTime, 100)
+		_, err := store.GetTopQueries(ctx, sqlite.SortByTotalTime, false, 100)
 		elapsed := time.Since(start)
 
 		if err != nil {
@@ -119,7 +119,7 @@ func TestPerformance_QueryExecution(t *testing.T) {
 	// Benchmark SearchQueries - should complete in <500ms
 	t.Run("SearchQueries", func(t *testing.T) {
 		start := time.Now()
-		_, err := store.SearchQueries(ctx, "SELECT", sqlite.SortByTotalTime, 100)
+		_, err := store.SearchQueries(ctx, "SELECT", sqlite.SortByTotalTime, false, 100)
 		elapsed := time.Since(start)
 
 		if err != nil {
@@ -215,7 +215,7 @@ func TestPerformance_MonitorCapture(t *testing.T) {
 
 	// Run 100 queries and measure capture time
 	start := time.Now()
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		_, err = pool.Exec(ctx, "INSERT INTO perf_test (data) VALUES ($1)", "test data")
 		if err != nil {
 			t.Fatalf("Failed to execute query: %v", err)
@@ -232,7 +232,7 @@ func TestPerformance_MonitorCapture(t *testing.T) {
 	}
 
 	// Verify capture
-	stats, err := store.GetTopQueries(ctx, sqlite.SortByCalls, 10)
+	stats, err := store.GetTopQueries(ctx, sqlite.SortByCalls, false, 10)
 	if err != nil {
 		t.Fatalf("Failed to get stats: %v", err)
 	}
@@ -273,7 +273,7 @@ func BenchmarkQueryStatsStore_GetTopQueries(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := store.GetTopQueries(ctx, sqlite.SortByTotalTime, 100)
+		_, err := store.GetTopQueries(ctx, sqlite.SortByTotalTime, false, 100)
 		if err != nil {
 			b.Fatalf("GetTopQueries failed: %v", err)
 		}
@@ -340,7 +340,7 @@ func BenchmarkQueryStatsStore_SearchQueries(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := store.SearchQueries(ctx, "SELECT", sqlite.SortByTotalTime, 100)
+		_, err := store.SearchQueries(ctx, "SELECT", sqlite.SortByTotalTime, false, 100)
 		if err != nil {
 			b.Fatalf("SearchQueries failed: %v", err)
 		}

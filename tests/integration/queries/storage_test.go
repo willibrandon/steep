@@ -217,7 +217,7 @@ func TestIntegration_QueryStatsStore_FullWorkflow(t *testing.T) {
 	}
 
 	// 4. Test sorting
-	stats, err := store.GetTopQueries(ctx, sqlite.SortByTotalTime, 10)
+	stats, err := store.GetTopQueries(ctx, sqlite.SortByTotalTime, false, 10)
 	if err != nil {
 		t.Fatalf("GetTopQueries by time failed: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestIntegration_QueryStatsStore_FullWorkflow(t *testing.T) {
 	}
 
 	// 5. Test search
-	stats, err = store.SearchQueries(ctx, "users", sqlite.SortByTotalTime, 10)
+	stats, err = store.SearchQueries(ctx, "users", sqlite.SortByTotalTime, false, 10)
 	if err != nil {
 		t.Fatalf("SearchQueries failed: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestIntegration_QueryStatsStore_FullWorkflow(t *testing.T) {
 	}
 
 	// 6. Test limit
-	stats, err = store.GetTopQueries(ctx, sqlite.SortByTotalTime, 2)
+	stats, err = store.GetTopQueries(ctx, sqlite.SortByTotalTime, false, 2)
 	if err != nil {
 		t.Fatalf("GetTopQueries with limit failed: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestIntegration_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Verify data integrity
-	stats, err := store.GetTopQueries(ctx, sqlite.SortByCalls, 100)
+	stats, err := store.GetTopQueries(ctx, sqlite.SortByCalls, false, 100)
 	if err != nil {
 		t.Fatalf("GetTopQueries failed: %v", err)
 	}

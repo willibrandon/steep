@@ -140,7 +140,7 @@ func TestQueryStatsStore_GetTopQueries(t *testing.T) {
 	}
 
 	// Test sort by total time
-	stats, err := store.GetTopQueries(ctx, sqlite.SortByTotalTime, 10)
+	stats, err := store.GetTopQueries(ctx, sqlite.SortByTotalTime, false, 10)
 	if err != nil {
 		t.Fatalf("GetTopQueries failed: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestQueryStatsStore_GetTopQueries(t *testing.T) {
 	}
 
 	// Test sort by rows
-	stats, err = store.GetTopQueries(ctx, sqlite.SortByRows, 10)
+	stats, err = store.GetTopQueries(ctx, sqlite.SortByRows, false, 10)
 	if err != nil {
 		t.Fatalf("GetTopQueries failed: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestQueryStatsStore_SearchQueries(t *testing.T) {
 	}
 
 	// Search for "users"
-	stats, err := store.SearchQueries(ctx, "users", sqlite.SortByTotalTime, 10)
+	stats, err := store.SearchQueries(ctx, "users", sqlite.SortByTotalTime, false, 10)
 	if err != nil {
 		t.Fatalf("SearchQueries failed: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestQueryStatsStore_SearchQueries(t *testing.T) {
 	}
 
 	// Search for SELECT
-	stats, err = store.SearchQueries(ctx, "^SELECT", sqlite.SortByTotalTime, 10)
+	stats, err = store.SearchQueries(ctx, "^SELECT", sqlite.SortByTotalTime, false, 10)
 	if err != nil {
 		t.Fatalf("SearchQueries failed: %v", err)
 	}
