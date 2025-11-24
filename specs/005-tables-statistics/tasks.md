@@ -27,10 +27,10 @@ Based on plan.md structure:
 
 **Purpose**: Create directory structure and base files for Tables feature
 
-- [ ] T001 Create tables view package directory at internal/ui/views/tables/
-- [ ] T002 [P] Create data models file at internal/db/models/table.go with Schema, Table, Index, TableColumn, Constraint, TableDetails structs
-- [ ] T003 [P] Create queries file at internal/db/queries/tables.go with package declaration and imports
-- [ ] T004 [P] Add FormatBytes helper function to internal/db/models/table.go for human-readable size display
+- [X] T001 Create tables view package directory at internal/ui/views/tables/
+- [X] T002 [P] Create data models file at internal/db/models/table.go with Schema, Table, Index, TableColumn, Constraint, TableDetails structs
+- [X] T003 [P] Create queries file at internal/db/queries/tables.go with package declaration and imports
+- [X] T004 [P] Add FormatBytes helper function to internal/db/models/table.go for human-readable size display
 
 ---
 
