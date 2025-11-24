@@ -154,13 +154,24 @@ func resetQueryStats(store *sqlite.QueryStatsStore) tea.Cmd {
 }
 
 // resetQueryLogPositions creates a command to reset query log positions
-func resetQueryLogPositions(store *sqlite.QueryStatsStore, monitor *querymonitor.Monitor) tea.Cmd {
+func resetQueryLogPositions(store *sqlite.QueryStatsStore, monitor *querymonitor.Monitor, program *tea.Program) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
+		logger.Info("resetQueryLogPositions: starting")
 		err := store.ResetLogPositions(ctx)
 		if err == nil && monitor != nil {
-			monitor.ResetPositions()
+			logger.Info("resetQueryLogPositions: calling ParseWithProgress")
+			// Parse logs with progress reporting
+			monitor.ParseWithProgress(ctx, func(current, total int) {
+				if program != nil {
+					program.Send(queriesview.QueryScanProgressMsg{
+						CurrentFile: current,
+						TotalFiles:  total,
+					})
+				}
+			})
 		}
+		logger.Info("resetQueryLogPositions: complete", "error", err)
 		return queriesview.ResetQueryLogPositionsResultMsg{
 			Success: err == nil,
 			Error:   err,

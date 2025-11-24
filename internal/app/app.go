@@ -144,6 +144,7 @@ func (m Model) Init() tea.Cmd {
 		connectToDatabase(m.config),
 		tickStatusBar(),
 		m.locksView.Init(),
+		m.queriesView.Init(),
 	)
 }
 
@@ -419,11 +420,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case queriesview.ResetQueryLogPositionsMsg:
 		// Reset query log positions
 		if m.queryStatsStore != nil {
-			return m, resetQueryLogPositions(m.queryStatsStore, m.queryMonitor)
+			return m, resetQueryLogPositions(m.queryStatsStore, m.queryMonitor, m.program)
 		}
 		return m, nil
 
 	case queriesview.ResetQueryLogPositionsResultMsg:
+		// Forward to queries view
+		m.queriesView.Update(msg)
+		return m, nil
+
+	case queriesview.QueryScanProgressMsg:
 		// Forward to queries view
 		m.queriesView.Update(msg)
 		return m, nil
@@ -573,9 +579,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
-		// Forward spinner ticks to locks view
-		_, cmd := m.locksView.Update(msg)
-		return m, cmd
+		// Forward spinner ticks to both locks view and queries view
+		_, locksCmd := m.locksView.Update(msg)
+		_, queriesCmd := m.queriesView.Update(msg)
+		return m, tea.Batch(locksCmd, queriesCmd)
 
 	case ReconnectAttemptMsg:
 		// Update reconnection status display

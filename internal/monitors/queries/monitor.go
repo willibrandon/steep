@@ -466,3 +466,44 @@ func (m *Monitor) ResetPositions() {
 	ctx := context.Background()
 	_ = m.Start(ctx)
 }
+
+// ParseWithProgress parses log files with progress reporting via callback.
+// The callback is called with (currentFile, totalFiles) for each file processed.
+func (m *Monitor) ParseWithProgress(ctx context.Context, progressCallback func(current, total int)) {
+	if m.dataSource != DataSourceLogParsing {
+		return
+	}
+
+	// Create a temporary collector to parse files
+	collector := NewLogCollector(m.config.LogDir, m.config.LogPattern, m.config.LogLinePrefix, m.store)
+
+	// Get list of log files
+	files, err := collector.findLogFiles()
+	if err != nil {
+		return
+	}
+
+	// Start consuming and processing events in background
+	eventsDone := make(chan struct{})
+	go func() {
+		for event := range collector.Events() {
+			m.processEvent(ctx, event)
+		}
+		close(eventsDone)
+	}()
+
+	totalFiles := len(files)
+	for i, file := range files {
+		if progressCallback != nil {
+			progressCallback(i+1, totalFiles)
+		}
+		// Read the file (sends events to collector.Events() channel)
+		_ = collector.readFile(ctx, file)
+	}
+
+	// Close events channel to signal no more events
+	close(collector.events)
+
+	// Wait for all events to be processed
+	<-eventsDone
+}

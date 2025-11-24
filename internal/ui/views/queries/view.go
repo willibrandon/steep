@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
@@ -109,6 +110,12 @@ type QueriesView struct {
 	// Data source
 	dataSource DataSourceType
 
+	// Scan progress
+	scanning        bool
+	scanCurrentFile int
+	scanTotalFiles  int
+	scanSpinner     spinner.Model
+
 	// EXPLAIN view
 	explainView *ExplainView
 
@@ -118,9 +125,13 @@ type QueriesView struct {
 
 // NewQueriesView creates a new queries view.
 func NewQueriesView() *QueriesView {
+	s := spinner.New()
+	s.Spinner = spinner.MiniDot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	return &QueriesView{
 		mode:        ModeNormal,
 		sortColumn:  SortByCalls,
+		scanSpinner: s,
 		explainView: NewExplainView(),
 		clipboard:   ui.NewClipboardWriter(),
 	}
@@ -128,7 +139,7 @@ func NewQueriesView() *QueriesView {
 
 // Init initializes the queries view.
 func (v *QueriesView) Init() tea.Cmd {
-	return nil
+	return v.scanSpinner.Tick
 }
 
 // Update handles messages for the queries view.
@@ -172,6 +183,23 @@ func (v *QueriesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.Success {
 			v.showToast("Log positions reset - will re-parse logs", false)
 		}
+
+	case QueryScanProgressMsg:
+		v.scanCurrentFile = msg.CurrentFile
+		v.scanTotalFiles = msg.TotalFiles
+		// Start scanning when we get first progress update
+		if msg.TotalFiles > 0 && !v.scanning {
+			v.scanning = true
+		}
+		// Stop scanning when complete
+		if msg.CurrentFile >= msg.TotalFiles && msg.TotalFiles > 0 {
+			v.scanning = false
+		}
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		v.scanSpinner, cmd = v.scanSpinner.Update(msg)
+		return v, cmd
 
 	case LoggingStatusMsg:
 		v.loggingChecked = true
@@ -581,7 +609,17 @@ func (v *QueriesView) renderTitle() string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(styles.ColorAccent)
-	return titleStyle.Render("Query Performance")
+
+	title := titleStyle.Render("Query Performance")
+
+	// Show progress indicator only when scanning
+	if v.scanning {
+		progress := fmt.Sprintf("%s Scanning log file %d/%d for query performance...",
+			v.scanSpinner.View(), v.scanCurrentFile, v.scanTotalFiles)
+		return title + "\n" + progress
+	}
+
+	return title
 }
 
 // cycleSort cycles through sort columns in order: Calls -> Time -> Mean -> Rows.
@@ -673,6 +711,12 @@ type ExplainResultMsg struct {
 	Fingerprint uint64
 	Error       error
 	Analyze     bool
+}
+
+// QueryScanProgressMsg reports log file scanning progress.
+type QueryScanProgressMsg struct {
+	CurrentFile int
+	TotalFiles  int
 }
 
 // View renders the queries view.
