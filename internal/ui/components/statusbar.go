@@ -91,10 +91,10 @@ func (s *StatusBar) View() string {
 	// Timestamp
 	timestamp := s.timestamp.Format(s.dateFormat)
 
-	// Active connections (only show if connected)
+	// Connection count (only show if connected)
 	var metricsSection string
 	if s.connected {
-		metricsSection = fmt.Sprintf(" | Active: %d", s.activeConnections)
+		metricsSection = fmt.Sprintf(" | Conns: %d", s.activeConnections)
 	}
 
 	// Build status line

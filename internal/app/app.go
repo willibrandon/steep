@@ -33,8 +33,8 @@ type Model struct {
 	program *tea.Program
 
 	// Database connection
-	dbPool    *pgxpool.Pool
-	connected bool
+	dbPool        *pgxpool.Pool
+	connected     bool
 	connectionErr error
 	serverVersion string
 
@@ -57,10 +57,10 @@ type Model struct {
 	locksView   *locksview.LocksView
 
 	// Application state
-	helpVisible  bool
-	quitting     bool
-	ready        bool
-	tooSmall     bool
+	helpVisible bool
+	quitting    bool
+	ready       bool
+	tooSmall    bool
 
 	// Reconnection state
 	reconnectionState *db.ReconnectionState
@@ -71,17 +71,16 @@ type Model struct {
 	activeConnections int
 
 	// Monitors
-	activityMonitor  *monitors.ActivityMonitor
-	statsMonitor     *monitors.StatsMonitor
-	locksMonitor     *monitors.LocksMonitor
-	deadlockMonitor  *monitors.DeadlockMonitor
-	deadlockStore    *sqlite.DeadlockStore
+	activityMonitor *monitors.ActivityMonitor
+	statsMonitor    *monitors.StatsMonitor
+	locksMonitor    *monitors.LocksMonitor
+	deadlockMonitor *monitors.DeadlockMonitor
+	deadlockStore   *sqlite.DeadlockStore
 
 	// Query performance monitoring
 	queryStatsDB    *sqlite.DB
 	queryStatsStore *sqlite.QueryStatsStore
 	queryMonitor    *querymonitor.Monitor
-
 }
 
 // New creates a new application model
@@ -295,18 +294,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StatusBarTickMsg:
 		m.statusTimestamp = msg.Timestamp
 		m.statusBar.SetTimestamp(msg.Timestamp)
-		// Query metrics if connected
-		if m.connected && m.dbPool != nil {
-			return m, tea.Batch(
-				tickStatusBar(),
-				queryMetrics(m.dbPool),
-			)
-		}
 		return m, tickStatusBar()
 
 	case MetricsUpdateMsg:
-		m.activeConnections = msg.ActiveConnections
-		m.statusBar.SetActiveConnections(msg.ActiveConnections)
+		// Note: Status bar activeConnections is updated by ui.MetricsDataMsg
+		// This message is no longer used for status bar updates
 		return m, nil
 
 	case ui.ActivityDataMsg:
@@ -751,6 +743,9 @@ func (m Model) View() string {
 	} else {
 		view += "\n" + m.renderCurrentView()
 	}
+
+	// Status bar at bottom
+	view += "\n" + m.renderStatusBar()
 
 	return view
 }

@@ -48,24 +48,6 @@ func tickStatusBar() tea.Cmd {
 	})
 }
 
-// queryMetrics creates a command to query database metrics
-func queryMetrics(pool *pgxpool.Pool) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-
-		// Query active connections
-		var activeConns int
-		err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM pg_stat_activity WHERE state = 'active'").Scan(&activeConns)
-		if err != nil {
-			return ErrorMsg{Err: fmt.Errorf("failed to query metrics: %w", err)}
-		}
-
-		return MetricsUpdateMsg{
-			ActiveConnections: activeConns,
-		}
-	}
-}
-
 // attemptReconnection creates a command to attempt database reconnection
 func attemptReconnection(cfg *config.Config, state *db.ReconnectionState) tea.Cmd {
 	return func() tea.Msg {
