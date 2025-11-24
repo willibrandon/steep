@@ -90,16 +90,36 @@ go test ./tests/integration/... -v -tags=integration
 
 ### Manual Testing Checklist
 
-1. [ ] Navigate to Locks view with `5` key
-2. [ ] Verify table displays all columns (PID, Type, Mode, Granted, DB, Relation, Query)
+#### Active Locks Tab
+1. [ ] Navigate to Locks view with `4` key
+2. [ ] Verify table displays all columns (PID, Type, Mode, Dur, Grt, DB, Relation, Query)
 3. [ ] Create blocking scenario and verify red/yellow coloring
-4. [ ] Press `s` to sort by different columns
-5. [ ] Press `d` to view full query detail
-6. [ ] Verify lock tree renders below table
-7. [ ] Press `x` on blocking query, confirm dialog appears
-8. [ ] Test in `--readonly` mode, verify `x` is disabled
-9. [ ] Verify auto-refresh every 2 seconds
-10. [ ] Test at 80x24 terminal size
+4. [ ] Press `s` to cycle sort columns (PID → Type → Mode → Granted → Duration)
+5. [ ] Press `S` to toggle sort direction (↓ ↔ ↑)
+6. [ ] Press `d` or Enter to view full query detail with formatted SQL
+7. [ ] In detail view: `j/k` scroll, `y` copy query, `Esc` back
+8. [ ] Verify blocking chain tree renders in detail view
+9. [ ] Press `x` on blocking query, confirm dialog appears
+10. [ ] Test in `--readonly` mode, verify `x` shows error toast
+11. [ ] Press `y` to copy query to clipboard
+12. [ ] Verify auto-refresh every 2 seconds
+13. [ ] Press `h` for help overlay
+
+#### Deadlock History Tab
+14. [ ] Press `→` to switch to Deadlock History tab
+15. [ ] Verify deadlock events display with timestamp, database, processes, tables
+16. [ ] Press `s` to cycle sort (Time → Database → Processes)
+17. [ ] Press `S` to toggle sort direction
+18. [ ] Press `d` or Enter to view deadlock detail with wait-for cycle visualization
+19. [ ] Verify 2-node deadlocks show horizontal diagram
+20. [ ] Verify 3+ node deadlocks show vertical cycle diagram
+21. [ ] In detail view: `c` to copy all queries
+22. [ ] Press `R` to reset deadlock history (confirm dialog)
+23. [ ] Press `P` to reset log positions (re-parse logs)
+
+#### General
+24. [ ] Test at 80x24 terminal size
+25. [ ] Verify footer hints match available actions for each tab
 
 ## Creating Test Blocking Scenarios
 

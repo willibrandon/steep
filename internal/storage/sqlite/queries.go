@@ -72,15 +72,22 @@ func (s *QueryStatsStore) Upsert(ctx context.Context, fingerprint uint64, query 
 }
 
 // GetTopQueries returns top N queries sorted by the specified field.
-func (s *QueryStatsStore) GetTopQueries(ctx context.Context, sortBy SortField, limit int) ([]QueryStats, error) {
-	orderBy := "total_time_ms DESC"
+func (s *QueryStatsStore) GetTopQueries(ctx context.Context, sortBy SortField, sortAsc bool, limit int) ([]QueryStats, error) {
+	direction := "DESC"
+	if sortAsc {
+		direction = "ASC"
+	}
+
+	var orderBy string
 	switch sortBy {
 	case SortByCalls:
-		orderBy = "calls DESC"
+		orderBy = fmt.Sprintf("calls %s", direction)
 	case SortByRows:
-		orderBy = "total_rows DESC"
+		orderBy = fmt.Sprintf("total_rows %s", direction)
 	case SortByMeanTime:
-		orderBy = "total_time_ms/calls DESC"
+		orderBy = fmt.Sprintf("total_time_ms/calls %s", direction)
+	default:
+		orderBy = fmt.Sprintf("total_time_ms %s", direction)
 	}
 
 	query := fmt.Sprintf(`
@@ -101,21 +108,28 @@ func (s *QueryStatsStore) GetTopQueries(ctx context.Context, sortBy SortField, l
 }
 
 // SearchQueries returns queries matching the regex pattern.
-func (s *QueryStatsStore) SearchQueries(ctx context.Context, pattern string, sortBy SortField, limit int) ([]QueryStats, error) {
+func (s *QueryStatsStore) SearchQueries(ctx context.Context, pattern string, sortBy SortField, sortAsc bool, limit int) ([]QueryStats, error) {
 	// Validate regex pattern
 	_, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("invalid regex pattern: %w", err)
 	}
 
-	orderBy := "total_time_ms DESC"
+	direction := "DESC"
+	if sortAsc {
+		direction = "ASC"
+	}
+
+	var orderBy string
 	switch sortBy {
 	case SortByCalls:
-		orderBy = "calls DESC"
+		orderBy = fmt.Sprintf("calls %s", direction)
 	case SortByRows:
-		orderBy = "total_rows DESC"
+		orderBy = fmt.Sprintf("total_rows %s", direction)
 	case SortByMeanTime:
-		orderBy = "total_time_ms/calls DESC"
+		orderBy = fmt.Sprintf("total_time_ms/calls %s", direction)
+	default:
+		orderBy = fmt.Sprintf("total_time_ms %s", direction)
 	}
 
 	// SQLite doesn't have native REGEXP, so we fetch all and filter in Go

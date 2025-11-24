@@ -87,9 +87,10 @@ type QueriesView struct {
 	err        error
 
 	// Table state
-	selectedIdx int
+	selectedIdx  int
 	scrollOffset int
-	sortColumn  SortColumn
+	sortColumn   SortColumn
+	sortAsc      bool // false = descending (default), true = ascending
 
 	// Filter
 	filterInput  string
@@ -118,7 +119,7 @@ type QueriesView struct {
 func NewQueriesView() *QueriesView {
 	return &QueriesView{
 		mode:        ModeNormal,
-		sortColumn:  SortByTotalTime,
+		sortColumn:  SortByCalls,
 		explainView: NewExplainView(),
 		clipboard:   ui.NewClipboardWriter(),
 	}
@@ -285,6 +286,9 @@ func (v *QueriesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Sort
 	case "s":
 		v.cycleSort()
+		return v.requestRefresh()
+	case "S":
+		v.toggleSortDirection()
 		return v.requestRefresh()
 
 	// Tab navigation (left/right arrows)
@@ -548,9 +552,25 @@ func (v *QueriesView) renderTitle() string {
 	return titleStyle.Render("Query Performance")
 }
 
-// cycleSort cycles through sort columns.
+// cycleSort cycles through sort columns in order: Calls -> Time -> Mean -> Rows.
 func (v *QueriesView) cycleSort() {
-	v.sortColumn = (v.sortColumn + 1) % 4
+	switch v.sortColumn {
+	case SortByCalls:
+		v.sortColumn = SortByTotalTime
+	case SortByTotalTime:
+		v.sortColumn = SortByMeanTime
+	case SortByMeanTime:
+		v.sortColumn = SortByRows
+	case SortByRows:
+		v.sortColumn = SortByCalls
+	default:
+		v.sortColumn = SortByCalls
+	}
+}
+
+// toggleSortDirection toggles between ascending and descending sort.
+func (v *QueriesView) toggleSortDirection() {
+	v.sortAsc = !v.sortAsc
 }
 
 // requestRefresh returns a command to request data refresh.
@@ -558,6 +578,7 @@ func (v *QueriesView) requestRefresh() tea.Cmd {
 	return func() tea.Msg {
 		return RefreshQueriesMsg{
 			SortColumn: v.sortColumn,
+			SortAsc:    v.sortAsc,
 			Filter:     v.filterActive,
 		}
 	}
@@ -566,6 +587,7 @@ func (v *QueriesView) requestRefresh() tea.Cmd {
 // RefreshQueriesMsg requests query data refresh.
 type RefreshQueriesMsg struct {
 	SortColumn SortColumn
+	SortAsc    bool
 	Filter     string
 }
 
@@ -777,6 +799,9 @@ func (v *QueriesView) renderHeader() string {
 // sortIndicator adds an arrow to the column name if it's the sort column.
 func (v *QueriesView) sortIndicator(name string, col SortColumn) string {
 	if v.sortColumn == col {
+		if v.sortAsc {
+			return name + " ↑"
+		}
 		return name + " ↓"
 	}
 	return name
@@ -861,13 +886,17 @@ func (v *QueriesView) renderFooter() string {
 		var filterIndicator string
 		if v.filterActive != "" {
 			filterIndicator = styles.FooterHintStyle.Foreground(styles.ColorActive).Render(fmt.Sprintf("[FILTERED: %s] ", v.filterActive))
-			hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [e/E]xplain [y]ank [/]filter [R]eset [h]elp")
+			hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [s/S]ort [e/E]xplain [y]ank [/]filter [R]eset [h]elp")
 		} else {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [←/→]tabs [e/E]xplain [y]ank [/]filter [R]eset [h]elp")
+			hints = styles.FooterHintStyle.Render("[j/k]nav [s/S]ort [e/E]xplain [y]ank [/]filter [R]eset [h]elp")
 		}
 	}
 
-	sortInfo := fmt.Sprintf("Sort: %s ↓", v.sortColumn.String())
+	arrow := "↓"
+	if v.sortAsc {
+		arrow = "↑"
+	}
+	sortInfo := fmt.Sprintf("Sort: %s %s", v.sortColumn.String(), arrow)
 	count := fmt.Sprintf("%d / %d", min(v.selectedIdx+1, len(v.stats)), v.totalCount)
 	rightSide := styles.FooterCountStyle.Render(sortInfo + "  " + count)
 
@@ -902,6 +931,11 @@ func (v *QueriesView) SetConnectionInfo(info string) {
 // GetSortColumn returns the current sort column.
 func (v *QueriesView) GetSortColumn() SortColumn {
 	return v.sortColumn
+}
+
+// GetSortAsc returns true if sort is ascending.
+func (v *QueriesView) GetSortAsc() bool {
+	return v.sortAsc
 }
 
 // GetFilter returns the current filter string.

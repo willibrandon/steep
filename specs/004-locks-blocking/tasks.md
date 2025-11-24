@@ -169,12 +169,12 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T049 [P] Validate performance: GetLocks() < 500ms with 100+ locks
-- [ ] T050 [P] Validate performance: GetBlockingRelationships() < 500ms
-- [ ] T051 [P] Validate memory usage < 50MB during operation
-- [ ] T052 Test minimum terminal size 80x24 rendering
+- [x] T049 [P] Validate performance: GetLocks() < 500ms with 100+ locks
+- [x] T050 [P] Validate performance: GetBlockingRelationships() < 500ms
+- [x] T051 [P] Validate memory usage < 50MB during operation
+- [x] T052 Test minimum terminal size 80x24 rendering
 - [ ] T053 Run full quickstart.md manual testing checklist
-- [ ] T054 Update help text with all keyboard shortcuts in internal/ui/views/locks/help.go
+- [x] T054 Update help text with all keyboard shortcuts in internal/ui/views/locks/help.go
 - [ ] T055 Code cleanup and error message improvements
 
 ---

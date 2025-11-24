@@ -16,8 +16,8 @@ type Tab struct {
 
 // Tabs defines the available sort tabs.
 var Tabs = []Tab{
-	{Name: "By Time", Column: SortByTotalTime},
 	{Name: "By Calls", Column: SortByCalls},
+	{Name: "By Time", Column: SortByTotalTime},
 	{Name: "By Rows", Column: SortByRows},
 }
 

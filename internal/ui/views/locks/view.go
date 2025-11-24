@@ -53,6 +53,29 @@ func (s SortColumn) String() string {
 	}
 }
 
+// DeadlockSortColumn represents the available sort columns for deadlock history.
+type DeadlockSortColumn int
+
+const (
+	DeadlockSortByTime DeadlockSortColumn = iota
+	DeadlockSortByDatabase
+	DeadlockSortByProcesses
+)
+
+// String returns the display name for the deadlock sort column.
+func (s DeadlockSortColumn) String() string {
+	switch s {
+	case DeadlockSortByTime:
+		return "Time"
+	case DeadlockSortByDatabase:
+		return "Database"
+	case DeadlockSortByProcesses:
+		return "Processes"
+	default:
+		return "Unknown"
+	}
+}
+
 // LocksMode represents the current interaction mode.
 type LocksMode int
 
@@ -90,6 +113,8 @@ type LocksView struct {
 	deadlocks            []sqlite.DeadlockSummary
 	deadlockSelectedIdx  int
 	deadlockScrollOffset int
+	deadlockSortColumn   DeadlockSortColumn
+	deadlockSortAsc      bool // false = descending (default), true = ascending
 	deadlockEnabled      bool
 	deadlockLoading      bool
 	deadlockCurrentFile  int
@@ -105,6 +130,7 @@ type LocksView struct {
 	selectedIdx  int
 	scrollOffset int
 	sortColumn   SortColumn
+	sortAsc      bool // false = descending (default), true = ascending
 
 	// Toast message
 	toastMessage string
@@ -195,6 +221,8 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		v.deadlockLoading = false // Stop loading spinner
 		if msg.Error == nil {
 			v.deadlocks = msg.Deadlocks
+			// Apply current sort order
+			v.sortDeadlocks()
 			// Ensure selection is valid
 			if v.deadlockSelectedIdx >= len(v.deadlocks) {
 				v.deadlockSelectedIdx = max(0, len(v.deadlocks)-1)
@@ -454,7 +482,17 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 	// Sort
 	case "s":
-		v.cycleSort()
+		if v.activeTab == TabActiveLocks {
+			v.cycleSort()
+		} else if v.activeTab == TabDeadlockHistory {
+			v.cycleDeadlockSort()
+		}
+	case "S":
+		if v.activeTab == TabActiveLocks {
+			v.toggleSortDirection()
+		} else if v.activeTab == TabDeadlockHistory {
+			v.toggleDeadlockSortDirection()
+		}
 
 	// Detail view
 	case "d", "enter":
@@ -835,7 +873,62 @@ func (v *LocksView) cycleSort() {
 	v.sortLocks()
 }
 
-// sortLocks sorts the locks by the current sort column.
+// toggleSortDirection toggles between ascending and descending sort for active locks.
+func (v *LocksView) toggleSortDirection() {
+	v.sortAsc = !v.sortAsc
+	v.sortLocks()
+}
+
+// cycleDeadlockSort cycles through deadlock sort columns.
+func (v *LocksView) cycleDeadlockSort() {
+	v.deadlockSortColumn = (v.deadlockSortColumn + 1) % 3 // Time, Database, Processes
+	v.sortDeadlocks()
+}
+
+// toggleDeadlockSortDirection toggles between ascending and descending sort.
+func (v *LocksView) toggleDeadlockSortDirection() {
+	v.deadlockSortAsc = !v.deadlockSortAsc
+	v.sortDeadlocks()
+}
+
+// sortDeadlocks sorts the deadlocks by the current sort column and direction.
+func (v *LocksView) sortDeadlocks() {
+	if len(v.deadlocks) == 0 {
+		return
+	}
+
+	sort.SliceStable(v.deadlocks, func(i, j int) bool {
+		a, b := v.deadlocks[i], v.deadlocks[j]
+
+		var less bool
+		switch v.deadlockSortColumn {
+		case DeadlockSortByTime:
+			less = a.DetectedAt.After(b.DetectedAt) // Default: most recent first
+		case DeadlockSortByDatabase:
+			if a.DatabaseName != b.DatabaseName {
+				less = a.DatabaseName < b.DatabaseName
+			} else {
+				less = a.DetectedAt.After(b.DetectedAt)
+			}
+		case DeadlockSortByProcesses:
+			if a.ProcessCount != b.ProcessCount {
+				less = a.ProcessCount > b.ProcessCount // Default: most processes first
+			} else {
+				less = a.DetectedAt.After(b.DetectedAt)
+			}
+		default:
+			less = a.DetectedAt.After(b.DetectedAt)
+		}
+
+		// Reverse if ascending
+		if v.deadlockSortAsc {
+			return !less
+		}
+		return less
+	})
+}
+
+// sortLocks sorts the locks by the current sort column and direction.
 // Blocking and blocked locks are always sorted to the top (priority section),
 // then user's chosen sort is applied within each group.
 func (v *LocksView) sortLocks() {
@@ -860,24 +953,32 @@ func (v *LocksView) sortLocks() {
 		}
 
 		// Same priority group - apply user's chosen sort
+		var less bool
 		switch v.sortColumn {
 		case SortByPID:
-			return a.PID < b.PID
+			less = a.PID < b.PID
 		case SortByType:
-			return a.LockType < b.LockType
+			less = a.LockType < b.LockType
 		case SortByMode:
-			return a.Mode < b.Mode
+			less = a.Mode < b.Mode
 		case SortByGranted:
 			// Waiting (not granted) first
 			if a.Granted != b.Granted {
-				return !a.Granted
+				less = !a.Granted
+			} else {
+				less = a.PID < b.PID
 			}
-			return a.PID < b.PID
 		case SortByDuration:
-			return a.Duration > b.Duration // Longest first
+			less = a.Duration > b.Duration // Default: longest first
 		default:
-			return a.PID < b.PID
+			less = a.PID < b.PID
 		}
+
+		// Reverse if ascending
+		if v.sortAsc {
+			return !less
+		}
+		return less
 	})
 }
 
@@ -1191,6 +1292,20 @@ func (v *LocksView) renderHeader() string {
 // sortIndicator adds an arrow to the column name if it's the sort column.
 func (v *LocksView) sortIndicator(name string, col SortColumn) string {
 	if v.sortColumn == col {
+		if v.sortAsc {
+			return name + " ↑"
+		}
+		return name + " ↓"
+	}
+	return name
+}
+
+// deadlockSortIndicator adds an arrow to the column name if it's the sort column.
+func (v *LocksView) deadlockSortIndicator(name string, col DeadlockSortColumn) string {
+	if v.deadlockSortColumn == col {
+		if v.deadlockSortAsc {
+			return name + " ↑"
+		}
 		return name + " ↓"
 	}
 	return name
@@ -1298,10 +1413,14 @@ func (v *LocksView) renderFooter() string {
 		}
 		hints = toastStyle.Render(v.toastMessage)
 	} else {
-		hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [s]ort [y]ank [x]kill [r]efresh [h]elp")
+		hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [s/S]ort [y]ank [x]kill [r]efresh [h]elp")
 	}
 
-	sortInfo := fmt.Sprintf("Sort: %s ↓", v.sortColumn.String())
+	arrow := "↓"
+	if v.sortAsc {
+		arrow = "↑"
+	}
+	sortInfo := fmt.Sprintf("Sort: %s %s", v.sortColumn.String(), arrow)
 	count := fmt.Sprintf("%d / %d", min(v.selectedIdx+1, len(v.data.Locks)), v.totalCount)
 	rightSide := styles.FooterCountStyle.Render(sortInfo + "  " + count)
 
@@ -1335,10 +1454,13 @@ func (v *LocksView) renderDeadlockHistory() string {
 		return styles.InfoStyle.Render("No deadlocks recorded")
 	}
 
-	// Header
+	// Header with sort indicators
 	headerStyle := styles.TableHeaderStyle.Width(v.width - 2)
 	header := headerStyle.Render(fmt.Sprintf("  %-20s  %-15s  %8s  %-30s",
-		"Detected", "Database", "Procs", "Tables"))
+		v.deadlockSortIndicator("Detected", DeadlockSortByTime),
+		v.deadlockSortIndicator("Database", DeadlockSortByDatabase),
+		v.deadlockSortIndicator("Procs", DeadlockSortByProcesses),
+		"Tables"))
 
 	// Table rows
 	tableHeight := v.deadlockTableHeight()
@@ -1390,11 +1512,16 @@ func (v *LocksView) renderDeadlockFooter() string {
 		}
 		hints = toastStyle.Render(v.toastMessage)
 	} else {
-		hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [R]eset [P]ositions [←/→]tabs [h]elp")
+		hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [s/S]ort [R]eset [P]ositions [h]elp")
 	}
 
+	arrow := "↓"
+	if v.deadlockSortAsc {
+		arrow = "↑"
+	}
+	sortInfo := fmt.Sprintf("Sort: %s %s", v.deadlockSortColumn.String(), arrow)
 	count := fmt.Sprintf("%d / %d", min(v.deadlockSelectedIdx+1, len(v.deadlocks)), len(v.deadlocks))
-	rightSide := styles.FooterCountStyle.Render(count)
+	rightSide := styles.FooterCountStyle.Render(sortInfo + "  " + count)
 
 	gap := v.width - lipgloss.Width(hints) - lipgloss.Width(rightSide) - 4
 	if gap < 1 {
