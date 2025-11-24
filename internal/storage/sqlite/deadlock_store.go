@@ -400,10 +400,11 @@ func (s *DeadlockStore) Reset(ctx context.Context) error {
 	return nil
 }
 
-// ResetLogPositions deletes all log positions so parsing starts fresh.
+// ResetLogPositions deletes deadlock-related log positions (json/csv files) so parsing starts fresh.
 func (s *DeadlockStore) ResetLogPositions(ctx context.Context) error {
-	logger.Info("DeadlockStore.ResetLogPositions: starting DELETE FROM log_positions")
-	result, err := s.db.conn.ExecContext(ctx, "DELETE FROM log_positions")
+	logger.Info("DeadlockStore.ResetLogPositions: starting DELETE for deadlock positions")
+	result, err := s.db.conn.ExecContext(ctx,
+		"DELETE FROM log_positions WHERE file_path LIKE '%.json' OR file_path LIKE '%.csv'")
 	if err != nil {
 		logger.Error("DeadlockStore.ResetLogPositions: failed to delete positions", "error", err)
 		return err

@@ -153,6 +153,21 @@ func resetQueryStats(store *sqlite.QueryStatsStore) tea.Cmd {
 	}
 }
 
+// resetQueryLogPositions creates a command to reset query log positions
+func resetQueryLogPositions(store *sqlite.QueryStatsStore, monitor *querymonitor.Monitor) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		err := store.ResetLogPositions(ctx)
+		if err == nil && monitor != nil {
+			monitor.ResetPositions()
+		}
+		return queriesview.ResetQueryLogPositionsResultMsg{
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
 // checkLoggingStatus creates a command to check PostgreSQL logging status
 func checkLoggingStatus(monitor *querymonitor.Monitor) tea.Cmd {
 	return func() tea.Msg {
@@ -165,7 +180,6 @@ func checkLoggingStatus(monitor *querymonitor.Monitor) tea.Cmd {
 		}
 		return queriesview.LoggingStatusMsg{
 			Enabled: status.Enabled,
-			LogPath: status.LogPath,
 		}
 	}
 }

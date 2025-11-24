@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -59,9 +61,10 @@ type PositionStore interface {
 
 // LogCollector parses PostgreSQL log files for query events.
 type LogCollector struct {
-	logPath       string
+	logDir        string
+	logPattern    string
 	logLinePrefix string
-	lastPosition  int64
+	positions     map[string]int64  // Position per file
 	events        chan QueryEvent
 	errors        chan error
 	lastParams    map[string]string // Parameters from most recent DETAIL line
@@ -77,24 +80,56 @@ func isNewLogEntry(line string) bool {
 }
 
 // NewLogCollector creates a new LogCollector.
-func NewLogCollector(logPath, logLinePrefix string, store PositionStore) *LogCollector {
-	// Load persisted position to avoid re-reading history on restart
-	var initialPosition int64
-	if store != nil {
-		pos, err := store.GetLogPosition(context.Background(), logPath)
-		if err == nil {
-			initialPosition = pos
-		}
-	}
-
+func NewLogCollector(logDir, logPattern, logLinePrefix string, store PositionStore) *LogCollector {
 	return &LogCollector{
-		logPath:       logPath,
+		logDir:        logDir,
+		logPattern:    logPattern,
 		logLinePrefix: logLinePrefix,
-		lastPosition:  initialPosition,
+		positions:     make(map[string]int64),
 		events:        make(chan QueryEvent, 100),
 		errors:        make(chan error, 10),
 		store:         store,
 	}
+}
+
+// loadPositions loads persisted positions for all matching files.
+func (c *LogCollector) loadPositions(ctx context.Context) {
+	if c.store == nil {
+		return
+	}
+
+	files, err := c.findLogFiles()
+	if err != nil {
+		return
+	}
+
+	for _, file := range files {
+		pos, err := c.store.GetLogPosition(ctx, file)
+		if err == nil && pos > 0 {
+			c.positions[file] = pos
+		}
+	}
+}
+
+// findLogFiles returns all log files matching the pattern, sorted by modification time.
+func (c *LogCollector) findLogFiles() ([]string, error) {
+	pattern := filepath.Join(c.logDir, c.logPattern)
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sort by modification time (oldest first)
+	sort.Slice(files, func(i, j int) bool {
+		statI, errI := os.Stat(files[i])
+		statJ, errJ := os.Stat(files[j])
+		if errI != nil || errJ != nil {
+			return files[i] < files[j]
+		}
+		return statI.ModTime().Before(statJ.ModTime())
+	})
+
+	return files, nil
 }
 
 // Errors returns the channel of collector errors.
@@ -120,9 +155,11 @@ func (c *LogCollector) Stop() error {
 
 // run is the main collection loop.
 func (c *LogCollector) run(ctx context.Context) {
+	// Load persisted positions on startup
+	c.loadPositions(ctx)
 
 	// Read immediately on start
-	if err := c.readNewEntries(ctx); err != nil {
+	if err := c.readAllFiles(ctx); err != nil {
 		c.sendError(err)
 	}
 
@@ -136,37 +173,48 @@ func (c *LogCollector) run(ctx context.Context) {
 			close(c.errors)
 			return
 		case <-ticker.C:
-			if err := c.readNewEntries(ctx); err != nil {
+			if err := c.readAllFiles(ctx); err != nil {
 				c.sendError(err)
 			}
 		}
 	}
 }
 
-// sendError sends an error to the errors channel without blocking.
-func (c *LogCollector) sendError(err error) {
-	select {
-	case c.errors <- err:
-	default:
-		// Channel full, skip error
+// readAllFiles reads all matching log files.
+func (c *LogCollector) readAllFiles(ctx context.Context) error {
+	files, err := c.findLogFiles()
+	if err != nil {
+		return err
 	}
+
+	if len(files) == 0 {
+		return &LogCollectorError{
+			Err:      fmt.Errorf("no log files found matching pattern: %s", filepath.Join(c.logDir, c.logPattern)),
+			Guidance: "Verify log_directory and log_filename in postgresql.conf",
+		}
+	}
+
+	for _, file := range files {
+		if err := c.readFile(ctx, file); err != nil {
+			// Continue with other files on error
+			c.sendError(err)
+		}
+	}
+
+	return nil
 }
 
-// readNewEntries reads new log entries since last position.
-func (c *LogCollector) readNewEntries(ctx context.Context) error {
-	file, err := os.Open(c.logPath)
+// readFile reads new entries from a single log file.
+func (c *LogCollector) readFile(ctx context.Context, filePath string) error {
+	file, err := os.Open(filePath)
 	if err != nil {
-		// Provide helpful guidance for common permission errors
 		if errors.Is(err, os.ErrNotExist) {
-			return &LogCollectorError{
-				Err:      fmt.Errorf("log file not found: %s", c.logPath),
-				Guidance: "Verify log_directory and log_filename in postgresql.conf",
-			}
+			return nil // File may have been rotated away
 		}
 		if errors.Is(err, os.ErrPermission) {
 			return &LogCollectorError{
-				Err:      fmt.Errorf("permission denied reading log file: %s", c.logPath),
-				Guidance: "Ensure steep has read access to PostgreSQL log directory. Try: chmod o+rx <log_dir> && chmod o+r <log_file>",
+				Err:      fmt.Errorf("permission denied reading log file: %s", filePath),
+				Guidance: "Ensure steep has read access to PostgreSQL log directory",
 			}
 		}
 		return fmt.Errorf("failed to open log file: %w", err)
@@ -180,16 +228,19 @@ func (c *LogCollector) readNewEntries(ctx context.Context) error {
 	}
 	fileSize := stat.Size()
 
+	// Get last position for this file
+	lastPosition := c.positions[filePath]
+
 	// If file is smaller than last position, it was rotated
-	if fileSize < c.lastPosition {
-		c.lastPosition = 0
+	if fileSize < lastPosition {
+		lastPosition = 0
 	}
 
 	// Seek to last position
-	if c.lastPosition > 0 {
-		_, err = file.Seek(c.lastPosition, 0)
+	if lastPosition > 0 {
+		_, err = file.Seek(lastPosition, 0)
 		if err != nil {
-			c.lastPosition = 0
+			lastPosition = 0
 		}
 	}
 
@@ -249,14 +300,24 @@ func (c *LogCollector) readNewEntries(ctx context.Context) error {
 	}
 
 	// Update position based on bytes actually read
-	c.lastPosition += bytesRead
+	newPosition := lastPosition + bytesRead
+	c.positions[filePath] = newPosition
 
 	// Persist position for next restart
 	if c.store != nil && bytesRead > 0 {
-		_ = c.store.SaveLogPosition(ctx, c.logPath, c.lastPosition)
+		_ = c.store.SaveLogPosition(ctx, filePath, newPosition)
 	}
 
 	return nil
+}
+
+// sendError sends an error to the errors channel without blocking.
+func (c *LogCollector) sendError(err error) {
+	select {
+	case c.errors <- err:
+	default:
+		// Channel full, skip error
+	}
 }
 
 // parseLine parses a PostgreSQL log line into a QueryEvent.

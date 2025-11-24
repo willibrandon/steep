@@ -48,6 +48,7 @@ const (
 	ModeNormal QueriesMode = iota
 	ModeFilter
 	ModeConfirmReset
+	ModeConfirmResetLogPositions
 	ModeConfirmEnableLogging
 	ModeExplain
 	ModeHelp
@@ -165,6 +166,13 @@ func (v *QueriesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.selectedIdx = 0
 		}
 
+	case ResetQueryLogPositionsResultMsg:
+		if msg.Error != nil {
+			v.showToast("Reset positions failed: "+msg.Error.Error(), true)
+		} else if msg.Success {
+			v.showToast("Log positions reset - will re-parse logs", false)
+		}
+
 	case LoggingStatusMsg:
 		v.loggingChecked = true
 		if msg.Error == nil {
@@ -240,6 +248,11 @@ func (v *QueriesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Handle confirm reset mode
 	if v.mode == ModeConfirmReset {
 		return v.handleConfirmResetMode(key)
+	}
+
+	// Handle confirm reset log positions mode
+	if v.mode == ModeConfirmResetLogPositions {
+		return v.handleConfirmResetLogPositionsMode(key)
 	}
 
 	// Handle confirm enable logging mode
@@ -325,6 +338,10 @@ func (v *QueriesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			v.mode = ModeConfirmReset
 		}
 
+	// Reset log positions
+	case "P":
+		v.mode = ModeConfirmResetLogPositions
+
 	// Enable logging (manual trigger)
 	case "L":
 		v.mode = ModeConfirmEnableLogging
@@ -387,6 +404,20 @@ func (v *QueriesView) handleConfirmResetMode(key string) tea.Cmd {
 		v.mode = ModeNormal
 		return func() tea.Msg {
 			return ResetQueryStatsMsg{}
+		}
+	case "n", "N", "esc":
+		v.mode = ModeNormal
+	}
+	return nil
+}
+
+// handleConfirmResetLogPositionsMode processes keys in confirm reset log positions mode.
+func (v *QueriesView) handleConfirmResetLogPositionsMode(key string) tea.Cmd {
+	switch key {
+	case "y", "Y":
+		v.mode = ModeNormal
+		return func() tea.Msg {
+			return ResetQueryLogPositionsMsg{}
 		}
 	case "n", "N", "esc":
 		v.mode = ModeNormal
@@ -600,6 +631,15 @@ type ResetQueryStatsResultMsg struct {
 	Error   error
 }
 
+// ResetQueryLogPositionsMsg requests clearing query log positions.
+type ResetQueryLogPositionsMsg struct{}
+
+// ResetQueryLogPositionsResultMsg contains the result of resetting log positions.
+type ResetQueryLogPositionsResultMsg struct {
+	Success bool
+	Error   error
+}
+
 // EnableLoggingMsg requests enabling query logging.
 type EnableLoggingMsg struct{}
 
@@ -614,9 +654,8 @@ type CheckLoggingStatusMsg struct{}
 
 // LoggingStatusMsg contains the current logging status.
 type LoggingStatusMsg struct {
-	Enabled  bool
-	LogPath  string
-	Error    error
+	Enabled bool
+	Error   error
 }
 
 // ExplainQueryMsg requests an EXPLAIN plan for a query.
@@ -644,6 +683,9 @@ func (v *QueriesView) View() string {
 	// Check for confirm dialog overlay
 	if v.mode == ModeConfirmReset {
 		return v.renderWithOverlay(v.renderConfirmResetDialog())
+	}
+	if v.mode == ModeConfirmResetLogPositions {
+		return v.renderWithOverlay(v.renderConfirmResetLogPositionsDialog())
 	}
 	if v.mode == ModeConfirmEnableLogging {
 		return v.renderWithOverlay(v.renderEnableLoggingDialog())
@@ -692,6 +734,29 @@ func (v *QueriesView) renderConfirmResetDialog() string {
 		"This will clear all %d recorded queries.\n\nThis action cannot be undone.",
 		v.totalCount,
 	)
+
+	prompt := "Are you sure? [y]es [n]o"
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		details,
+		"",
+		prompt,
+	)
+
+	return styles.DialogStyle.Render(content)
+}
+
+// renderConfirmResetLogPositionsDialog renders the reset log positions confirmation dialog.
+func (v *QueriesView) renderConfirmResetLogPositionsDialog() string {
+	title := styles.DialogTitleStyle.Render("Reset Log Positions")
+
+	details := "This will reset the log file reading positions.\n\n" +
+		"The next refresh will re-parse all PostgreSQL logs,\n" +
+		"which may take longer and find duplicate queries.\n\n" +
+		"Use this if queries are not appearing after a reset."
 
 	prompt := "Are you sure? [y]es [n]o"
 
@@ -886,9 +951,9 @@ func (v *QueriesView) renderFooter() string {
 		var filterIndicator string
 		if v.filterActive != "" {
 			filterIndicator = styles.FooterHintStyle.Foreground(styles.ColorActive).Render(fmt.Sprintf("[FILTERED: %s] ", v.filterActive))
-			hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [s/S]ort [e/E]xplain [y]ank [/]filter [R]eset [h]elp")
+			hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [s/S]ort [e/E]xplain [y]ank [/]filter [P/R]eset [h]elp")
 		} else {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [s/S]ort [e/E]xplain [y]ank [/]filter [R]eset [h]elp")
+			hints = styles.FooterHintStyle.Render("[j/k]nav [s/S]ort [e/E]xplain [y]ank [/]filter [P/R]eset [h]elp")
 		}
 	}
 

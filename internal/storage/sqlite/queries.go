@@ -281,3 +281,10 @@ func (s *QueryStatsStore) SaveLogPosition(ctx context.Context, filePath string, 
 	`, filePath, position)
 	return err
 }
+
+// ResetLogPositions deletes query-related log positions (.log files) so parsing starts fresh.
+func (s *QueryStatsStore) ResetLogPositions(ctx context.Context) error {
+	_, err := s.db.conn.ExecContext(ctx,
+		"DELETE FROM log_positions WHERE file_path LIKE '%.log'")
+	return err
+}

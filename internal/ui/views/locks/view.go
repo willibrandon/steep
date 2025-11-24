@@ -1512,7 +1512,7 @@ func (v *LocksView) renderDeadlockFooter() string {
 		}
 		hints = toastStyle.Render(v.toastMessage)
 	} else {
-		hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [s/S]ort [R]eset [P]ositions [h]elp")
+		hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [s/S]ort [P/R]eset [h]elp")
 	}
 
 	arrow := "↓"

@@ -36,8 +36,10 @@ type MonitorConfig struct {
 	RefreshInterval time.Duration
 	// RetentionDays is how long to keep query statistics
 	RetentionDays int
-	// LogPath is the path to PostgreSQL log file (for log parsing mode)
-	LogPath string
+	// LogDir is the directory containing PostgreSQL log files
+	LogDir string
+	// LogPattern is the glob pattern for log files (e.g., "postgresql-*.log")
+	LogPattern string
 	// LogLinePrefix is the log_line_prefix setting (for log parsing mode)
 	LogLinePrefix string
 	// AutoEnableLogging prompts to enable query logging if disabled
@@ -47,7 +49,8 @@ type MonitorConfig struct {
 // LoggingStatus represents the current state of PostgreSQL query logging.
 type LoggingStatus struct {
 	Enabled       bool
-	LogPath       string
+	LogDir        string
+	LogPattern    string
 	LogLinePrefix string
 }
 
@@ -90,15 +93,16 @@ func (m *Monitor) Start(ctx context.Context) error {
 	ctx, m.cancel = context.WithCancel(ctx)
 	m.status = MonitorStatusRunning
 
-	// Check logging status and auto-detect log path
+	// Check logging status and auto-detect log directory/pattern
 	status, err := m.CheckLoggingStatus(ctx)
-	if err == nil && status.Enabled && status.LogPath != "" {
-		m.config.LogPath = status.LogPath
+	if err == nil && status.Enabled && status.LogDir != "" {
+		m.config.LogDir = status.LogDir
+		m.config.LogPattern = status.LogPattern
 		m.config.LogLinePrefix = status.LogLinePrefix
 	}
 
 	// Determine data source
-	if m.config.LogPath != "" {
+	if m.config.LogDir != "" && m.config.LogPattern != "" {
 		m.dataSource = DataSourceLogParsing
 		return m.startLogCollector(ctx)
 	}
@@ -107,10 +111,12 @@ func (m *Monitor) Start(ctx context.Context) error {
 	return m.startSamplingCollector(ctx)
 }
 
-// CheckLoggingStatus checks if PostgreSQL query logging is enabled and returns the log path.
+// CheckLoggingStatus checks if PostgreSQL query logging is enabled and returns the log directory/pattern.
 func (m *Monitor) CheckLoggingStatus(ctx context.Context) (*LoggingStatus, error) {
 	var logMinDuration string
 	var dataDir string
+	var logDir string
+	var logFilename string
 	var logLinePrefix string
 
 	// Query configured setting from pg_file_settings (ignores session overrides)
@@ -132,6 +138,16 @@ func (m *Monitor) CheckLoggingStatus(ctx context.Context) (*LoggingStatus, error
 		return nil, fmt.Errorf("failed to get data_directory: %w", err)
 	}
 
+	err = m.pool.QueryRow(ctx, "SHOW log_directory").Scan(&logDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get log_directory: %w", err)
+	}
+
+	err = m.pool.QueryRow(ctx, "SHOW log_filename").Scan(&logFilename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get log_filename: %w", err)
+	}
+
 	err = m.pool.QueryRow(ctx, "SHOW log_line_prefix").Scan(&logLinePrefix)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get log_line_prefix: %w", err)
@@ -139,13 +155,42 @@ func (m *Monitor) CheckLoggingStatus(ctx context.Context) (*LoggingStatus, error
 
 	// -1 means disabled, any other value means enabled
 	enabled := logMinDuration != "-1"
-	logPath := filepath.Join(dataDir, "postgresql.log")
+
+	// Resolve log directory path
+	if !filepath.IsAbs(logDir) {
+		logDir = filepath.Join(dataDir, logDir)
+	}
+
+	// Convert log_filename pattern to glob pattern
+	logPattern := convertLogFilenameToGlob(logFilename)
 
 	return &LoggingStatus{
 		Enabled:       enabled,
-		LogPath:       logPath,
+		LogDir:        logDir,
+		LogPattern:    logPattern,
 		LogLinePrefix: logLinePrefix,
 	}, nil
+}
+
+// convertLogFilenameToGlob converts PostgreSQL log_filename pattern to a glob pattern.
+// For example: "postgresql-%Y-%m-%d_%H%M%S.log" becomes "postgresql-*.log"
+func convertLogFilenameToGlob(pattern string) string {
+	result := pattern
+	placeholders := []string{
+		"%Y", "%m", "%d", "%H", "%M", "%S", "%a", "%b",
+		"%j", "%W", "%y", "%I", "%p", "%e", "%c", "%n",
+	}
+
+	for _, ph := range placeholders {
+		result = strings.ReplaceAll(result, ph, "*")
+	}
+
+	// Collapse multiple * into single *
+	for strings.Contains(result, "**") {
+		result = strings.ReplaceAll(result, "**", "*")
+	}
+
+	return result
 }
 
 // EnableLogging enables query logging with parameter capture.
@@ -251,7 +296,7 @@ func (m *Monitor) startSamplingCollector(ctx context.Context) error {
 
 // startLogCollector starts collecting via log file parsing.
 func (m *Monitor) startLogCollector(ctx context.Context) error {
-	collector := NewLogCollector(m.config.LogPath, m.config.LogLinePrefix, m.store)
+	collector := NewLogCollector(m.config.LogDir, m.config.LogPattern, m.config.LogLinePrefix, m.store)
 	if err := collector.Start(ctx); err != nil {
 		m.status = MonitorStatusError
 		return err
@@ -408,4 +453,16 @@ func (m *Monitor) GetExplainPlan(ctx context.Context, query string, analyze bool
 // Pool returns the database connection pool.
 func (m *Monitor) Pool() *pgxpool.Pool {
 	return m.pool
+}
+
+// ResetPositions restarts the monitor to reload log positions from database.
+// Call this after resetting log positions in the store.
+func (m *Monitor) ResetPositions() {
+	if m.status != MonitorStatusRunning {
+		return
+	}
+	// Stop and restart to reload positions from database
+	m.Stop()
+	ctx := context.Background()
+	_ = m.Start(ctx)
 }

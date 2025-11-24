@@ -231,8 +231,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			monitorConfig := querymonitor.MonitorConfig{
 				RefreshInterval: refreshInterval,
 				RetentionDays:   m.config.Queries.RetentionDays,
-				LogPath:         m.config.Queries.LogPath,
-				LogLinePrefix:   m.config.Queries.LogLinePrefix,
 			}
 			m.queryMonitor = querymonitor.NewMonitor(msg.Pool, m.queryStatsStore, monitorConfig)
 			_ = m.queryMonitor.Start(context.Background())
@@ -414,6 +412,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case queriesview.ResetQueryStatsResultMsg:
+		// Forward to queries view
+		m.queriesView.Update(msg)
+		return m, nil
+
+	case queriesview.ResetQueryLogPositionsMsg:
+		// Reset query log positions
+		if m.queryStatsStore != nil {
+			return m, resetQueryLogPositions(m.queryStatsStore, m.queryMonitor)
+		}
+		return m, nil
+
+	case queriesview.ResetQueryLogPositionsResultMsg:
 		// Forward to queries view
 		m.queriesView.Update(msg)
 		return m, nil
