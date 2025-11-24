@@ -51,6 +51,12 @@ func (e *LogCollectorError) Unwrap() error {
 	return e.Err
 }
 
+// PositionStore defines the interface for persisting log positions.
+type PositionStore interface {
+	GetLogPosition(ctx context.Context, filePath string) (int64, error)
+	SaveLogPosition(ctx context.Context, filePath string, position int64) error
+}
+
 // LogCollector parses PostgreSQL log files for query events.
 type LogCollector struct {
 	logPath       string
@@ -61,6 +67,7 @@ type LogCollector struct {
 	lastParams    map[string]string // Parameters from most recent DETAIL line
 	lastQuery     string            // Query from most recent execute line
 	lineBuffer    string            // Buffer for multi-line log entries
+	store         PositionStore     // For persisting position across restarts
 }
 
 // isNewLogEntry checks if a line starts a new log entry (has timestamp prefix)
@@ -70,12 +77,23 @@ func isNewLogEntry(line string) bool {
 }
 
 // NewLogCollector creates a new LogCollector.
-func NewLogCollector(logPath, logLinePrefix string) *LogCollector {
+func NewLogCollector(logPath, logLinePrefix string, store PositionStore) *LogCollector {
+	// Load persisted position to avoid re-reading history on restart
+	var initialPosition int64
+	if store != nil {
+		pos, err := store.GetLogPosition(context.Background(), logPath)
+		if err == nil {
+			initialPosition = pos
+		}
+	}
+
 	return &LogCollector{
 		logPath:       logPath,
 		logLinePrefix: logLinePrefix,
+		lastPosition:  initialPosition,
 		events:        make(chan QueryEvent, 100),
 		errors:        make(chan error, 10),
+		store:         store,
 	}
 }
 
@@ -232,6 +250,11 @@ func (c *LogCollector) readNewEntries(ctx context.Context) error {
 
 	// Update position based on bytes actually read
 	c.lastPosition += bytesRead
+
+	// Persist position for next restart
+	if c.store != nil && bytesRead > 0 {
+		_ = c.store.SaveLogPosition(ctx, c.logPath, c.lastPosition)
+	}
 
 	return nil
 }

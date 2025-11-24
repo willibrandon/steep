@@ -256,3 +256,28 @@ func scanQueryStats(rows *sql.Rows) ([]QueryStats, error) {
 	}
 	return stats, rows.Err()
 }
+
+// GetLogPosition retrieves the last read position for a log file.
+func (s *QueryStatsStore) GetLogPosition(ctx context.Context, filePath string) (int64, error) {
+	var position int64
+	err := s.db.conn.QueryRowContext(ctx,
+		"SELECT position FROM log_positions WHERE file_path = ?",
+		filePath,
+	).Scan(&position)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return position, err
+}
+
+// SaveLogPosition saves the current read position for a log file.
+func (s *QueryStatsStore) SaveLogPosition(ctx context.Context, filePath string, position int64) error {
+	_, err := s.db.conn.ExecContext(ctx, `
+		INSERT INTO log_positions (file_path, position, updated_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(file_path) DO UPDATE SET
+			position = excluded.position,
+			updated_at = CURRENT_TIMESTAMP
+	`, filePath, position)
+	return err
+}

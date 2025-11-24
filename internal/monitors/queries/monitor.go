@@ -251,7 +251,7 @@ func (m *Monitor) startSamplingCollector(ctx context.Context) error {
 
 // startLogCollector starts collecting via log file parsing.
 func (m *Monitor) startLogCollector(ctx context.Context) error {
-	collector := NewLogCollector(m.config.LogPath, m.config.LogLinePrefix)
+	collector := NewLogCollector(m.config.LogPath, m.config.LogLinePrefix, m.store)
 	if err := collector.Start(ctx); err != nil {
 		m.status = MonitorStatusError
 		return err
