@@ -312,6 +312,10 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL (pg_locks, pg_stat_activity system views) (004-locks-blocking)
 
 ## Recent Changes
+- 004-locks-blocking: Lock monitoring with active locks table, blocking detection (red/yellow color coding), dependency tree visualization
+- 004-locks-blocking: Kill blocking queries with confirmation dialog, readonly mode support
+- 004-locks-blocking: Deadlock history with PostgreSQL log parsing (CSV/JSON formats), cycle visualization
+- 004-locks-blocking: Sort direction toggle (S key) across all views, server-side SQL sorting
 - 003-query-performance: Query performance monitoring with fingerprinting, EXPLAIN plans (JSON) and EXPLAIN ANALYZE (tree visualization with pev), search/filter, clipboard, reset stats
 - 003-query-performance: Performance benchmarks validating <500ms query, <100ms UI targets
 - 003-query-performance: Make targets: bench, test-short, test-integration

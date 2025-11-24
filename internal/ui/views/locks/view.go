@@ -864,7 +864,7 @@ func (v *LocksView) renderTitle() string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(styles.ColorAccent)
-	return titleStyle.Render("Active Locks")
+	return titleStyle.Render("Locks")
 }
 
 // cycleSort cycles through sort columns.

@@ -214,10 +214,15 @@ connection:
 - Data source indicator (sampling or log parsing)
 - Press `h` for keybinding help
 
-#### Locks (Coming Soon)
-- Lock monitoring
-- Blocking queries
-- Deadlock detection
+#### Locks
+- Active locks monitoring with type, mode, granted status
+- Blocking query detection with color coding (red=blocked, yellow=blocking)
+- Lock dependency tree visualization
+- Kill blocking queries with confirmation dialog
+- Deadlock history with log parsing
+- Deadlock cycle visualization (2-node horizontal, 3+ node vertical)
+- Sort by PID, type, mode, duration, granted status
+- Press `h` for keybinding help
 
 #### Tables (Coming Soon)
 - Table sizes and statistics
@@ -405,8 +410,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Roadmap
 
 - [x] Query performance view
+- [x] Lock monitoring view
 - [ ] Table statistics view
-- [ ] Lock monitoring view
 - [ ] Replication monitoring
 - [ ] Export metrics to Prometheus
 - [ ] Alert configuration
