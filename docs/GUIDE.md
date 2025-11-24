@@ -323,6 +323,31 @@ Before starting feature development, ensure:
 - Cache hit ratio per table
 - Sequential vs index scan ratio
 
+**UI Architecture**:
+- **Framework**: Bubbletea TUI with lipgloss styling (consistent with Query Performance and Locks views)
+- **View Structure**: `internal/ui/views/tables/view.go` implementing `ViewModel` interface
+- **Components**: Reuse existing components from `internal/ui/components/` (StatusBar, HelpText)
+- **Styles**: Use centralized styles from `internal/ui/styles/` for consistent color coding
+- **Layout**: Status bar (top) → Title → Tree/Table content → Footer with keyboard hints
+- **Modes**: ModeNormal, ModeDetails, ModeConfirmInstall, ModeConfirmAction, ModeHelp
+- **Message Types**: TablesDataMsg, InstallExtensionMsg, InstallExtensionResultMsg, RefreshTablesMsg
+
+**Styling Guidelines**:
+- Match visual style of Query Performance (`internal/ui/views/queries/`) and Locks (`internal/ui/views/locks/`) views
+- Use `lipgloss.JoinVertical` for composing view layout
+- Dynamic height calculation accounting for fixed components (status bar, title, footer)
+- Color coding: Yellow for warnings (unused indexes), Red for critical (high bloat >20%), Green for healthy
+- Confirmation dialogs with `renderWithOverlay()` pattern for destructive actions
+- Toast messages for operation results (success/failure)
+- Spinner animation for async operations (extension install, VACUUM progress)
+
+**Libraries**:
+- `github.com/charmbracelet/bubbletea` - TUI framework, message passing, tea.Cmd pattern
+- `github.com/charmbracelet/bubbles/spinner` - Loading indicators for async operations
+- `github.com/charmbracelet/lipgloss` - Styling, layout composition, color theming
+- `github.com/jackc/pgx/v5/pgxpool` - PostgreSQL connection pooling
+- `github.com/xlab/treeprint` - ASCII tree rendering for hierarchy (optional)
+
 **Database Queries**:
 - `pg_stat_all_tables` for table access statistics
 - `pg_stat_all_indexes` for index usage
@@ -340,15 +365,17 @@ Before starting feature development, ensure:
 - Details panel shows: Column definitions, constraints, foreign keys
 - Highlight unused indexes (0 scans) in yellow
 - Highlight high bloat (>20%) in red
-- Sort tables by size, bloat, or cache hit ratio
+- Sort tables by size, bloat, or cache hit ratio (`s`/`S` keys like other views)
 - Auto-refresh every 30 seconds (static data, slower refresh)
 - Graceful degradation: Skip bloat if pgstattuple not available
 - Prompt to install pgstattuple if not available with confirmation dialog
 - Show clear error if extension install fails (insufficient privileges)
+- Help overlay accessible via `h` key (consistent with other views)
+- Copy table/index name to clipboard with `y` key
 
 **Spec-Kit Command**:
 ```bash
-/speckit.specify Implement Tables and Statistics Viewer with hierarchical database browser (Database → Schema → Table). Display table statistics including size, row count, bloat percentage, and cache hit ratio from pg_stat_all_tables. Show index usage statistics with scan counts and unused index detection from pg_stat_all_indexes. Include table details panel showing columns, constraints, and foreign keys. Support bloat estimation using pgstattuple extension with graceful fallback. Auto-install pgstattuple via CREATE EXTENSION with user confirmation if not available. Prioritize all P1 stories (browsing and viewing table stats) and P2 (bloat detection, auto-install extension). Use auto-refresh every 30 seconds. Queries must execute under 500ms.
+/speckit.specify Implement Tables and Statistics Viewer with hierarchical database browser (Database → Schema → Table). Display table statistics including size, row count, bloat percentage, and cache hit ratio from pg_stat_all_tables. Show index usage statistics with scan counts and unused index detection from pg_stat_all_indexes. Include table details panel showing columns, constraints, and foreign keys. Support bloat estimation using pgstattuple extension with graceful fallback. Auto-install pgstattuple via CREATE EXTENSION with user confirmation if not available. Build using Bubbletea framework with lipgloss styling matching Query Performance and Locks views. Reuse existing UI components (StatusBar, confirmation dialogs, toast messages). Implement standard keyboard navigation (j/k, s/S sort, h help, y yank). Use color coding for warnings (yellow) and critical states (red). Prioritize all P1 stories (browsing and viewing table stats) and P2 (bloat detection, auto-install extension). Use auto-refresh every 30 seconds. Queries must execute under 500ms.
 ```
 
 ---
