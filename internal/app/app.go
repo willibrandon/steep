@@ -22,6 +22,7 @@ import (
 	"github.com/willibrandon/steep/internal/ui/views"
 	locksview "github.com/willibrandon/steep/internal/ui/views/locks"
 	queriesview "github.com/willibrandon/steep/internal/ui/views/queries"
+	tablesview "github.com/willibrandon/steep/internal/ui/views/tables"
 )
 
 // Model represents the main Bubbletea application model
@@ -55,6 +56,7 @@ type Model struct {
 	dashboard   *views.DashboardView
 	queriesView *queriesview.QueriesView
 	locksView   *locksview.LocksView
+	tablesView  *tablesview.TablesView
 
 	// Application state
 	helpVisible bool
@@ -107,6 +109,10 @@ func New(readonly bool) (*Model, error) {
 	locksView := locksview.NewLocksView()
 	locksView.SetReadOnly(readonly)
 
+	// Initialize tables view
+	tablesView := tablesview.NewTablesView()
+	tablesView.SetReadOnly(readonly)
+
 	// Define available views
 	viewList := []views.ViewType{
 		views.ViewDashboard,
@@ -127,6 +133,7 @@ func New(readonly bool) (*Model, error) {
 		dashboard:         dashboard,
 		queriesView:       queriesView,
 		locksView:         locksView,
+		tablesView:        tablesView,
 		connected:         false,
 		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
 		reconnecting:      false,
@@ -182,6 +189,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dashboard.SetSize(msg.Width, msg.Height-5) // Reserve space for header and status bar
 		m.queriesView.SetSize(msg.Width, msg.Height-5)
 		m.locksView.SetSize(msg.Width, msg.Height-5)
+		m.tablesView.SetSize(msg.Width, msg.Height-5)
 		return m, nil
 
 	case DatabaseConnectedMsg:
@@ -202,6 +210,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.queriesView.SetConnectionInfo(connectionInfo)
 		m.locksView.SetConnected(true)
 		m.locksView.SetConnectionInfo(connectionInfo)
+		m.tablesView.SetConnected(true)
+		m.tablesView.SetConnectionInfo(connectionInfo)
+		m.tablesView.SetPool(msg.Pool)
 
 		// Initialize monitors
 		refreshInterval := m.config.UI.RefreshInterval
@@ -790,7 +801,7 @@ func (m Model) renderCurrentView() string {
 	case views.ViewLocks:
 		return m.locksView.View()
 	case views.ViewTables:
-		return styles.InfoStyle.Render("Table statistics view - Coming soon!")
+		return m.tablesView.View()
 	case views.ViewReplication:
 		return styles.InfoStyle.Render("Replication status view - Coming soon!")
 	default:

@@ -40,14 +40,14 @@ Based on plan.md structure:
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Implement GetSchemas query function in internal/db/queries/tables.go (returns all schemas with OID, name, owner)
-- [ ] T006 Implement GetTablesWithStats query function in internal/db/queries/tables.go (returns tables with size, row count, cache hit ratio)
-- [ ] T007 [P] Implement GetIndexesWithStats query function in internal/db/queries/tables.go (returns indexes with scan count, size, cache hit)
-- [ ] T008 [P] Implement GetPartitionHierarchy query function in internal/db/queries/tables.go (returns parent→child OID mapping)
-- [ ] T009 Create TablesView struct with all fields in internal/ui/views/tables/view.go per contracts/view.go.md
-- [ ] T010 Implement NewTablesView factory function in internal/ui/views/tables/view.go
-- [ ] T011 Implement SetSize method for TablesView in internal/ui/views/tables/view.go
-- [ ] T012 Register TablesView in internal/app/app.go for key '5' (ViewTables already defined in types.go)
+- [X] T005 Implement GetSchemas query function in internal/db/queries/tables.go (returns all schemas with OID, name, owner)
+- [X] T006 Implement GetTablesWithStats query function in internal/db/queries/tables.go (returns tables with size, row count, cache hit ratio)
+- [X] T007 [P] Implement GetIndexesWithStats query function in internal/db/queries/tables.go (returns indexes with scan count, size, cache hit)
+- [X] T008 [P] Implement GetPartitionHierarchy query function in internal/db/queries/tables.go (returns parent→child OID mapping)
+- [X] T009 Create TablesView struct with all fields in internal/ui/views/tables/view.go per contracts/view.go.md
+- [X] T010 Implement NewTablesView factory function in internal/ui/views/tables/view.go
+- [X] T011 Implement SetSize method for TablesView in internal/ui/views/tables/view.go
+- [X] T012 Register TablesView in internal/app/app.go for key '5' (ViewTables already defined in types.go)
 
 **Checkpoint**: Foundation ready - can load schemas/tables data and switch to Tables view
 
