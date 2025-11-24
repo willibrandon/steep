@@ -74,7 +74,7 @@ func TestLogCollector_IncrementalReading(t *testing.T) {
 	}
 
 	// Start collector
-	collector := queries.NewLogCollector(logPath, "%m [%p] ")
+	collector := queries.NewLogCollector(tmpDir, "postgresql.log", "%m [%p] ", nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -134,7 +134,7 @@ func TestLogCollector_ImmediateRead(t *testing.T) {
 		t.Fatalf("Failed to create test log file: %v", err)
 	}
 
-	collector := queries.NewLogCollector(logPath, "%m [%p] ")
+	collector := queries.NewLogCollector(tmpDir, "postgresql.log", "%m [%p] ", nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -167,7 +167,7 @@ func testLogParsing(t *testing.T, logContent string, expectedCount int, expected
 	}
 
 	// Start collector
-	collector := queries.NewLogCollector(logPath, "%m [%p] ")
+	collector := queries.NewLogCollector(tmpDir, "postgresql.log", "%m [%p] ", nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

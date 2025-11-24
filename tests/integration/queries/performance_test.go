@@ -6,67 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/willibrandon/steep/internal/monitors/queries"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 )
-
-// setupPostgresForBench creates a PostgreSQL test container for benchmarks.
-func setupPostgresForBench(b *testing.B, ctx context.Context) *pgxpool.Pool {
-	b.Helper()
-
-	req := testcontainers.ContainerRequest{
-		Image:        "postgres:15-alpine",
-		ExposedPorts: []string{"5432/tcp"},
-		Env: map[string]string{
-			"POSTGRES_USER":     "test",
-			"POSTGRES_PASSWORD": "test",
-			"POSTGRES_DB":       "testdb",
-		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).
-			WithStartupTimeout(60 * time.Second),
-	}
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		b.Fatalf("Failed to start PostgreSQL container: %v", err)
-	}
-
-	b.Cleanup(func() {
-		if err := container.Terminate(ctx); err != nil {
-			b.Logf("Failed to terminate container: %v", err)
-		}
-	})
-
-	host, err := container.Host(ctx)
-	if err != nil {
-		b.Fatalf("Failed to get container host: %v", err)
-	}
-
-	port, err := container.MappedPort(ctx, "5432")
-	if err != nil {
-		b.Fatalf("Failed to get container port: %v", err)
-	}
-
-	connStr := "postgres://test:test@" + host + ":" + port.Port() + "/testdb?sslmode=disable"
-
-	pool, err := pgxpool.New(ctx, connStr)
-	if err != nil {
-		b.Fatalf("Failed to create connection pool: %v", err)
-	}
-
-	b.Cleanup(func() {
-		pool.Close()
-	})
-
-	return pool
-}
 
 // TestPerformance_QueryExecution validates that query execution meets <500ms target.
 func TestPerformance_QueryExecution(t *testing.T) {
@@ -89,7 +31,7 @@ func TestPerformance_QueryExecution(t *testing.T) {
 	store := sqlite.NewQueryStatsStore(db)
 
 	// Insert test data (simulate 1000 unique queries)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		fingerprint := uint64(i + 1)
 		query := "SELECT * FROM table" + string(rune('A'+i%26)) + " WHERE id = $1"
 		duration := float64(i%100) + 1.0
@@ -263,7 +205,7 @@ func BenchmarkQueryStatsStore_GetTopQueries(b *testing.B) {
 	store := sqlite.NewQueryStatsStore(db)
 
 	// Insert test data
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		fingerprint := uint64(i + 1)
 		query := "SELECT * FROM table WHERE id = $1"
 		if err := store.Upsert(ctx, fingerprint, query, float64(i), int64(i%10), ""); err != nil {
@@ -271,8 +213,7 @@ func BenchmarkQueryStatsStore_GetTopQueries(b *testing.B) {
 		}
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := store.GetTopQueries(ctx, sqlite.SortByTotalTime, false, 100)
 		if err != nil {
 			b.Fatalf("GetTopQueries failed: %v", err)
@@ -296,8 +237,7 @@ func BenchmarkQueryStatsStore_Upsert(b *testing.B) {
 
 	store := sqlite.NewQueryStatsStore(db)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		fingerprint := uint64(i % 100)
 		query := "SELECT * FROM table WHERE id = $1"
 		if err := store.Upsert(ctx, fingerprint, query, float64(i), int64(i%10), ""); err != nil {
@@ -323,14 +263,15 @@ func BenchmarkQueryStatsStore_SearchQueries(b *testing.B) {
 	store := sqlite.NewQueryStatsStore(db)
 
 	// Insert test data with varied queries
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		fingerprint := uint64(i + 1)
 		var query string
-		if i%3 == 0 {
+		switch i % 3 {
+		case 0:
 			query = "SELECT * FROM users WHERE id = $1"
-		} else if i%3 == 1 {
+		case 1:
 			query = "INSERT INTO orders (user_id) VALUES ($1)"
-		} else {
+		default:
 			query = "UPDATE products SET price = $1 WHERE id = $2"
 		}
 		if err := store.Upsert(ctx, fingerprint, query, float64(i), int64(i%10), ""); err != nil {
@@ -338,8 +279,7 @@ func BenchmarkQueryStatsStore_SearchQueries(b *testing.B) {
 		}
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := store.SearchQueries(ctx, "SELECT", sqlite.SortByTotalTime, false, 100)
 		if err != nil {
 			b.Fatalf("SearchQueries failed: %v", err)
@@ -359,8 +299,7 @@ func BenchmarkFingerprinter(b *testing.B) {
 		"SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id WHERE u.active = true",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		query := testQueries[i%len(testQueries)]
 		_, _, _ = fp.Fingerprint(query)
 	}
