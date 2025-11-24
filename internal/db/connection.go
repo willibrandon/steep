@@ -64,6 +64,9 @@ func NewConnectionPool(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, 
 	poolConfig.MaxConnIdleTime = 30 * time.Minute
 	poolConfig.HealthCheckPeriod = time.Minute
 	poolConfig.ConnConfig.RuntimeParams["application_name"] = "steep"
+	// Disable query logging for steep's connection to prevent feedback loop
+	// (steep queries → logged → LogCollector parses → more CPU)
+	poolConfig.ConnConfig.RuntimeParams["log_min_duration_statement"] = "-1"
 
 	logger.Debug("Connection pool configuration",
 		"max_conns", cfg.Connection.PoolMaxConns,

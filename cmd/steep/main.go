@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime/pprof"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -27,7 +28,21 @@ func main() {
 	debugFlag := flag.Bool("debug", false, "Enable debug logging")
 	readonlyFlag := flag.Bool("readonly", false, "Disable destructive operations (kill, cancel)")
 	bannerFlag := flag.Bool("banner", false, "Show animated banner")
+	cpuprofile := flag.String("cpuprofile", "", "Write CPU profile to file")
 	flag.Parse()
+
+	// Start CPU profiling if requested
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatalf("Could not create CPU profile: %v\n", err)
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatalf("Could not start CPU profile: %v\n", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
 
 	// Show animated banner then continue to TUI
 	if *bannerFlag {
@@ -85,7 +100,6 @@ func main() {
 	}
 
 	fmt.Println("Steep exited successfully")
-	os.Exit(0)
 }
 
 // validateTerminalSize checks if the terminal meets minimum size requirements

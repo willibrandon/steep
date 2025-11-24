@@ -12,6 +12,20 @@ import (
 	"time"
 )
 
+// Pre-compiled regexes for log parsing (compile once at startup)
+var (
+	statementOnlyRe = regexp.MustCompile(`LOG:\s+statement:\s*(.+)$`)
+	executeRe       = regexp.MustCompile(`LOG:\s+(?:execute|bind)\s+\S+:\s*(.+)$`)
+	durationRe      = regexp.MustCompile(`duration:\s+([\d.]+)\s+ms`)
+	statementRe     = regexp.MustCompile(`(?:statement|execute\s+\S+|bind\s+\S+):\s*(.+)$`)
+	cmdTagRe        = regexp.MustCompile(`\]\s+(SELECT|INSERT|UPDATE|DELETE|COPY)\s+(?:\d+\s+)?(\d+)\s+duration:`)
+	userDbRe        = regexp.MustCompile(`\]\s+(\w+)@(\w+)\s+`)
+	userRe          = regexp.MustCompile(`user=(\w+)`)
+	dbRe            = regexp.MustCompile(`db=(\w+)`)
+	tsRe            = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})`)
+	paramRe         = regexp.MustCompile(`\$(\d+)\s*=\s*'([^']*)'`)
+)
+
 // QueryEvent represents a single query execution from log or sample.
 type QueryEvent struct {
 	Query      string
@@ -239,7 +253,6 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 	}
 
 	// Check for statement line (query without duration) - store for association
-	statementOnlyRe := regexp.MustCompile(`LOG:\s+statement:\s*(.+)$`)
 	if stmtMatch := statementOnlyRe.FindStringSubmatch(line); stmtMatch != nil {
 		query := strings.TrimSpace(stmtMatch[1])
 		if query != "" && !strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") {
@@ -249,7 +262,6 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 	}
 
 	// Check for execute/bind line (query without duration) - store for association
-	executeRe := regexp.MustCompile(`LOG:\s+(?:execute|bind)\s+\S+:\s*(.+)$`)
 	if executeMatch := executeRe.FindStringSubmatch(line); executeMatch != nil {
 		query := strings.TrimSpace(executeMatch[1])
 		if query != "" && !strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") {
@@ -259,7 +271,6 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 	}
 
 	// Match duration
-	durationRe := regexp.MustCompile(`duration:\s+([\d.]+)\s+ms`)
 	durationMatch := durationRe.FindStringSubmatch(line)
 	if durationMatch == nil {
 		return QueryEvent{}, false
@@ -272,7 +283,6 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 
 	// Try to get query from same line (old format) or from stored lastQuery (new format)
 	var query string
-	statementRe := regexp.MustCompile(`(?:statement|execute\s+\S+|bind\s+\S+):\s*(.+)$`)
 	if statementMatch := statementRe.FindStringSubmatch(line); statementMatch != nil {
 		query = strings.TrimSpace(statementMatch[1])
 	} else if c.lastQuery != "" {
@@ -297,7 +307,6 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 	var rows int64
 	// Look for command tag after [pid] and before "duration:"
 	// Pattern: ] COMMAND [OID] ROWS  duration:
-	cmdTagRe := regexp.MustCompile(`\]\s+(SELECT|INSERT|UPDATE|DELETE|COPY)\s+(?:\d+\s+)?(\d+)\s+duration:`)
 	if cmdMatch := cmdTagRe.FindStringSubmatch(line); cmdMatch != nil {
 		rows, _ = strconv.ParseInt(cmdMatch[2], 10, 64)
 	}
@@ -307,15 +316,11 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 	var user, database string
 
 	// Try user@database format
-	userDbRe := regexp.MustCompile(`\]\s+(\w+)@(\w+)\s+`)
 	if match := userDbRe.FindStringSubmatch(line); match != nil {
 		user = match[1]
 		database = match[2]
 	} else {
 		// Try user=X,db=Y format
-		userRe := regexp.MustCompile(`user=(\w+)`)
-		dbRe := regexp.MustCompile(`db=(\w+)`)
-
 		if match := userRe.FindStringSubmatch(line); match != nil {
 			user = match[1]
 		}
@@ -326,7 +331,6 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 
 	// Extract timestamp
 	timestamp := time.Now()
-	tsRe := regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})`)
 	if match := tsRe.FindStringSubmatch(line); match != nil {
 		if parsed, err := time.Parse("2006-01-02 15:04:05", match[1]); err == nil {
 			timestamp = parsed
@@ -363,7 +367,6 @@ func (c *LogCollector) parseParams(line string) map[string]string {
 	paramsStr := line[paramsIdx+len("parameters:"):]
 
 	// Parse each parameter: $1 = 'value', $2 = 'value'
-	paramRe := regexp.MustCompile(`\$(\d+)\s*=\s*'([^']*)'`)
 	matches := paramRe.FindAllStringSubmatch(paramsStr, -1)
 
 	for _, match := range matches {

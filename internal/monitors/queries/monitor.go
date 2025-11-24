@@ -113,7 +113,16 @@ func (m *Monitor) CheckLoggingStatus(ctx context.Context) (*LoggingStatus, error
 	var dataDir string
 	var logLinePrefix string
 
-	err := m.pool.QueryRow(ctx, "SHOW log_min_duration_statement").Scan(&logMinDuration)
+	// Query configured setting from pg_file_settings (ignores session overrides)
+	// Falls back to pg_settings.reset_val if not in config files
+	err := m.pool.QueryRow(ctx, `
+		SELECT COALESCE(
+			(SELECT setting FROM pg_file_settings
+			 WHERE name = 'log_min_duration_statement' AND error IS NULL
+			 ORDER BY seqno DESC LIMIT 1),
+			(SELECT reset_val FROM pg_settings WHERE name = 'log_min_duration_statement')
+		)
+	`).Scan(&logMinDuration)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check log_min_duration_statement: %w", err)
 	}
