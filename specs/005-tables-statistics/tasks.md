@@ -120,13 +120,13 @@ Based on plan.md structure:
 
 ### Implementation for User Story 4
 
-- [ ] T033 [US4] Implement CheckPgstattupleExtension query in internal/db/queries/tables.go
-- [ ] T034 [US4] Implement checkExtension command in internal/ui/views/tables/view.go (sets pgstattupleAvailable flag)
-- [ ] T035 [US4] Add Bloat % column to renderMainView in internal/ui/views/tables/view.go (shows "N/A" when unavailable)
-- [ ] T036 [US4] Implement estimated bloat calculation from dead_rows in internal/db/queries/tables.go (fallback when no pgstattuple)
-- [ ] T037 [US4] Add red highlighting for high bloat (>20%) using styles.ColorError in internal/ui/views/tables/view.go
-- [ ] T038 [US4] Add yellow highlighting for moderate bloat (10-20%) using styles.ColorWarning in internal/ui/views/tables/view.go
-- [ ] T039 [US4] Add Bloat to sortTables options in internal/ui/views/tables/view.go
+- [X] T033 [US4] Implement CheckPgstattupleExtension query in internal/db/queries/tables.go
+- [X] T034 [US4] Implement checkExtension command in internal/ui/views/tables/view.go (sets pgstattupleAvailable flag)
+- [X] T035 [US4] Add Bloat % column to renderMainView in internal/ui/views/tables/view.go (shows "N/A" when unavailable)
+- [X] T036 [US4] Implement estimated bloat calculation from dead_rows in internal/db/queries/tables.go (fallback when no pgstattuple)
+- [X] T037 [US4] Add red highlighting for high bloat (>20%) using styles.ColorError in internal/ui/views/tables/view.go
+- [X] T038 [US4] Add yellow highlighting for moderate bloat (10-20%) using styles.ColorWarning in internal/ui/views/tables/view.go
+- [X] T039 [US4] Add Bloat to sortTables options in internal/ui/views/tables/view.go
 
 **Checkpoint**: User Story 4 complete - can view bloat estimates with color coding
 

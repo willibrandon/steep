@@ -209,6 +209,24 @@ func GetIndexesWithStats(ctx context.Context, pool *pgxpool.Pool) ([]models.Inde
 	return indexes, nil
 }
 
+// CheckPgstattupleExtension checks if the pgstattuple extension is installed.
+// Returns true if available, false otherwise.
+func CheckPgstattupleExtension(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
+	query := `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_extension WHERE extname = 'pgstattuple'
+		)
+	`
+
+	var exists bool
+	err := pool.QueryRow(ctx, query).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check pgstattuple extension: %w", err)
+	}
+
+	return exists, nil
+}
+
 // GetPartitionHierarchy retrieves parent-child partition relationships.
 // Returns a map of parent OID -> slice of child OIDs.
 func GetPartitionHierarchy(ctx context.Context, pool *pgxpool.Pool) (map[uint32][]uint32, error) {

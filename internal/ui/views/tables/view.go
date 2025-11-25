@@ -94,11 +94,12 @@ type TreeItem struct {
 type (
 	// TablesDataMsg contains refreshed table/index data.
 	TablesDataMsg struct {
-		Schemas    []models.Schema
-		Tables     []models.Table
-		Indexes    []models.Index
-		Partitions map[uint32][]uint32
-		Error      error
+		Schemas              []models.Schema
+		Tables               []models.Table
+		Indexes              []models.Index
+		Partitions           map[uint32][]uint32
+		PgstattupleAvailable bool
+		Error                error
 	}
 
 	// RefreshTablesMsg triggers data refresh.
@@ -207,6 +208,13 @@ func (v *TablesView) fetchTablesData() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
+		// Check pgstattuple extension availability
+		pgstattupleAvailable, err := queries.CheckPgstattupleExtension(ctx, v.pool)
+		if err != nil {
+			// Non-fatal: continue without pgstattuple
+			pgstattupleAvailable = false
+		}
+
 		schemas, err := queries.GetSchemas(ctx, v.pool)
 		if err != nil {
 			return TablesDataMsg{Error: fmt.Errorf("fetch schemas: %w", err)}
@@ -228,10 +236,11 @@ func (v *TablesView) fetchTablesData() tea.Cmd {
 		}
 
 		return TablesDataMsg{
-			Schemas:    schemas,
-			Tables:     tables,
-			Indexes:    indexes,
-			Partitions: partitions,
+			Schemas:              schemas,
+			Tables:               tables,
+			Indexes:              indexes,
+			Partitions:           partitions,
+			PgstattupleAvailable: pgstattupleAvailable,
 		}
 	}
 }
@@ -276,6 +285,8 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.tables = msg.Tables
 			v.indexes = msg.Indexes
 			v.partitions = msg.Partitions
+			v.pgstattupleAvailable = msg.PgstattupleAvailable
+			v.pgstattupleChecked = true
 			v.lastUpdate = time.Now()
 			v.err = nil
 
@@ -660,6 +671,8 @@ func (v *TablesView) cycleSortColumn() {
 	case SortBySize:
 		v.sortColumn = SortByRows
 	case SortByRows:
+		v.sortColumn = SortByBloat
+	case SortByBloat:
 		v.sortColumn = SortByCacheHit
 	case SortByCacheHit:
 		v.sortColumn = SortByName
@@ -996,14 +1009,15 @@ func (v *TablesView) renderTitle() string {
 
 // renderHeader renders the column headers with sort indicators.
 func (v *TablesView) renderHeader() string {
-	// Column widths (cache needs extra space for sort indicator)
+	// Column widths
 	nameWidth := 40
 	sizeWidth := 10
 	rowsWidth := 12
+	bloatWidth := 10
 	cacheWidth := 10
 
 	// Adjust name width based on terminal
-	remaining := v.width - sizeWidth - rowsWidth - cacheWidth - 6
+	remaining := v.width - sizeWidth - rowsWidth - bloatWidth - cacheWidth - 8
 	if remaining > 20 {
 		nameWidth = remaining
 	}
@@ -1018,6 +1032,7 @@ func (v *TablesView) renderHeader() string {
 	nameHeader := "Schema/Table"
 	sizeHeader := "Size"
 	rowsHeader := "Rows"
+	bloatHeader := "Bloat %"
 	cacheHeader := "Cache %"
 
 	switch v.sortColumn {
@@ -1027,6 +1042,8 @@ func (v *TablesView) renderHeader() string {
 		sizeHeader = sizeHeader + " " + sortIndicator
 	case SortByRows:
 		rowsHeader = rowsHeader + " " + sortIndicator
+	case SortByBloat:
+		bloatHeader = bloatHeader + " " + sortIndicator
 	case SortByCacheHit:
 		cacheHeader = cacheHeader + " " + sortIndicator
 	}
@@ -1035,6 +1052,7 @@ func (v *TablesView) renderHeader() string {
 		padRight(nameHeader, nameWidth),
 		padRight(sizeHeader, sizeWidth),
 		padRight(rowsHeader, rowsWidth),
+		padRight(bloatHeader, bloatWidth),
 		padRight(cacheHeader, cacheWidth),
 	}
 
@@ -1237,15 +1255,17 @@ func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 	nameWidth := 40
 	sizeWidth := 10
 	rowsWidth := 12
+	bloatWidth := 10
 	cacheWidth := 10
 
 	// Adjust name width based on terminal
-	remaining := v.width - sizeWidth - rowsWidth - cacheWidth - 6
+	remaining := v.width - sizeWidth - rowsWidth - bloatWidth - cacheWidth - 8
 	if remaining > 20 {
 		nameWidth = remaining
 	}
 
-	var name, size, rowCount, cacheHit string
+	var name, size, rowCount, bloat, cacheHit string
+	var bloatPct float64
 
 	if item.IsSchema {
 		// Schema row
@@ -1256,6 +1276,7 @@ func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 		name = prefix + item.Schema.Name
 		size = ""
 		rowCount = ""
+		bloat = ""
 		cacheHit = ""
 	} else if item.IsTable || item.IsPartition {
 		// Table or partition row
@@ -1280,21 +1301,48 @@ func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 		name = prefix + item.Table.Name
 		size = models.FormatBytes(item.Table.TotalSize)
 		rowCount = formatNumber(item.Table.RowCount)
+		bloatPct = item.Table.BloatPct
+		if item.Table.BloatEstimated {
+			bloat = fmt.Sprintf("~%.1f%%", bloatPct)
+		} else {
+			bloat = fmt.Sprintf("%.1f%%", bloatPct)
+		}
 		cacheHit = fmt.Sprintf("%.1f%%", item.Table.CacheHitRatio)
 	}
 
 	// Truncate name if too long
 	displayName := truncateWithWidth(name, nameWidth-1)
 
-	row := fmt.Sprintf("%s %s %s %s",
+	// Format bloat with color coding for table rows
+	bloatStr := padRight(bloat, bloatWidth)
+	if (item.IsTable || item.IsPartition) && !isSelected {
+		if bloatPct > 20 {
+			// High bloat: red
+			bloatStr = lipgloss.NewStyle().Foreground(styles.ColorError).Render(padRight(bloat, bloatWidth))
+		} else if bloatPct > 10 {
+			// Moderate bloat: yellow
+			bloatStr = lipgloss.NewStyle().Foreground(styles.ColorIdleTxn).Render(padRight(bloat, bloatWidth))
+		}
+	}
+
+	row := fmt.Sprintf("%s %s %s %s %s",
 		padRight(displayName, nameWidth),
 		padRight(size, sizeWidth),
 		padRight(rowCount, rowsWidth),
+		bloatStr,
 		padRight(cacheHit, cacheWidth),
 	)
 
 	// Apply styling
 	if isSelected {
+		// Reformat without color for selected row
+		row = fmt.Sprintf("%s %s %s %s %s",
+			padRight(displayName, nameWidth),
+			padRight(size, sizeWidth),
+			padRight(rowCount, rowsWidth),
+			padRight(bloat, bloatWidth),
+			padRight(cacheHit, cacheWidth),
+		)
 		return styles.TableSelectedStyle.Width(v.width - 2).Render(row)
 	}
 
@@ -1379,8 +1427,13 @@ Index Panel
   Indexes are sorted: primary keys first, then unique, then regular
 
 Sorting (Tables)
-  s             Cycle sort column (Name → Size → Rows → Cache)
+  s             Cycle sort column (Name → Size → Rows → Bloat → Cache)
   S             Toggle sort direction (asc/desc)
+
+Bloat Display:
+  ~X.X%         Estimated bloat (from dead rows ratio)
+  red           High bloat (>20%) - consider VACUUM
+  yellow        Moderate bloat (10-20%)
 
 Display
   P             Toggle system schemas
