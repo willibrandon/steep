@@ -29,9 +29,9 @@ Based on plan.md structure:
 
 **Purpose**: Project initialization, new dependencies, and basic structure
 
-- [ ] T001 Install new dependencies: `go get github.com/charmbracelet/huh github.com/guptarohit/asciigraph github.com/sethvargo/go-password/password`
-- [ ] T002 Run `go mod tidy` to update go.mod and go.sum
-- [ ] T003 [P] Create directory structure: `internal/ui/views/replication/`, `internal/ui/views/replication/repviz/`, `internal/ui/views/replication/setup/`
+- [x] T001 Install new dependencies: `go get github.com/charmbracelet/huh github.com/guptarohit/asciigraph github.com/sethvargo/go-password/password`
+- [x] T002 Run `go mod tidy` to update go.mod and go.sum
+- [x] T003 [P] Create directory structure: `internal/ui/views/replication/`, `internal/ui/views/replication/repviz/`, `internal/ui/views/replication/setup/`
 
 ---
 
@@ -43,13 +43,13 @@ Based on plan.md structure:
 
 ### Data Models
 
-- [ ] T004 [P] Create Replica model with enums (ReplicationSyncState, LagSeverity) and helper methods (LagSeverity(), FormatByteLag()) in `internal/db/models/replication.go`
-- [ ] T005 [P] Create ReplicationSlot model with SlotType enum and helper methods (IsOrphaned(), RetentionWarning(), FormatRetainedBytes()) in `internal/db/models/replication.go`
-- [ ] T006 [P] Create Publication model with OperationFlags() helper in `internal/db/models/replication.go`
-- [ ] T007 [P] Create Subscription model with LagSeverity(), IsStale() helpers in `internal/db/models/replication.go`
-- [ ] T008 [P] Create LagHistoryEntry model for SQLite persistence in `internal/db/models/replication.go`
-- [ ] T009 [P] Create ReplicationData aggregate struct and NewReplicationData() constructor in `internal/db/models/replication.go`
-- [ ] T010 [P] Create ReplicationConfig and ConfigParam structs with IsReady(), RequiresRestart(), GetIssues() methods in `internal/db/models/replication.go`
+- [x] T004 [P] Create Replica model with enums (ReplicationSyncState, LagSeverity) and helper methods (LagSeverity(), FormatByteLag()) in `internal/db/models/replication.go`
+- [x] T005 [P] Create ReplicationSlot model with SlotType enum and helper methods (IsOrphaned(), RetentionWarning(), FormatRetainedBytes()) in `internal/db/models/replication.go`
+- [x] T006 [P] Create Publication model with OperationFlags() helper in `internal/db/models/replication.go`
+- [x] T007 [P] Create Subscription model with LagSeverity(), IsStale() helpers in `internal/db/models/replication.go`
+- [x] T008 [P] Create LagHistoryEntry model for SQLite persistence in `internal/db/models/replication.go`
+- [x] T009 [P] Create ReplicationData aggregate struct and NewReplicationData() constructor in `internal/db/models/replication.go`
+- [x] T010 [P] Create ReplicationConfig and ConfigParam structs with IsReady(), RequiresRestart(), GetIssues() methods in `internal/db/models/replication.go`
 
 ### Database Queries
 
