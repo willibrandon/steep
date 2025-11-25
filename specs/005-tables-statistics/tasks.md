@@ -198,14 +198,14 @@ Based on plan.md structure:
 
 **Purpose**: Help overlay, code cleanup, final integration
 
-- [ ] T063 Create help.go file at internal/ui/views/tables/help.go with keyboard shortcuts content
-- [ ] T064 Implement ModeHelp handling in Update() (h/? opens, Esc/q closes) in internal/ui/views/tables/view.go
-- [ ] T065 Implement renderHelp method in internal/ui/views/tables/view.go
-- [ ] T066 [P] Add empty state handling when no user tables exist in internal/ui/views/tables/view.go
-- [ ] T067 [P] Add error handling for query failures with user-friendly messages in internal/ui/views/tables/view.go
-- [ ] T068 [P] Add minimum terminal width check (80 columns) with graceful degradation in internal/ui/views/tables/view.go
-- [ ] T069 Run go build and fix any compilation errors
-- [ ] T070 Run manual testing checklist from quickstart.md
+- [X] T063 Create help.go file at internal/ui/views/tables/help.go with keyboard shortcuts content
+- [X] T064 Implement ModeHelp handling in Update() (h/? opens, Esc/q closes) in internal/ui/views/tables/view.go
+- [X] T065 Implement renderHelp method in internal/ui/views/tables/view.go
+- [X] T066 [P] Add empty state handling when no user tables exist in internal/ui/views/tables/view.go
+- [X] T067 [P] Add error handling for query failures with user-friendly messages in internal/ui/views/tables/view.go
+- [X] T068 [P] Add minimum terminal width check (80 columns) with graceful degradation in internal/ui/views/tables/view.go (app-level enforcement)
+- [X] T069 Run go build and fix any compilation errors
+- [X] T070 Run manual testing checklist from quickstart.md
 
 ---
 
