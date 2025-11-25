@@ -519,8 +519,8 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if showIndexPanel {
 				tablePanelRows = v.tablePanelHeight()
-				// Index panel starts after table panel + index title(1) + index header(1)
-				indexStartY = tableStartY + tablePanelRows + 2
+				// Index panel starts after table panel + index title(1) + index header(1) + separator(1)
+				indexStartY = tableStartY + tablePanelRows + 3
 			} else {
 				tablePanelRows = v.tableHeight()
 				indexStartY = -1 // No index panel
@@ -1068,7 +1068,10 @@ func (v *TablesView) sortIndexes(indexes []models.Index) []models.Index {
 			rankI := indexTypeRank(&sorted[i])
 			rankJ := indexTypeRank(&sorted[j])
 			if rankI != rankJ {
-				return rankI < rankJ
+				if v.indexSortAscending {
+					return rankI < rankJ // primary → unique → regular
+				}
+				return rankI > rankJ // regular → unique → primary
 			}
 		}
 
