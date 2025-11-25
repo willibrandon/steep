@@ -312,6 +312,7 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL (pg_locks, pg_stat_activity system views) (004-locks-blocking)
 - Go 1.21+ (Go 1.25.4 per go.mod) + bubbletea, bubbles, lipgloss, pgx/pgxpool, golang.design/x/clipboard (005-tables-statistics)
 - PostgreSQL (source database via pg_stat_all_tables, pg_stat_all_indexes, pgstattuple) (005-tables-statistics)
+- Go 1.25.4 (per go.mod) (006-replication-monitoring)
 
 ## Recent Changes
 - 005-tables-statistics: Hierarchical schema/table browser with expand/collapse, partition visualization
