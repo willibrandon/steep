@@ -92,7 +92,9 @@ type ReplicationView struct {
 	subScrollOffset  int
 
 	// Topology view state
-	showTopology bool
+	showTopology         bool
+	topologySelectedIdx  int                // Currently selected replica in topology
+	topologyExpanded     map[string]bool    // Which replicas have expanded pipeline view (by app name)
 
 	// Detail view state
 	detailScrollOffset int
@@ -130,6 +132,7 @@ func NewReplicationView() *ReplicationView {
 		clipboard:        ui.NewClipboardWriter(),
 		timeWindow:       5 * time.Minute,
 		logicalFocusPubs: true,
+		topologyExpanded: make(map[string]bool),
 	}
 }
 

@@ -71,12 +71,36 @@ func (v *ReplicationView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
-	// Handle topology mode
+	// Handle topology mode with navigation and expandable pipelines
 	if v.mode == ModeTopology {
 		switch key {
 		case "t", "esc", "q":
 			v.mode = ModeNormal
 			v.showTopology = false
+		case "j", "down":
+			v.topologyNavigateDown()
+		case "k", "up":
+			v.topologyNavigateUp()
+		case "enter", " ":
+			v.toggleTopologyExpansion()
+		case "g", "home":
+			v.topologySelectedIdx = 0
+		case "G", "end":
+			if len(v.data.Replicas) > 0 {
+				v.topologySelectedIdx = len(v.data.Replicas) - 1
+			}
+		case "a":
+			// Toggle expand all
+			allExpanded := true
+			for _, r := range v.data.Replicas {
+				if !v.topologyExpanded[r.ApplicationName] {
+					allExpanded = false
+					break
+				}
+			}
+			for _, r := range v.data.Replicas {
+				v.topologyExpanded[r.ApplicationName] = !allExpanded
+			}
 		}
 		return nil
 	}
