@@ -55,6 +55,35 @@ const (
 	SortByCacheHit
 )
 
+// IndexSortColumn represents the column to sort indexes by.
+type IndexSortColumn int
+
+const (
+	IndexSortByName IndexSortColumn = iota
+	IndexSortBySize
+	IndexSortByScans
+	IndexSortByRowsRead
+	IndexSortByCacheHit
+)
+
+// String returns the display name for the index sort column.
+func (s IndexSortColumn) String() string {
+	switch s {
+	case IndexSortByName:
+		return "Name"
+	case IndexSortBySize:
+		return "Size"
+	case IndexSortByScans:
+		return "Scans"
+	case IndexSortByRowsRead:
+		return "Rows"
+	case IndexSortByCacheHit:
+		return "Cache"
+	default:
+		return "Unknown"
+	}
+}
+
 // String returns the display name for the sort column.
 func (s SortColumn) String() string {
 	switch s {
@@ -161,6 +190,8 @@ type TablesView struct {
 	detailsLines        []string // Pre-computed details content lines
 	sortColumn          SortColumn
 	sortAscending       bool
+	indexSortColumn    IndexSortColumn
+	indexSortAscending bool
 	showSystemSchemas   bool
 
 	// Extension state
@@ -202,10 +233,12 @@ func NewTablesView() *TablesView {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
 	return &TablesView{
-		mode:              ModeNormal,
-		focusPanel:        FocusTables,
-		sortColumn:        SortByName,
-		partitions:        make(map[uint32][]uint32),
+		mode:               ModeNormal,
+		focusPanel:         FocusTables,
+		sortColumn:         SortByName,
+		indexSortColumn:    IndexSortByName,
+		indexSortAscending: false,
+		partitions:         make(map[uint32][]uint32),
 		tablesByOID:       make(map[uint32]*models.Table),
 		clipboard:         ui.NewClipboardWriter(),
 		spinner:           s,
@@ -781,9 +814,17 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 	// Sorting
 	case "s":
-		v.cycleSortColumn()
+		if v.focusPanel == FocusIndexes {
+			v.cycleIndexSortColumn()
+		} else {
+			v.cycleSortColumn()
+		}
 	case "S":
-		v.toggleSortDirection()
+		if v.focusPanel == FocusIndexes {
+			v.toggleIndexSortDirection()
+		} else {
+			v.toggleSortDirection()
+		}
 
 	// Refresh
 	case "R":
@@ -963,7 +1004,30 @@ func (v *TablesView) toggleSortDirection() {
 	v.buildTreeItems()
 }
 
-// getSelectedTableIndexes returns indexes for the currently selected table.
+// cycleIndexSortColumn cycles to the next index sort column.
+func (v *TablesView) cycleIndexSortColumn() {
+	switch v.indexSortColumn {
+	case IndexSortByName:
+		v.indexSortColumn = IndexSortBySize
+	case IndexSortBySize:
+		v.indexSortColumn = IndexSortByScans
+	case IndexSortByScans:
+		v.indexSortColumn = IndexSortByRowsRead
+	case IndexSortByRowsRead:
+		v.indexSortColumn = IndexSortByCacheHit
+	case IndexSortByCacheHit:
+		v.indexSortColumn = IndexSortByName
+	default:
+		v.indexSortColumn = IndexSortByName
+	}
+}
+
+// toggleIndexSortDirection toggles between ascending and descending index sort.
+func (v *TablesView) toggleIndexSortDirection() {
+	v.indexSortAscending = !v.indexSortAscending
+}
+
+// getSelectedTableIndexes returns indexes for the currently selected table, sorted.
 func (v *TablesView) getSelectedTableIndexes() []models.Index {
 	if v.selectedIdx < 0 || v.selectedIdx >= len(v.treeItems) {
 		return nil
@@ -972,7 +1036,65 @@ func (v *TablesView) getSelectedTableIndexes() []models.Index {
 	if item.Table == nil {
 		return nil
 	}
-	return v.getIndexesForTable(item.Table.OID)
+	indexes := v.getIndexesForTable(item.Table.OID)
+	return v.sortIndexes(indexes)
+}
+
+// indexTypeRank returns the sort rank for an index type (primary=0, unique=1, regular=2).
+func indexTypeRank(idx *models.Index) int {
+	if idx.IsPrimary {
+		return 0
+	}
+	if idx.IsUnique {
+		return 1
+	}
+	return 2
+}
+
+// sortIndexes sorts indexes by the current sort column and direction.
+// When sorting by Name, type-based grouping is applied (primary → unique → regular).
+func (v *TablesView) sortIndexes(indexes []models.Index) []models.Index {
+	if len(indexes) == 0 {
+		return indexes
+	}
+
+	// Make a copy to avoid modifying the original
+	sorted := make([]models.Index, len(indexes))
+	copy(sorted, indexes)
+
+	sort.Slice(sorted, func(i, j int) bool {
+		// Type-based grouping only when sorting by Name
+		if v.indexSortColumn == IndexSortByName {
+			rankI := indexTypeRank(&sorted[i])
+			rankJ := indexTypeRank(&sorted[j])
+			if rankI != rankJ {
+				return rankI < rankJ
+			}
+		}
+
+		// Sort by selected column
+		var less bool
+		switch v.indexSortColumn {
+		case IndexSortByName:
+			less = sorted[i].Name < sorted[j].Name
+		case IndexSortBySize:
+			less = sorted[i].Size < sorted[j].Size
+		case IndexSortByScans:
+			less = sorted[i].ScanCount < sorted[j].ScanCount
+		case IndexSortByRowsRead:
+			less = sorted[i].RowsRead < sorted[j].RowsRead
+		case IndexSortByCacheHit:
+			less = sorted[i].CacheHitRatio < sorted[j].CacheHitRatio
+		default:
+			less = sorted[i].Name < sorted[j].Name
+		}
+		if v.indexSortAscending {
+			return less
+		}
+		return !less
+	})
+
+	return sorted
 }
 
 // moveIndexSelection moves the index selection by delta rows.
@@ -1693,12 +1815,38 @@ func (v *TablesView) renderIndexHeader() string {
 		nameWidth = remaining
 	}
 
+	// Sort indicator
+	sortIndicator := "▼" // descending (larger first)
+	if v.indexSortAscending {
+		sortIndicator = "▲" // ascending (smaller first)
+	}
+
+	// Column headers with sort indicator on active column
+	nameHeader := "Index Name"
+	sizeHeader := "Size"
+	scansHeader := "Scans"
+	rowsHeader := "Rows Read"
+	cacheHeader := "Cache %"
+
+	switch v.indexSortColumn {
+	case IndexSortByName:
+		nameHeader = nameHeader + " " + sortIndicator
+	case IndexSortBySize:
+		sizeHeader = sizeHeader + " " + sortIndicator
+	case IndexSortByScans:
+		scansHeader = scansHeader + " " + sortIndicator
+	case IndexSortByRowsRead:
+		rowsHeader = rowsHeader + " " + sortIndicator
+	case IndexSortByCacheHit:
+		cacheHeader = cacheHeader + " " + sortIndicator
+	}
+
 	headers := []string{
-		padRight("Index Name", nameWidth),
-		padRight("Size", sizeWidth),
-		padRight("Scans", scansWidth),
-		padRight("Rows Read", rowsWidth),
-		padRight("Cache %", cacheWidth),
+		padRight(nameHeader, nameWidth),
+		padRight(sizeHeader, sizeWidth),
+		padRight(scansHeader, scansWidth),
+		padRight(rowsHeader, rowsWidth),
+		padRight(cacheHeader, cacheWidth),
 	}
 
 	headerLine := strings.Join(headers, " ")
@@ -1881,7 +2029,7 @@ func (v *TablesView) renderFooter() string {
 		hints = toastStyle.Render(v.toastMessage)
 	} else {
 		if v.focusPanel == FocusIndexes {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [i]tables [y]copy [r]efresh [h]elp")
+			hints = styles.FooterHintStyle.Render("[j/k]nav [i]tables [y]copy [s/S]ort [R]efresh [h]elp")
 		} else {
 			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [P]sys [var]maint [h]elp")
 		}
