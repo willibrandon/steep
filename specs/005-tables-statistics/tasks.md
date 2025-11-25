@@ -161,13 +161,13 @@ Based on plan.md structure:
 
 ### Implementation for User Story 6
 
-- [ ] T048 [US6] Implement GetTableDetails query in internal/db/queries/tables.go (columns, constraints)
-- [ ] T049 [US6] Implement fetchTableDetails command in internal/ui/views/tables/view.go
-- [ ] T050 [US6] Implement ModeDetails handling in Update() in internal/ui/views/tables/view.go (Enter/d opens, Esc/q closes)
-- [ ] T051 [US6] Implement renderDetails method in internal/ui/views/tables/view.go (columns table, constraints list)
-- [ ] T052 [US6] Implement renderWithOverlay helper in internal/ui/views/tables/view.go (modal overlay pattern from locks view)
-- [ ] T053 [US6] Add size breakdown display (heap, indexes, TOAST) to details panel in internal/ui/views/tables/view.go
-- [ ] T054 [US6] Implement clipboard copy (y key) for table name in schema.table format in details mode in internal/ui/views/tables/view.go
+- [X] T048 [US6] Implement GetTableDetails query in internal/db/queries/tables.go (columns, constraints)
+- [X] T049 [US6] Implement fetchTableDetails command in internal/ui/views/tables/view.go
+- [X] T050 [US6] Implement ModeDetails handling in Update() in internal/ui/views/tables/view.go (Enter/d opens, Esc/q closes)
+- [X] T051 [US6] Implement renderDetails method in internal/ui/views/tables/view.go (columns table, constraints list)
+- [X] T052 [US6] Implement renderWithOverlay helper in internal/ui/views/tables/view.go (modal overlay pattern from locks view)
+- [X] T053 [US6] Add size breakdown display (heap, indexes, TOAST) to details panel in internal/ui/views/tables/view.go
+- [X] T054 [US6] Implement clipboard copy (y key) for table name in schema.table format in details mode in internal/ui/views/tables/view.go
 
 **Checkpoint**: User Story 6 complete - can view full table details in modal panel
 

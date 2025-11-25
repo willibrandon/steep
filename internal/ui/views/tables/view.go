@@ -2,8 +2,10 @@
 package tables
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -26,6 +28,7 @@ type TablesMode int
 const (
 	ModeNormal TablesMode = iota
 	ModeDetails
+	ModeCopyMenu
 	ModeConfirmInstall
 	ModeConfirmVacuum
 	ModeConfirmAnalyze
@@ -111,6 +114,14 @@ type (
 		Success bool
 		Error   error
 	}
+
+	// TableDetailsMsg contains column and constraint data for a table.
+	TableDetailsMsg struct {
+		TableOID    uint32
+		Columns     []models.TableColumn
+		Constraints []models.Constraint
+		Error       error
+	}
 )
 
 // TablesView displays schema and table statistics.
@@ -134,13 +145,15 @@ type TablesView struct {
 	scrollOffset int
 
 	// UI state
-	mode              TablesMode
-	focusPanel        FocusPanel
-	selectedIndex     int // Selected index in index list when FocusIndexes
-	indexScrollOffset int
-	sortColumn        SortColumn
-	sortAscending     bool
-	showSystemSchemas bool
+	mode                TablesMode
+	focusPanel          FocusPanel
+	selectedIndex       int // Selected index in index list when FocusIndexes
+	indexScrollOffset   int
+	detailsScrollOffset int      // Scroll offset for details panel
+	detailsLines        []string // Pre-computed details content lines
+	sortColumn          SortColumn
+	sortAscending       bool
+	showSystemSchemas   bool
 
 	// Extension state
 	pgstattupleAvailable bool
@@ -160,10 +173,6 @@ type TablesView struct {
 	toastMessage string
 	toastError   bool
 	toastTime    time.Time
-
-	// Detail view state
-	detailScrollOffset int
-	detailLines        []string
 
 	// Spinner for loading states
 	spinner spinner.Model
@@ -289,6 +298,34 @@ func (v *TablesView) installExtension() tea.Cmd {
 	}
 }
 
+// fetchTableDetails returns a command that fetches column and constraint data for a table.
+func (v *TablesView) fetchTableDetails(tableOID uint32) tea.Cmd {
+	return func() tea.Msg {
+		if v.pool == nil {
+			return TableDetailsMsg{Error: fmt.Errorf("database connection not available")}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		columns, err := queries.GetTableColumns(ctx, v.pool, tableOID)
+		if err != nil {
+			return TableDetailsMsg{TableOID: tableOID, Error: fmt.Errorf("fetch columns: %w", err)}
+		}
+
+		constraints, err := queries.GetTableConstraints(ctx, v.pool, tableOID)
+		if err != nil {
+			return TableDetailsMsg{TableOID: tableOID, Error: fmt.Errorf("fetch constraints: %w", err)}
+		}
+
+		return TableDetailsMsg{
+			TableOID:    tableOID,
+			Columns:     columns,
+			Constraints: constraints,
+		}
+	}
+}
+
 // Update handles messages for the tables view.
 func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -385,6 +422,26 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		v.showToast(errMsg, true)
 		return v, nil
 
+	case TableDetailsMsg:
+		if msg.Error != nil {
+			v.showToast(fmt.Sprintf("Error loading details: %v", msg.Error), true)
+			v.mode = ModeNormal
+			return v, nil
+		}
+		// Find the table and populate details
+		if table, ok := v.tablesByOID[msg.TableOID]; ok {
+			v.details = &models.TableDetails{
+				Table:       *table,
+				Columns:     msg.Columns,
+				Constraints: msg.Constraints,
+				Indexes:     v.getIndexesForTable(msg.TableOID),
+			}
+			v.detailsScrollOffset = 0
+			v.detailsLines = v.buildDetailsLines()
+			v.mode = ModeDetails
+		}
+		return v, nil
+
 	case RefreshTablesMsg:
 		if !v.refreshing {
 			v.refreshing = true
@@ -463,6 +520,15 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					v.mode = ModeNormal
 				}
 			}
+		case ModeDetails:
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				v.scrollDetailsUp(3)
+			case tea.MouseButtonWheelDown:
+				v.scrollDetailsDown(3)
+			case tea.MouseButtonLeft:
+				// Could handle clicks on specific elements
+			}
 		}
 
 	case spinner.TickMsg:
@@ -503,6 +569,59 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			v.mode = ModeNormal
 			v.installPromptShown = true
 			v.showToast("Skipped pgstattuple install (won't ask again)", false)
+		}
+		return nil
+	}
+
+	// Handle details mode
+	if v.mode == ModeDetails {
+		switch key {
+		case "esc", "q":
+			v.mode = ModeNormal
+			v.details = nil
+			v.detailsLines = nil
+			v.detailsScrollOffset = 0
+		case "y":
+			// Show copy menu
+			if v.details != nil {
+				v.mode = ModeCopyMenu
+			}
+		case "j", "down":
+			v.scrollDetailsDown(1)
+		case "k", "up":
+			v.scrollDetailsUp(1)
+		case "ctrl+d", "pgdown":
+			v.scrollDetailsDown(v.detailsContentHeight())
+		case "ctrl+u", "pgup":
+			v.scrollDetailsUp(v.detailsContentHeight())
+		case "g", "home":
+			v.detailsScrollOffset = 0
+		case "G", "end":
+			v.scrollDetailsToBottom()
+		}
+		return nil
+	}
+
+	// Handle copy menu mode
+	if v.mode == ModeCopyMenu {
+		switch key {
+		case "esc", "q":
+			v.mode = ModeDetails
+		case "n":
+			v.copyTableName()
+			v.mode = ModeDetails
+		case "s":
+			v.copySelectSQL()
+			v.mode = ModeDetails
+		case "i":
+			v.copyInsertSQL()
+			v.mode = ModeDetails
+		case "u":
+			v.copyUpdateSQL()
+			v.mode = ModeDetails
+		case "d":
+			v.copyDeleteSQL()
+			v.mode = ModeDetails
 		}
 		return nil
 	}
@@ -575,8 +694,32 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			v.pageUp()
 		}
 
-	// Expand/collapse - only for tables panel
-	case "enter", "right", "l":
+	// Expand/collapse or open details - only for tables panel
+	case "enter":
+		if v.focusPanel == FocusTables && v.selectedIdx >= 0 && v.selectedIdx < len(v.treeItems) {
+			item := v.treeItems[v.selectedIdx]
+			if item.Schema != nil {
+				// Schema: toggle expand
+				v.toggleExpand()
+			} else if item.Table != nil {
+				if item.Table.IsPartitioned {
+					// Partitioned table: toggle expand to show partitions
+					v.toggleExpand()
+				} else {
+					// Regular table: open details
+					return v.fetchTableDetails(item.Table.OID)
+				}
+			}
+		}
+	case "d":
+		// Open details for selected table
+		if v.focusPanel == FocusTables && v.selectedIdx >= 0 && v.selectedIdx < len(v.treeItems) {
+			item := v.treeItems[v.selectedIdx]
+			if item.Table != nil {
+				return v.fetchTableDetails(item.Table.OID)
+			}
+		}
+	case "right", "l":
 		if v.focusPanel == FocusTables {
 			v.toggleExpand()
 		}
@@ -813,16 +956,18 @@ func (v *TablesView) ensureIndexVisible(totalIndexes int) {
 	}
 }
 
-// indexPanelHeight returns the height of the index panel.
+// indexPanelHeight returns the height of the index panel (content rows only).
 func (v *TablesView) indexPanelHeight() int {
-	// Index panel gets ~1/3 of available height, minimum 3 rows
-	return max(3, (v.height-6)/3)
+	// Index panel gets ~1/3 of available content height, minimum 3 rows
+	// Available = height - status(3) - title(1) - header(1) - footer(3) = height - 8
+	return max(3, (v.height-8)/3)
 }
 
 // tablePanelHeight returns the height of the table panel when index panel is shown.
 func (v *TablesView) tablePanelHeight() int {
 	// Table panel gets remaining height after index panel
-	return v.height - 6 - v.indexPanelHeight() - 2 // -2 for index header
+	// Total fixed: status(3) + title(1) + header(1) + indexTitle(1) + indexHeader(1) + footer(3) = 10
+	return max(1, v.height-10-v.indexPanelHeight())
 }
 
 // toggleFocusPanel switches focus between tables and indexes.
@@ -856,6 +1001,125 @@ func (v *TablesView) copySelectedIndexName() {
 			v.showToast("Copied: "+fullName, false)
 		}
 	}
+}
+
+// copyTableName copies the qualified table name to clipboard.
+func (v *TablesView) copyTableName() {
+	if v.details == nil {
+		return
+	}
+	t := &v.details.Table
+	fullName := fmt.Sprintf("%s.%s", t.SchemaName, t.Name)
+	if err := v.clipboard.Write(fullName); err != nil {
+		v.showToast("Failed to copy: "+err.Error(), true)
+	} else {
+		v.showToast("Copied table name", false)
+	}
+}
+
+// copySelectSQL copies an executable SELECT statement to clipboard.
+func (v *TablesView) copySelectSQL() {
+	if v.details == nil {
+		return
+	}
+	t := &v.details.Table
+	var cols []string
+	for _, col := range v.details.Columns {
+		cols = append(cols, col.Name)
+	}
+	colList := "*"
+	if len(cols) > 0 {
+		colList = strings.Join(cols, ", ")
+	}
+	// Executable query with LIMIT 100 (safe default)
+	sql := fmt.Sprintf("SELECT %s FROM %s.%s LIMIT 100;", colList, t.SchemaName, t.Name)
+	sql = v.formatSQL(sql)
+	if err := v.clipboard.Write(sql); err != nil {
+		v.showToast("Failed to copy: "+err.Error(), true)
+	} else {
+		v.showToast("Copied SELECT statement", false)
+	}
+}
+
+// copyInsertSQL copies an INSERT statement template to clipboard.
+func (v *TablesView) copyInsertSQL() {
+	if v.details == nil {
+		return
+	}
+	t := &v.details.Table
+	var cols []string
+	var placeholders []string
+	i := 1
+	for _, col := range v.details.Columns {
+		cols = append(cols, col.Name)
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i))
+		i++
+	}
+	sql := fmt.Sprintf("INSERT INTO %s.%s (%s) VALUES (%s);",
+		t.SchemaName, t.Name,
+		strings.Join(cols, ", "),
+		strings.Join(placeholders, ", "))
+	sql = v.formatSQL(sql)
+	if err := v.clipboard.Write(sql); err != nil {
+		v.showToast("Failed to copy: "+err.Error(), true)
+	} else {
+		v.showToast("Copied INSERT statement", false)
+	}
+}
+
+// copyUpdateSQL copies an UPDATE statement template to clipboard.
+func (v *TablesView) copyUpdateSQL() {
+	if v.details == nil {
+		return
+	}
+	t := &v.details.Table
+	var setClauses []string
+	i := 1
+	for _, col := range v.details.Columns {
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", col.Name, i))
+		i++
+	}
+	sql := fmt.Sprintf("UPDATE %s.%s SET %s WHERE <condition>;",
+		t.SchemaName, t.Name,
+		strings.Join(setClauses, ", "))
+	sql = v.formatSQL(sql)
+	if err := v.clipboard.Write(sql); err != nil {
+		v.showToast("Failed to copy: "+err.Error(), true)
+	} else {
+		v.showToast("Copied UPDATE statement", false)
+	}
+}
+
+// copyDeleteSQL copies a DELETE statement template to clipboard.
+func (v *TablesView) copyDeleteSQL() {
+	if v.details == nil {
+		return
+	}
+	t := &v.details.Table
+	sql := fmt.Sprintf("DELETE FROM %s.%s WHERE <condition>;", t.SchemaName, t.Name)
+	sql = v.formatSQL(sql)
+	if err := v.clipboard.Write(sql); err != nil {
+		v.showToast("Failed to copy: "+err.Error(), true)
+	} else {
+		v.showToast("Copied DELETE statement", false)
+	}
+}
+
+// formatSQL formats SQL using pgFormatter via Docker if available.
+func (v *TablesView) formatSQL(sql string) string {
+	// Try pg_format via Docker
+	cmd := exec.Command("docker", "run", "--rm", "-i", "backplane/pgformatter", "-s", "2")
+	cmd.Stdin = strings.NewReader(sql)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err == nil {
+		formatted := strings.TrimSpace(out.String())
+		if formatted != "" {
+			return formatted
+		}
+	}
+	// Fallback: return as-is
+	return sql
 }
 
 // moveSelection moves the selection by delta rows.
@@ -916,8 +1180,8 @@ func (v *TablesView) ensureVisible() {
 
 // tableHeight returns the number of visible table rows.
 func (v *TablesView) tableHeight() int {
-	// height - status(1) - title(1) - header(1) - footer(1) - app chrome(2)
-	return max(1, v.height-6)
+	// height - status(3 with border) - title(1) - header(1) - footer(3 with border)
+	return max(1, v.height-8)
 }
 
 // toggleExpand toggles expand/collapse for the selected item.
@@ -994,7 +1258,15 @@ func (v *TablesView) View() string {
 
 	// Check for overlay modes
 	if v.mode == ModeHelp {
-		return v.renderHelp()
+		return HelpOverlay(v.width, v.height, v.pgstattupleAvailable)
+	}
+
+	if v.mode == ModeCopyMenu {
+		return v.renderCopyMenu()
+	}
+
+	if v.mode == ModeDetails {
+		return v.renderDetails()
 	}
 
 	if v.mode == ModeConfirmInstall {
@@ -1473,7 +1745,7 @@ func (v *TablesView) renderFooter() string {
 		if v.focusPanel == FocusIndexes {
 			hints = styles.FooterHintStyle.Render("[j/k]nav [i]tables [y]copy [r]efresh [h]elp")
 		} else {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter]expand [i]ndex [y]copy [s/S]ort [P]sys [r]efresh [h]elp")
+			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [P]sys [h]elp")
 		}
 	}
 
@@ -1491,66 +1763,38 @@ func (v *TablesView) renderFooter() string {
 		Render(hints + spaces + rightSide)
 }
 
-// renderHelp renders the help overlay.
-func (v *TablesView) renderHelp() string {
-	// Build prerequisites section dynamically
-	var pgstatStatus string
-	if v.pgstattupleAvailable {
-		pgstatStatus = lipgloss.NewStyle().Foreground(styles.ColorSuccess).Render("✓") + " installed (accurate bloat)"
-	} else {
-		pgstatStatus = lipgloss.NewStyle().Foreground(styles.ColorMuted).Render("✗") + " not installed (estimated bloat)"
+// renderCopyMenu renders the SQL copy menu overlay on top of details view.
+func (v *TablesView) renderCopyMenu() string {
+	if v.details == nil {
+		return v.renderDetails()
 	}
 
-	helpContent := fmt.Sprintf(`Tables View - Keyboard Shortcuts
+	// Build the menu content
+	tableName := fmt.Sprintf("%s.%s", v.details.Table.SchemaName, v.details.Table.Name)
+	menuContent := fmt.Sprintf(`Copy SQL for: %s
 
-Navigation
-  j / ↓         Move down
-  k / ↑         Move up
-  g / Home      Go to top
-  G / End       Go to bottom
-  Ctrl+D        Page down
-  Ctrl+U        Page up
+  [n] Table name
+  [s] SELECT (with LIMIT 100)
+  [i] INSERT template
+  [u] UPDATE template
+  [d] DELETE template
 
-Tree
-  Enter / →     Expand/collapse schema or partitions
-  ←             Collapse or move to parent
+  [Esc] Cancel`, tableName)
 
-Index Panel
-  i             Toggle focus between tables and indexes
-  y             Copy selected table/index name to clipboard
-
-  Index Display:
-    🔑 name     Primary key index
-    ◆ name      Unique index
-    yellow      Unused index (0 scans) - candidate for removal
-
-Sorting (Tables)
-  s             Cycle sort column (Name → Size → Rows → Bloat → Cache)
-  S             Toggle sort direction (asc/desc)
-
-Display
-  P             Toggle system schemas
-  r             Refresh data
-
-General
-  h / ?         Show this help
-  Esc / q       Close help
-
-Prerequisites
-  pgstattuple   %s
-
-Press any key to close this help`, pgstatStatus)
-
-	helpStyle := lipgloss.NewStyle().
+	// Create dialog style
+	dialogStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(styles.ColorAccent).
 		Padding(1, 2).
-		Width(65)
+		Width(40)
 
+	dialog := dialogStyle.Render(menuContent)
+
+	// Center the dialog over the details view
 	return lipgloss.Place(
 		v.width, v.height,
 		lipgloss.Center, lipgloss.Center,
-		helpStyle.Render(helpContent),
+		dialog,
 	)
 }
 
@@ -1580,6 +1824,242 @@ This will execute:
 		lipgloss.Center, lipgloss.Center,
 		dialogStyle.Render(dialogContent),
 	)
+}
+
+// buildDetailsLines builds the content lines for the details panel.
+func (v *TablesView) buildDetailsLines() []string {
+	if v.details == nil {
+		return nil
+	}
+
+	t := &v.details.Table
+	var lines []string
+	contentWidth := max(76, v.width-4) // Min 80 cols - 4 margin
+
+	// Size and Statistics in a compact 2-column layout
+	lines = append(lines, styles.HeaderStyle.Render("Overview"))
+	bloatStr := fmt.Sprintf("%.1f%%", t.BloatPct)
+	if t.BloatEstimated {
+		bloatStr = "~" + bloatStr
+	}
+	lines = append(lines, fmt.Sprintf("  Total Size: %-10s  Rows: %d", models.FormatBytes(t.TotalSize), t.RowCount))
+	lines = append(lines, fmt.Sprintf("  Heap:       %-10s  Dead: %d", models.FormatBytes(t.TableSize), t.DeadRows))
+	lines = append(lines, fmt.Sprintf("  Indexes:    %-10s  Bloat: %s", models.FormatBytes(t.IndexesSize), bloatStr))
+	lines = append(lines, fmt.Sprintf("  TOAST:      %-10s  Cache: %.1f%%", models.FormatBytes(t.ToastSize), t.CacheHitRatio))
+	lines = append(lines, fmt.Sprintf("  Seq Scans:  %-10d  Index Scans: %d", t.SeqScans, t.IndexScans))
+	lines = append(lines, "")
+
+	// Columns section - optimized for readability
+	if len(v.details.Columns) > 0 {
+		lines = append(lines, styles.HeaderStyle.Render(fmt.Sprintf("Columns (%d)", len(v.details.Columns))))
+
+		// Dynamic widths: balance Type and Default columns
+		// Name(20) + Type + Null(4) + Default
+		nameWidth := 20
+		nullWidth := 4
+		// Split remaining space: Type gets 55%, Default gets 45%
+		remaining := contentWidth - nameWidth - nullWidth - 8
+		typeWidth := max(20, remaining*55/100)
+		defaultWidth := max(15, remaining-typeWidth)
+
+		header := fmt.Sprintf("  %-*s %-*s %-*s %s", nameWidth, "Name", typeWidth, "Type", nullWidth, "Null", "Default")
+		lines = append(lines, styles.TableHeaderStyle.Width(contentWidth).Render(header))
+
+		for _, col := range v.details.Columns {
+			nullable := "YES"
+			if !col.IsNullable {
+				nullable = "NO"
+			}
+
+			colName := truncateString(col.Name, nameWidth)
+			// Don't truncate type if it fits, only truncate if really long
+			dataType := col.DataType
+			if len(dataType) > typeWidth {
+				dataType = dataType[:typeWidth-3] + "..."
+			}
+
+			defaultVal := ""
+			if col.DefaultValue != nil {
+				defaultVal = *col.DefaultValue
+				if len(defaultVal) > defaultWidth {
+					defaultVal = defaultVal[:defaultWidth-3] + "..."
+				}
+			}
+
+			lines = append(lines, fmt.Sprintf("  %-*s %-*s %-*s %s",
+				nameWidth, colName, typeWidth, dataType, nullWidth, nullable, defaultVal))
+		}
+		lines = append(lines, "")
+	}
+
+	// Constraints section - cleaner single-line format where possible
+	if len(v.details.Constraints) > 0 {
+		lines = append(lines, styles.HeaderStyle.Render(fmt.Sprintf("Constraints (%d)", len(v.details.Constraints))))
+
+		for _, con := range v.details.Constraints {
+			// Format: [TYPE] name: definition
+			typeStr := string(con.Type)
+			if typeStr == "" {
+				typeStr = "??"
+			}
+
+			// Try to fit on one line if possible
+			prefix := fmt.Sprintf("  [%s] %s: ", typeStr, con.Name)
+			remainingWidth := contentWidth - len(prefix)
+
+			if len(con.Definition) <= remainingWidth {
+				lines = append(lines, prefix+con.Definition)
+			} else {
+				// Two lines: name on first, definition on second (indented)
+				lines = append(lines, fmt.Sprintf("  [%s] %s", typeStr, con.Name))
+				def := con.Definition
+				if len(def) > contentWidth-6 {
+					def = def[:contentWidth-9] + "..."
+				}
+				lines = append(lines, "      "+def)
+			}
+		}
+		lines = append(lines, "")
+	}
+
+	// Indexes section
+	if len(v.details.Indexes) > 0 {
+		lines = append(lines, styles.HeaderStyle.Render(fmt.Sprintf("Indexes (%d)", len(v.details.Indexes))))
+
+		// Fixed widths: size(10) + scans(10) + cache(8) = 28, rest for name
+		idxNameWidth := max(30, contentWidth-32)
+
+		header := fmt.Sprintf("  %-*s %10s %10s %7s", idxNameWidth, "Name", "Size", "Scans", "Cache")
+		lines = append(lines, styles.TableHeaderStyle.Width(contentWidth).Render(header))
+
+		for _, idx := range v.details.Indexes {
+			// Build display name with type prefix
+			var displayName string
+			if idx.IsPrimary {
+				displayName = "[PK] " + idx.Name
+			} else if idx.IsUnique {
+				displayName = "[UQ] " + idx.Name
+			} else {
+				displayName = idx.Name
+			}
+			displayName = truncateString(displayName, idxNameWidth)
+
+			unusedMark := ""
+			if idx.IsUnused {
+				unusedMark = " *"
+			}
+
+			lines = append(lines, fmt.Sprintf("  %-*s %10s %10d %6.1f%%%s",
+				idxNameWidth, displayName, models.FormatBytes(idx.Size), idx.ScanCount, idx.CacheHitRatio, unusedMark))
+		}
+		if v.hasUnusedIndexes() {
+			lines = append(lines, "")
+			lines = append(lines, styles.WarningStyle.Render("  * = unused (0 scans since stats reset)"))
+		}
+	}
+
+	return lines
+}
+
+// hasUnusedIndexes checks if there are any unused indexes in details.
+func (v *TablesView) hasUnusedIndexes() bool {
+	if v.details == nil {
+		return false
+	}
+	for _, idx := range v.details.Indexes {
+		if idx.IsUnused {
+			return true
+		}
+	}
+	return false
+}
+
+// detailsContentHeight returns the visible content height for details panel.
+func (v *TablesView) detailsContentHeight() int {
+	// Full screen minus: status bar(3 with border) + title(2 with margin) + footer(2 with margin) + buffer
+	return max(5, v.height-11)
+}
+
+// scrollDetailsUp scrolls the details panel up by n lines.
+func (v *TablesView) scrollDetailsUp(n int) {
+	v.detailsScrollOffset = max(0, v.detailsScrollOffset-n)
+}
+
+// scrollDetailsDown scrolls the details panel down by n lines.
+func (v *TablesView) scrollDetailsDown(n int) {
+	maxOffset := max(0, len(v.detailsLines)-v.detailsContentHeight())
+	v.detailsScrollOffset = min(v.detailsScrollOffset+n, maxOffset)
+}
+
+// scrollDetailsToBottom scrolls to the bottom of details.
+func (v *TablesView) scrollDetailsToBottom() {
+	maxOffset := max(0, len(v.detailsLines)-v.detailsContentHeight())
+	v.detailsScrollOffset = maxOffset
+}
+
+// renderDetails renders the table details as a full-screen view.
+func (v *TablesView) renderDetails() string {
+	if v.details == nil {
+		return styles.InfoStyle.Render("No table selected")
+	}
+
+	t := &v.details.Table
+
+	// Status bar (same as main view)
+	statusBar := v.renderStatusBar()
+
+	// Title
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(styles.ColorAccent).
+		MarginBottom(1)
+	title := titleStyle.Render(fmt.Sprintf("Table Details: %s.%s", t.SchemaName, t.Name))
+
+	// Content with scrolling
+	contentHeight := v.detailsContentHeight()
+	lines := v.detailsLines
+	if len(lines) == 0 {
+		lines = []string{"No details available"}
+	}
+
+	endIdx := min(v.detailsScrollOffset+contentHeight, len(lines))
+	visibleLines := lines[v.detailsScrollOffset:endIdx]
+
+	// Pad to fill height
+	for len(visibleLines) < contentHeight {
+		visibleLines = append(visibleLines, "")
+	}
+	content := strings.Join(visibleLines, "\n")
+
+	// Footer with scroll indicator
+	scrollInfo := ""
+	if len(lines) > contentHeight {
+		scrollInfo = fmt.Sprintf(" (%d/%d)", v.detailsScrollOffset+1, len(lines))
+	}
+
+	footerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("241")).
+		MarginTop(1)
+	footer := footerStyle.Render(fmt.Sprintf("[j/k]scroll [g/G]top/bottom [y]copy [Esc/q]back%s", scrollInfo))
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		statusBar,
+		title,
+		content,
+		footer,
+	)
+}
+
+// truncateString truncates a string to maxLen, adding "..." if truncated.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // SetSize sets the dimensions of the view.

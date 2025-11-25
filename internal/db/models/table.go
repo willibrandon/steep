@@ -114,13 +114,17 @@ type ConstraintType string
 
 const (
 	// ConstraintPrimaryKey represents a PRIMARY KEY constraint
-	ConstraintPrimaryKey ConstraintType = "PRIMARY KEY"
+	ConstraintPrimaryKey ConstraintType = "PK"
 	// ConstraintForeignKey represents a FOREIGN KEY constraint
-	ConstraintForeignKey ConstraintType = "FOREIGN KEY"
+	ConstraintForeignKey ConstraintType = "FK"
 	// ConstraintUnique represents a UNIQUE constraint
-	ConstraintUnique ConstraintType = "UNIQUE"
+	ConstraintUnique ConstraintType = "UQ"
 	// ConstraintCheck represents a CHECK constraint
-	ConstraintCheck ConstraintType = "CHECK"
+	ConstraintCheck ConstraintType = "CK"
+	// ConstraintNotNull represents a NOT NULL constraint
+	ConstraintNotNull ConstraintType = "NN"
+	// ConstraintExclusion represents an EXCLUSION constraint
+	ConstraintExclusion ConstraintType = "EX"
 )
 
 // Constraint represents a table constraint.

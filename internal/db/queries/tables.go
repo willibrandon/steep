@@ -317,3 +317,107 @@ func GetPartitionHierarchy(ctx context.Context, pool *pgxpool.Pool) (map[uint32]
 
 	return partitions, nil
 }
+
+// GetTableColumns retrieves column definitions for a table.
+func GetTableColumns(ctx context.Context, pool *pgxpool.Pool, tableOID uint32) ([]models.TableColumn, error) {
+	query := `
+		SELECT
+			a.attnum as position,
+			a.attname as name,
+			pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
+			a.attnotnull as not_null,
+			pg_get_expr(d.adbin, d.adrelid) as default_value
+		FROM pg_attribute a
+		LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+		WHERE a.attrelid = $1
+		  AND a.attnum > 0
+		  AND NOT a.attisdropped
+		ORDER BY a.attnum
+	`
+
+	rows, err := pool.Query(ctx, query, tableOID)
+	if err != nil {
+		return nil, fmt.Errorf("query table columns: %w", err)
+	}
+	defer rows.Close()
+
+	var columns []models.TableColumn
+	for rows.Next() {
+		var col models.TableColumn
+		var notNull bool
+		err := rows.Scan(&col.Position, &col.Name, &col.DataType, &notNull, &col.DefaultValue)
+		if err != nil {
+			return nil, fmt.Errorf("scan column row: %w", err)
+		}
+		col.IsNullable = !notNull
+		columns = append(columns, col)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate columns: %w", err)
+	}
+
+	return columns, nil
+}
+
+// GetTableConstraints retrieves constraints for a table.
+func GetTableConstraints(ctx context.Context, pool *pgxpool.Pool, tableOID uint32) ([]models.Constraint, error) {
+	query := `
+		SELECT
+			c.conname as name,
+			c.contype::text as type,
+			pg_get_constraintdef(c.oid, true) as definition
+		FROM pg_constraint c
+		WHERE c.conrelid = $1
+		ORDER BY
+			CASE c.contype
+				WHEN 'p' THEN 1
+				WHEN 'u' THEN 2
+				WHEN 'f' THEN 3
+				WHEN 'c' THEN 4
+				WHEN 'n' THEN 5
+				WHEN 'x' THEN 6
+				ELSE 7
+			END,
+			c.conname
+	`
+
+	rows, err := pool.Query(ctx, query, tableOID)
+	if err != nil {
+		return nil, fmt.Errorf("query table constraints: %w", err)
+	}
+	defer rows.Close()
+
+	var constraints []models.Constraint
+	for rows.Next() {
+		var con models.Constraint
+		var conType string
+		err := rows.Scan(&con.Name, &conType, &con.Definition)
+		if err != nil {
+			return nil, fmt.Errorf("scan constraint row: %w", err)
+		}
+		switch conType {
+		case "p":
+			con.Type = models.ConstraintPrimaryKey
+		case "f":
+			con.Type = models.ConstraintForeignKey
+		case "u":
+			con.Type = models.ConstraintUnique
+		case "c":
+			con.Type = models.ConstraintCheck
+		case "n":
+			con.Type = models.ConstraintNotNull
+		case "x":
+			con.Type = models.ConstraintExclusion
+		default:
+			con.Type = models.ConstraintType(conType) // Fallback to raw type
+		}
+		constraints = append(constraints, con)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate constraints: %w", err)
+	}
+
+	return constraints, nil
+}
