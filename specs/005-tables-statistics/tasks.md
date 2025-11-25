@@ -102,11 +102,11 @@ Based on plan.md structure:
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] Add index list section to renderMainView in internal/ui/views/tables/view.go (below table list or in split view)
-- [ ] T029 [US3] Implement renderIndexRow helper in internal/ui/views/tables/view.go (Name, Size, Scans, Rows Read, Cache Hit %)
-- [ ] T030 [US3] Add yellow highlighting for unused indexes (ScanCount == 0) using styles.ColorWarning in internal/ui/views/tables/view.go
-- [ ] T031 [US3] Implement Tab key for focus switching between table list and index list in internal/ui/views/tables/view.go
-- [ ] T032 [US3] Implement clipboard copy (y key) for selected index name in internal/ui/views/tables/view.go
+- [X] T028 [US3] Add index list section to renderMainView in internal/ui/views/tables/view.go (below table list or in split view)
+- [X] T029 [US3] Implement renderIndexRow helper in internal/ui/views/tables/view.go (Name, Size, Scans, Rows Read, Cache Hit %)
+- [X] T030 [US3] Add yellow highlighting for unused indexes (ScanCount == 0) using styles.ColorWarning in internal/ui/views/tables/view.go
+- [X] T031 [US3] Implement Tab key for focus switching between table list and index list in internal/ui/views/tables/view.go
+- [X] T032 [US3] Implement clipboard copy (y key) for selected index name in internal/ui/views/tables/view.go
 
 **Checkpoint**: User Story 3 complete - can view index statistics, identify unused indexes, copy names
 

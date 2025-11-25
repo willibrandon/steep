@@ -317,22 +317,61 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		switch v.mode {
 		case ModeNormal:
+			// Calculate panel boundaries for split view
+			indexes := v.getSelectedTableIndexes()
+			showIndexPanel := len(indexes) > 0
+
+			// Table panel starts at Y=7 (after app header, status, title, header)
+			tableStartY := 7
+			var indexStartY int
+			var tablePanelRows int
+
+			if showIndexPanel {
+				tablePanelRows = v.tablePanelHeight()
+				// Index panel starts after table panel + index title(1) + index header(1)
+				indexStartY = tableStartY + tablePanelRows + 2
+			} else {
+				tablePanelRows = v.tableHeight()
+				indexStartY = -1 // No index panel
+			}
+
 			switch msg.Button {
 			case tea.MouseButtonWheelUp:
-				v.moveSelection(-1)
+				if showIndexPanel && msg.Y >= indexStartY && v.focusPanel == FocusIndexes {
+					v.moveIndexSelection(-1)
+				} else {
+					v.moveSelection(-1)
+				}
 			case tea.MouseButtonWheelDown:
-				v.moveSelection(1)
+				if showIndexPanel && msg.Y >= indexStartY && v.focusPanel == FocusIndexes {
+					v.moveIndexSelection(1)
+				} else {
+					v.moveSelection(1)
+				}
 			case tea.MouseButtonLeft:
 				if msg.Action == tea.MouseActionPress {
-					// Table starts after: app header(1) + status(1) + title(1) + header(1) + padding
-					tableStartY := 7
-					clickedRow := msg.Y - tableStartY
-					if clickedRow >= 0 {
-						newIdx := v.scrollOffset + clickedRow
-						if newIdx >= 0 && newIdx < len(v.treeItems) {
-							v.selectedIdx = newIdx
-							// Toggle expand/collapse if item is expandable
-							v.toggleExpand()
+					// Check if click is in index panel
+					if showIndexPanel && msg.Y >= indexStartY {
+						// Click in index panel
+						v.focusPanel = FocusIndexes
+						clickedRow := msg.Y - indexStartY
+						if clickedRow >= 0 && clickedRow < len(indexes) {
+							v.selectedIndex = v.indexScrollOffset + clickedRow
+							if v.selectedIndex >= len(indexes) {
+								v.selectedIndex = len(indexes) - 1
+							}
+						}
+					} else if msg.Y >= tableStartY && msg.Y < tableStartY+tablePanelRows {
+						// Click in table panel
+						v.focusPanel = FocusTables
+						clickedRow := msg.Y - tableStartY
+						if clickedRow >= 0 {
+							newIdx := v.scrollOffset + clickedRow
+							if newIdx >= 0 && newIdx < len(v.treeItems) {
+								v.selectedIdx = newIdx
+								// Toggle expand/collapse if item is expandable
+								v.toggleExpand()
+							}
 						}
 					}
 				}
@@ -380,27 +419,77 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	case "h", "?":
 		v.mode = ModeHelp
 
-	// Navigation
-	case "j", "down":
-		v.moveSelection(1)
-	case "k", "up":
-		v.moveSelection(-1)
-	case "g", "home":
-		v.selectedIdx = 0
-		v.scrollOffset = 0
-	case "G", "end":
-		v.selectedIdx = max(0, len(v.treeItems)-1)
-		v.ensureVisible()
-	case "ctrl+d", "pgdown":
-		v.pageDown()
-	case "ctrl+u", "pgup":
-		v.pageUp()
+	// Panel switching
+	case "i":
+		v.toggleFocusPanel()
 
-	// Expand/collapse
+	// Clipboard
+	case "y":
+		if v.focusPanel == FocusIndexes {
+			v.copySelectedIndexName()
+		} else if v.focusPanel == FocusTables {
+			// Copy table name
+			if v.selectedIdx >= 0 && v.selectedIdx < len(v.treeItems) {
+				item := v.treeItems[v.selectedIdx]
+				if item.Table != nil {
+					fullName := fmt.Sprintf("%s.%s", item.Table.SchemaName, item.Table.Name)
+					if err := v.clipboard.Write(fullName); err != nil {
+						v.showToast("Failed to copy: "+err.Error(), true)
+					} else {
+						v.showToast("Copied: "+fullName, false)
+					}
+				}
+			}
+		}
+
+	// Navigation - depends on focus panel
+	case "j", "down":
+		if v.focusPanel == FocusIndexes {
+			v.moveIndexSelection(1)
+		} else {
+			v.moveSelection(1)
+		}
+	case "k", "up":
+		if v.focusPanel == FocusIndexes {
+			v.moveIndexSelection(-1)
+		} else {
+			v.moveSelection(-1)
+		}
+	case "g", "home":
+		if v.focusPanel == FocusIndexes {
+			v.selectedIndex = 0
+			v.indexScrollOffset = 0
+		} else {
+			v.selectedIdx = 0
+			v.scrollOffset = 0
+		}
+	case "G", "end":
+		if v.focusPanel == FocusIndexes {
+			indexes := v.getSelectedTableIndexes()
+			v.selectedIndex = max(0, len(indexes)-1)
+			v.ensureIndexVisible(len(indexes))
+		} else {
+			v.selectedIdx = max(0, len(v.treeItems)-1)
+			v.ensureVisible()
+		}
+	case "ctrl+d", "pgdown":
+		if v.focusPanel == FocusTables {
+			v.pageDown()
+		}
+	case "ctrl+u", "pgup":
+		if v.focusPanel == FocusTables {
+			v.pageUp()
+		}
+
+	// Expand/collapse - only for tables panel
 	case "enter", "right", "l":
-		v.toggleExpand()
+		if v.focusPanel == FocusTables {
+			v.toggleExpand()
+		}
 	case "left":
-		v.collapseOrMoveUp()
+		if v.focusPanel == FocusTables {
+			v.collapseOrMoveUp()
+		}
 
 	// System schema toggle
 	case "P":
@@ -514,7 +603,7 @@ func (v *TablesView) isLastVisibleSchema(idx int) bool {
 	return true
 }
 
-// getIndexesForTable returns indexes for a given table OID.
+// getIndexesForTable returns indexes for a given table OID, sorted with primary/unique first.
 func (v *TablesView) getIndexesForTable(tableOID uint32) []models.Index {
 	var result []models.Index
 	for _, idx := range v.indexes {
@@ -522,6 +611,19 @@ func (v *TablesView) getIndexesForTable(tableOID uint32) []models.Index {
 			result = append(result, idx)
 		}
 	}
+	// Sort: primary keys first, then unique indexes, then regular indexes (alphabetically within each group)
+	sort.Slice(result, func(i, j int) bool {
+		// Primary keys come first
+		if result[i].IsPrimary != result[j].IsPrimary {
+			return result[i].IsPrimary
+		}
+		// Then unique indexes
+		if result[i].IsUnique != result[j].IsUnique {
+			return result[i].IsUnique
+		}
+		// Then sort by name
+		return result[i].Name < result[j].Name
+	})
 	return result
 }
 
@@ -573,6 +675,93 @@ func (v *TablesView) toggleSortDirection() {
 	v.buildTreeItems()
 }
 
+// getSelectedTableIndexes returns indexes for the currently selected table.
+func (v *TablesView) getSelectedTableIndexes() []models.Index {
+	if v.selectedIdx < 0 || v.selectedIdx >= len(v.treeItems) {
+		return nil
+	}
+	item := v.treeItems[v.selectedIdx]
+	if item.Table == nil {
+		return nil
+	}
+	return v.getIndexesForTable(item.Table.OID)
+}
+
+// moveIndexSelection moves the index selection by delta rows.
+func (v *TablesView) moveIndexSelection(delta int) {
+	indexes := v.getSelectedTableIndexes()
+	if len(indexes) == 0 {
+		return
+	}
+	v.selectedIndex += delta
+	if v.selectedIndex < 0 {
+		v.selectedIndex = 0
+	}
+	if v.selectedIndex >= len(indexes) {
+		v.selectedIndex = len(indexes) - 1
+	}
+	v.ensureIndexVisible(len(indexes))
+}
+
+// ensureIndexVisible adjusts index scroll offset to keep selection visible.
+func (v *TablesView) ensureIndexVisible(totalIndexes int) {
+	indexHeight := v.indexPanelHeight()
+	if indexHeight <= 0 {
+		return
+	}
+	if v.selectedIndex < v.indexScrollOffset {
+		v.indexScrollOffset = v.selectedIndex
+	}
+	if v.selectedIndex >= v.indexScrollOffset+indexHeight {
+		v.indexScrollOffset = v.selectedIndex - indexHeight + 1
+	}
+}
+
+// indexPanelHeight returns the height of the index panel.
+func (v *TablesView) indexPanelHeight() int {
+	// Index panel gets ~1/3 of available height, minimum 3 rows
+	return max(3, (v.height-6)/3)
+}
+
+// tablePanelHeight returns the height of the table panel when index panel is shown.
+func (v *TablesView) tablePanelHeight() int {
+	// Table panel gets remaining height after index panel
+	return v.height - 6 - v.indexPanelHeight() - 2 // -2 for index header
+}
+
+// toggleFocusPanel switches focus between tables and indexes.
+func (v *TablesView) toggleFocusPanel() {
+	if v.focusPanel == FocusTables {
+		// Only switch to indexes if a table is selected and has indexes
+		indexes := v.getSelectedTableIndexes()
+		if len(indexes) > 0 {
+			v.focusPanel = FocusIndexes
+			if v.selectedIndex >= len(indexes) {
+				v.selectedIndex = 0
+			}
+		}
+	} else {
+		v.focusPanel = FocusTables
+	}
+}
+
+// copySelectedIndexName copies the selected index name to clipboard.
+func (v *TablesView) copySelectedIndexName() {
+	indexes := v.getSelectedTableIndexes()
+	if v.focusPanel != FocusIndexes || len(indexes) == 0 {
+		return
+	}
+	if v.selectedIndex >= 0 && v.selectedIndex < len(indexes) {
+		idx := indexes[v.selectedIndex]
+		fullName := fmt.Sprintf("%s.%s", idx.SchemaName, idx.Name)
+		if err := v.clipboard.Write(fullName); err != nil {
+			v.showToast("Failed to copy: "+err.Error(), true)
+		} else {
+			v.showToast("Copied: "+fullName, false)
+		}
+	}
+}
+
 // moveSelection moves the selection by delta rows.
 func (v *TablesView) moveSelection(delta int) {
 	v.selectedIdx += delta
@@ -587,7 +776,7 @@ func (v *TablesView) moveSelection(delta int) {
 
 // pageDown moves down by one page.
 func (v *TablesView) pageDown() {
-	pageSize := v.tableHeight()
+	pageSize := v.visibleTableHeight()
 	v.selectedIdx += pageSize
 	if v.selectedIdx >= len(v.treeItems) {
 		v.selectedIdx = max(0, len(v.treeItems)-1)
@@ -597,7 +786,7 @@ func (v *TablesView) pageDown() {
 
 // pageUp moves up by one page.
 func (v *TablesView) pageUp() {
-	pageSize := v.tableHeight()
+	pageSize := v.visibleTableHeight()
 	v.selectedIdx -= pageSize
 	if v.selectedIdx < 0 {
 		v.selectedIdx = 0
@@ -605,18 +794,27 @@ func (v *TablesView) pageUp() {
 	v.ensureVisible()
 }
 
+// visibleTableHeight returns the height of the table panel accounting for split view.
+func (v *TablesView) visibleTableHeight() int {
+	indexes := v.getSelectedTableIndexes()
+	if len(indexes) > 0 {
+		return v.tablePanelHeight()
+	}
+	return v.tableHeight()
+}
+
 // ensureVisible adjusts scroll offset to keep selection visible.
 func (v *TablesView) ensureVisible() {
-	tableHeight := v.tableHeight()
-	if tableHeight <= 0 {
+	visibleHeight := v.visibleTableHeight()
+	if visibleHeight <= 0 {
 		return
 	}
 
 	if v.selectedIdx < v.scrollOffset {
 		v.scrollOffset = v.selectedIdx
 	}
-	if v.selectedIdx >= v.scrollOffset+tableHeight {
-		v.scrollOffset = v.selectedIdx - tableHeight + 1
+	if v.selectedIdx >= v.scrollOffset+visibleHeight {
+		v.scrollOffset = v.selectedIdx - visibleHeight + 1
 	}
 }
 
@@ -739,7 +937,19 @@ func (v *TablesView) renderMainView() string {
 	// Column headers
 	header := v.renderHeader()
 
-	// Table content
+	// Check if we should show the index panel (when a table is selected)
+	indexes := v.getSelectedTableIndexes()
+	showIndexPanel := len(indexes) > 0
+
+	if showIndexPanel {
+		// Split view: table panel + index panel
+		tablePanel := v.renderTableSplit()
+		indexPanel := v.renderIndexPanel(indexes)
+		footer := v.renderFooter()
+		return lipgloss.JoinVertical(lipgloss.Left, statusBar, title, header, tablePanel, indexPanel, footer)
+	}
+
+	// Table content (full height)
 	table := v.renderTable()
 
 	// Footer
@@ -866,6 +1076,161 @@ func (v *TablesView) renderTable() string {
 	return strings.Join(rows, "\n")
 }
 
+// renderTableSplit renders the tree table with reduced height for split view.
+func (v *TablesView) renderTableSplit() string {
+	if len(v.treeItems) == 0 {
+		emptyMsg := "No tables found"
+		if !v.showSystemSchemas {
+			emptyMsg = "No user tables found (press P to show system schemas)"
+		}
+		return lipgloss.NewStyle().
+			Width(v.width - 2).
+			Height(v.tablePanelHeight()).
+			Align(lipgloss.Center, lipgloss.Center).
+			Foreground(styles.ColorTextDim).
+			Render(emptyMsg)
+	}
+
+	var rows []string
+	tableHeight := v.tablePanelHeight()
+	endIdx := min(v.scrollOffset+tableHeight, len(v.treeItems))
+
+	for i := v.scrollOffset; i < endIdx; i++ {
+		item := v.treeItems[i]
+		isSelected := i == v.selectedIdx && v.focusPanel == FocusTables
+		row := v.renderTreeRow(item, isSelected)
+		rows = append(rows, row)
+	}
+
+	// Pad to fill height
+	for len(rows) < tableHeight {
+		rows = append(rows, lipgloss.NewStyle().Width(v.width-2).Render(""))
+	}
+
+	return strings.Join(rows, "\n")
+}
+
+// renderIndexPanel renders the index statistics panel.
+func (v *TablesView) renderIndexPanel(indexes []models.Index) string {
+	// Panel title with focus indicator
+	var titleStyle lipgloss.Style
+	if v.focusPanel == FocusIndexes {
+		titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(styles.ColorAccent)
+	} else {
+		titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(styles.ColorTextDim)
+	}
+
+	// Get selected table name for title
+	tableName := ""
+	if v.selectedIdx >= 0 && v.selectedIdx < len(v.treeItems) {
+		item := v.treeItems[v.selectedIdx]
+		if item.Table != nil {
+			tableName = item.Table.Name
+		}
+	}
+
+	title := titleStyle.Render(fmt.Sprintf("Indexes for %s [i to switch]", tableName))
+
+	// Index header
+	indexHeader := v.renderIndexHeader()
+
+	// Index rows
+	var rows []string
+	panelHeight := v.indexPanelHeight()
+	endIdx := min(v.indexScrollOffset+panelHeight, len(indexes))
+
+	for i := v.indexScrollOffset; i < endIdx; i++ {
+		idx := indexes[i]
+		isSelected := i == v.selectedIndex && v.focusPanel == FocusIndexes
+		row := v.renderIndexRow(idx, isSelected)
+		rows = append(rows, row)
+	}
+
+	// Pad to fill height
+	for len(rows) < panelHeight {
+		rows = append(rows, lipgloss.NewStyle().Width(v.width-2).Render(""))
+	}
+
+	content := strings.Join(rows, "\n")
+	return lipgloss.JoinVertical(lipgloss.Left, title, indexHeader, content)
+}
+
+// renderIndexHeader renders the column headers for index panel.
+func (v *TablesView) renderIndexHeader() string {
+	nameWidth := 30
+	sizeWidth := 10
+	scansWidth := 12
+	rowsWidth := 12
+	cacheWidth := 10
+
+	// Adjust name width based on terminal
+	remaining := v.width - sizeWidth - scansWidth - rowsWidth - cacheWidth - 8
+	if remaining > 20 {
+		nameWidth = remaining
+	}
+
+	headers := []string{
+		padRight("Index Name", nameWidth),
+		padRight("Size", sizeWidth),
+		padRight("Scans", scansWidth),
+		padRight("Rows Read", rowsWidth),
+		padRight("Cache %", cacheWidth),
+	}
+
+	headerLine := strings.Join(headers, " ")
+	return styles.TableHeaderStyle.Width(v.width - 2).Render(headerLine)
+}
+
+// renderIndexRow renders a single index row with highlighting for unused indexes.
+func (v *TablesView) renderIndexRow(idx models.Index, isSelected bool) string {
+	nameWidth := 30
+	sizeWidth := 10
+	scansWidth := 12
+	rowsWidth := 12
+	cacheWidth := 10
+
+	// Adjust name width based on terminal
+	remaining := v.width - sizeWidth - scansWidth - rowsWidth - cacheWidth - 8
+	if remaining > 20 {
+		nameWidth = remaining
+	}
+
+	// Format index name with type indicators
+	name := idx.Name
+	if idx.IsPrimary {
+		name = "🔑 " + name
+	} else if idx.IsUnique {
+		name = "◆ " + name
+	}
+
+	row := fmt.Sprintf("%s %s %s %s %s",
+		padRight(truncateWithWidth(name, nameWidth-1), nameWidth),
+		padRight(models.FormatBytes(idx.Size), sizeWidth),
+		padRight(formatNumber(idx.ScanCount), scansWidth),
+		padRight(formatNumber(idx.RowsRead), rowsWidth),
+		padRight(fmt.Sprintf("%.1f%%", idx.CacheHitRatio), cacheWidth),
+	)
+
+	// Apply styling
+	if isSelected {
+		return styles.TableSelectedStyle.Width(v.width - 2).Render(row)
+	}
+
+	// Yellow highlighting for unused indexes (ScanCount == 0)
+	if idx.IsUnused {
+		return lipgloss.NewStyle().
+			Foreground(styles.ColorIdleTxn). // Yellow for warning
+			Width(v.width - 2).
+			Render(row)
+	}
+
+	return styles.TableCellStyle.Width(v.width - 2).Render(row)
+}
+
 // renderTreeRow renders a single tree row.
 func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 	// Column widths (must match renderHeader)
@@ -965,7 +1330,11 @@ func (v *TablesView) renderFooter() string {
 		}
 		hints = toastStyle.Render(v.toastMessage)
 	} else {
-		hints = styles.FooterHintStyle.Render("[j/k]nav [Enter]expand [s/S]ort [P]sys [r]efresh [h]elp")
+		if v.focusPanel == FocusIndexes {
+			hints = styles.FooterHintStyle.Render("[j/k]nav [i]tables [y]copy [r]efresh [h]elp")
+		} else {
+			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter]expand [i]ndex [y]copy [s/S]ort [P]sys [r]efresh [h]elp")
+		}
 	}
 
 	count := fmt.Sprintf("%d / %d", min(v.selectedIdx+1, len(v.treeItems)), len(v.treeItems))
@@ -998,7 +1367,18 @@ Tree
   Enter / →     Expand/collapse schema or partitions
   ←             Collapse or move to parent
 
-Sorting
+Index Panel
+  i             Toggle focus between tables and indexes
+  y             Copy selected table/index name to clipboard
+
+  Index Display:
+    🔑 name     Primary key index
+    ◆ name      Unique index
+    yellow      Unused index (0 scans) - candidate for removal
+
+  Indexes are sorted: primary keys first, then unique, then regular
+
+Sorting (Tables)
   s             Cycle sort column (Name → Size → Rows → Cache)
   S             Toggle sort direction (asc/desc)
 
@@ -1016,7 +1396,7 @@ Press any key to close this help`
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(styles.ColorAccent).
 		Padding(1, 2).
-		Width(60)
+		Width(65)
 
 	return lipgloss.Place(
 		v.width, v.height,
