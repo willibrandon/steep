@@ -314,6 +314,13 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL (source database via pg_stat_all_tables, pg_stat_all_indexes, pgstattuple) (005-tables-statistics)
 
 ## Recent Changes
+- 005-tables-statistics: Hierarchical schema/table browser with expand/collapse, partition visualization
+- 005-tables-statistics: Table statistics (size, rows, cache hit, bloat) with color-coded bloat warnings
+- 005-tables-statistics: Index usage panel with unused index highlighting (yellow)
+- 005-tables-statistics: Table details panel with columns, constraints, indexes, size breakdown
+- 005-tables-statistics: SQL copy menu (SELECT, INSERT, UPDATE, DELETE templates)
+- 005-tables-statistics: Maintenance operations (VACUUM, ANALYZE, REINDEX) with confirmation dialogs
+- 005-tables-statistics: pgstattuple extension auto-install prompt, readonly mode support
 - 004-locks-blocking: Lock monitoring with active locks table, blocking detection (red/yellow color coding), dependency tree visualization
 - 004-locks-blocking: Kill blocking queries with confirmation dialog, readonly mode support
 - 004-locks-blocking: Deadlock history with PostgreSQL log parsing (CSV/JSON formats), cycle visualization

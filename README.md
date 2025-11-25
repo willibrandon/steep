@@ -224,10 +224,18 @@ connection:
 - Sort by PID, type, mode, duration, granted status
 - Press `h` for keybinding help
 
-#### Tables (Coming Soon)
-- Table sizes and statistics
-- Index usage
-- Bloat detection
+#### Tables
+- Hierarchical schema/table browser with expand/collapse
+- Table statistics: size, rows, cache hit ratio, bloat percentage
+- Index usage statistics with unused index highlighting (yellow)
+- Bloat detection with color coding (red >20%, yellow 10-20%)
+- Table details panel: columns, constraints, indexes, size breakdown
+- Partition hierarchy visualization
+- SQL copy menu: SELECT, INSERT, UPDATE, DELETE templates
+- Maintenance operations: VACUUM, ANALYZE, REINDEX with confirmation
+- pgstattuple extension auto-install prompt
+- System schema toggle (P key)
+- Press `h` for keybinding help
 
 #### Replication (Coming Soon)
 - Replication lag
@@ -411,7 +419,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [x] Query performance view
 - [x] Lock monitoring view
-- [ ] Table statistics view
+- [x] Table statistics view
 - [ ] Replication monitoring
 - [ ] Export metrics to Prometheus
 - [ ] Alert configuration
