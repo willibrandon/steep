@@ -7,10 +7,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/willibrandon/steep/internal/ui/styles"
+	"github.com/willibrandon/steep/internal/ui/views/replication/setup"
 )
 
 // renderSetup renders the Setup tab content.
 func (v *ReplicationView) renderSetup() string {
+	// If in config check mode, render the config checker
+	if v.mode == ModeConfigCheck {
+		return v.renderConfigCheck()
+	}
+
 	var b strings.Builder
 
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
@@ -25,9 +31,9 @@ func (v *ReplicationView) renderSetup() string {
 		name string
 		desc string
 	}{
-		{"1", "Physical Replication", "Set up streaming replication with pg_basebackup"},
-		{"2", "Logical Replication", "Create publications and subscriptions"},
-		{"3", "Connection Builder", "Generate primary_conninfo connection strings"},
+		{"p", "Physical Replication", "Set up streaming replication with pg_basebackup"},
+		{"o", "Logical Replication", "Create publications and subscriptions"},
+		{"n", "Connection Builder", "Generate primary_conninfo connection strings"},
 		{"c", "Configuration Checker", "Verify PostgreSQL settings for replication"},
 	}
 
@@ -47,4 +53,14 @@ func (v *ReplicationView) renderSetup() string {
 	}
 
 	return b.String()
+}
+
+// renderConfigCheck renders the configuration checker panel.
+// T045: Integrate configuration checker into Setup tab
+func (v *ReplicationView) renderConfigCheck() string {
+	cfg := setup.ConfigCheckConfig{
+		Width:  v.width,
+		Height: v.height,
+	}
+	return setup.RenderConfigCheck(v.data.Config, cfg)
 }

@@ -221,16 +221,26 @@ func (v *ReplicationView) handleLogicalKeys(key string) tea.Cmd {
 
 // handleSetupKeys handles keys specific to the Setup tab.
 func (v *ReplicationView) handleSetupKeys(key string) tea.Cmd {
-	// Setup tab keys will be implemented in later user stories
+	// Handle config check mode
+	if v.mode == ModeConfigCheck {
+		switch key {
+		case "esc", "q":
+			v.mode = ModeNormal
+		}
+		return nil
+	}
+
+	// Normal setup tab keys
 	switch key {
-	case "1":
+	case "p":
 		v.showToast("Physical wizard (not yet implemented)", false)
-	case "2":
+	case "o":
 		v.showToast("Logical wizard (not yet implemented)", false)
-	case "3":
+	case "n":
 		v.showToast("Connection builder (not yet implemented)", false)
 	case "c":
-		v.showToast("Config checker (not yet implemented)", false)
+		// T045: Integrate configuration checker into Setup tab
+		v.mode = ModeConfigCheck
 	}
 	return nil
 }

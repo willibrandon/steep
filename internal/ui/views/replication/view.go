@@ -23,6 +23,7 @@ const (
 	ModeHelp
 	ModeTopology
 	ModeConfirmDropSlot
+	ModeConfigCheck
 )
 
 // SortColumn represents the available sort columns for replicas.

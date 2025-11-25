@@ -399,6 +399,8 @@ type ReplicationData struct {
 	QueryDuration time.Duration
 	// WALReceiverStatus is populated when connected to a standby
 	WALReceiverStatus *WALReceiverStatus
+	// Config is the replication configuration readiness check result
+	Config *ReplicationConfig
 }
 
 // WALReceiverStatus represents the status from pg_stat_wal_receiver on a standby.

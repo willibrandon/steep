@@ -431,7 +431,7 @@ func GetReplicationConfig(ctx context.Context, pool *pgxpool.Pool) (*models.Repl
 			// Set required values and validate
 			switch name {
 			case "wal_level":
-				param.RequiredValue = "replica or logical"
+				param.RequiredValue = "replica/logical"
 				param.IsValid = setting == "replica" || setting == "logical"
 			case "max_wal_senders":
 				param.RequiredValue = "> 0"
@@ -440,10 +440,10 @@ func GetReplicationConfig(ctx context.Context, pool *pgxpool.Pool) (*models.Repl
 				param.RequiredValue = "> 0"
 				param.IsValid = setting != "0"
 			case "wal_keep_size":
-				param.RequiredValue = "recommended > 0"
+				param.RequiredValue = "> 0 (recommended)"
 				param.IsValid = true // Not strictly required
 			case "hot_standby":
-				param.RequiredValue = "on (for standby queries)"
+				param.RequiredValue = "on (standby queries)"
 				param.IsValid = true // Not strictly required for primary
 			case "archive_mode":
 				param.RequiredValue = "on (for PITR)"

@@ -159,6 +159,12 @@ func (m *ReplicationMonitor) FetchOnce(ctx context.Context) ui.ReplicationDataMs
 		data.Subscriptions = subscriptions
 	}
 
+	// Fetch replication configuration for readiness check
+	config, err := queries.GetReplicationConfig(ctx, m.pool)
+	if err == nil {
+		data.Config = config
+	}
+
 	// Copy lag history to data
 	m.lagHistoryLock.RLock()
 	for name, buf := range m.lagHistory {

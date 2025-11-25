@@ -144,11 +144,11 @@ Based on plan.md structure:
 
 ### Implementation for User Story 4
 
-- [ ] T041 [US4] Implement configuration checker panel showing wal_level, max_wal_senders, max_replication_slots, wal_keep_size, hot_standby, archive_mode in `internal/ui/views/replication/setup/config_check.go`
-- [ ] T042 [US4] Display green checkmark for correctly configured parameters in `internal/ui/views/replication/setup/config_check.go`
-- [ ] T043 [US4] Display red X with guidance text for misconfigured parameters in `internal/ui/views/replication/setup/config_check.go`
-- [ ] T044 [US4] Show overall "READY" or "NOT READY" status summary in `internal/ui/views/replication/setup/config_check.go`
-- [ ] T045 [US4] Integrate configuration checker into Setup tab in `internal/ui/views/replication/view.go`
+- [x] T041 [US4] Implement configuration checker panel showing wal_level, max_wal_senders, max_replication_slots, wal_keep_size, hot_standby, archive_mode in `internal/ui/views/replication/setup/config_check.go`
+- [x] T042 [US4] Display green checkmark for correctly configured parameters in `internal/ui/views/replication/setup/config_check.go`
+- [x] T043 [US4] Display red X with guidance text for misconfigured parameters in `internal/ui/views/replication/setup/config_check.go`
+- [x] T044 [US4] Show overall "READY" or "NOT READY" status summary in `internal/ui/views/replication/setup/config_check.go`
+- [x] T045 [US4] Integrate configuration checker into Setup tab in `internal/ui/views/replication/view.go`
 
 **Checkpoint**: User Story 4 complete - can check configuration readiness
 
