@@ -227,6 +227,60 @@ func CheckPgstattupleExtension(ctx context.Context, pool *pgxpool.Pool) (bool, e
 	return exists, nil
 }
 
+// InstallPgstattupleExtension installs the pgstattuple extension.
+// Requires sufficient privileges (typically superuser or extension creation rights).
+func InstallPgstattupleExtension(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS pgstattuple")
+	if err != nil {
+		// Check for permission denied errors
+		if strings.Contains(err.Error(), "permission denied") {
+			return ErrInsufficientPrivileges
+		}
+		return fmt.Errorf("install pgstattuple extension: %w", err)
+	}
+	return nil
+}
+
+// GetTableBloat retrieves accurate bloat percentages using pgstattuple extension.
+// Returns a map of table OID -> bloat percentage.
+// Only call this when pgstattuple is available.
+// Excludes system schemas (pg_catalog, information_schema, pg_toast*) since DBAs
+// typically focus on user table bloat and running pgstattuple on system tables is slow.
+func GetTableBloat(ctx context.Context, pool *pgxpool.Pool) (map[uint32]float64, error) {
+	query := `
+		SELECT
+			c.oid,
+			COALESCE((pgstattuple(c.oid)).dead_tuple_percent, 0) as bloat_pct
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE c.relkind IN ('r', 'p')
+		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_toast%'
+	`
+
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query table bloat: %w", err)
+	}
+	defer rows.Close()
+
+	bloat := make(map[uint32]float64)
+	for rows.Next() {
+		var oid uint32
+		var pct float64
+		if err := rows.Scan(&oid, &pct); err != nil {
+			return nil, fmt.Errorf("scan bloat row: %w", err)
+		}
+		bloat[oid] = pct
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate bloat: %w", err)
+	}
+
+	return bloat, nil
+}
+
 // GetPartitionHierarchy retrieves parent-child partition relationships.
 // Returns a map of parent OID -> slice of child OIDs.
 func GetPartitionHierarchy(ctx context.Context, pool *pgxpool.Pool) (map[uint32][]uint32, error) {

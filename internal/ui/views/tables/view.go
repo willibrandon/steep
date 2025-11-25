@@ -98,12 +98,19 @@ type (
 		Tables               []models.Table
 		Indexes              []models.Index
 		Partitions           map[uint32][]uint32
+		Bloat                map[uint32]float64 // OID -> accurate bloat % (nil if pgstattuple unavailable)
 		PgstattupleAvailable bool
 		Error                error
 	}
 
 	// RefreshTablesMsg triggers data refresh.
 	RefreshTablesMsg struct{}
+
+	// InstallExtensionMsg contains the result of extension installation.
+	InstallExtensionMsg struct {
+		Success bool
+		Error   error
+	}
 )
 
 // TablesView displays schema and table statistics.
@@ -235,11 +242,22 @@ func (v *TablesView) fetchTablesData() tea.Cmd {
 			return TablesDataMsg{Error: fmt.Errorf("fetch partitions: %w", err)}
 		}
 
+		// Get accurate bloat if pgstattuple is available
+		var bloat map[uint32]float64
+		if pgstattupleAvailable {
+			bloat, err = queries.GetTableBloat(ctx, v.pool)
+			if err != nil {
+				// Non-fatal: fall back to estimates
+				bloat = nil
+			}
+		}
+
 		return TablesDataMsg{
 			Schemas:              schemas,
 			Tables:               tables,
 			Indexes:              indexes,
 			Partitions:           partitions,
+			Bloat:                bloat,
 			PgstattupleAvailable: pgstattupleAvailable,
 		}
 	}
@@ -250,6 +268,25 @@ func (v *TablesView) scheduleRefresh() tea.Cmd {
 	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
 		return RefreshTablesMsg{}
 	})
+}
+
+// installExtension returns a command that installs the pgstattuple extension.
+func (v *TablesView) installExtension() tea.Cmd {
+	return func() tea.Msg {
+		if v.pool == nil {
+			return InstallExtensionMsg{Success: false, Error: fmt.Errorf("database connection not available")}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := queries.InstallPgstattupleExtension(ctx, v.pool)
+		if err != nil {
+			return InstallExtensionMsg{Success: false, Error: err}
+		}
+
+		return InstallExtensionMsg{Success: true}
+	}
 }
 
 // Update handles messages for the tables view.
@@ -290,6 +327,16 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.lastUpdate = time.Now()
 			v.err = nil
 
+			// Apply accurate bloat values if available
+			if msg.Bloat != nil {
+				for i := range v.tables {
+					if pct, ok := msg.Bloat[v.tables[i].OID]; ok {
+						v.tables[i].BloatPct = pct
+						v.tables[i].BloatEstimated = false
+					}
+				}
+			}
+
 			// Restore expanded state
 			for i := range v.schemas {
 				if expandedSchemas[v.schemas[i].OID] {
@@ -316,8 +363,27 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				v.selectedIdx = max(0, len(v.treeItems)-1)
 			}
 			v.ensureVisible()
+
+			// Show install prompt if pgstattuple not available, not readonly, and not previously shown
+			if !msg.PgstattupleAvailable && !v.readonlyMode && !v.installPromptShown {
+				v.mode = ModeConfirmInstall
+			}
 		}
 		return v, v.scheduleRefresh()
+
+	case InstallExtensionMsg:
+		if msg.Success {
+			v.pgstattupleAvailable = true
+			v.showToast("pgstattuple extension installed successfully", false)
+			// Refresh data to get accurate bloat values
+			return v, v.fetchTablesData()
+		}
+		errMsg := "Failed to install extension"
+		if msg.Error != nil {
+			errMsg = fmt.Sprintf("Install failed: %v", msg.Error)
+		}
+		v.showToast(errMsg, true)
+		return v, nil
 
 	case RefreshTablesMsg:
 		if !v.refreshing {
@@ -420,6 +486,23 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		switch key {
 		case "h", "?", "esc", "q":
 			v.mode = ModeNormal
+		}
+		return nil
+	}
+
+	// Handle confirm install dialog
+	if v.mode == ModeConfirmInstall || (v.pgstattupleChecked && !v.pgstattupleAvailable && !v.installPromptShown) {
+		switch key {
+		case "y", "Y", "enter":
+			// User confirmed - install extension
+			v.mode = ModeNormal
+			v.installPromptShown = true
+			return v.installExtension()
+		case "n", "N", "esc", "q":
+			// User declined - don't ask again this session
+			v.mode = ModeNormal
+			v.installPromptShown = true
+			v.showToast("Skipped pgstattuple install (won't ask again)", false)
 		}
 		return nil
 	}
@@ -914,6 +997,15 @@ func (v *TablesView) View() string {
 		return v.renderHelp()
 	}
 
+	if v.mode == ModeConfirmInstall {
+		return v.renderConfirmInstall()
+	}
+
+	// Show install prompt if checked, not available, and user hasn't dismissed it
+	if v.pgstattupleChecked && !v.pgstattupleAvailable && !v.installPromptShown {
+		return v.renderConfirmInstall()
+	}
+
 	return v.renderMainView()
 }
 
@@ -1401,7 +1493,15 @@ func (v *TablesView) renderFooter() string {
 
 // renderHelp renders the help overlay.
 func (v *TablesView) renderHelp() string {
-	helpContent := `Tables View - Keyboard Shortcuts
+	// Build prerequisites section dynamically
+	var pgstatStatus string
+	if v.pgstattupleAvailable {
+		pgstatStatus = lipgloss.NewStyle().Foreground(styles.ColorSuccess).Render("✓") + " installed (accurate bloat)"
+	} else {
+		pgstatStatus = lipgloss.NewStyle().Foreground(styles.ColorMuted).Render("✗") + " not installed (estimated bloat)"
+	}
+
+	helpContent := fmt.Sprintf(`Tables View - Keyboard Shortcuts
 
 Navigation
   j / ↓         Move down
@@ -1424,16 +1524,9 @@ Index Panel
     ◆ name      Unique index
     yellow      Unused index (0 scans) - candidate for removal
 
-  Indexes are sorted: primary keys first, then unique, then regular
-
 Sorting (Tables)
   s             Cycle sort column (Name → Size → Rows → Bloat → Cache)
   S             Toggle sort direction (asc/desc)
-
-Bloat Display:
-  ~X.X%         Estimated bloat (from dead rows ratio)
-  red           High bloat (>20%) - consider VACUUM
-  yellow        Moderate bloat (10-20%)
 
 Display
   P             Toggle system schemas
@@ -1443,7 +1536,10 @@ General
   h / ?         Show this help
   Esc / q       Close help
 
-Press any key to close this help`
+Prerequisites
+  pgstattuple   %s
+
+Press any key to close this help`, pgstatStatus)
 
 	helpStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1455,6 +1551,34 @@ Press any key to close this help`
 		v.width, v.height,
 		lipgloss.Center, lipgloss.Center,
 		helpStyle.Render(helpContent),
+	)
+}
+
+// renderConfirmInstall renders the pgstattuple install confirmation dialog.
+func (v *TablesView) renderConfirmInstall() string {
+	dialogContent := `Install pgstattuple Extension?
+
+The pgstattuple extension provides accurate
+table bloat measurements. Without it, bloat
+values are estimated from dead row counts
+(shown with ~ prefix).
+
+This will execute:
+  CREATE EXTENSION IF NOT EXISTS pgstattuple
+
+[y] or [Enter] = Install
+[n] or [Esc]   = Skip (won't ask again)`
+
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.ColorAccent).
+		Padding(1, 2).
+		Width(50)
+
+	return lipgloss.Place(
+		v.width, v.height,
+		lipgloss.Center, lipgloss.Center,
+		dialogStyle.Render(dialogContent),
 	)
 }
 

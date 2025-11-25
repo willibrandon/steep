@@ -602,6 +602,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh tables data
 		return m, m.tablesView.FetchTablesData()
 
+	case tablesview.InstallExtensionMsg:
+		// Forward to tables view
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
 	case spinner.TickMsg:
 		// Forward spinner ticks to locks, queries, and tables views
 		_, locksCmd := m.locksView.Update(msg)

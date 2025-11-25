@@ -140,14 +140,14 @@ Based on plan.md structure:
 
 ### Implementation for User Story 5
 
-- [ ] T040 [US5] Implement InstallPgstattupleExtension query in internal/db/queries/tables.go (CREATE EXTENSION pgstattuple)
-- [ ] T041 [US5] Implement ModeConfirmInstall rendering in internal/ui/views/tables/view.go (confirmation dialog overlay)
-- [ ] T042 [US5] Implement installExtension command in internal/ui/views/tables/view.go (executes CREATE EXTENSION)
-- [ ] T043 [US5] Add install prompt logic to Init() in internal/ui/views/tables/view.go (show dialog if not installed and not readonly and not previously declined)
-- [ ] T044 [US5] Implement Update() for confirm dialog keys (y/Enter to confirm, n/Esc to decline) in internal/ui/views/tables/view.go
-- [ ] T045 [US5] Implement session-scoped installPromptShown flag to prevent re-prompting after decline in internal/ui/views/tables/view.go
-- [ ] T046 [US5] Add success/failure toast messages for extension installation in internal/ui/views/tables/view.go
-- [ ] T047 [US5] Implement readonly mode check to skip install prompt in internal/ui/views/tables/view.go
+- [X] T040 [US5] Implement InstallPgstattupleExtension query in internal/db/queries/tables.go (CREATE EXTENSION pgstattuple)
+- [X] T041 [US5] Implement ModeConfirmInstall rendering in internal/ui/views/tables/view.go (confirmation dialog overlay)
+- [X] T042 [US5] Implement installExtension command in internal/ui/views/tables/view.go (executes CREATE EXTENSION)
+- [X] T043 [US5] Add install prompt logic to Init() in internal/ui/views/tables/view.go (show dialog if not installed and not readonly and not previously declined)
+- [X] T044 [US5] Implement Update() for confirm dialog keys (y/Enter to confirm, n/Esc to decline) in internal/ui/views/tables/view.go
+- [X] T045 [US5] Implement session-scoped installPromptShown flag to prevent re-prompting after decline in internal/ui/views/tables/view.go
+- [X] T046 [US5] Add success/failure toast messages for extension installation in internal/ui/views/tables/view.go
+- [X] T047 [US5] Implement readonly mode check to skip install prompt in internal/ui/views/tables/view.go
 
 **Checkpoint**: User Story 5 complete - extension install flow works with confirmation and session preference
 
