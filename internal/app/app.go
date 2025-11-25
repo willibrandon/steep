@@ -152,6 +152,7 @@ func (m Model) Init() tea.Cmd {
 		tickStatusBar(),
 		m.locksView.Init(),
 		m.queriesView.Init(),
+		m.tablesView.Init(),
 	)
 }
 
@@ -170,6 +171,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dashboard.Update(msg)
 		case views.ViewLocks:
 			m.locksView.Update(msg)
+		case views.ViewTables:
+			m.tablesView.Update(msg)
 		}
 		return m, nil
 
@@ -280,6 +283,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fetchStatsData(m.statsMonitor),
 			fetchLocksData(m.locksMonitor),
 			fetchDeadlockHistory(m.deadlockMonitor, m.program),
+			m.tablesView.FetchTablesData(),
 			tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
 				return dataTickMsg{}
 			}),
@@ -589,11 +593,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tablesview.TablesDataMsg:
+		// Forward to tables view and return its command (schedules next refresh)
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
+	case tablesview.RefreshTablesMsg:
+		// Refresh tables data
+		return m, m.tablesView.FetchTablesData()
+
 	case spinner.TickMsg:
-		// Forward spinner ticks to both locks view and queries view
+		// Forward spinner ticks to locks, queries, and tables views
 		_, locksCmd := m.locksView.Update(msg)
 		_, queriesCmd := m.queriesView.Update(msg)
-		return m, tea.Batch(locksCmd, queriesCmd)
+		_, tablesCmd := m.tablesView.Update(msg)
+		return m, tea.Batch(locksCmd, queriesCmd, tablesCmd)
 
 	case ReconnectAttemptMsg:
 		// Update reconnection status display
@@ -638,7 +652,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Check for quit (but not when view is in input mode)
 	if msg.String() == "q" || msg.String() == "ctrl+c" {
-		inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode()
+		inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode() || m.tablesView.IsInputMode()
 		if !inInputMode {
 			m.quitting = true
 			return m, tea.Quit
@@ -652,7 +666,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Check for escape (close help) - but only if not in input mode
-	inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode()
+	inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode() || m.tablesView.IsInputMode()
 	if msg.String() == "esc" && m.helpVisible && !inInputMode {
 		m.helpVisible = false
 		return m, nil
@@ -704,6 +718,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.connected {
 			var cmd tea.Cmd
 			_, cmd = m.locksView.Update(msg)
+			return m, cmd
+		}
+	case views.ViewTables:
+		if m.connected {
+			var cmd tea.Cmd
+			_, cmd = m.tablesView.Update(msg)
 			return m, cmd
 		}
 	}

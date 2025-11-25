@@ -61,16 +61,16 @@ Based on plan.md structure:
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Implement Init() method in internal/ui/views/tables/view.go (fetch schemas, tables, check extension)
-- [ ] T014 [US1] Implement fetchTablesData command in internal/ui/views/tables/view.go (calls GetSchemas, GetTablesWithStats, GetIndexesWithStats, GetPartitionHierarchy)
-- [ ] T015 [US1] Implement buildTreeItems helper in internal/ui/views/tables/view.go (builds flat list from schema→table→partition hierarchy)
-- [ ] T016 [US1] Implement renderMainView method in internal/ui/views/tables/view.go (renders tree with schema/table rows, headers, footer)
-- [ ] T017 [US1] Implement renderTreeRow helper in internal/ui/views/tables/view.go (renders single row with tree prefixes: ▼▶├└)
-- [ ] T018 [US1] Implement Update() method for navigation keys (j/k/arrows) in internal/ui/views/tables/view.go
-- [ ] T019 [US1] Implement Update() for expand/collapse (Enter, left/right arrows) in internal/ui/views/tables/view.go
-- [ ] T020 [US1] Implement system schema toggle (P key) in internal/ui/views/tables/view.go (filter showSystemSchemas)
-- [ ] T021 [US1] Implement partition expand/collapse in internal/ui/views/tables/view.go (nested under parent tables)
-- [ ] T022 [US1] Implement 30-second auto-refresh using scheduleRefresh command in internal/ui/views/tables/view.go
+- [X] T013 [US1] Implement Init() method in internal/ui/views/tables/view.go (fetch schemas, tables, check extension)
+- [X] T014 [US1] Implement fetchTablesData command in internal/ui/views/tables/view.go (calls GetSchemas, GetTablesWithStats, GetIndexesWithStats, GetPartitionHierarchy)
+- [X] T015 [US1] Implement buildTreeItems helper in internal/ui/views/tables/view.go (builds flat list from schema→table→partition hierarchy)
+- [X] T016 [US1] Implement renderMainView method in internal/ui/views/tables/view.go (renders tree with schema/table rows, headers, footer)
+- [X] T017 [US1] Implement renderTreeRow helper in internal/ui/views/tables/view.go (renders single row with tree prefixes: ▼▶├└)
+- [X] T018 [US1] Implement Update() method for navigation keys (j/k/arrows) in internal/ui/views/tables/view.go
+- [X] T019 [US1] Implement Update() for expand/collapse (Enter, left/right arrows) in internal/ui/views/tables/view.go
+- [X] T020 [US1] Implement system schema toggle (P key) in internal/ui/views/tables/view.go (filter showSystemSchemas)
+- [X] T021 [US1] Implement partition expand/collapse in internal/ui/views/tables/view.go (nested under parent tables)
+- [X] T022 [US1] Implement 30-second auto-refresh using scheduleRefresh command in internal/ui/views/tables/view.go
 
 **Checkpoint**: User Story 1 complete - can browse all schemas/tables, expand/collapse, toggle system schemas
 
