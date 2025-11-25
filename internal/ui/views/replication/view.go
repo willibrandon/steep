@@ -190,6 +190,12 @@ func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				v.selectedIdx = max(0, len(v.data.Replicas)-1)
 			}
 			v.ensureVisible()
+			// Refresh detail view if open
+			if v.mode == ModeDetail && v.activeTab == TabOverview {
+				v.prepareReplicaDetail()
+			} else if v.mode == ModeDetail && v.activeTab == TabSlots {
+				v.prepareSlotDetail()
+			}
 		}
 
 	case ui.DropSlotResultMsg:

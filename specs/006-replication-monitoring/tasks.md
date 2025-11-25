@@ -184,10 +184,10 @@ Based on plan.md structure:
 
 ### Implementation for User Story 6
 
-- [ ] T055 [US6] Implement WAL pipeline visualization showing Sent, Write, Flush, Replay LSN positions in `internal/ui/views/replication/repviz/pipeline.go`
-- [ ] T056 [US6] Add visual differentiation for lagging stages with byte difference display in `internal/ui/views/replication/repviz/pipeline.go`
-- [ ] T057 [US6] Show "caught up" indicator when all stages have minimal lag in `internal/ui/views/replication/repviz/pipeline.go`
-- [ ] T058 [US6] Add replica detail view showing pipeline when replica is selected in `internal/ui/views/replication/view.go`
+- [x] T055 [US6] Implement WAL pipeline visualization showing Sent, Write, Flush, Replay LSN positions in `internal/ui/views/replication/repviz/pipeline.go`
+- [x] T056 [US6] Add visual differentiation for lagging stages with byte difference display in `internal/ui/views/replication/repviz/pipeline.go`
+- [x] T057 [US6] Show "caught up" indicator when all stages have minimal lag in `internal/ui/views/replication/repviz/pipeline.go`
+- [x] T058 [US6] Add replica detail view showing pipeline when replica is selected in `internal/ui/views/replication/view.go`
 
 **Checkpoint**: User Story 6 complete - can view WAL pipeline stages
 

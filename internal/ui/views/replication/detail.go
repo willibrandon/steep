@@ -9,6 +9,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/ui/styles"
+	"github.com/willibrandon/steep/internal/ui/views/replication/repviz"
 )
 
 // renderDetail renders the detail view with improved styling.
@@ -178,26 +179,38 @@ func (v *ReplicationView) prepareReplicaDetail() {
 		timeLagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green for 0
 	}
 
-	v.detailLines = []string{
+	// Build detail lines
+	lines := []string{
 		"Replica Details: " + r.ApplicationName,
 		labelStyle.Render("Client Address:  ") + valueStyle.Render(r.ClientAddr),
 		labelStyle.Render("State:           ") + stateStyle.Render(r.State),
 		labelStyle.Render("Sync State:      ") + syncStyle.Render(r.SyncState.String()),
 		"",
+	}
+
+	// Add WAL Pipeline visualization
+	pipelineLines := strings.Split(repviz.RenderWALPipeline(&r, v.width-4), "\n")
+	lines = append(lines, pipelineLines...)
+	lines = append(lines, "")
+
+	// Add detailed WAL positions
+	lines = append(lines,
 		sectionStyle.Render("WAL Positions"),
-		labelStyle.Render("  Sent LSN:      ") + lsnStyle.Render(r.SentLSN),
-		labelStyle.Render("  Write LSN:     ") + lsnStyle.Render(r.WriteLSN),
-		labelStyle.Render("  Flush LSN:     ") + lsnStyle.Render(r.FlushLSN),
-		labelStyle.Render("  Replay LSN:    ") + lsnStyle.Render(r.ReplayLSN),
+		labelStyle.Render("  Sent LSN:      ")+lsnStyle.Render(r.SentLSN),
+		labelStyle.Render("  Write LSN:     ")+lsnStyle.Render(r.WriteLSN),
+		labelStyle.Render("  Flush LSN:     ")+lsnStyle.Render(r.FlushLSN),
+		labelStyle.Render("  Replay LSN:    ")+lsnStyle.Render(r.ReplayLSN),
 		"",
 		sectionStyle.Render("Lag"),
-		labelStyle.Render("  Byte Lag:      ") + byteLagStyle.Render(r.FormatByteLag()),
-		labelStyle.Render("  Write Lag:     ") + timeLagStyle.Render(formatDuration(r.WriteLag)),
-		labelStyle.Render("  Flush Lag:     ") + timeLagStyle.Render(formatDuration(r.FlushLag)),
-		labelStyle.Render("  Replay Lag:    ") + timeLagStyle.Render(formatDuration(r.ReplayLag)),
+		labelStyle.Render("  Byte Lag:      ")+byteLagStyle.Render(r.FormatByteLag()),
+		labelStyle.Render("  Write Lag:     ")+timeLagStyle.Render(formatDuration(r.WriteLag)),
+		labelStyle.Render("  Flush Lag:     ")+timeLagStyle.Render(formatDuration(r.FlushLag)),
+		labelStyle.Render("  Replay Lag:    ")+timeLagStyle.Render(formatDuration(r.ReplayLag)),
 		"",
-		labelStyle.Render("Backend Start:   ") + valueStyle.Render(r.BackendStart.Format("2006-01-02 15:04:05")),
-	}
+		labelStyle.Render("Backend Start:   ")+valueStyle.Render(r.BackendStart.Format("2006-01-02 15:04:05")),
+	)
+
+	v.detailLines = lines
 	v.detailScrollOffset = 0
 }
 
