@@ -33,24 +33,27 @@ func IsPrimary(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
 
 // GetReplicas retrieves streaming replication standby information from pg_stat_replication.
 // Returns empty slice if no replicas are connected.
+// Note: This excludes logical replication subscribers (they appear in pg_stat_replication but use logical slots).
 func GetReplicas(ctx context.Context, pool *pgxpool.Pool) ([]models.Replica, error) {
 	query := `
 		SELECT
-			COALESCE(application_name, '') AS application_name,
-			COALESCE(client_addr::text, '') AS client_addr,
-			COALESCE(state, '') AS state,
-			COALESCE(sync_state, 'async') AS sync_state,
-			COALESCE(sent_lsn::text, '') AS sent_lsn,
-			COALESCE(write_lsn::text, '') AS write_lsn,
-			COALESCE(flush_lsn::text, '') AS flush_lsn,
-			COALESCE(replay_lsn::text, '') AS replay_lsn,
-			COALESCE(pg_wal_lsn_diff(sent_lsn, replay_lsn), 0) AS byte_lag,
-			COALESCE(EXTRACT(EPOCH FROM write_lag), 0) AS write_lag_seconds,
-			COALESCE(EXTRACT(EPOCH FROM flush_lag), 0) AS flush_lag_seconds,
-			COALESCE(EXTRACT(EPOCH FROM replay_lag), 0) AS replay_lag_seconds,
-			backend_start
-		FROM pg_stat_replication
-		ORDER BY application_name
+			COALESCE(r.application_name, '') AS application_name,
+			COALESCE(r.client_addr::text, '') AS client_addr,
+			COALESCE(r.state, '') AS state,
+			COALESCE(r.sync_state, 'async') AS sync_state,
+			COALESCE(r.sent_lsn::text, '') AS sent_lsn,
+			COALESCE(r.write_lsn::text, '') AS write_lsn,
+			COALESCE(r.flush_lsn::text, '') AS flush_lsn,
+			COALESCE(r.replay_lsn::text, '') AS replay_lsn,
+			COALESCE(pg_wal_lsn_diff(r.sent_lsn, r.replay_lsn), 0) AS byte_lag,
+			COALESCE(EXTRACT(EPOCH FROM r.write_lag), 0) AS write_lag_seconds,
+			COALESCE(EXTRACT(EPOCH FROM r.flush_lag), 0) AS flush_lag_seconds,
+			COALESCE(EXTRACT(EPOCH FROM r.replay_lag), 0) AS replay_lag_seconds,
+			r.backend_start
+		FROM pg_stat_replication r
+		LEFT JOIN pg_replication_slots s ON r.application_name = s.slot_name
+		WHERE s.slot_type IS NULL OR s.slot_type != 'logical'
+		ORDER BY r.application_name
 	`
 
 	rows, err := pool.Query(ctx, query)
@@ -107,11 +110,14 @@ func GetReplicas(ctx context.Context, pool *pgxpool.Pool) ([]models.Replica, err
 // Handles version differences (PG13+ for wal_status/safe_wal_size).
 func GetSlots(ctx context.Context, pool *pgxpool.Pool) ([]models.ReplicationSlot, error) {
 	// Check PostgreSQL version for wal_status column (PG13+)
-	var pgVersion int
-	err := pool.QueryRow(ctx, "SHOW server_version_num").Scan(&pgVersion)
+	// SHOW returns text, so scan to string first then parse
+	var pgVersionStr string
+	err := pool.QueryRow(ctx, "SHOW server_version_num").Scan(&pgVersionStr)
 	if err != nil {
 		return nil, fmt.Errorf("get server version: %w", err)
 	}
+	var pgVersion int
+	fmt.Sscanf(pgVersionStr, "%d", &pgVersion)
 
 	var query string
 	if pgVersion >= 130000 {

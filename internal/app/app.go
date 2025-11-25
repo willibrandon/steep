@@ -181,6 +181,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.locksView.Update(msg)
 		case views.ViewTables:
 			m.tablesView.Update(msg)
+		case views.ViewReplication:
+			m.replicationView.Update(msg)
 		}
 		return m, nil
 
@@ -694,7 +696,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Check for quit (but not when view is in input mode)
 	if msg.String() == "q" || msg.String() == "ctrl+c" {
-		inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode() || m.tablesView.IsInputMode()
+		inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode() || m.tablesView.IsInputMode() || m.replicationView.IsInputMode()
 		if !inInputMode {
 			m.quitting = true
 			return m, tea.Quit
@@ -708,7 +710,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Check for escape (close help) - but only if not in input mode
-	inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode() || m.tablesView.IsInputMode()
+	inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode() || m.tablesView.IsInputMode() || m.replicationView.IsInputMode()
 	if msg.String() == "esc" && m.helpVisible && !inInputMode {
 		m.helpVisible = false
 		return m, nil

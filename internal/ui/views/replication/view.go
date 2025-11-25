@@ -149,6 +149,12 @@ func (v *ReplicationView) SetConnectionInfo(info string) {
 	v.connectionInfo = info
 }
 
+// IsInputMode returns true when the view is in a mode that should consume keys
+// (detail view, topology view, help overlay, or confirmation dialog).
+func (v *ReplicationView) IsInputMode() bool {
+	return v.mode != ModeNormal
+}
+
 // Update handles messages for the replication view.
 func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -445,7 +451,8 @@ func (v *ReplicationView) handleMouseMsg(msg tea.MouseMsg) {
 		case tea.MouseButtonLeft:
 			if msg.Action == tea.MouseActionPress {
 				// Calculate clicked row based on tab and layout
-				clickedRow := msg.Y - 5 // Adjust for header
+				// Layout: status bar (3 lines with border) + newline + title + newline + tabs + newline + header = 8 lines
+				clickedRow := msg.Y - 8
 				if clickedRow >= 0 {
 					switch v.activeTab {
 					case TabOverview:
@@ -887,6 +894,17 @@ func (v *ReplicationView) renderSlotRow(s models.ReplicationSlot, selected bool,
 		baseStyle = baseStyle.Background(lipgloss.Color("236"))
 	}
 
+	// Check for orphaned slot (inactive for >24 hours) - T034
+	isOrphaned := s.IsOrphaned(24 * time.Hour)
+
+	// Name with orphaned indicator
+	nameStyle := baseStyle
+	slotName := s.SlotName
+	if isOrphaned {
+		nameStyle = nameStyle.Foreground(lipgloss.Color("214")) // Yellow for orphaned
+		slotName = "!" + s.SlotName                              // Prefix with warning
+	}
+
 	// Active status style
 	activeStyle := baseStyle
 	activeStr := "No"
@@ -895,6 +913,20 @@ func (v *ReplicationView) renderSlotRow(s models.ReplicationSlot, selected bool,
 		activeStr = "Yes"
 	} else {
 		activeStyle = activeStyle.Foreground(lipgloss.Color("214"))
+		if isOrphaned {
+			activeStr = "No*" // Asterisk indicates orphaned
+		}
+	}
+
+	// Retained WAL with warning indicator - T033
+	// Use 80% of 1GB as threshold for significant retention warning
+	retainedStyle := baseStyle
+	retainedStr := s.FormatRetainedBytes()
+	if !s.Active && s.RetainedBytes > 800*1024*1024 { // >800MB and inactive
+		retainedStyle = retainedStyle.Foreground(lipgloss.Color("196")) // Red for high retention
+		retainedStr = "!" + retainedStr
+	} else if !s.Active && s.RetainedBytes > 100*1024*1024 { // >100MB and inactive
+		retainedStyle = retainedStyle.Foreground(lipgloss.Color("214")) // Yellow for moderate retention
 	}
 
 	// WAL status color
@@ -906,10 +938,10 @@ func (v *ReplicationView) renderSlotRow(s models.ReplicationSlot, selected bool,
 	}
 
 	var row strings.Builder
-	row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(s.SlotName, headers[0].width), headers[0].width)))
+	row.WriteString(nameStyle.Render(padRight(truncateWithEllipsis(slotName, headers[0].width), headers[0].width)))
 	row.WriteString(baseStyle.Render(padRight(s.SlotType.String(), headers[1].width)))
 	row.WriteString(activeStyle.Render(padRight(activeStr, headers[2].width)))
-	row.WriteString(baseStyle.Render(padRight(s.FormatRetainedBytes(), headers[3].width)))
+	row.WriteString(retainedStyle.Render(padRight(retainedStr, headers[3].width)))
 	row.WriteString(walStyle.Render(padRight(s.WALStatus, headers[4].width)))
 
 	return row.String()
@@ -936,7 +968,9 @@ func (v *ReplicationView) renderLogical() string {
 	// Publications section
 	pubHeader := "Publications"
 	if v.logicalFocusPubs {
-		pubHeader = "> " + pubHeader
+		pubHeader = "▶ " + pubHeader
+	} else {
+		pubHeader = "  " + pubHeader
 	}
 	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent).Render(pubHeader))
 	b.WriteString("\n")
@@ -945,12 +979,31 @@ func (v *ReplicationView) renderLogical() string {
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  No publications"))
 		b.WriteString("\n")
 	} else {
+		// Publication table headers
+		pubHeaders := []struct {
+			name  string
+			width int
+		}{
+			{"Name", 22},
+			{"Tables", 8},
+			{"All", 5},
+			{"Operations", 20},
+			{"Subscribers", 12},
+		}
+		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+		var headerRow strings.Builder
+		for _, h := range pubHeaders {
+			headerRow.WriteString(headerStyle.Render(padRight(h.name, h.width)))
+		}
+		b.WriteString(headerRow.String())
+		b.WriteString("\n")
+
 		for i, pub := range v.data.Publications {
-			if i >= halfHeight-2 {
+			if i >= halfHeight-3 {
 				break
 			}
 			selected := v.logicalFocusPubs && i == v.pubSelectedIdx
-			b.WriteString(v.renderPubRow(pub, selected))
+			b.WriteString(v.renderPubRow(pub, selected, pubHeaders))
 			b.WriteString("\n")
 		}
 	}
@@ -960,7 +1013,9 @@ func (v *ReplicationView) renderLogical() string {
 	// Subscriptions section
 	subHeader := "Subscriptions"
 	if !v.logicalFocusPubs {
-		subHeader = "> " + subHeader
+		subHeader = "▶ " + subHeader
+	} else {
+		subHeader = "  " + subHeader
 	}
 	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent).Render(subHeader))
 	b.WriteString("\n")
@@ -969,12 +1024,30 @@ func (v *ReplicationView) renderLogical() string {
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  No subscriptions"))
 		b.WriteString("\n")
 	} else {
+		// Subscription table headers
+		subHeaders := []struct {
+			name  string
+			width int
+		}{
+			{"Name", 22},
+			{"Enabled", 9},
+			{"Publications", 20},
+			{"Lag", 12},
+		}
+		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+		var headerRow strings.Builder
+		for _, h := range subHeaders {
+			headerRow.WriteString(headerStyle.Render(padRight(h.name, h.width)))
+		}
+		b.WriteString(headerRow.String())
+		b.WriteString("\n")
+
 		for i, sub := range v.data.Subscriptions {
-			if i >= halfHeight-2 {
+			if i >= halfHeight-3 {
 				break
 			}
 			selected := !v.logicalFocusPubs && i == v.subSelectedIdx
-			b.WriteString(v.renderSubRow(sub, selected))
+			b.WriteString(v.renderSubRow(sub, selected, subHeaders))
 			b.WriteString("\n")
 		}
 	}
@@ -985,35 +1058,92 @@ func (v *ReplicationView) renderLogical() string {
 	return b.String()
 }
 
-// renderPubRow renders a publication row.
-func (v *ReplicationView) renderPubRow(p models.Publication, selected bool) string {
-	style := lipgloss.NewStyle()
+// renderPubRow renders a publication row with styling.
+func (v *ReplicationView) renderPubRow(p models.Publication, selected bool, headers []struct{ name string; width int }) string {
+	baseStyle := lipgloss.NewStyle()
 	if selected {
-		style = style.Background(lipgloss.Color("236"))
+		baseStyle = baseStyle.Background(lipgloss.Color("236"))
 	}
 
-	return style.Render(fmt.Sprintf("  %-20s  Tables: %-4d  Ops: %s",
-		truncateWithEllipsis(p.Name, 20),
-		p.TableCount,
-		p.OperationFlags()))
+	// All tables indicator styling
+	allTablesStyle := baseStyle
+	allTablesStr := "No"
+	if p.AllTables {
+		allTablesStyle = allTablesStyle.Foreground(lipgloss.Color("42")) // Green
+		allTablesStr = "Yes"
+	}
+
+	// Operations styling - green for all enabled, yellow for partial
+	opsStyle := baseStyle
+	ops := p.OperationFlags()
+	allOps := p.Insert && p.Update && p.Delete && p.Truncate
+	if allOps {
+		opsStyle = opsStyle.Foreground(lipgloss.Color("42")) // Green for full
+	} else if p.Insert || p.Update || p.Delete {
+		opsStyle = opsStyle.Foreground(lipgloss.Color("214")) // Yellow for partial
+	}
+
+	// Subscriber count styling
+	subStyle := baseStyle
+	subStr := fmt.Sprintf("%d", p.SubscriberCount)
+	if p.SubscriberCount > 0 {
+		subStyle = subStyle.Foreground(lipgloss.Color("42")) // Green
+	} else {
+		subStyle = subStyle.Foreground(lipgloss.Color("241")) // Dim
+		subStr = "0"
+	}
+
+	var row strings.Builder
+	row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(p.Name, headers[0].width), headers[0].width)))
+	row.WriteString(baseStyle.Render(padRight(fmt.Sprintf("%d", p.TableCount), headers[1].width)))
+	row.WriteString(allTablesStyle.Render(padRight(allTablesStr, headers[2].width)))
+	row.WriteString(opsStyle.Render(padRight(ops, headers[3].width)))
+	row.WriteString(subStyle.Render(padRight(subStr, headers[4].width)))
+
+	return row.String()
 }
 
-// renderSubRow renders a subscription row.
-func (v *ReplicationView) renderSubRow(s models.Subscription, selected bool) string {
-	style := lipgloss.NewStyle()
+// renderSubRow renders a subscription row with styling.
+func (v *ReplicationView) renderSubRow(s models.Subscription, selected bool, headers []struct{ name string; width int }) string {
+	baseStyle := lipgloss.NewStyle()
 	if selected {
-		style = style.Background(lipgloss.Color("236"))
+		baseStyle = baseStyle.Background(lipgloss.Color("236"))
 	}
 
+	// Enabled status styling
+	enabledStyle := baseStyle
 	enabledStr := "No"
 	if s.Enabled {
+		enabledStyle = enabledStyle.Foreground(lipgloss.Color("42")) // Green
 		enabledStr = "Yes"
+	} else {
+		enabledStyle = enabledStyle.Foreground(lipgloss.Color("214")) // Yellow
 	}
 
-	return style.Render(fmt.Sprintf("  %-20s  Enabled: %-3s  Lag: %s",
-		truncateWithEllipsis(s.Name, 20),
-		enabledStr,
-		s.FormatByteLag()))
+	// Publications list
+	pubsStr := strings.Join(s.Publications, ", ")
+	if len(pubsStr) > headers[2].width {
+		pubsStr = truncateWithEllipsis(pubsStr, headers[2].width)
+	}
+
+	// Lag styling
+	lagStyle := baseStyle
+	lagStr := s.FormatByteLag()
+	if s.ByteLag > 10*1024*1024 { // > 10MB
+		lagStyle = lagStyle.Foreground(lipgloss.Color("196")) // Red
+	} else if s.ByteLag > 1024*1024 { // > 1MB
+		lagStyle = lagStyle.Foreground(lipgloss.Color("214")) // Yellow
+	} else if s.ByteLag > 0 {
+		lagStyle = lagStyle.Foreground(lipgloss.Color("42")) // Green
+	}
+
+	var row strings.Builder
+	row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(s.Name, headers[0].width), headers[0].width)))
+	row.WriteString(enabledStyle.Render(padRight(enabledStr, headers[1].width)))
+	row.WriteString(baseStyle.Render(padRight(pubsStr, headers[2].width)))
+	row.WriteString(lagStyle.Render(padRight(lagStr, headers[3].width)))
+
+	return row.String()
 }
 
 // renderSetup renders the Setup tab content.
@@ -1087,25 +1217,64 @@ func (v *ReplicationView) renderTopology() string {
 	return b.String()
 }
 
-// renderDetail renders the detail view.
+// renderDetail renders the detail view with improved styling.
 func (v *ReplicationView) renderDetail() string {
-	if len(v.detailLines) == 0 {
-		return "No details available."
+	// Title style - MarginTop adds space before title, MarginBottom adds space after
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(styles.ColorAccent).
+		MarginTop(1)
+
+	// Get title from first line if available
+	title := "Details"
+	startIdx := 0
+	if len(v.detailLines) > 0 {
+		title = v.detailLines[0]
+		startIdx = 1 // Skip title in content
 	}
 
-	var b strings.Builder
-	maxLines := v.height - 4
+	// Content
+	var content string
+	if len(v.detailLines) <= 1 {
+		content = styles.InfoStyle.Render("No details available")
+	} else {
+		maxLines := v.height - 6 // Reserve space for title and footer
+		contentLines := v.detailLines[startIdx:]
 
-	for i := v.detailScrollOffset; i < len(v.detailLines) && i < v.detailScrollOffset+maxLines; i++ {
-		b.WriteString(v.detailLines[i])
-		b.WriteString("\n")
+		endIdx := min(v.detailScrollOffset+maxLines, len(contentLines))
+		startContent := v.detailScrollOffset
+		if startContent > len(contentLines) {
+			startContent = 0
+		}
+		visibleLines := contentLines[startContent:endIdx]
+
+		// Pad to fill height
+		for len(visibleLines) < maxLines {
+			visibleLines = append(visibleLines, "")
+		}
+		content = strings.Join(visibleLines, "\n")
 	}
 
-	b.WriteString(lipgloss.NewStyle().
+	// Footer with scroll info
+	footerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241")).
-		Render("\nPress Esc or q to return"))
+		MarginTop(1)
 
-	return b.String()
+	scrollInfo := ""
+	contentLen := len(v.detailLines) - 1 // Exclude title
+	maxLines := v.height - 6
+	if contentLen > maxLines {
+		scrollInfo = fmt.Sprintf(" (%d/%d)", v.detailScrollOffset+1, contentLen)
+	}
+
+	footer := footerStyle.Render("[j/k]scroll [g/G]top/bottom [esc/q]back" + scrollInfo)
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		titleStyle.Render(title),
+		content,
+		footer,
+	)
 }
 
 // renderDropSlotConfirm renders the drop slot confirmation dialog.
@@ -1228,26 +1397,78 @@ func (v *ReplicationView) prepareReplicaDetail() {
 	}
 	r := v.data.Replicas[v.selectedIdx]
 
+	// Styles for detail view
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	lsnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("117")) // Light blue for LSN
+
+	// Color-coded state
+	stateStyle := valueStyle
+	switch r.State {
+	case "streaming":
+		stateStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green
+	case "startup", "catchup":
+		stateStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Yellow
+	case "backup":
+		stateStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("81")) // Blue
+	}
+
+	// Color-coded sync state
+	syncStyle := valueStyle
+	switch r.SyncState {
+	case models.SyncStateSync:
+		syncStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green
+	case models.SyncStateAsync:
+		syncStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252")) // Default
+	case models.SyncStatePotential:
+		syncStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Yellow
+	case models.SyncStateQuorum:
+		syncStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("81")) // Blue
+	}
+
+	// Color-coded lag values
+	byteLagStyle := valueStyle
+	if r.ByteLag > 100*1024*1024 { // > 100MB
+		byteLagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+	} else if r.ByteLag > 10*1024*1024 { // > 10MB
+		byteLagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Yellow
+	} else if r.ByteLag > 0 {
+		byteLagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	} else {
+		byteLagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green for 0
+	}
+
+	timeLagStyle := valueStyle
+	if r.ReplayLag > 5*time.Second {
+		timeLagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+	} else if r.ReplayLag > time.Second {
+		timeLagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Yellow
+	} else if r.ReplayLag > 0 {
+		timeLagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	} else {
+		timeLagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green for 0
+	}
+
 	v.detailLines = []string{
-		lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent).Render("Replica Details: " + r.ApplicationName),
+		"Replica Details: " + r.ApplicationName,
+		labelStyle.Render("Client Address:  ") + valueStyle.Render(r.ClientAddr),
+		labelStyle.Render("State:           ") + stateStyle.Render(r.State),
+		labelStyle.Render("Sync State:      ") + syncStyle.Render(r.SyncState.String()),
 		"",
-		fmt.Sprintf("Client Address:  %s", r.ClientAddr),
-		fmt.Sprintf("State:           %s", r.State),
-		fmt.Sprintf("Sync State:      %s", r.SyncState),
+		sectionStyle.Render("WAL Positions"),
+		labelStyle.Render("  Sent LSN:      ") + lsnStyle.Render(r.SentLSN),
+		labelStyle.Render("  Write LSN:     ") + lsnStyle.Render(r.WriteLSN),
+		labelStyle.Render("  Flush LSN:     ") + lsnStyle.Render(r.FlushLSN),
+		labelStyle.Render("  Replay LSN:    ") + lsnStyle.Render(r.ReplayLSN),
 		"",
-		"WAL Positions:",
-		fmt.Sprintf("  Sent LSN:      %s", r.SentLSN),
-		fmt.Sprintf("  Write LSN:     %s", r.WriteLSN),
-		fmt.Sprintf("  Flush LSN:     %s", r.FlushLSN),
-		fmt.Sprintf("  Replay LSN:    %s", r.ReplayLSN),
+		sectionStyle.Render("Lag"),
+		labelStyle.Render("  Byte Lag:      ") + byteLagStyle.Render(r.FormatByteLag()),
+		labelStyle.Render("  Write Lag:     ") + timeLagStyle.Render(formatDuration(r.WriteLag)),
+		labelStyle.Render("  Flush Lag:     ") + timeLagStyle.Render(formatDuration(r.FlushLag)),
+		labelStyle.Render("  Replay Lag:    ") + timeLagStyle.Render(formatDuration(r.ReplayLag)),
 		"",
-		"Lag:",
-		fmt.Sprintf("  Byte Lag:      %s", r.FormatByteLag()),
-		fmt.Sprintf("  Write Lag:     %s", formatDuration(r.WriteLag)),
-		fmt.Sprintf("  Flush Lag:     %s", formatDuration(r.FlushLag)),
-		fmt.Sprintf("  Replay Lag:    %s", formatDuration(r.ReplayLag)),
-		"",
-		fmt.Sprintf("Backend Start:   %s", r.BackendStart.Format("2006-01-02 15:04:05")),
+		labelStyle.Render("Backend Start:   ") + valueStyle.Render(r.BackendStart.Format("2006-01-02 15:04:05")),
 	}
 	v.detailScrollOffset = 0
 }
@@ -1258,23 +1479,77 @@ func (v *ReplicationView) prepareSlotDetail() {
 	}
 	s := v.data.Slots[v.slotSelectedIdx]
 
+	// Styles for detail view
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	lsnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("117")) // Light blue for LSN
+
+	// Color-coded active status
 	activeStr := "No"
+	activeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Yellow for inactive
 	if s.Active {
 		activeStr = "Yes"
+		activeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green for active
+	}
+
+	// Color-coded slot type
+	typeStyle := valueStyle
+	if s.SlotType == models.SlotTypeLogical {
+		typeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("183")) // Purple for logical
+	} else {
+		typeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("117")) // Blue for physical
+	}
+
+	// Color-coded WAL retention
+	retainedStyle := valueStyle
+	if !s.Active && s.RetainedBytes > 800*1024*1024 { // > 800MB and inactive
+		retainedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+	} else if !s.Active && s.RetainedBytes > 100*1024*1024 { // > 100MB and inactive
+		retainedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Yellow
+	} else if s.RetainedBytes > 0 {
+		retainedStyle = valueStyle
+	} else {
+		retainedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green for 0
+	}
+
+	// Color-coded WAL status
+	walStatusStyle := valueStyle
+	switch s.WALStatus {
+	case "reserved":
+		walStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green
+	case "extended":
+		walStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Yellow
+	case "unreserved":
+		walStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+	case "lost":
+		walStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true) // Bold red
+	}
+
+	// Active PID display
+	activePIDStr := "-"
+	if s.ActivePID > 0 {
+		activePIDStr = fmt.Sprintf("%d", s.ActivePID)
+	}
+
+	// Check for orphaned slot
+	isOrphaned := s.IsOrphaned(24 * time.Hour)
+	orphanedWarning := ""
+	if isOrphaned {
+		orphanedWarning = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(" (inactive >24h)")
 	}
 
 	v.detailLines = []string{
-		lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent).Render("Slot Details: " + s.SlotName),
+		"Slot Details: " + s.SlotName,
+		labelStyle.Render("Type:            ") + typeStyle.Render(s.SlotType.String()),
+		labelStyle.Render("Database:        ") + valueStyle.Render(s.Database),
+		labelStyle.Render("Active:          ") + activeStyle.Render(activeStr) + orphanedWarning,
+		labelStyle.Render("Active PID:      ") + valueStyle.Render(activePIDStr),
 		"",
-		fmt.Sprintf("Type:            %s", s.SlotType),
-		fmt.Sprintf("Database:        %s", s.Database),
-		fmt.Sprintf("Active:          %s", activeStr),
-		fmt.Sprintf("Active PID:      %d", s.ActivePID),
-		"",
-		"WAL Retention:",
-		fmt.Sprintf("  Restart LSN:   %s", s.RestartLSN),
-		fmt.Sprintf("  Retained:      %s", s.FormatRetainedBytes()),
-		fmt.Sprintf("  WAL Status:    %s", s.WALStatus),
+		sectionStyle.Render("WAL Retention"),
+		labelStyle.Render("  Restart LSN:   ") + lsnStyle.Render(s.RestartLSN),
+		labelStyle.Render("  Retained:      ") + retainedStyle.Render(s.FormatRetainedBytes()),
+		labelStyle.Render("  WAL Status:    ") + walStatusStyle.Render(s.WALStatus),
 	}
 	v.detailScrollOffset = 0
 }
@@ -1285,23 +1560,59 @@ func (v *ReplicationView) preparePubDetail() {
 	}
 	p := v.data.Publications[v.pubSelectedIdx]
 
+	// Styles
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Width(18)
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+	tableStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+
+	// All tables styling
 	allTablesStr := "No"
+	allTablesStyle := valueStyle
 	if p.AllTables {
 		allTablesStr = "Yes"
+		allTablesStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	}
+
+	// Operations styling
+	opsStyle := valueStyle
+	allOps := p.Insert && p.Update && p.Delete && p.Truncate
+	if allOps {
+		opsStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green
+	} else if p.Insert || p.Update || p.Delete {
+		opsStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Yellow
+	}
+
+	// Subscriber count styling
+	subStyle := valueStyle
+	if p.SubscriberCount > 0 {
+		subStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	} else {
+		subStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	}
 
 	v.detailLines = []string{
-		lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent).Render("Publication: " + p.Name),
+		titleStyle.Render("Publication Details: " + p.Name),
+		labelStyle.Render("All Tables:") + allTablesStyle.Render(allTablesStr),
+		labelStyle.Render("Table Count:") + valueStyle.Render(fmt.Sprintf("%d", p.TableCount)),
+		labelStyle.Render("Subscribers:") + subStyle.Render(fmt.Sprintf("%d", p.SubscriberCount)),
 		"",
-		fmt.Sprintf("All Tables:      %s", allTablesStr),
-		fmt.Sprintf("Operations:      %s", p.OperationFlags()),
-		fmt.Sprintf("Table Count:     %d", p.TableCount),
-		"",
-		"Tables:",
+		headerStyle.Render("Operations"),
+		labelStyle.Render("INSERT:") + v.formatBoolValue(p.Insert),
+		labelStyle.Render("UPDATE:") + v.formatBoolValue(p.Update),
+		labelStyle.Render("DELETE:") + v.formatBoolValue(p.Delete),
+		labelStyle.Render("TRUNCATE:") + v.formatBoolValue(p.Truncate),
+		labelStyle.Render("Combined:") + opsStyle.Render(p.OperationFlags()),
 	}
-	for _, t := range p.Tables {
-		v.detailLines = append(v.detailLines, "  - "+t)
+
+	if len(p.Tables) > 0 {
+		v.detailLines = append(v.detailLines, "", headerStyle.Render("Published Tables"))
+		for _, t := range p.Tables {
+			v.detailLines = append(v.detailLines, "  "+tableStyle.Render(t))
+		}
 	}
+
 	v.detailScrollOffset = 0
 }
 
@@ -1311,24 +1622,68 @@ func (v *ReplicationView) prepareSubDetail() {
 	}
 	s := v.data.Subscriptions[v.subSelectedIdx]
 
+	// Styles
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Width(18)
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+	pubStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+
+	// Enabled styling
 	enabledStr := "No"
+	enabledStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	if s.Enabled {
 		enabledStr = "Yes"
+		enabledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	}
+
+	// Lag styling
+	lagStr := s.FormatByteLag()
+	lagStyle := valueStyle
+	if s.ByteLag > 10*1024*1024 {
+		lagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	} else if s.ByteLag > 1024*1024 {
+		lagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	} else if s.ByteLag > 0 {
+		lagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	}
 
 	v.detailLines = []string{
-		lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent).Render("Subscription: " + s.Name),
+		titleStyle.Render("Subscription Details: " + s.Name),
+		labelStyle.Render("Enabled:") + enabledStyle.Render(enabledStr),
+		labelStyle.Render("Byte Lag:") + lagStyle.Render(lagStr),
 		"",
-		fmt.Sprintf("Enabled:         %s", enabledStr),
-		fmt.Sprintf("Connection:      %s", s.ConnInfo),
-		fmt.Sprintf("Lag:             %s", s.FormatByteLag()),
+		headerStyle.Render("Connection"),
+		labelStyle.Render("Connection Info:") + valueStyle.Render(truncateWithEllipsis(s.ConnInfo, 60)),
 		"",
-		"Publications:",
+		headerStyle.Render("LSN Positions"),
+		labelStyle.Render("Received LSN:") + valueStyle.Render(s.ReceivedLSN),
+		labelStyle.Render("Latest End LSN:") + valueStyle.Render(s.LatestEndLSN),
 	}
-	for _, p := range s.Publications {
-		v.detailLines = append(v.detailLines, "  - "+p)
+
+	// Timing info if available
+	if !s.LastMsgSendTime.IsZero() {
+		v.detailLines = append(v.detailLines, "", headerStyle.Render("Timing"))
+		v.detailLines = append(v.detailLines, labelStyle.Render("Last Msg Sent:")+valueStyle.Render(s.LastMsgSendTime.Format("2006-01-02 15:04:05")))
+		v.detailLines = append(v.detailLines, labelStyle.Render("Last Msg Recv:")+valueStyle.Render(s.LastMsgReceiptTime.Format("2006-01-02 15:04:05")))
 	}
+
+	if len(s.Publications) > 0 {
+		v.detailLines = append(v.detailLines, "", headerStyle.Render("Subscribed Publications"))
+		for _, p := range s.Publications {
+			v.detailLines = append(v.detailLines, "  "+pubStyle.Render(p))
+		}
+	}
+
 	v.detailScrollOffset = 0
+}
+
+// formatBoolValue returns a styled Yes/No string
+func (v *ReplicationView) formatBoolValue(val bool) string {
+	if val {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("Yes")
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("No")
 }
 
 func (v *ReplicationView) copySelectedReplica() {

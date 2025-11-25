@@ -109,10 +109,10 @@ Based on plan.md structure:
 
 ### Implementation for User Story 2
 
-- [ ] T032 [US2] Implement Slots tab with table showing Name, Type, Active, Retained WAL columns in `internal/ui/views/replication/view.go`
-- [ ] T033 [US2] Add warning indicator for inactive slots retaining significant WAL (>80% threshold) in `internal/ui/views/replication/view.go`
-- [ ] T034 [US2] Highlight orphaned slots (inactive, referencing deleted replicas) as cleanup candidates in `internal/ui/views/replication/view.go`
-- [ ] T035 [US2] Add Tab key navigation to switch to Slots tab in `internal/ui/views/replication/view.go`
+- [x] T032 [US2] Implement Slots tab with table showing Name, Type, Active, Retained WAL columns in `internal/ui/views/replication/view.go`
+- [x] T033 [US2] Add warning indicator for inactive slots retaining significant WAL (>80% threshold) in `internal/ui/views/replication/view.go`
+- [x] T034 [US2] Highlight orphaned slots (inactive, referencing deleted replicas) as cleanup candidates in `internal/ui/views/replication/view.go`
+- [x] T035 [US2] Add Tab key navigation to switch to Slots tab in `internal/ui/views/replication/view.go`
 
 **Checkpoint**: User Story 2 complete - can view slot status with warnings
 

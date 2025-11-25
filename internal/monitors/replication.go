@@ -10,6 +10,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/db/queries"
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
 )
@@ -139,8 +140,11 @@ func (m *ReplicationMonitor) FetchOnce(ctx context.Context) ui.ReplicationDataMs
 
 	// Fetch replication slots
 	slots, err := queries.GetSlots(ctx, m.pool)
-	if err == nil {
+	if err != nil {
+		logger.Error("GetSlots failed", "error", err)
+	} else {
 		data.Slots = slots
+		logger.Debug("GetSlots", "count", len(slots))
 	}
 
 	// Fetch publications (primary only for outgoing)
