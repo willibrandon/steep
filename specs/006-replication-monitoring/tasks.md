@@ -53,13 +53,13 @@ Based on plan.md structure:
 
 ### Database Queries
 
-- [ ] T011 [P] Implement GetReplicas() query (pg_stat_replication) with version-aware column handling in `internal/db/queries/replication.go`
-- [ ] T012 [P] Implement GetSlots() query (pg_replication_slots) with PG13+ wal_status handling in `internal/db/queries/replication.go`
-- [ ] T013 [P] Implement GetPublications() query (pg_publication, pg_publication_tables) in `internal/db/queries/replication.go`
-- [ ] T014 [P] Implement GetSubscriptions() query (pg_subscription, pg_stat_subscription) with PG12+ handling in `internal/db/queries/replication.go`
-- [ ] T015 [P] Implement GetReplicationConfig() query (pg_settings) for configuration readiness check in `internal/db/queries/replication.go`
-- [ ] T016 [P] Implement GetWALReceiverStatus() query (pg_stat_wal_receiver) for standby detection in `internal/db/queries/replication.go`
-- [ ] T017 Implement IsPrimary() detection query to determine server role in `internal/db/queries/replication.go`
+- [x] T011 [P] Implement GetReplicas() query (pg_stat_replication) with version-aware column handling in `internal/db/queries/replication.go`
+- [x] T012 [P] Implement GetSlots() query (pg_replication_slots) with PG13+ wal_status handling in `internal/db/queries/replication.go`
+- [x] T013 [P] Implement GetPublications() query (pg_publication, pg_publication_tables) in `internal/db/queries/replication.go`
+- [x] T014 [P] Implement GetSubscriptions() query (pg_subscription, pg_stat_subscription) with PG12+ handling in `internal/db/queries/replication.go`
+- [x] T015 [P] Implement GetReplicationConfig() query (pg_settings) for configuration readiness check in `internal/db/queries/replication.go`
+- [x] T016 [P] Implement GetWALReceiverStatus() query (pg_stat_wal_receiver) for standby detection in `internal/db/queries/replication.go`
+- [x] T017 Implement IsPrimary() detection query to determine server role in `internal/db/queries/replication.go`
 
 ### SQLite Storage
 
