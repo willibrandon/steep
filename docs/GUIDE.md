@@ -384,43 +384,554 @@ Before starting feature development, ensure:
 
 **Branch**: `006-replication-monitoring`
 
-**Purpose**: Monitor PostgreSQL replication status, lag metrics, and WAL streaming.
+**Purpose**: Monitor PostgreSQL replication status, lag metrics, WAL streaming, and provide rich visual feedback for both physical and logical replication. Additionally, provide guided setup wizards to help developers and DBAs quickly configure and start replication. This feature establishes the foundation for future multi-master replication system integration.
 
 **User Stories** (Priority Order):
+
+*Monitoring Stories:*
 1. **P1**: As a DBA, I want to see replication lag (bytes and time) to ensure replicas are synchronized
 2. **P1**: As a DBA, I want to see replication slot status to monitor replication health
-3. **P2**: As a DBA, I want to see WAL sender/receiver statistics to understand replication throughput
-4. **P2**: As a DBA, I want to visualize replication timeline to see lag trends over time
-5. **P3**: As a DBA, I want to manage replication slots (advance, drop) to prevent WAL buildup
+3. **P1**: As a DBA, I want to visualize the replication topology to understand primary/replica relationships
+4. **P2**: As a DBA, I want to see WAL sender/receiver statistics to understand replication throughput
+5. **P2**: As a DBA, I want to visualize replication timeline to see lag trends over time
+6. **P2**: As a DBA, I want to see WAL pipeline stages (sent → write → flush → replay) per replica
+7. **P2**: As a DBA, I want to monitor logical replication subscriptions and publications
+8. **P3**: As a DBA, I want to manage replication slots (advance, drop) to prevent WAL buildup
+9. **P3**: As a DBA, I want historical lag data for trend analysis and capacity planning
+
+*Setup & Configuration Stories:*
+10. **P1**: As a DBA, I want to check if my PostgreSQL is configured for replication to understand what changes are needed
+11. **P1**: As a DBA, I want a guided wizard to set up physical streaming replication to quickly add replicas
+12. **P2**: As a DBA, I want to create replication users with proper privileges to secure my replication setup
+13. **P2**: As a DBA, I want to generate pg_basebackup commands to provision new replicas
+14. **P2**: As a DBA, I want a guided wizard to set up logical replication (publications/subscriptions)
+15. **P2**: As a DBA, I want to generate connection strings (primary_conninfo) for replica configuration
+16. **P3**: As a developer, I want to set up a local replication environment for testing
+17. **P3**: As a DBA, I want to validate my replication configuration before going live
 
 **Technical Scope**:
-- Replication view querying `pg_stat_replication`
-- Replication slot information from `pg_replication_slots`
+
+*Monitoring:*
+- Replication view querying `pg_stat_replication` for sender statistics
+- Replication slot information from `pg_replication_slots` (physical and logical)
 - WAL statistics from `pg_stat_wal_receiver` and `pg_stat_archiver`
-- Lag calculation (byte lag and time lag)
-- Replication timeline visualization (sparkline showing lag over time)
+- Logical replication from `pg_publication`, `pg_subscription`, `pg_stat_subscription`
+- Lag calculation (byte lag and time lag) using `pg_wal_lsn_diff()`
+- Historical lag data persistence in SQLite for trend analysis
 - Slot management actions (advance, drop with confirmation)
+- Data model designed for future bi-directional/multi-master replication
+
+*Setup & Configuration:*
+- Configuration checker validating replication-readiness (wal_level, max_wal_senders, etc.)
+- Replication user creation with REPLICATION privilege
+- Physical replication slot creation via `pg_create_physical_replication_slot()`
+- Logical replication slot creation via `pg_create_logical_replication_slot()`
+- pg_basebackup command generation with progress monitoring
+- primary_conninfo connection string builder
+- pg_hba.conf entry generation for replication access
+- Publication/subscription wizard for logical replication
+- Configuration validation and pre-flight checks
+
+**UI Architecture**:
+- **Framework**: Bubbletea TUI with lipgloss styling (consistent with other views)
+- **View Structure**: `internal/ui/views/replication/view.go` implementing `ViewModel` interface
+- **Custom Visualizations**: `internal/ui/views/replication/repviz/` package for specialized components
+- **Setup Wizards**: `internal/ui/views/replication/setup/` package using `huh` forms library
+- **Layout**: Split view - Topology (left 40%) | Details (right 60%)
+- **Modes**: ModeNormal, ModeDetails, ModeTopology, ModeSlotManage, ModeSetup, ModeConfigCheck, ModeHelp
+
+**Visual Components**:
+
+1. **REPLICATION TOPOLOGY PANEL** (using treeprint)
+   ```
+   ┌─────────────────── REPLICATION TOPOLOGY ───────────────────┐
+   │                      ┌──────────┐                          │
+   │                      │ PRIMARY  │                          │
+   │                      │ pg-main  │                          │
+   │                      └────┬─────┘                          │
+   │               ┌──────────┼──────────┐                      │
+   │               ▼          ▼          ▼                      │
+   │         ┌─────────┐ ┌─────────┐ ┌─────────┐               │
+   │         │REPLICA 1│ │REPLICA 2│ │REPLICA 3│               │
+   │         │ sync ●  │ │ async ● │ │ async ● │               │
+   │         │ 0 bytes │ │ 1.2 MB  │ │ 45 MB   │               │
+   │         └─────────┘ └────┬────┘ └─────────┘               │
+   │                          ▼                                 │
+   │                    ┌─────────┐                             │
+   │                    │REPLICA 4│  (cascading)                │
+   │                    │ async ● │                             │
+   │                    └─────────┘                             │
+   └────────────────────────────────────────────────────────────┘
+   ```
+   - ASCII tree showing primary → replica relationships
+   - Support for cascading replication (replica → replica chains)
+   - Node labels: hostname/app_name, sync state, lag indicator
+   - Color coding: Green (healthy), Yellow (lagging), Red (disconnected)
+
+2. **WAL PIPELINE VISUALIZATION** (custom repviz component, inspired by deadviz)
+   ```
+   ┌─────────────────── WAL PIPELINE: replica-1 ───────────────────┐
+   │                                                                │
+   │  Sent        Write       Flush       Replay                   │
+   │  ┌───┐       ┌───┐       ┌───┐       ┌───┐                   │
+   │  │ ● │ ───▶  │ ● │ ───▶  │ ● │ ───▶  │ ○ │                   │
+   │  └───┘       └───┘       └───┘       └───┘                   │
+   │  0/5A000     0/5A000     0/59F00     0/59000                 │
+   │              ════════════════════════▶                        │
+   │                     Lag: 4 KB                                 │
+   └───────────────────────────────────────────────────────────────┘
+   ```
+   - Per-replica horizontal pipeline showing LSN positions
+   - Visual progress indicators (●/○) for each stage
+   - Byte lag displayed between stages
+   - Color gradient based on lag severity
+
+3. **LAG SPARKLINES** (using asciigraph)
+   ```
+   replica-1  [▁▁▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂]  0 bytes    ●
+   replica-2  [▁▂▃▃▂▂▃▄▅▅▄▃▃▂▂▃▃▄▄▃▃▂▂▂▃▃▄▅▆]  1.2 MB    ●
+   replica-3  [▃▅▆▇▇▆▆▇█▇▇▆▆▇▇█▇▇▆▅▅▆▇▇█▇▇▆▅▅]  45 MB     ●
+              └──────── 60 seconds ────────┘
+   ```
+   - Per-replica sparkline showing lag history (60-second window, 1s intervals)
+   - Unicode block characters (▁▂▃▄▅▆▇█) for compact display
+   - Threshold markers for warning/critical levels
+   - Historical data from SQLite for extended time windows (5m, 15m, 1h, 24h)
+
+4. **REPLICATION SLOT STATUS** (using bubbles/progress)
+   ```
+   ┌─────────────────── REPLICATION SLOTS ───────────────────┐
+   │                                                          │
+   │  Slot Name          Type      Active   WAL Retained     │
+   │  ─────────────────────────────────────────────────────  │
+   │  replica_slot_1     physical  ● Yes    ████░░░░  2 GB   │
+   │  replica_slot_2     physical  ● Yes    ██░░░░░░  0.5 GB │
+   │  logical_slot_1     logical   ○ No     ████████  8 GB   │ ← Warning!
+   │                                                          │
+   └──────────────────────────────────────────────────────────┘
+   ```
+   - Progress bar showing WAL retention percentage
+   - Physical vs logical slot distinction
+   - Color-coded: Green (<50%), Yellow (50-80%), Red (>80% or inactive)
+   - Warning indicators for stale/inactive slots
+
+5. **SYNC STATE INDICATORS**
+   - Visual icons: `● sync` `◐ async` `◑ potential` `○ quorum` `✗ disconnected`
+   - Streaming vs catchup mode indication
+   - Connection state (streaming, backup, catchup)
+
+6. **LOGICAL REPLICATION PANEL**
+   ```
+   ┌─────────────────── LOGICAL REPLICATION ───────────────────┐
+   │  Publications:                                             │
+   │    pub_orders (3 tables) → 2 subscribers                  │
+   │    pub_users (1 table) → 1 subscriber                     │
+   │                                                            │
+   │  Subscriptions:                                            │
+   │    sub_analytics ← upstream:5432  ● enabled  lag: 120 ms  │
+   │    sub_reporting ← upstream:5432  ● enabled  lag: 45 ms   │
+   └────────────────────────────────────────────────────────────┘
+   ```
+
+7. **CONFIGURATION CHECKER PANEL**
+   ```
+   ┌─────────────────── REPLICATION READINESS CHECK ───────────────────┐
+   │                                                                    │
+   │  PostgreSQL Configuration:                                        │
+   │  ──────────────────────────────────────────────────────────────   │
+   │  ● wal_level              replica     ✓ Ready (replica or logical)│
+   │  ● max_wal_senders        10          ✓ Ready (> 0)               │
+   │  ● max_replication_slots  10          ✓ Ready (> 0)               │
+   │  ○ wal_keep_size          0           ⚠ Consider setting > 0      │
+   │  ● hot_standby            on          ✓ Ready                     │
+   │  ○ archive_mode           off         ⚠ Recommended for DR        │
+   │                                                                    │
+   │  Authentication (pg_hba.conf):                                    │
+   │  ──────────────────────────────────────────────────────────────   │
+   │  ○ Replication entry      not found   ✗ Required for replicas     │
+   │                                                                    │
+   │  Replication User:                                                │
+   │  ──────────────────────────────────────────────────────────────   │
+   │  ○ repl_user              not found   ✗ Create with [u] key       │
+   │                                                                    │
+   │  Overall Status: ⚠ PARTIALLY READY - 2 issues to resolve          │
+   │                                                                    │
+   │  [u] Create User  [s] Setup Wizard  [g] Generate pg_hba entry     │
+   └────────────────────────────────────────────────────────────────────┘
+   ```
+
+8. **PHYSICAL REPLICATION SETUP WIZARD** (using huh forms)
+   ```
+   ┌─────────────────── SETUP PHYSICAL REPLICATION ───────────────────┐
+   │                                                                   │
+   │  Step 1 of 5: Primary Server Configuration                       │
+   │  ═══════════════════════════════════════════                     │
+   │                                                                   │
+   │  This wizard will help you configure streaming replication.      │
+   │                                                                   │
+   │  ┌─────────────────────────────────────────────────────────────┐ │
+   │  │ Replication User                                             │ │
+   │  │ ┌─────────────────────────────────────────────────────────┐ │ │
+   │  │ │ repl_user                                                │ │ │
+   │  │ └─────────────────────────────────────────────────────────┘ │ │
+   │  │ Username for replication connections                        │ │
+   │  └─────────────────────────────────────────────────────────────┘ │
+   │                                                                   │
+   │  ┌─────────────────────────────────────────────────────────────┐ │
+   │  │ Synchronous Mode                                             │ │
+   │  │ ○ Asynchronous (default, best performance)                  │ │
+   │  │ ● Synchronous (data safety, higher latency)                 │ │
+   │  └─────────────────────────────────────────────────────────────┘ │
+   │                                                                   │
+   │  ┌─────────────────────────────────────────────────────────────┐ │
+   │  │ Number of Replicas                                           │ │
+   │  │ ┌───┐                                                        │ │
+   │  │ │ 2 │                                                        │ │
+   │  │ └───┘                                                        │ │
+   │  └─────────────────────────────────────────────────────────────┘ │
+   │                                                                   │
+   │         [←] Back    [Enter] Continue    [Esc] Cancel             │
+   └───────────────────────────────────────────────────────────────────┘
+   ```
+
+9. **PG_BASEBACKUP COMMAND GENERATOR**
+   ```
+   ┌─────────────────── REPLICA PROVISIONING ───────────────────┐
+   │                                                             │
+   │  Generated pg_basebackup command:                          │
+   │  ┌─────────────────────────────────────────────────────────┐
+   │  │ pg_basebackup \                                         │
+   │  │   --host=primary.example.com \                          │
+   │  │   --port=5432 \                                         │
+   │  │   --username=repl_user \                                │
+   │  │   --pgdata=/var/lib/postgresql/16/main \                │
+   │  │   --wal-method=stream \                                 │
+   │  │   --write-recovery-conf \                               │
+   │  │   --slot=replica_slot_1 \                               │
+   │  │   --create-slot \                                       │
+   │  │   --checkpoint=fast \                                   │
+   │  │   --progress \                                          │
+   │  │   --verbose                                             │
+   │  └─────────────────────────────────────────────────────────┘
+   │                                                             │
+   │  Recovery configuration (auto-generated):                  │
+   │  ┌─────────────────────────────────────────────────────────┐
+   │  │ primary_conninfo = 'host=primary.example.com port=5432  │
+   │  │   user=repl_user password=*** application_name=replica1'│
+   │  │ primary_slot_name = 'replica_slot_1'                    │
+   │  └─────────────────────────────────────────────────────────┘
+   │                                                             │
+   │  [y] Copy to clipboard  [Enter] Execute  [Esc] Cancel      │
+   └─────────────────────────────────────────────────────────────┘
+   ```
+
+10. **LOGICAL REPLICATION SETUP WIZARD**
+    ```
+    ┌─────────────────── SETUP LOGICAL REPLICATION ───────────────────┐
+    │                                                                  │
+    │  Step 2 of 4: Select Tables for Publication                     │
+    │  ═══════════════════════════════════════════                    │
+    │                                                                  │
+    │  Publication Name: pub_analytics                                │
+    │                                                                  │
+    │  Select tables to include:                                      │
+    │  ┌────────────────────────────────────────────────────────────┐ │
+    │  │ Schema: public                                              │ │
+    │  │ ────────────────────────────────────────────────────────── │ │
+    │  │ [x] orders              1.2 GB    50M rows                 │ │
+    │  │ [x] order_items         800 MB    120M rows                │ │
+    │  │ [ ] order_archive       5.0 GB    200M rows   (large!)     │ │
+    │  │ [x] customers           200 MB    2M rows                  │ │
+    │  │ [ ] audit_log           3.0 GB    500M rows   (large!)     │ │
+    │  │                                                             │ │
+    │  │ Schema: analytics                                           │ │
+    │  │ ────────────────────────────────────────────────────────── │ │
+    │  │ [x] daily_metrics       50 MB     365 rows                 │ │
+    │  │ [x] user_sessions       100 MB    1M rows                  │ │
+    │  └────────────────────────────────────────────────────────────┘ │
+    │                                                                  │
+    │  Selected: 5 tables (2.35 GB, 173M rows)                        │
+    │  ⚠ Large tables may take significant time for initial sync     │
+    │                                                                  │
+    │         [Space] Toggle  [a] All  [n] None  [Enter] Continue     │
+    └──────────────────────────────────────────────────────────────────┘
+    ```
+
+11. **CONNECTION STRING BUILDER**
+    ```
+    ┌─────────────────── CONNECTION STRING BUILDER ───────────────────┐
+    │                                                                  │
+    │  Build primary_conninfo for replica configuration:              │
+    │                                                                  │
+    │  Host:           ┌────────────────────────────────────────────┐ │
+    │                  │ primary.example.com                         │ │
+    │                  └────────────────────────────────────────────┘ │
+    │  Port:           ┌────────┐                                     │
+    │                  │ 5432   │                                     │
+    │                  └────────┘                                     │
+    │  User:           ┌────────────────────────────────────────────┐ │
+    │                  │ repl_user                                   │ │
+    │                  └────────────────────────────────────────────┘ │
+    │  Application:    ┌────────────────────────────────────────────┐ │
+    │                  │ replica_east_1                              │ │
+    │                  └────────────────────────────────────────────┘ │
+    │  SSL Mode:       ○ disable  ● prefer  ○ require  ○ verify-full │
+    │                                                                  │
+    │  Generated:                                                     │
+    │  ┌────────────────────────────────────────────────────────────┐ │
+    │  │ primary_conninfo = 'host=primary.example.com port=5432     │ │
+    │  │   user=repl_user sslmode=prefer application_name=replica_e │ │
+    │  │   ast_1'                                                    │ │
+    │  └────────────────────────────────────────────────────────────┘ │
+    │                                                                  │
+    │  [y] Copy  [t] Test Connection  [Enter] Apply  [Esc] Cancel    │
+    └──────────────────────────────────────────────────────────────────┘
+    ```
+
+**Libraries**:
+- `github.com/charmbracelet/bubbletea` - TUI framework
+- `github.com/charmbracelet/bubbles/progress` - Progress bars for slot retention
+- `github.com/charmbracelet/bubbles/spinner` - Loading indicators
+- `github.com/charmbracelet/lipgloss` - Styling, box drawing, layout
+- `github.com/charmbracelet/huh` - Form inputs for setup wizards
+- `github.com/xlab/treeprint` - Topology tree rendering
+- `github.com/guptarohit/asciigraph` - Sparklines and time-series charts
+- `github.com/fatih/color` - Color formatting (consistent with deadviz)
+- `github.com/mattn/go-sqlite3` - Historical lag data persistence
+- `github.com/sethvargo/go-password` - Secure password generation for replication users
 
 **Database Queries**:
-- `pg_stat_replication` for sender statistics
-- `pg_replication_slots` for slot information
+
+*Monitoring:*
+- `pg_stat_replication` for sender statistics (sent_lsn, write_lsn, flush_lsn, replay_lsn)
+- `pg_replication_slots` for slot information (physical and logical)
 - `pg_stat_wal_receiver` for receiver statistics on replicas
-- `pg_wal_lsn_diff()` for lag calculation
+- `pg_stat_archiver` for WAL archiving status
+- `pg_publication` and `pg_publication_tables` for logical publications
+- `pg_subscription` and `pg_stat_subscription` for logical subscriptions
+- `pg_wal_lsn_diff()` for byte lag calculation
+- `pg_last_wal_receive_lsn()`, `pg_last_wal_replay_lsn()` for replica-side stats
+
+*Setup & Configuration:*
+- `pg_settings` for configuration parameters (wal_level, max_wal_senders, max_replication_slots, etc.)
+- `pg_hba_file_rules` (PG15+) for pg_hba.conf inspection
+- `pg_read_file()` for pg_hba.conf on older versions
+- `pg_roles` to check/create replication users
+- `CREATE ROLE ... WITH REPLICATION LOGIN PASSWORD ...` for user creation
+- `pg_create_physical_replication_slot()` for physical slots
+- `pg_create_logical_replication_slot()` for logical slots
+- `pg_drop_replication_slot()` for slot cleanup
+- `pg_replication_slot_advance()` for slot management
+- `ALTER SYSTEM SET ...` for configuration changes (requires superuser)
+- `pg_reload_conf()` to apply configuration without restart
+- `CREATE PUBLICATION ... FOR TABLE ...` for logical replication
+- `CREATE SUBSCRIPTION ... CONNECTION ... PUBLICATION ...` for subscriptions
+- `pg_replication_origin_create()` for replication origins (future multi-master)
+
+**Data Model** (SQLite persistence):
+```sql
+CREATE TABLE replication_lag_history (
+    id INTEGER PRIMARY KEY,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    replica_name TEXT NOT NULL,
+    sent_lsn TEXT,
+    write_lsn TEXT,
+    flush_lsn TEXT,
+    replay_lsn TEXT,
+    byte_lag INTEGER,
+    time_lag_ms INTEGER,
+    sync_state TEXT,
+    -- Future multi-master fields
+    direction TEXT DEFAULT 'outbound',  -- 'outbound' | 'inbound' for bi-directional
+    conflict_count INTEGER DEFAULT 0
+);
+
+CREATE INDEX idx_lag_history_time ON replication_lag_history(timestamp, replica_name);
+```
 
 **Acceptance Criteria**:
+
+*Monitoring:*
 - Replication view accessible via `6` key
-- Table shows: Application Name, State, Sent LSN, Write LSN, Flush LSN, Replay LSN
-- Calculated columns: Byte Lag, Time Lag (estimated)
-- Replication slot table shows: Slot Name, Plugin, Database, Active, Restart LSN
-- Lag timeline sparkline (last 60 data points, 1-second intervals)
+- Topology panel shows primary/replica relationships with cascading support
+- Replica table shows: Application Name, State, Sent/Write/Flush/Replay LSN, Byte Lag, Time Lag
+- WAL pipeline visualization per selected replica
+- Lag sparklines with configurable time windows (1m, 5m, 15m, 1h)
+- Replication slot table with WAL retention progress bars
+- Logical replication panel showing publications and subscriptions
+- Sort replicas by lag, name, or state (`s`/`S` keys)
 - Color coding: Green (lag < 1MB), Yellow (1-10MB), Red (>10MB)
-- Graceful handling when replication not configured (show "N/A" message)
+- Sync state visual indicators matching PostgreSQL states
+- Historical lag data stored in SQLite (retention: 24 hours default)
+- Graceful handling when replication not configured
+- Auto-detect primary vs replica role and show appropriate stats
+- Toggle between overview and detail modes (`Enter`/`d`)
+- Help overlay with keybindings (`h`)
 - Auto-refresh every 2 seconds
 - Performance: Queries execute under 500ms
 
+*Setup & Configuration:*
+- Configuration checker panel shows replication readiness (`c` key)
+- Check validates: wal_level, max_wal_senders, max_replication_slots, wal_keep_size, hot_standby, archive_mode
+- Check validates pg_hba.conf for replication entries (PG15+ uses pg_hba_file_rules)
+- Check validates replication user exists with proper privileges
+- Visual status indicators: ✓ Ready, ⚠ Warning, ✗ Required
+- Overall status summary with issue count
+- Physical replication setup wizard (`w` key) with multi-step form
+- Wizard Step 1: Primary configuration (replication user, sync mode, replica count)
+- Wizard Step 2: Replication slot creation (name, type)
+- Wizard Step 3: pg_hba.conf entry generation
+- Wizard Step 4: pg_basebackup command generation
+- Wizard Step 5: Review and execute/copy commands
+- Logical replication setup wizard (`W` key) with multi-step form
+- Logical Step 1: Publication name and type (FOR TABLE vs FOR ALL TABLES)
+- Logical Step 2: Table selection with size/row counts
+- Logical Step 3: Subscriber connection details
+- Logical Step 4: Subscription creation with options
+- Replication user creation with secure password generation (`u` key)
+- Connection string builder for primary_conninfo (`b` key)
+- Connection string builder validates with test connection option
+- Copy generated commands to clipboard (`y` key in setup panels)
+- Read-only mode disables all setup/modification operations
+- Confirmation dialogs for destructive operations (slot drop, user drop)
+- Setup operations require superuser privileges (graceful error if not)
+
+**Keyboard Navigation**:
+
+*Monitoring:*
+- `j/k` or `↑/↓`: Navigate between replicas
+- `Enter` or `d`: Show replica details (WAL pipeline, extended stats)
+- `t`: Toggle topology view
+- `l`: Toggle logical replication panel
+- `s`: Cycle sort column (lag, name, state)
+- `S`: Toggle sort direction
+- `1-4`: Switch sparkline time window (1m, 5m, 15m, 1h)
+- `x`: Manage slot (drop with confirmation, requires non-readonly mode)
+- `y`: Copy replica info to clipboard
+- `R`: Force refresh
+- `h` or `?`: Show help overlay
+- `Esc`: Close overlay/details
+
+*Setup & Configuration:*
+- `c`: Open configuration checker panel
+- `w`: Open physical replication setup wizard
+- `W`: Open logical replication setup wizard
+- `u`: Create replication user (in config checker or wizard)
+- `b`: Open connection string builder
+- `g`: Generate pg_hba.conf entry (in config checker)
+- `Tab`: Next field (in wizards/forms)
+- `Shift+Tab`: Previous field (in wizards/forms)
+- `Space`: Toggle selection (in table picker)
+- `a`: Select all tables (in logical replication wizard)
+- `n`: Select none (in logical replication wizard)
+- `Enter`: Continue to next step (in wizards)
+- `←`: Back to previous step (in wizards)
+- `y`: Copy generated command to clipboard (in setup panels)
+- `t`: Test connection (in connection string builder)
+- `Esc`: Cancel wizard/close setup panel
+
 **Spec-Kit Command**:
 ```bash
-/speckit.specify Implement Replication Monitoring view for tracking PostgreSQL streaming replication. Display replication statistics from pg_stat_replication including sender/receiver LSN positions, byte lag, and time lag estimates. Show replication slot status from pg_replication_slots with active/inactive indicators. Visualize lag trends over time using sparklines (60-second window). Support graceful degradation when replication is not configured. Prioritize P1 stories (viewing lag and slot status) over P2 (timeline visualization). Auto-refresh every 2 seconds with sub-500ms query execution.
+/speckit.specify Implement Replication Monitoring and Setup view for tracking PostgreSQL streaming replication with rich visual feedback for both physical and logical replication, plus guided setup wizards for configuring and starting replication.
+
+**Data Sources:**
+
+*Monitoring:*
+Query pg_stat_replication for sender statistics (sent_lsn, write_lsn, flush_lsn, replay_lsn), pg_replication_slots for slot status (physical and logical), pg_stat_wal_receiver for receiver statistics, pg_publication/pg_subscription for logical replication, and pg_wal_lsn_diff() for byte lag calculation.
+
+*Setup & Configuration:*
+Query pg_settings for configuration parameters (wal_level, max_wal_senders, max_replication_slots, wal_keep_size, hot_standby, archive_mode). Use pg_hba_file_rules (PG15+) or pg_read_file() for pg_hba.conf inspection. Query pg_roles for replication user validation. Use pg_create_physical_replication_slot(), pg_create_logical_replication_slot(), ALTER SYSTEM SET, pg_reload_conf(), CREATE PUBLICATION, CREATE SUBSCRIPTION for setup operations.
+
+**Visual Components:**
+
+*Monitoring (6 components):*
+
+1. REPLICATION TOPOLOGY PANEL using treeprint library:
+   - ASCII tree diagram showing primary → replica relationships
+   - Support cascading replication (replica → replica chains)
+   - Node labels with hostname/app_name, sync state (sync/async/potential), lag indicator
+   - Color coding: Green (healthy <1MB), Yellow (lagging 1-10MB), Red (>10MB or disconnected)
+
+2. WAL PIPELINE VISUALIZATION (custom repviz package inspired by deadviz):
+   - Per-replica horizontal pipeline showing: Sent → Write → Flush → Replay LSN positions
+   - Visual progress indicators (●/○) for each stage completion
+   - Byte lag displayed between stages with color gradient
+
+3. LAG SPARKLINES using asciigraph library:
+   - Per-replica sparkline showing lag history with Unicode blocks (▁▂▃▄▅▆▇█)
+   - Configurable time windows: 60s (default), 5m, 15m, 1h
+   - Historical data persisted in SQLite for extended analysis
+
+4. REPLICATION SLOT STATUS using bubbles/progress:
+   - Progress bars showing WAL retention percentage of max_slot_wal_keep_size
+   - Physical vs logical slot distinction
+   - Color-coded warnings for inactive or high-retention slots
+
+5. LOGICAL REPLICATION PANEL:
+   - Publications with table counts and subscriber counts
+   - Subscriptions with upstream connection, enabled status, and lag
+
+6. SYNC STATE INDICATORS:
+   - Visual icons: ● sync, ◐ async, ◑ potential, ○ quorum, ✗ disconnected
+   - Streaming vs catchup mode indication
+
+*Setup & Configuration (5 components):*
+
+7. CONFIGURATION CHECKER PANEL:
+   - Validates PostgreSQL replication-readiness parameters
+   - Checks: wal_level (replica/logical), max_wal_senders (>0), max_replication_slots (>0), wal_keep_size, hot_standby, archive_mode
+   - Checks pg_hba.conf for replication entries
+   - Validates replication user exists with REPLICATION privilege
+   - Visual indicators: ✓ Ready (green), ⚠ Warning (yellow), ✗ Required (red)
+   - Overall status summary with actionable issue list
+
+8. PHYSICAL REPLICATION SETUP WIZARD using huh forms library:
+   - Step 1: Primary configuration (replication user, synchronous/asynchronous mode, replica count)
+   - Step 2: Replication slot creation (slot name, type)
+   - Step 3: pg_hba.conf entry generation (host/hostssl, IP range, auth method)
+   - Step 4: pg_basebackup command generation with all options
+   - Step 5: Review panel with copy-to-clipboard and optional execute
+
+9. PG_BASEBACKUP COMMAND GENERATOR:
+   - Generates complete pg_basebackup command with: --host, --port, --username, --pgdata, --wal-method=stream, --write-recovery-conf, --slot, --create-slot, --checkpoint, --progress, --verbose
+   - Generates corresponding primary_conninfo and primary_slot_name for recovery
+   - Copy command to clipboard or execute directly (with progress monitoring)
+
+10. LOGICAL REPLICATION SETUP WIZARD using huh forms library:
+    - Step 1: Publication name and scope (FOR TABLE vs FOR ALL TABLES)
+    - Step 2: Table selection with schema browser, size/row counts, large table warnings
+    - Step 3: Subscriber connection details (host, port, database, user)
+    - Step 4: Subscription creation with options (copy_data, enabled, synchronous_commit)
+    - Generated SQL for CREATE PUBLICATION and CREATE SUBSCRIPTION
+
+11. CONNECTION STRING BUILDER:
+    - Interactive form for primary_conninfo parameters
+    - Fields: host, port, user, password (masked), application_name, sslmode
+    - Live preview of generated connection string
+    - Test connection button to validate before use
+    - Copy to clipboard
+
+**Layout:**
+Split view with Topology (left 40%) and Details (right 60%). Details panel shows selected replica stats, WAL pipeline visualization, and lag sparkline. Toggle between overview (all replicas table) and detail (single replica deep-dive) modes. Setup wizards render as centered modal overlays.
+
+**Data Persistence:**
+Store historical lag data in SQLite (replication_lag_history table) with 24-hour retention for trend analysis. Data model includes future fields for bi-directional replication support (direction, conflict_count) to prepare for multi-master system integration.
+
+**Keyboard Navigation:**
+
+*Monitoring:*
+j/k navigate replicas, Enter/d show details, t toggle topology, l toggle logical panel, s/S sort, 1-4 sparkline windows, x manage slots, y copy, R refresh, h help.
+
+*Setup:*
+c config checker, w physical wizard, W logical wizard, u create user, b connection builder, g generate pg_hba entry, Tab/Shift+Tab navigate fields, Space toggle selection, a/n select all/none, Enter continue, ← back, y copy, t test connection, Esc cancel.
+
+**Graceful Degradation:**
+Show "Replication not configured" when pg_stat_replication empty. Auto-detect primary vs replica role and display appropriate statistics. Handle permission errors gracefully with guidance. Setup operations require superuser - show clear error with privilege requirements if not. Read-only mode disables all setup/modification operations.
+
+**Security:**
+Replication user creation uses secure password generation (go-password library). Passwords displayed once with copy option, then masked. Generated pg_hba.conf entries use scram-sha-256 by default. SSL mode defaults to 'prefer' in connection strings.
+
+Build using Bubbletea framework with lipgloss styling matching Query Performance and Locks views. Create repviz package for custom visualizations (topology.go, pipeline.go, sparkline.go). Create setup package using huh forms for wizards (config_check.go, physical_wizard.go, logical_wizard.go, connstring.go). Prioritize P1 stories (lag viewing, slot status, topology, config checker, physical wizard) then P2 (WAL pipeline, sparklines, logical replication, logical wizard, connection builder) then P3 (slot management, historical trends, advanced setup options). Auto-refresh every 2 seconds with sub-500ms query execution.
 ```
 
 ---
