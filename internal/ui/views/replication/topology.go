@@ -1,41 +1,19 @@
 package replication
 
 import (
-	"fmt"
-	"strings"
-
-	"github.com/charmbracelet/lipgloss"
-
-	"github.com/willibrandon/steep/internal/ui/styles"
+	"github.com/willibrandon/steep/internal/ui/views/replication/repviz"
 )
 
-// renderTopology renders the topology view.
+// renderTopology renders the topology view using xlab/treeprint.
+// T036: Implement topology tree rendering using xlab/treeprint showing primary at root
+// T037: Add support for cascading replication (replica-to-replica chains) in tree structure
+// T038: Display sync state indicators (sync, async, potential, quorum) on each node
+// T039: Show lag bytes next to each replica node in topology
 func (v *ReplicationView) renderTopology() string {
-	// Basic topology rendering - will be enhanced in US3
-	var b strings.Builder
-
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
-	b.WriteString(headerStyle.Render("Replication Topology"))
-	b.WriteString("\n\n")
-
-	if len(v.data.Replicas) == 0 {
-		b.WriteString("No replicas connected.\n")
-		b.WriteString("\nPress t or Esc to return")
-		return b.String()
+	config := repviz.TopologyConfig{
+		Width:     v.width,
+		Height:    v.height,
+		IsPrimary: v.data.IsPrimary,
 	}
-
-	// Simple tree representation
-	b.WriteString("PRIMARY\n")
-	for i, r := range v.data.Replicas {
-		prefix := "├── "
-		if i == len(v.data.Replicas)-1 {
-			prefix = "└── "
-		}
-		lagStr := r.FormatByteLag()
-		syncStr := r.SyncState.String()
-		b.WriteString(fmt.Sprintf("%s%s (%s, %s lag)\n", prefix, r.ApplicationName, syncStr, lagStr))
-	}
-
-	b.WriteString("\nPress t or Esc to return")
-	return b.String()
+	return repviz.RenderTopology(v.data, config)
 }

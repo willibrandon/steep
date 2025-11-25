@@ -126,11 +126,11 @@ Based on plan.md structure:
 
 ### Implementation for User Story 3
 
-- [ ] T036 [US3] Implement topology tree rendering using xlab/treeprint showing primary at root in `internal/ui/views/replication/repviz/topology.go`
-- [ ] T037 [US3] Add support for cascading replication (replica-to-replica chains) in tree structure in `internal/ui/views/replication/repviz/topology.go`
-- [ ] T038 [US3] Display sync state indicators (sync, async, potential, quorum) on each node in `internal/ui/views/replication/repviz/topology.go`
-- [ ] T039 [US3] Show lag bytes next to each replica node in topology in `internal/ui/views/replication/repviz/topology.go`
-- [ ] T040 [US3] Add `t` key toggle to show/hide topology view in Overview tab in `internal/ui/views/replication/view.go`
+- [x] T036 [US3] Implement topology tree rendering using xlab/treeprint showing primary at root in `internal/ui/views/replication/repviz/topology.go`
+- [x] T037 [US3] Add support for cascading replication (replica-to-replica chains) in tree structure in `internal/ui/views/replication/repviz/topology.go`
+- [x] T038 [US3] Display sync state indicators (sync, async, potential, quorum) on each node in `internal/ui/views/replication/repviz/topology.go`
+- [x] T039 [US3] Show lag bytes next to each replica node in topology in `internal/ui/views/replication/repviz/topology.go`
+- [x] T040 [US3] Add `t` key toggle to show/hide topology view in Overview tab in `internal/ui/views/replication/view.go`
 
 **Checkpoint**: User Story 3 complete - can visualize replication topology
 
