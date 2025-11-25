@@ -22,6 +22,7 @@ import (
 	"github.com/willibrandon/steep/internal/ui/views"
 	locksview "github.com/willibrandon/steep/internal/ui/views/locks"
 	queriesview "github.com/willibrandon/steep/internal/ui/views/queries"
+	replicationview "github.com/willibrandon/steep/internal/ui/views/replication"
 	tablesview "github.com/willibrandon/steep/internal/ui/views/tables"
 )
 
@@ -55,8 +56,9 @@ type Model struct {
 	viewList    []views.ViewType
 	dashboard   *views.DashboardView
 	queriesView *queriesview.QueriesView
-	locksView   *locksview.LocksView
-	tablesView  *tablesview.TablesView
+	locksView       *locksview.LocksView
+	tablesView      *tablesview.TablesView
+	replicationView *replicationview.ReplicationView
 
 	// Application state
 	helpVisible bool
@@ -113,6 +115,10 @@ func New(readonly bool) (*Model, error) {
 	tablesView := tablesview.NewTablesView()
 	tablesView.SetReadOnly(readonly)
 
+	// Initialize replication view
+	replicationView := replicationview.NewReplicationView()
+	replicationView.SetReadOnly(readonly)
+
 	// Define available views
 	viewList := []views.ViewType{
 		views.ViewDashboard,
@@ -134,6 +140,7 @@ func New(readonly bool) (*Model, error) {
 		queriesView:       queriesView,
 		locksView:         locksView,
 		tablesView:        tablesView,
+		replicationView:   replicationView,
 		connected:         false,
 		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
 		reconnecting:      false,
@@ -193,6 +200,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.queriesView.SetSize(msg.Width, msg.Height-5)
 		m.locksView.SetSize(msg.Width, msg.Height-5)
 		m.tablesView.SetSize(msg.Width, msg.Height-5)
+		m.replicationView.SetSize(msg.Width, msg.Height-5)
 		return m, nil
 
 	case DatabaseConnectedMsg:
@@ -495,6 +503,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.locksView.Update(msg)
 		return m, nil
 
+	case ui.ReplicationDataMsg:
+		// Forward to replication view
+		m.replicationView.Update(msg)
+		return m, nil
+
+	case ui.DropSlotResultMsg:
+		// Forward to replication view
+		m.replicationView.Update(msg)
+		return m, nil
+
 	case ui.DeadlockScanProgressMsg:
 		// Forward progress to locks view
 		m.locksView.Update(msg)
@@ -741,6 +759,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			_, cmd = m.tablesView.Update(msg)
 			return m, cmd
 		}
+	case views.ViewReplication:
+		if m.connected {
+			var cmd tea.Cmd
+			_, cmd = m.replicationView.Update(msg)
+			return m, cmd
+		}
 	}
 
 	return m, nil
@@ -838,7 +862,7 @@ func (m Model) renderCurrentView() string {
 	case views.ViewTables:
 		return m.tablesView.View()
 	case views.ViewReplication:
-		return styles.InfoStyle.Render("Replication status view - Coming soon!")
+		return m.replicationView.View()
 	default:
 		return styles.ErrorStyle.Render("Unknown view")
 	}

@@ -159,3 +159,17 @@ type ResetLogPositionsResultMsg struct {
 	Success bool
 	Error   error
 }
+
+// ReplicationDataMsg contains replication data from the monitor goroutine.
+type ReplicationDataMsg struct {
+	Data      *models.ReplicationData
+	FetchedAt time.Time
+	Error     error
+}
+
+// DropSlotResultMsg contains the result of dropping a replication slot.
+type DropSlotResultMsg struct {
+	SlotName string
+	Success  bool
+	Error    error
+}

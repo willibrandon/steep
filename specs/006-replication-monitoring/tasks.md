@@ -68,15 +68,15 @@ Based on plan.md structure:
 
 ### Monitor Infrastructure
 
-- [ ] T020 Implement ReplicationMonitor with 2-second refresh, lag history ring buffer, and SQLite persistence in `internal/monitors/replication.go`
-- [ ] T021 Define ReplicationUpdate message type for Bubbletea message passing in `internal/monitors/replication.go`
+- [x] T020 Implement ReplicationMonitor with 2-second refresh, lag history ring buffer, and SQLite persistence in `internal/monitors/replication.go`
+- [x] T021 Define ReplicationUpdate message type for Bubbletea message passing in `internal/monitors/replication.go`
 
 ### Base View Structure
 
-- [ ] T022 Create ReplicationView struct implementing ViewModel interface with Init(), Update(), View(), SetSize() in `internal/ui/views/replication/view.go`
-- [ ] T023 Implement tab definitions (Overview, Slots, Logical, Setup) and tab switching logic in `internal/ui/views/replication/tabs.go`
-- [ ] T024 Create help overlay content with all keybindings in `internal/ui/views/replication/help.go`
-- [ ] T025 Register `6` key for Replication view and add to view map in `internal/app/app.go`
+- [x] T022 Create ReplicationView struct implementing ViewModel interface with Init(), Update(), View(), SetSize() in `internal/ui/views/replication/view.go`
+- [x] T023 Implement tab definitions (Overview, Slots, Logical, Setup) and tab switching logic in `internal/ui/views/replication/tabs.go`
+- [x] T024 Create help overlay content with all keybindings in `internal/ui/views/replication/help.go`
+- [x] T025 Register `6` key for Replication view and add to view map in `internal/app/app.go`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
