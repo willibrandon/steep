@@ -612,6 +612,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd := m.tablesView.Update(msg)
 		return m, cmd
 
+	case tablesview.MaintenanceResultMsg:
+		// Forward to tables view
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
 	case spinner.TickMsg:
 		// Forward spinner ticks to locks, queries, and tables views
 		_, locksCmd := m.locksView.Update(msg)

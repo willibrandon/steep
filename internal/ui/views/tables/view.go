@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mattn/go-runewidth"
@@ -122,6 +122,14 @@ type (
 		Constraints []models.Constraint
 		Error       error
 	}
+
+	// MaintenanceResultMsg contains the result of a maintenance operation.
+	MaintenanceResultMsg struct {
+		Operation string // "VACUUM", "ANALYZE", "REINDEX"
+		TableName string // schema.table
+		Success   bool
+		Error     error
+	}
 )
 
 // TablesView displays schema and table statistics.
@@ -159,6 +167,9 @@ type TablesView struct {
 	pgstattupleAvailable bool
 	pgstattupleChecked   bool
 	installPromptShown   bool // Session-scoped: don't prompt again if declined
+
+	// Maintenance target
+	maintenanceTarget *models.Table // Table selected for maintenance operation
 
 	// App state
 	readonlyMode   bool
@@ -442,6 +453,19 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return v, nil
 
+	case MaintenanceResultMsg:
+		v.maintenanceTarget = nil
+		if msg.Success {
+			v.showToast(fmt.Sprintf("✓ %s completed: %s", msg.Operation, msg.TableName), false)
+			return v, v.fetchTablesData()
+		}
+		errMsg := fmt.Sprintf("✗ %s failed: %s", msg.Operation, msg.TableName)
+		if msg.Error != nil {
+			errMsg = fmt.Sprintf("✗ %s failed on %s: %v", msg.Operation, msg.TableName, msg.Error)
+		}
+		v.showToast(errMsg, true)
+		return v, nil
+
 	case RefreshTablesMsg:
 		if !v.refreshing {
 			v.refreshing = true
@@ -455,8 +479,8 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			indexes := v.getSelectedTableIndexes()
 			showIndexPanel := len(indexes) > 0
 
-			// Table panel starts at Y=7 (after app header, status, title, header)
-			tableStartY := 7
+			// Table panel starts at Y=8 (after app header, status, title, header)
+			tableStartY := 8
 			var indexStartY int
 			var tablePanelRows int
 
@@ -573,6 +597,22 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	// Handle maintenance confirmation dialogs
+	if v.mode == ModeConfirmVacuum || v.mode == ModeConfirmAnalyze || v.mode == ModeConfirmReindex {
+		switch key {
+		case "y", "Y", "enter":
+			// User confirmed - execute the operation
+			cmd := v.executeMaintenance()
+			v.mode = ModeNormal
+			return cmd
+		case "n", "N", "esc", "q":
+			// User cancelled
+			v.mode = ModeNormal
+			v.maintenanceTarget = nil
+		}
+		return nil
+	}
+
 	// Handle details mode
 	if v.mode == ModeDetails {
 		switch key {
@@ -638,9 +678,10 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 	// Clipboard
 	case "y":
-		if v.focusPanel == FocusIndexes {
+		switch v.focusPanel {
+		case FocusIndexes:
 			v.copySelectedIndexName()
-		} else if v.focusPanel == FocusTables {
+		case FocusTables:
 			// Copy table name
 			if v.selectedIdx >= 0 && v.selectedIdx < len(v.treeItems) {
 				item := v.treeItems[v.selectedIdx]
@@ -680,7 +721,7 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		if v.focusPanel == FocusIndexes {
 			indexes := v.getSelectedTableIndexes()
 			v.selectedIndex = max(0, len(indexes)-1)
-			v.ensureIndexVisible(len(indexes))
+			v.ensureIndexVisible()
 		} else {
 			v.selectedIdx = max(0, len(v.treeItems)-1)
 			v.ensureVisible()
@@ -745,11 +786,19 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		v.toggleSortDirection()
 
 	// Refresh
-	case "r":
+	case "R":
 		if !v.refreshing {
 			v.refreshing = true
 			return v.fetchTablesData()
 		}
+
+	// Maintenance operations - require a table to be selected
+	case "v":
+		return v.promptMaintenance(ModeConfirmVacuum)
+	case "a":
+		return v.promptMaintenance(ModeConfirmAnalyze)
+	case "r":
+		return v.promptMaintenance(ModeConfirmReindex)
 	}
 
 	return nil
@@ -939,11 +988,11 @@ func (v *TablesView) moveIndexSelection(delta int) {
 	if v.selectedIndex >= len(indexes) {
 		v.selectedIndex = len(indexes) - 1
 	}
-	v.ensureIndexVisible(len(indexes))
+	v.ensureIndexVisible()
 }
 
 // ensureIndexVisible adjusts index scroll offset to keep selection visible.
-func (v *TablesView) ensureIndexVisible(totalIndexes int) {
+func (v *TablesView) ensureIndexVisible() {
 	indexHeight := v.indexPanelHeight()
 	if indexHeight <= 0 {
 		return
@@ -1122,6 +1171,90 @@ func (v *TablesView) formatSQL(sql string) string {
 	return sql
 }
 
+// promptMaintenance initiates a maintenance operation with confirmation.
+// Returns nil if readonly mode or no table selected.
+func (v *TablesView) promptMaintenance(mode TablesMode) tea.Cmd {
+	// Check readonly mode
+	if v.readonlyMode {
+		var opName string
+		switch mode {
+		case ModeConfirmVacuum:
+			opName = "VACUUM"
+		case ModeConfirmAnalyze:
+			opName = "ANALYZE"
+		case ModeConfirmReindex:
+			opName = "REINDEX"
+		}
+		v.showToast(fmt.Sprintf("%s blocked: read-only mode", opName), true)
+		return nil
+	}
+
+	// Must have a table selected
+	if v.selectedIdx < 0 || v.selectedIdx >= len(v.treeItems) {
+		return nil
+	}
+	item := v.treeItems[v.selectedIdx]
+	if item.Table == nil {
+		v.showToast("Select a table first", true)
+		return nil
+	}
+
+	// Store target and show confirmation
+	v.maintenanceTarget = item.Table
+	v.mode = mode
+	return nil
+}
+
+// executeMaintenance executes the pending maintenance operation.
+func (v *TablesView) executeMaintenance() tea.Cmd {
+	if v.maintenanceTarget == nil || v.pool == nil {
+		return nil
+	}
+
+	target := v.maintenanceTarget
+	tableName := fmt.Sprintf("%s.%s", target.SchemaName, target.Name)
+
+	switch v.mode {
+	case ModeConfirmVacuum:
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			err := queries.ExecuteVacuum(ctx, v.pool, target.SchemaName, target.Name)
+			return MaintenanceResultMsg{
+				Operation: "VACUUM",
+				TableName: tableName,
+				Success:   err == nil,
+				Error:     err,
+			}
+		}
+	case ModeConfirmAnalyze:
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			err := queries.ExecuteAnalyze(ctx, v.pool, target.SchemaName, target.Name)
+			return MaintenanceResultMsg{
+				Operation: "ANALYZE",
+				TableName: tableName,
+				Success:   err == nil,
+				Error:     err,
+			}
+		}
+	case ModeConfirmReindex:
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			err := queries.ExecuteReindex(ctx, v.pool, target.SchemaName, target.Name)
+			return MaintenanceResultMsg{
+				Operation: "REINDEX",
+				TableName: tableName,
+				Success:   err == nil,
+				Error:     err,
+			}
+		}
+	}
+	return nil
+}
+
 // moveSelection moves the selection by delta rows.
 func (v *TablesView) moveSelection(delta int) {
 	v.selectedIdx += delta
@@ -1278,6 +1411,11 @@ func (v *TablesView) View() string {
 		return v.renderConfirmInstall()
 	}
 
+	// Maintenance confirmation dialogs
+	if v.mode == ModeConfirmVacuum || v.mode == ModeConfirmAnalyze || v.mode == ModeConfirmReindex {
+		return v.renderMaintenanceConfirm()
+	}
+
 	return v.renderMainView()
 }
 
@@ -1292,7 +1430,7 @@ func (v *TablesView) renderMainView() string {
 	// Show loading/error state
 	if v.loading {
 		content := lipgloss.NewStyle().
-			Width(v.width - 2).
+			Width(v.width-2).
 			Height(v.tableHeight()).
 			Align(lipgloss.Center, lipgloss.Center).
 			Render(v.spinner.View() + " Loading tables...")
@@ -1302,7 +1440,7 @@ func (v *TablesView) renderMainView() string {
 
 	if v.err != nil {
 		content := lipgloss.NewStyle().
-			Width(v.width - 2).
+			Width(v.width-2).
 			Height(v.tableHeight()).
 			Align(lipgloss.Center, lipgloss.Center).
 			Foreground(styles.ColorCriticalFg).
@@ -1432,7 +1570,7 @@ func (v *TablesView) renderTable() string {
 			emptyMsg = "No user tables found (press P to show system schemas)"
 		}
 		return lipgloss.NewStyle().
-			Width(v.width - 2).
+			Width(v.width-2).
 			Height(v.tableHeight()).
 			Align(lipgloss.Center, lipgloss.Center).
 			Foreground(styles.ColorTextDim).
@@ -1466,7 +1604,7 @@ func (v *TablesView) renderTableSplit() string {
 			emptyMsg = "No user tables found (press P to show system schemas)"
 		}
 		return lipgloss.NewStyle().
-			Width(v.width - 2).
+			Width(v.width-2).
 			Height(v.tablePanelHeight()).
 			Align(lipgloss.Center, lipgloss.Center).
 			Foreground(styles.ColorTextDim).
@@ -1732,20 +1870,20 @@ func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 func (v *TablesView) renderFooter() string {
 	var hints string
 
-	// Show toast message if recent (within 3 seconds)
-	if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
+	// Show toast message if recent (within 5 seconds)
+	if v.toastMessage != "" && time.Since(v.toastTime) < 5*time.Second {
 		toastStyle := styles.FooterHintStyle
 		if v.toastError {
-			toastStyle = toastStyle.Foreground(styles.ColorCriticalFg)
+			toastStyle = toastStyle.Foreground(styles.ColorError)
 		} else {
-			toastStyle = toastStyle.Foreground(styles.ColorActive)
+			toastStyle = toastStyle.Foreground(styles.ColorSuccess)
 		}
 		hints = toastStyle.Render(v.toastMessage)
 	} else {
 		if v.focusPanel == FocusIndexes {
 			hints = styles.FooterHintStyle.Render("[j/k]nav [i]tables [y]copy [r]efresh [h]elp")
 		} else {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [P]sys [h]elp")
+			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [P]sys [var]maint [h]elp")
 		}
 	}
 
@@ -1818,6 +1956,53 @@ This will execute:
 		BorderForeground(styles.ColorAccent).
 		Padding(1, 2).
 		Width(50)
+
+	return lipgloss.Place(
+		v.width, v.height,
+		lipgloss.Center, lipgloss.Center,
+		dialogStyle.Render(dialogContent),
+	)
+}
+
+// renderMaintenanceConfirm renders the maintenance operation confirmation dialog.
+func (v *TablesView) renderMaintenanceConfirm() string {
+	if v.maintenanceTarget == nil {
+		return v.renderMainView()
+	}
+
+	tableName := fmt.Sprintf("%s.%s", v.maintenanceTarget.SchemaName, v.maintenanceTarget.Name)
+
+	var operation, description, command string
+	switch v.mode {
+	case ModeConfirmVacuum:
+		operation = "VACUUM"
+		description = "Reclaims storage from dead tuples and updates\nvisibility map. May take a while on large tables."
+		command = fmt.Sprintf("VACUUM %s", tableName)
+	case ModeConfirmAnalyze:
+		operation = "ANALYZE"
+		description = "Updates table statistics for the query planner.\nFast operation, safe to run frequently."
+		command = fmt.Sprintf("ANALYZE %s", tableName)
+	case ModeConfirmReindex:
+		operation = "REINDEX"
+		description = "Rebuilds all indexes on the table. This will\nlock the table for writes during the operation."
+		command = fmt.Sprintf("REINDEX TABLE %s", tableName)
+	}
+
+	dialogContent := fmt.Sprintf(`%s %s?
+
+%s
+
+This will execute:
+  %s
+
+[y] or [Enter] = Execute
+[n] or [Esc]   = Cancel`, operation, tableName, description, command)
+
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.ColorAccent).
+		Padding(1, 2).
+		Width(55)
 
 	return lipgloss.Place(
 		v.width, v.height,

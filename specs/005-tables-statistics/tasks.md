@@ -181,14 +181,14 @@ Based on plan.md structure:
 
 ### Implementation for User Story 7
 
-- [ ] T055 [US7] Implement ExecuteVacuum query in internal/db/queries/tables.go (properly quoted schema.table)
-- [ ] T056 [US7] Implement ExecuteAnalyze query in internal/db/queries/tables.go
-- [ ] T057 [US7] Implement ExecuteReindex query in internal/db/queries/tables.go
-- [ ] T058 [US7] Implement ModeConfirmVacuum/Analyze/Reindex handling in Update() in internal/ui/views/tables/view.go
-- [ ] T059 [US7] Implement renderMaintenanceConfirm method in internal/ui/views/tables/view.go (confirmation dialog)
-- [ ] T060 [US7] Implement executeVacuum/executeAnalyze/executeReindex commands in internal/ui/views/tables/view.go
-- [ ] T061 [US7] Add readonly mode check for maintenance operations in internal/ui/views/tables/view.go (show toast if blocked)
-- [ ] T062 [US7] Add success/failure toast messages for maintenance operations in internal/ui/views/tables/view.go
+- [X] T055 [US7] Implement ExecuteVacuum query in internal/db/queries/tables.go (properly quoted schema.table)
+- [X] T056 [US7] Implement ExecuteAnalyze query in internal/db/queries/tables.go
+- [X] T057 [US7] Implement ExecuteReindex query in internal/db/queries/tables.go
+- [X] T058 [US7] Implement ModeConfirmVacuum/Analyze/Reindex handling in Update() in internal/ui/views/tables/view.go
+- [X] T059 [US7] Implement renderMaintenanceConfirm method in internal/ui/views/tables/view.go (confirmation dialog)
+- [X] T060 [US7] Implement executeVacuum/executeAnalyze/executeReindex commands in internal/ui/views/tables/view.go
+- [X] T061 [US7] Add readonly mode check for maintenance operations in internal/ui/views/tables/view.go (show toast if blocked)
+- [X] T062 [US7] Add success/failure toast messages for maintenance operations in internal/ui/views/tables/view.go
 
 **Checkpoint**: User Story 7 complete - can execute maintenance operations with confirmation
 

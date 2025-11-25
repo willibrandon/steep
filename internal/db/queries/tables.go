@@ -421,3 +421,51 @@ func GetTableConstraints(ctx context.Context, pool *pgxpool.Pool, tableOID uint3
 
 	return constraints, nil
 }
+
+// ExecuteVacuum runs VACUUM on a table.
+// Uses quote_ident for safe identifier quoting.
+func ExecuteVacuum(ctx context.Context, pool *pgxpool.Pool, schemaName, tableName string) error {
+	// Build the query with properly quoted identifiers
+	// VACUUM cannot use prepared statements, so we use quote_ident for safety
+	query := fmt.Sprintf("VACUUM %s.%s",
+		quoteIdentifier(schemaName),
+		quoteIdentifier(tableName))
+
+	_, err := pool.Exec(ctx, query)
+	if err != nil {
+		return fmt.Errorf("vacuum %s.%s: %w", schemaName, tableName, err)
+	}
+	return nil
+}
+
+// ExecuteAnalyze runs ANALYZE on a table.
+func ExecuteAnalyze(ctx context.Context, pool *pgxpool.Pool, schemaName, tableName string) error {
+	query := fmt.Sprintf("ANALYZE %s.%s",
+		quoteIdentifier(schemaName),
+		quoteIdentifier(tableName))
+
+	_, err := pool.Exec(ctx, query)
+	if err != nil {
+		return fmt.Errorf("analyze %s.%s: %w", schemaName, tableName, err)
+	}
+	return nil
+}
+
+// ExecuteReindex runs REINDEX on a table.
+func ExecuteReindex(ctx context.Context, pool *pgxpool.Pool, schemaName, tableName string) error {
+	query := fmt.Sprintf("REINDEX TABLE %s.%s",
+		quoteIdentifier(schemaName),
+		quoteIdentifier(tableName))
+
+	_, err := pool.Exec(ctx, query)
+	if err != nil {
+		return fmt.Errorf("reindex %s.%s: %w", schemaName, tableName, err)
+	}
+	return nil
+}
+
+// quoteIdentifier safely quotes a PostgreSQL identifier.
+// Doubles any internal double quotes and wraps in double quotes.
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
