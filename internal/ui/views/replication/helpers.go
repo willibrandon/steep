@@ -134,6 +134,16 @@ func (v *ReplicationView) dropSlotCmd() tea.Cmd {
 	}
 }
 
+func (v *ReplicationView) executeWizardCmd() tea.Cmd {
+	// Send a request message that app.go will handle to execute the command
+	return func() tea.Msg {
+		return ui.WizardExecRequestMsg{
+			Command: v.wizardExecCommand,
+			Label:   v.wizardExecLabel,
+		}
+	}
+}
+
 // renderFooter renders the bottom footer (like other views).
 func (v *ReplicationView) renderFooter() string {
 	var hints string

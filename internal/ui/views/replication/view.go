@@ -12,6 +12,7 @@ import (
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/styles"
+	"github.com/willibrandon/steep/internal/ui/views/replication/setup"
 )
 
 // ReplicationMode represents the current interaction mode.
@@ -24,6 +25,8 @@ const (
 	ModeTopology
 	ModeConfirmDropSlot
 	ModeConfigCheck
+	ModePhysicalWizard
+	ModeConfirmWizardExecute
 )
 
 // SortColumn represents the available sort columns for replicas.
@@ -108,6 +111,13 @@ type ReplicationView struct {
 
 	// Clipboard
 	clipboard *ui.ClipboardWriter
+
+	// Physical wizard state
+	physicalWizard *setup.PhysicalWizardState
+
+	// Wizard execute confirmation
+	wizardExecCommand string
+	wizardExecLabel   string
 }
 
 // NewReplicationView creates a new replication view.
@@ -191,6 +201,18 @@ func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.showToast(fmt.Sprintf("Failed to drop slot '%s'", msg.SlotName), true)
 		}
 
+	case ui.WizardExecResultMsg:
+		// Clear the stored command
+		v.wizardExecCommand = ""
+		v.wizardExecLabel = ""
+		if msg.Error != nil {
+			v.showToast("Execute failed: "+msg.Error.Error(), true)
+		} else if msg.Success {
+			v.showToast("Command executed successfully", false)
+		} else {
+			v.showToast("Command execution failed", true)
+		}
+
 	case tea.WindowSizeMsg:
 		v.SetSize(msg.Width, msg.Height)
 
@@ -213,6 +235,15 @@ func (v *ReplicationView) View() string {
 		return HelpOverlay(v.width, v.height, v.activeTab)
 	case ModeConfirmDropSlot:
 		return v.renderDropSlotConfirm()
+	case ModePhysicalWizard:
+		content := v.renderPhysicalWizard()
+		// Apply toast overlay if active
+		if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
+			return v.overlayToast(content)
+		}
+		return content
+	case ModeConfirmWizardExecute:
+		return v.renderWizardExecConfirm()
 	}
 
 	var content string

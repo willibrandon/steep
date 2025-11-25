@@ -14,6 +14,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/mitchellh/go-wordwrap v1.0.1
 	github.com/pganalyze/pg_query_go/v6 v6.1.0
+	github.com/sethvargo/go-password v0.3.1
 	github.com/spf13/viper v1.18.2
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/xlab/treeprint v1.2.0

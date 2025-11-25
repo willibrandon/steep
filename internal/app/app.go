@@ -524,6 +524,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.replicationView.Update(msg)
 		return m, nil
 
+	case ui.WizardExecRequestMsg:
+		// Execute wizard SQL command and return result
+		return m, m.executeWizardCommand(msg.Command, msg.Label)
+
+	case ui.WizardExecResultMsg:
+		// Forward to replication view
+		m.replicationView.Update(msg)
+		return m, nil
+
 	case ui.DeadlockScanProgressMsg:
 		// Forward progress to locks view
 		m.locksView.Update(msg)
@@ -904,5 +913,39 @@ func (m *Model) Cleanup() {
 	}
 	if m.dbPool != nil {
 		m.dbPool.Close()
+	}
+}
+
+// executeWizardCommand executes a SQL command from the wizard
+func (m Model) executeWizardCommand(command, label string) tea.Cmd {
+	return func() tea.Msg {
+		if m.dbPool == nil {
+			return ui.WizardExecResultMsg{
+				Command: command,
+				Label:   label,
+				Success: false,
+				Error:   fmt.Errorf("no database connection"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		_, err := m.dbPool.Exec(ctx, command)
+		if err != nil {
+			return ui.WizardExecResultMsg{
+				Command: command,
+				Label:   label,
+				Success: false,
+				Error:   err,
+			}
+		}
+
+		return ui.WizardExecResultMsg{
+			Command: command,
+			Label:   label,
+			Success: true,
+			Error:   nil,
+		}
 	}
 }

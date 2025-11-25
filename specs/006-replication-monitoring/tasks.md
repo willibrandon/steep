@@ -162,15 +162,15 @@ Based on plan.md structure:
 
 ### Implementation for User Story 5
 
-- [ ] T046 [US5] Create PhysicalWizard struct with multi-step form using charmbracelet/huh in `internal/ui/views/replication/setup/physical_wizard.go`
-- [ ] T047 [US5] Implement Step 1: Replication user configuration (username, password auto-gen/manual) in `internal/ui/views/replication/setup/physical_wizard.go`
-- [ ] T048 [US5] Implement Step 2: Sync mode selection (sync, async) and replica count in `internal/ui/views/replication/setup/physical_wizard.go`
-- [ ] T049 [US5] Implement Step 3: Review panel with generated pg_basebackup command in `internal/ui/views/replication/setup/physical_wizard.go`
-- [ ] T050 [US5] Generate recovery.conf/postgresql.auto.conf configuration for replica in `internal/ui/views/replication/setup/physical_wizard.go`
-- [ ] T051 [US5] Generate pg_hba.conf entries for replication access in `internal/ui/views/replication/setup/physical_wizard.go`
-- [ ] T052 [US5] Add copy-to-clipboard for all generated commands using golang.design/x/clipboard in `internal/ui/views/replication/setup/physical_wizard.go`
-- [ ] T053 [US5] Block wizard in read-only mode with appropriate message in `internal/ui/views/replication/setup/physical_wizard.go`
-- [ ] T054 [US5] Integrate physical wizard into Setup tab with keyboard shortcut in `internal/ui/views/replication/view.go`
+- [x] T046 [US5] Create PhysicalWizard struct with multi-step form using charmbracelet/huh in `internal/ui/views/replication/setup/physical_wizard.go`
+- [x] T047 [US5] Implement Step 1: Replication user configuration (username, password auto-gen/manual) in `internal/ui/views/replication/setup/physical_wizard.go`
+- [x] T048 [US5] Implement Step 2: Sync mode selection (sync, async) and replica count in `internal/ui/views/replication/setup/physical_wizard.go`
+- [x] T049 [US5] Implement Step 3: Review panel with generated pg_basebackup command in `internal/ui/views/replication/setup/physical_wizard.go`
+- [x] T050 [US5] Generate recovery.conf/postgresql.auto.conf configuration for replica in `internal/ui/views/replication/setup/physical_wizard.go`
+- [x] T051 [US5] Generate pg_hba.conf entries for replication access in `internal/ui/views/replication/setup/physical_wizard.go`
+- [x] T052 [US5] Add copy-to-clipboard for all generated commands using golang.design/x/clipboard in `internal/ui/views/replication/setup/physical_wizard.go`
+- [x] T053 [US5] Block wizard in read-only mode with appropriate message in `internal/ui/views/replication/setup/physical_wizard.go`
+- [x] T054 [US5] Integrate physical wizard into Setup tab with keyboard shortcut in `internal/ui/views/replication/view.go`
 
 **Checkpoint**: User Story 5 complete - can run physical replication setup wizard
 

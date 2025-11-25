@@ -173,3 +173,17 @@ type DropSlotResultMsg struct {
 	Success  bool
 	Error    error
 }
+
+// WizardExecResultMsg contains the result of executing a wizard command.
+type WizardExecResultMsg struct {
+	Command string
+	Label   string
+	Success bool
+	Error   error
+}
+
+// WizardExecRequestMsg requests execution of a wizard command.
+type WizardExecRequestMsg struct {
+	Command string
+	Label   string
+}

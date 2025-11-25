@@ -91,6 +91,34 @@ func (v *ReplicationView) renderDropSlotConfirm() string {
 	)
 }
 
+// renderWizardExecConfirm renders the wizard command execution confirmation dialog.
+func (v *ReplicationView) renderWizardExecConfirm() string {
+	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	codeStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("236")).
+		Foreground(lipgloss.Color("255")).
+		Padding(0, 1)
+
+	content := fmt.Sprintf("%s\n\n%s\n\n"+
+		"Execute this command on the connected database?\n\n"+
+		"Press Y to execute, N or Esc to cancel",
+		labelStyle.Render(v.wizardExecLabel),
+		codeStyle.Render(v.wizardExecCommand))
+
+	dialog := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("214")).
+		Padding(1, 2).
+		Width(min(80, v.width-4)).
+		Render(content)
+
+	return lipgloss.Place(
+		v.width, v.height,
+		lipgloss.Center, lipgloss.Center,
+		dialog,
+	)
+}
+
 func (v *ReplicationView) prepareReplicaDetail() {
 	if v.selectedIdx >= len(v.data.Replicas) {
 		return

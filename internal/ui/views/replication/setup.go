@@ -64,3 +64,38 @@ func (v *ReplicationView) renderConfigCheck() string {
 	}
 	return setup.RenderConfigCheck(v.data.Config, cfg)
 }
+
+// renderPhysicalWizard renders the physical replication setup wizard.
+// T054: Integrate physical wizard into Setup tab
+func (v *ReplicationView) renderPhysicalWizard() string {
+	if v.physicalWizard == nil {
+		return ""
+	}
+	cfg := setup.PhysicalWizardRenderConfig{
+		Width:    v.width,
+		Height:   v.height,
+		ReadOnly: v.readOnly,
+	}
+	return setup.RenderPhysicalWizard(v.physicalWizard, cfg)
+}
+
+// initPhysicalWizard initializes the physical wizard state.
+func (v *ReplicationView) initPhysicalWizard() {
+	// Extract host and port from connection info
+	host := "localhost"
+	port := "5432"
+	// Parse from connectionInfo if available (format like "postgres@localhost:5432/dbname")
+	if v.connectionInfo != "" {
+		// Simple extraction - assumes format user@host:port/db
+		parts := strings.Split(v.connectionInfo, "@")
+		if len(parts) > 1 {
+			hostPart := strings.Split(parts[1], "/")[0]
+			hostPort := strings.Split(hostPart, ":")
+			host = hostPort[0]
+			if len(hostPort) > 1 {
+				port = hostPort[1]
+			}
+		}
+	}
+	v.physicalWizard = setup.NewPhysicalWizardState(host, port)
+}

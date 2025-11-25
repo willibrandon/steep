@@ -5,6 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/willibrandon/steep/internal/ui/views/replication/setup"
 )
 
 // handleKeyPress processes keyboard input.
@@ -29,6 +31,20 @@ func (v *ReplicationView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		case "n", "N", "esc", "q":
 			v.mode = ModeNormal
 			v.dropSlotName = ""
+		}
+		return nil
+	}
+
+	// Handle confirm wizard execute mode
+	if v.mode == ModeConfirmWizardExecute {
+		switch key {
+		case "y", "Y":
+			v.mode = ModePhysicalWizard
+			return v.executeWizardCmd()
+		case "n", "N", "esc", "q":
+			v.mode = ModePhysicalWizard
+			v.wizardExecCommand = ""
+			v.wizardExecLabel = ""
 		}
 		return nil
 	}
@@ -63,6 +79,11 @@ func (v *ReplicationView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			v.showTopology = false
 		}
 		return nil
+	}
+
+	// Handle physical wizard mode
+	if v.mode == ModePhysicalWizard {
+		return v.handlePhysicalWizardKeys(key)
 	}
 
 	// Normal mode - global keys
@@ -233,7 +254,14 @@ func (v *ReplicationView) handleSetupKeys(key string) tea.Cmd {
 	// Normal setup tab keys
 	switch key {
 	case "p":
-		v.showToast("Physical wizard (not yet implemented)", false)
+		// T053: Block wizard in read-only mode
+		if v.readOnly {
+			v.showToast("Physical wizard is disabled in read-only mode", true)
+			return nil
+		}
+		// T054: Launch physical replication setup wizard
+		v.initPhysicalWizard()
+		v.mode = ModePhysicalWizard
 	case "o":
 		v.showToast("Logical wizard (not yet implemented)", false)
 	case "n":
@@ -243,4 +271,296 @@ func (v *ReplicationView) handleSetupKeys(key string) tea.Cmd {
 		v.mode = ModeConfigCheck
 	}
 	return nil
+}
+
+// handlePhysicalWizardKeys handles keys specific to the physical wizard.
+func (v *ReplicationView) handlePhysicalWizardKeys(key string) tea.Cmd {
+	if v.physicalWizard == nil {
+		v.mode = ModeNormal
+		return nil
+	}
+
+	w := v.physicalWizard
+
+	// If editing a text field, handle text input
+	if w.EditingField >= 0 {
+		return v.handleWizardTextInput(key)
+	}
+
+	// Normal navigation mode
+	switch key {
+	case "esc", "q":
+		// Cancel wizard
+		v.physicalWizard = nil
+		v.mode = ModeNormal
+		return nil
+
+	case "j", "down":
+		// Move selection down
+		w.SelectedField++
+		v.ensureWizardFieldValid()
+
+	case "k", "up":
+		// Move selection up
+		if w.SelectedField > 0 {
+			w.SelectedField--
+		}
+
+	case ">":
+		// Move to next step
+		if w.Step < setup.StepReview {
+			w.Step++
+			w.SelectedField = 0
+		}
+
+	case "<":
+		// Move to previous step
+		if w.Step > setup.StepUserConfig {
+			w.Step--
+			w.SelectedField = 0
+		}
+
+	case "enter":
+		// Start editing text field (only for text-editable fields)
+		// Toggle/cycle fields (password mode, SSL, auth method, sync mode, replica count)
+		// should use Space key instead - Enter does nothing on these fields
+		if v.isEditableField() {
+			v.startEditingField()
+		}
+		// Note: We intentionally don't advance to next step on Enter
+		// Use ">" key to advance between steps
+
+	case " ":
+		// Toggle/cycle for specific fields
+		v.handleWizardSpaceKey()
+
+	case "v":
+		// Toggle password visibility (Step 1)
+		if w.Step == setup.StepUserConfig {
+			w.Config.PasswordShown = !w.Config.PasswordShown
+		}
+
+	case "r":
+		// Regenerate password (Step 1)
+		if w.Step == setup.StepUserConfig && w.Config.AutoGenPass {
+			newPass, err := setup.GenerateReplicationPassword()
+			if err == nil {
+				w.Config.Password = newPass
+				v.showToast("Password regenerated", false)
+			}
+		}
+
+	case "+":
+		// Increase replica count (Step 3: Replication Mode)
+		if w.Step == setup.StepReplicationMode && w.Config.ReplicaCount < 5 {
+			w.Config.ReplicaCount++
+			// Add new replica name if needed
+			for len(w.Config.ReplicaNames) < w.Config.ReplicaCount {
+				w.Config.ReplicaNames = append(w.Config.ReplicaNames,
+					fmt.Sprintf("replica%d", len(w.Config.ReplicaNames)+1))
+			}
+		}
+
+	case "-":
+		// Decrease replica count (Step 3: Replication Mode)
+		if w.Step == setup.StepReplicationMode && w.Config.ReplicaCount > 1 {
+			w.Config.ReplicaCount--
+		}
+
+	case "y":
+		// Copy to clipboard (Step 4: Review)
+		if w.Step == setup.StepReview {
+			cmd := setup.GetSelectedCommand(w)
+			if cmd != "" {
+				if !v.clipboard.IsAvailable() {
+					v.showToast("Clipboard unavailable", true)
+					return nil
+				}
+				if err := v.clipboard.Write(cmd); err != nil {
+					v.showToast("Copy failed: "+err.Error(), true)
+					return nil
+				}
+				v.showToast("Copied to clipboard", false)
+			}
+		}
+
+	case "x":
+		// Execute selected command (Step 4: Review)
+		if w.Step == setup.StepReview {
+			if v.readOnly {
+				v.showToast("Cannot execute in read-only mode", true)
+				return nil
+			}
+			if !setup.IsSelectedCommandExecutable(w) {
+				v.showToast("This command cannot be executed remotely", true)
+				return nil
+			}
+			// Store command details and show confirmation
+			v.wizardExecCommand = setup.GetSelectedCommand(w)
+			v.wizardExecLabel = setup.GetSelectedCommandLabel(w)
+			v.mode = ModeConfirmWizardExecute
+		}
+	}
+
+	return nil
+}
+
+// handleWizardTextInput handles text input when editing a field.
+func (v *ReplicationView) handleWizardTextInput(key string) tea.Cmd {
+	w := v.physicalWizard
+
+	switch key {
+	case "enter":
+		// Commit edit
+		v.commitEditingField()
+		w.EditingField = -1
+	case "esc":
+		// Cancel edit
+		w.EditingField = -1
+		w.InputBuffer = ""
+	case "backspace":
+		// Delete character
+		if len(w.InputBuffer) > 0 {
+			w.InputBuffer = w.InputBuffer[:len(w.InputBuffer)-1]
+		}
+	default:
+		// Add character (only printable)
+		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
+			w.InputBuffer += key
+		}
+	}
+	return nil
+}
+
+// isEditableField returns true if the current field is a text-editable field.
+func (v *ReplicationView) isEditableField() bool {
+	w := v.physicalWizard
+	switch w.Step {
+	case setup.StepUserConfig:
+		return w.SelectedField == 0 || w.SelectedField == 2 // username, password
+	case setup.StepNetworkSecurity:
+		return w.SelectedField <= 2 // host, port, cidr (not ssl/auth which are cycled)
+	case setup.StepReplicationMode:
+		// Replica names and data dir are editable
+		return w.SelectedField >= 2 // replica names start at 2, data dir after
+	default:
+		return false
+	}
+}
+
+// startEditingField initializes editing mode for the current field.
+func (v *ReplicationView) startEditingField() {
+	w := v.physicalWizard
+	w.EditingField = w.SelectedField
+
+	// Initialize buffer with current value
+	switch w.Step {
+	case setup.StepUserConfig:
+		if w.SelectedField == 0 {
+			w.InputBuffer = w.Config.Username
+		} else if w.SelectedField == 2 {
+			w.InputBuffer = w.Config.Password
+		}
+	case setup.StepNetworkSecurity:
+		switch w.SelectedField {
+		case 0:
+			w.InputBuffer = w.Config.PrimaryHost
+		case 1:
+			w.InputBuffer = w.Config.PrimaryPort
+		case 2:
+			w.InputBuffer = w.Config.ReplicaCIDR
+		}
+	case setup.StepReplicationMode:
+		if w.SelectedField >= 2 && w.SelectedField < 2+w.Config.ReplicaCount {
+			idx := w.SelectedField - 2
+			w.InputBuffer = w.Config.ReplicaNames[idx]
+		} else if w.SelectedField == 2+w.Config.ReplicaCount {
+			w.InputBuffer = w.Config.DataDir
+		}
+	}
+}
+
+// commitEditingField saves the edited value to the config.
+func (v *ReplicationView) commitEditingField() {
+	w := v.physicalWizard
+	if w.InputBuffer == "" {
+		return // Don't commit empty values
+	}
+
+	switch w.Step {
+	case setup.StepUserConfig:
+		if w.SelectedField == 0 {
+			w.Config.Username = w.InputBuffer
+		} else if w.SelectedField == 2 {
+			w.Config.Password = w.InputBuffer
+		}
+	case setup.StepNetworkSecurity:
+		switch w.SelectedField {
+		case 0:
+			w.Config.PrimaryHost = w.InputBuffer
+		case 1:
+			w.Config.PrimaryPort = w.InputBuffer
+		case 2:
+			w.Config.ReplicaCIDR = w.InputBuffer
+		}
+	case setup.StepReplicationMode:
+		if w.SelectedField >= 2 && w.SelectedField < 2+w.Config.ReplicaCount {
+			idx := w.SelectedField - 2
+			w.Config.ReplicaNames[idx] = w.InputBuffer
+		} else if w.SelectedField == 2+w.Config.ReplicaCount {
+			w.Config.DataDir = w.InputBuffer
+		}
+	}
+	w.InputBuffer = ""
+}
+
+// ensureWizardFieldValid ensures the selected field is within valid range.
+func (v *ReplicationView) ensureWizardFieldValid() {
+	if v.physicalWizard == nil {
+		return
+	}
+	w := v.physicalWizard
+	maxField := setup.GetMaxFieldForStep(w)
+	if w.SelectedField > maxField {
+		w.SelectedField = maxField
+	}
+}
+
+// handleWizardSpaceKey handles space key for toggles in the wizard.
+func (v *ReplicationView) handleWizardSpaceKey() {
+	if v.physicalWizard == nil {
+		return
+	}
+	w := v.physicalWizard
+
+	switch w.Step {
+	case setup.StepUserConfig:
+		// Toggle password mode if on that field
+		if w.SelectedField == 1 {
+			w.Config.AutoGenPass = !w.Config.AutoGenPass
+			if w.Config.AutoGenPass {
+				// Regenerate password when switching to auto
+				newPass, err := setup.GenerateReplicationPassword()
+				if err == nil {
+					w.Config.Password = newPass
+				}
+			}
+		}
+	case setup.StepNetworkSecurity:
+		// Cycle SSL mode or Auth method
+		if w.SelectedField == 3 {
+			w.Config.SSLMode = setup.CycleSSLMode(w.Config.SSLMode)
+		} else if w.SelectedField == 4 {
+			w.Config.AuthMethod = setup.CycleAuthMethod(w.Config.AuthMethod)
+		}
+	case setup.StepReplicationMode:
+		// Toggle sync mode if on that field
+		if w.SelectedField == 0 {
+			if w.Config.SyncMode == "async" {
+				w.Config.SyncMode = "sync"
+			} else {
+				w.Config.SyncMode = "async"
+			}
+		}
+	}
 }
