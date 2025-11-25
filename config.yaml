@@ -1,8 +1,8 @@
 connection:
   host: localhost
-  port: 5432
-  database: brandon
-  user: brandon
+  port: 15432
+  database: steep_test
+  user: postgres
 
   # SSL/TLS Configuration
   # Valid sslmode values:
@@ -12,7 +12,7 @@ connection:
   #   require      - Require SSL, but don't verify certificates
   #   verify-ca    - Require SSL and verify server certificate
   #   verify-full  - Require SSL, verify certificate and hostname
-  sslmode: prefer
+  sslmode: disable  # Docker containers don't have SSL
 
   # SSL Certificate paths (required for verify-ca and verify-full modes)
   # Uncomment and set these when using verify-ca or verify-full:

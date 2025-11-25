@@ -39,14 +39,16 @@ type UIConfig struct {
 	DateFormat      string        `mapstructure:"date_format"`
 }
 
-// LoadConfig loads configuration from YAML file and environment variables
+// LoadConfig loads configuration from YAML file and environment variables.
+// It searches for config.yaml in ~/.config/steep/ and current directory.
 func LoadConfig() (*Config, error) {
-	// Set config file details
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath("$HOME/.config/steep")
-	viper.AddConfigPath(".")
+	return LoadConfigFromPath("")
+}
 
+// LoadConfigFromPath loads configuration from a specific path.
+// If configPath is empty, it searches default locations.
+// If configPath is provided, it loads only from that file.
+func LoadConfigFromPath(configPath string) (*Config, error) {
 	// Environment variable support
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix("STEEP")
@@ -54,6 +56,17 @@ func LoadConfig() (*Config, error) {
 
 	// Apply defaults
 	applyDefaults()
+
+	if configPath != "" {
+		// Load from specific path
+		viper.SetConfigFile(configPath)
+	} else {
+		// Set config file details for default search
+		viper.SetConfigName("config")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath("$HOME/.config/steep")
+		viper.AddConfigPath(".")
+	}
 
 	// Try to read config file
 	if err := viper.ReadInConfig(); err != nil {

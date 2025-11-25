@@ -28,6 +28,7 @@ func main() {
 	debugFlag := flag.Bool("debug", false, "Enable debug logging")
 	readonlyFlag := flag.Bool("readonly", false, "Disable destructive operations (kill, cancel)")
 	bannerFlag := flag.Bool("banner", false, "Show animated banner")
+	configPath := flag.String("config", "", "Path to config file (default: ~/.config/steep/config.yaml)")
 	cpuprofile := flag.String("cpuprofile", "", "Write CPU profile to file")
 	flag.Parse()
 
@@ -62,7 +63,7 @@ func main() {
 
 	// Create the application model
 	logger.Debug("Creating application model")
-	model, err := app.New(*readonlyFlag)
+	model, err := app.New(*readonlyFlag, *configPath)
 	if err != nil {
 		logger.Error("Failed to create application", "error", err)
 		log.Fatalf("Failed to create application: %v\n", err)

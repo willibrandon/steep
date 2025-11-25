@@ -516,8 +516,8 @@ func (v *ReplicationView) View() string {
 	// Build final view
 	var b strings.Builder
 
-	// Status line
-	b.WriteString(v.renderStatusLine())
+	// Status bar (boxed, like Tables view)
+	b.WriteString(v.renderStatusBar())
 	b.WriteString("\n")
 
 	// Title
@@ -540,65 +540,78 @@ func (v *ReplicationView) View() string {
 	return b.String()
 }
 
-// renderStatusLine renders the status bar line.
-func (v *ReplicationView) renderStatusLine() string {
+// renderStatusBar renders the boxed status bar (like Tables view).
+func (v *ReplicationView) renderStatusBar() string {
+	// Connection info (left side)
+	connInfo := v.connectionInfo
+	if connInfo == "" {
+		connInfo = "PostgreSQL"
+	}
+	title := styles.StatusTitleStyle.Render(connInfo)
+
 	// Server role indicator
 	var roleIndicator string
 	if v.data.IsPrimary {
 		roleIndicator = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("42")).
-			Render("PRIMARY")
+			Bold(true).
+			Render(" [PRIMARY]")
 	} else {
 		roleIndicator = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("214")).
-			Render("STANDBY")
+			Bold(true).
+			Render(" [STANDBY]")
 	}
 
-	// Last update time
-	updateStr := "never"
-	if !v.lastUpdate.IsZero() {
-		updateStr = v.lastUpdate.Format("15:04:05")
+	// Additional indicators
+	var indicators string
+	if v.readOnly {
+		indicators += lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241")).
+			Render(" [read-only]")
 	}
-
-	// Error indicator
-	var errStr string
 	if v.err != nil {
-		errStr = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
-			Render(" [ERROR]")
+		indicators += styles.ErrorStyle.Render(" [ERROR]")
 	}
-
-	// Refreshing indicator
-	var refreshStr string
 	if v.refreshing {
-		refreshStr = lipgloss.NewStyle().
+		indicators += lipgloss.NewStyle().
 			Foreground(lipgloss.Color("214")).
 			Render(" [refreshing...]")
 	}
 
-	// Read-only indicator
-	var readOnlyStr string
-	if v.readOnly {
-		readOnlyStr = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Render(" [read-only]")
+	// Stale indicator
+	var staleIndicator string
+	if !v.lastUpdate.IsZero() && time.Since(v.lastUpdate) > 35*time.Second {
+		staleIndicator = styles.ErrorStyle.Render(" [STALE]")
 	}
 
-	left := roleIndicator + readOnlyStr + errStr + refreshStr
-	right := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		Render(fmt.Sprintf("Updated: %s", updateStr))
+	// Timestamp (right side)
+	updateStr := "never"
+	if !v.lastUpdate.IsZero() {
+		updateStr = v.lastUpdate.Format("15:04:05")
+	}
+	timestamp := styles.StatusTimeStyle.Render("Last refresh: " + updateStr)
 
-	gap := v.width - runewidth.StringWidth(left) - runewidth.StringWidth(right)
+	// Calculate gap
+	leftContent := title + roleIndicator + indicators + staleIndicator
+	gap := v.width - lipgloss.Width(leftContent) - lipgloss.Width(timestamp) - 4
 	if gap < 1 {
 		gap = 1
 	}
+	spaces := lipgloss.NewStyle().Width(gap).Render("")
 
-	return left + strings.Repeat(" ", gap) + right
+	return styles.StatusBarStyle.
+		Width(v.width - 2).
+		Render(leftContent + spaces + timestamp)
 }
 
 // renderOverview renders the Overview tab content.
 func (v *ReplicationView) renderOverview() string {
+	// Check for permission errors and display guidance
+	if v.err != nil {
+		return v.renderError()
+	}
+
 	if !v.data.IsPrimary {
 		// Connected to standby - show WAL receiver status
 		return v.renderStandbyOverview()
@@ -609,6 +622,41 @@ func (v *ReplicationView) renderOverview() string {
 	}
 
 	return v.renderReplicaTable()
+}
+
+// renderError renders an error message with guidance.
+func (v *ReplicationView) renderError() string {
+	errMsg := v.err.Error()
+
+	// Detect permission-related errors
+	isPermissionErr := strings.Contains(strings.ToLower(errMsg), "permission") ||
+		strings.Contains(strings.ToLower(errMsg), "denied") ||
+		strings.Contains(strings.ToLower(errMsg), "insufficient_privilege")
+
+	var b strings.Builder
+
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+
+	b.WriteString(errorStyle.Render("Error: " + errMsg))
+	b.WriteString("\n\n")
+
+	if isPermissionErr {
+		b.WriteString(hintStyle.Render("Permission denied. To view replication status:\n\n"))
+		b.WriteString(hintStyle.Render("  1. Connect as a superuser, or\n"))
+		b.WriteString(hintStyle.Render("  2. Grant the pg_monitor role:\n"))
+		b.WriteString(hintStyle.Render("     GRANT pg_monitor TO your_user;\n\n"))
+		b.WriteString(hintStyle.Render("This grants read-only access to monitoring views."))
+	} else {
+		b.WriteString(hintStyle.Render("Check your database connection and permissions.\n"))
+		b.WriteString(hintStyle.Render("Press r to retry."))
+	}
+
+	return lipgloss.Place(
+		v.width, v.height-4,
+		lipgloss.Center, lipgloss.Center,
+		b.String(),
+	)
 }
 
 // renderNoReplicas renders the empty state message.
@@ -730,11 +778,8 @@ func (v *ReplicationView) renderReplicaTable() string {
 		b.WriteString("\n")
 	}
 
-	// Footer with counts
-	footer := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		Render(fmt.Sprintf("\n%d replica(s) | Sort: %s | Press h for help", len(v.data.Replicas), v.sortColumn))
-	b.WriteString(footer)
+	// Footer
+	b.WriteString(v.renderFooter())
 
 	return b.String()
 }
@@ -830,10 +875,7 @@ func (v *ReplicationView) renderSlots() string {
 	}
 
 	// Footer
-	footer := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		Render(fmt.Sprintf("\n%d slot(s) | D to drop inactive slot | Press h for help", len(v.data.Slots)))
-	b.WriteString(footer)
+	b.WriteString(v.renderFooter())
 
 	return b.String()
 }
@@ -938,10 +980,7 @@ func (v *ReplicationView) renderLogical() string {
 	}
 
 	// Footer
-	footer := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		Render(fmt.Sprintf("\np to switch focus | Press h for help"))
-	b.WriteString(footer)
+	b.WriteString(v.renderFooter())
 
 	return b.String()
 }
@@ -1319,6 +1358,67 @@ func (v *ReplicationView) dropSlotCmd() tea.Cmd {
 			Error:    fmt.Errorf("not implemented"),
 		}
 	}
+}
+
+// renderFooter renders the bottom footer (like other views).
+func (v *ReplicationView) renderFooter() string {
+	var hints string
+
+	// Show toast message if recent (within 3 seconds)
+	if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
+		toastStyle := styles.FooterHintStyle
+		if v.toastError {
+			toastStyle = toastStyle.Foreground(styles.ColorCriticalFg)
+		} else {
+			toastStyle = toastStyle.Foreground(styles.ColorSuccess)
+		}
+		hints = toastStyle.Render(v.toastMessage)
+	} else {
+		// Show tab-specific hints
+		switch v.activeTab {
+		case TabOverview:
+			hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [t]opology [s/S]ort [w]indow [y]ank [h]elp")
+		case TabSlots:
+			hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [D]rop [h]elp")
+		case TabLogical:
+			hints = styles.FooterHintStyle.Render("[j/k]nav [p]ubs/subs [d]etail [h]elp")
+		case TabSetup:
+			hints = styles.FooterHintStyle.Render("[1]physical [2]logical [3]connstr [c]heck [h]elp")
+		}
+	}
+
+	// Right side: sort info + count
+	arrow := "↓"
+	if v.sortAsc {
+		arrow = "↑"
+	}
+	sortInfo := fmt.Sprintf("Sort: %s %s", v.sortColumn.String(), arrow)
+
+	var count string
+	switch v.activeTab {
+	case TabOverview:
+		count = fmt.Sprintf("%d / %d", min(v.selectedIdx+1, len(v.data.Replicas)), len(v.data.Replicas))
+	case TabSlots:
+		count = fmt.Sprintf("%d / %d", min(v.slotSelectedIdx+1, len(v.data.Slots)), len(v.data.Slots))
+	case TabLogical:
+		if v.logicalFocusPubs {
+			count = fmt.Sprintf("%d pubs", len(v.data.Publications))
+		} else {
+			count = fmt.Sprintf("%d subs", len(v.data.Subscriptions))
+		}
+	default:
+		count = ""
+	}
+
+	rightSide := styles.FooterCountStyle.Render(sortInfo + "  " + count)
+
+	gap := v.width - lipgloss.Width(hints) - lipgloss.Width(rightSide) - 4
+	if gap < 1 {
+		gap = 1
+	}
+	spaces := lipgloss.NewStyle().Width(gap).Render("")
+
+	return styles.FooterStyle.Width(v.width - 2).Render(hints + spaces + rightSide)
 }
 
 func (v *ReplicationView) showToast(message string, isError bool) {

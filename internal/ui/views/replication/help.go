@@ -1,7 +1,10 @@
 package replication
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
@@ -183,8 +186,9 @@ func renderHelp(title string, keyBindings []struct{ key, desc string }, width, h
 
 // padRight pads a string to the right with spaces.
 func padRight(s string, length int) string {
-	if len(s) >= length {
-		return s
+	w := runewidth.StringWidth(s)
+	if w >= length {
+		return runewidth.Truncate(s, length, "")
 	}
-	return s + string(make([]byte, length-len(s)))
+	return s + strings.Repeat(" ", length-w)
 }

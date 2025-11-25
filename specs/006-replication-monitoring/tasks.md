@@ -90,12 +90,12 @@ Based on plan.md structure:
 
 ### Implementation for User Story 1
 
-- [ ] T026 [US1] Implement replica table rendering in Overview tab showing Name, State, Sync, Byte Lag, Time Lag columns in `internal/ui/views/replication/view.go`
-- [ ] T027 [US1] Add color-coded lag severity styling: green (<1MB), yellow (1-10MB), red (>10MB) in `internal/ui/views/replication/view.go`
-- [ ] T028 [US1] Implement j/k vim-style navigation for replica list in `internal/ui/views/replication/view.go`
-- [ ] T029 [US1] Add sort functionality (by lag, name, state) with `s` key in `internal/ui/views/replication/view.go`
-- [ ] T030 [US1] Display "Replication not configured" message when no replicas exist in `internal/ui/views/replication/view.go`
-- [ ] T031 [US1] Handle permission errors with clear guidance message in `internal/ui/views/replication/view.go`
+- [x] T026 [US1] Implement replica table rendering in Overview tab showing Name, State, Sync, Byte Lag, Time Lag columns in `internal/ui/views/replication/view.go`
+- [x] T027 [US1] Add color-coded lag severity styling: green (<1MB), yellow (1-10MB), red (>10MB) in `internal/ui/views/replication/view.go`
+- [x] T028 [US1] Implement j/k vim-style navigation for replica list in `internal/ui/views/replication/view.go`
+- [x] T029 [US1] Add sort functionality (by lag, name, state) with `s` key in `internal/ui/views/replication/view.go`
+- [x] T030 [US1] Display "Replication not configured" message when no replicas exist in `internal/ui/views/replication/view.go`
+- [x] T031 [US1] Handle permission errors with clear guidance message in `internal/ui/views/replication/view.go`
 
 **Checkpoint**: User Story 1 complete - can view replication lag with color coding
 

@@ -395,17 +395,24 @@ echo "=========================================="
 log_success "Replication test environment is ready!"
 echo "=========================================="
 echo
-echo "Connection strings for Steep:"
-echo "  Primary:    postgres://postgres:${POSTGRES_PASS}@localhost:${PRIMARY_PORT}/postgres"
+echo "PostgreSQL connection details:"
+echo "  Primary:    localhost:${PRIMARY_PORT} (user: postgres, password: ${POSTGRES_PASS})"
 for i in $(seq 1 "$REPLICAS"); do
-    echo "  Replica${i}:   postgres://postgres:${POSTGRES_PASS}@localhost:$((PRIMARY_PORT + i))/postgres"
+    echo "  Replica${i}:   localhost:$((PRIMARY_PORT + i)) (user: postgres, password: ${POSTGRES_PASS})"
 done
 if [[ "$LOGICAL" == "true" ]]; then
-    echo "  Subscriber: postgres://postgres:${POSTGRES_PASS}@localhost:$((PRIMARY_PORT + REPLICAS + 1))/steep_test"
+    echo "  Subscriber: localhost:$((PRIMARY_PORT + REPLICAS + 1)) (database: steep_test)"
 fi
 echo
-echo "Quick start:"
-echo "  ./bin/steep --dsn \"postgres://postgres:${POSTGRES_PASS}@localhost:${PRIMARY_PORT}/postgres\""
+echo "Quick start with Steep (use environment variables):"
+echo "  export STEEP_CONNECTION_HOST=localhost"
+echo "  export STEEP_CONNECTION_PORT=${PRIMARY_PORT}"
+echo "  export STEEP_CONNECTION_USER=postgres"
+echo "  export STEEP_CONNECTION_DATABASE=postgres"
+echo "  export PGPASSWORD=${POSTGRES_PASS}"
+echo "  ./bin/steep"
+echo
+echo "Or edit config.yaml to set port: ${PRIMARY_PORT}"
 echo
 echo "To generate lag:"
 echo "  docker exec $PRIMARY_NAME psql -U postgres -d steep_test -c \\"

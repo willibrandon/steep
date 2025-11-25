@@ -75,11 +75,12 @@ type Model struct {
 	activeConnections int
 
 	// Monitors
-	activityMonitor *monitors.ActivityMonitor
-	statsMonitor    *monitors.StatsMonitor
-	locksMonitor    *monitors.LocksMonitor
-	deadlockMonitor *monitors.DeadlockMonitor
-	deadlockStore   *sqlite.DeadlockStore
+	activityMonitor    *monitors.ActivityMonitor
+	statsMonitor       *monitors.StatsMonitor
+	locksMonitor       *monitors.LocksMonitor
+	deadlockMonitor    *monitors.DeadlockMonitor
+	deadlockStore      *sqlite.DeadlockStore
+	replicationMonitor *monitors.ReplicationMonitor
 
 	// Query performance monitoring
 	queryStatsDB    *sqlite.DB
@@ -88,9 +89,9 @@ type Model struct {
 }
 
 // New creates a new application model
-func New(readonly bool) (*Model, error) {
+func New(readonly bool, configPath string) (*Model, error) {
 	// Load configuration
-	cfg, err := config.LoadConfig()
+	cfg, err := config.LoadConfigFromPath(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
@@ -224,12 +225,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tablesView.SetConnected(true)
 		m.tablesView.SetConnectionInfo(connectionInfo)
 		m.tablesView.SetPool(msg.Pool)
+		m.replicationView.SetConnected(true)
+		m.replicationView.SetConnectionInfo(connectionInfo)
 
 		// Initialize monitors
 		refreshInterval := m.config.UI.RefreshInterval
 		m.activityMonitor = monitors.NewActivityMonitor(msg.Pool, refreshInterval)
 		m.statsMonitor = monitors.NewStatsMonitor(msg.Pool, refreshInterval)
-		m.locksMonitor = monitors.NewLocksMonitor(msg.Pool, 2*time.Second) // 2s refresh for locks
+		m.locksMonitor = monitors.NewLocksMonitor(msg.Pool, 2*time.Second)       // 2s refresh for locks
+		m.replicationMonitor = monitors.NewReplicationMonitor(msg.Pool, 2*time.Second, nil) // 2s refresh for replication
 
 		// Initialize query stats storage
 		storagePath := m.config.Queries.StoragePath
@@ -290,6 +294,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fetchActivityData(m.activityMonitor),
 			fetchStatsData(m.statsMonitor),
 			fetchLocksData(m.locksMonitor),
+			fetchReplicationData(m.replicationMonitor),
 			fetchDeadlockHistory(m.deadlockMonitor, m.program),
 			m.tablesView.FetchTablesData(),
 			tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
@@ -351,6 +356,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Fetch locks data if monitor is available
 			if m.locksMonitor != nil {
 				cmds = append(cmds, fetchLocksData(m.locksMonitor))
+			}
+			// Fetch replication data if monitor is available
+			if m.replicationMonitor != nil {
+				cmds = append(cmds, fetchReplicationData(m.replicationMonitor))
 			}
 			// Fetch deadlock history if monitor is available
 			if m.deadlockMonitor != nil {

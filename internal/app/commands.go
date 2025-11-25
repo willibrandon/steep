@@ -294,6 +294,14 @@ func fetchLocksData(monitor *monitors.LocksMonitor) tea.Cmd {
 	}
 }
 
+// fetchReplicationData creates a command to fetch replication data
+func fetchReplicationData(monitor *monitors.ReplicationMonitor) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		return monitor.FetchOnce(ctx)
+	}
+}
+
 // fetchDeadlockHistory creates a command to fetch deadlock history
 func fetchDeadlockHistory(monitor *monitors.DeadlockMonitor, program *tea.Program) tea.Cmd {
 	if monitor == nil {

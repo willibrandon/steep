@@ -112,21 +112,55 @@ docker run -d --name pg-replica --network pg-repl-test \
 docker exec pg-primary psql -U postgres -c "SELECT * FROM pg_stat_replication;"
 ```
 
-### 4. Run Steep with Test Database
+### 4. Configure Steep for Test Database
+
+Steep uses configuration files, not command-line DSN. Configure via:
+
+**Option A: Environment Variables**
 
 ```bash
-# Build steep
+# For primary (port 15432 from repl-test-setup.sh)
+export STEEP_CONNECTION_HOST=localhost
+export STEEP_CONNECTION_PORT=15432
+export STEEP_CONNECTION_USER=postgres
+export STEEP_CONNECTION_DATABASE=postgres
+export PGPASSWORD=postgres
+
+# Build and run
 make build
+./bin/steep
 
-# Run with primary database
-./bin/steep --dsn "postgres://postgres:test@localhost:5432/postgres"
+# For replica (port 15433), change port:
+export STEEP_CONNECTION_PORT=15433
+./bin/steep
 
-# Or with replica (to test standby view)
-./bin/steep --dsn "postgres://postgres:test@localhost:5433/postgres"
-
-# Or with readonly mode
-./bin/steep --dsn "postgres://postgres:test@localhost/postgres" --readonly
+# For readonly mode
+./bin/steep --readonly
 ```
+
+**Option B: Config File**
+
+Create or edit `~/.config/steep/config.yaml` or `./config.yaml`:
+
+```yaml
+# For replication test environment (primary)
+connection:
+  host: localhost
+  port: 15432  # Primary from repl-test-setup.sh
+  database: postgres
+  user: postgres
+  sslmode: disable
+  pool_max_conns: 10
+  pool_min_conns: 2
+
+ui:
+  theme: dark
+  refresh_interval: 2s
+
+debug: true
+```
+
+To test with replica, change port to 15433.
 
 ### 5. Access Replication View
 

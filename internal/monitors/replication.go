@@ -11,14 +11,8 @@ import (
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/db/queries"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
+	"github.com/willibrandon/steep/internal/ui"
 )
-
-// ReplicationUpdate is the Bubbletea message containing replication monitoring data.
-type ReplicationUpdate struct {
-	Data      *models.ReplicationData
-	FetchedAt time.Time
-	Error     error
-}
 
 // ReplicationMonitor fetches replication data at regular intervals.
 type ReplicationMonitor struct {
@@ -104,14 +98,14 @@ func (m *ReplicationMonitor) SetRetentionHours(hours int) {
 }
 
 // FetchOnce fetches replication data once and returns the result.
-func (m *ReplicationMonitor) FetchOnce(ctx context.Context) ReplicationUpdate {
+func (m *ReplicationMonitor) FetchOnce(ctx context.Context) ui.ReplicationDataMsg {
 	start := time.Now()
 	data := models.NewReplicationData()
 
 	// Detect server role
 	isPrimary, err := queries.IsPrimary(ctx, m.pool)
 	if err != nil {
-		return ReplicationUpdate{
+		return ui.ReplicationDataMsg{
 			Data:      data,
 			FetchedAt: time.Now(),
 			Error:     err,
@@ -125,7 +119,7 @@ func (m *ReplicationMonitor) FetchOnce(ctx context.Context) ReplicationUpdate {
 		if err != nil {
 			// Return partial data with error
 			data.QueryDuration = time.Since(start)
-			return ReplicationUpdate{
+			return ui.ReplicationDataMsg{
 				Data:      data,
 				FetchedAt: time.Now(),
 				Error:     err,
@@ -174,7 +168,7 @@ func (m *ReplicationMonitor) FetchOnce(ctx context.Context) ReplicationUpdate {
 	// Handle persistence
 	m.handlePersistence(ctx, data)
 
-	return ReplicationUpdate{
+	return ui.ReplicationDataMsg{
 		Data:      data,
 		FetchedAt: time.Now(),
 	}
@@ -255,7 +249,7 @@ func (m *ReplicationMonitor) persistLagEntries(ctx context.Context, data *models
 
 // Run starts the monitor goroutine that sends data to the provided channel.
 // It runs until the context is cancelled.
-func (m *ReplicationMonitor) Run(ctx context.Context, dataChan chan<- ReplicationUpdate) {
+func (m *ReplicationMonitor) Run(ctx context.Context, dataChan chan<- ui.ReplicationDataMsg) {
 	// Send initial data immediately
 	dataChan <- m.FetchOnce(ctx)
 
@@ -269,13 +263,6 @@ func (m *ReplicationMonitor) Run(ctx context.Context, dataChan chan<- Replicatio
 		case <-ticker.C:
 			dataChan <- m.FetchOnce(ctx)
 		}
-	}
-}
-
-// CreateReplicationCmd returns a function that fetches replication data.
-func (m *ReplicationMonitor) CreateReplicationCmd(ctx context.Context) func() ReplicationUpdate {
-	return func() ReplicationUpdate {
-		return m.FetchOnce(ctx)
 	}
 }
 
