@@ -63,8 +63,8 @@ Based on plan.md structure:
 
 ### SQLite Storage
 
-- [ ] T018 Add replication_lag_history table schema with indexes to `internal/storage/sqlite/schema.go`
-- [ ] T019 Create ReplicationStore with SaveLagEntry(), GetLagHistory(), PruneLagHistory() methods in `internal/storage/sqlite/replication_store.go`
+- [x] T018 Add replication_lag_history table schema with indexes to `internal/storage/sqlite/schema.go`
+- [x] T019 Create ReplicationStore with SaveLagEntry(), GetLagHistory(), PruneLagHistory() methods in `internal/storage/sqlite/replication_store.go`
 
 ### Monitor Infrastructure
 

@@ -66,6 +66,25 @@ func (db *DB) initSchema() error {
 		position INTEGER NOT NULL,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	-- Replication lag history for trend analysis
+	CREATE TABLE IF NOT EXISTS replication_lag_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		replica_name TEXT NOT NULL,
+		sent_lsn TEXT,
+		write_lsn TEXT,
+		flush_lsn TEXT,
+		replay_lsn TEXT,
+		byte_lag INTEGER,
+		time_lag_ms INTEGER,
+		sync_state TEXT,
+		direction TEXT DEFAULT 'outbound',
+		conflict_count INTEGER DEFAULT 0
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_lag_history_time ON replication_lag_history(timestamp, replica_name);
+	CREATE INDEX IF NOT EXISTS idx_lag_history_replica ON replication_lag_history(replica_name, timestamp);
 	`
 
 	_, err := db.conn.Exec(schema)
