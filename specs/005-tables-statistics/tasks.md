@@ -84,11 +84,11 @@ Based on plan.md structure:
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Add table statistics columns to renderMainView in internal/ui/views/tables/view.go (Name, Size, Rows, Cache Hit %)
-- [ ] T024 [US2] Implement sortTables helper in internal/ui/views/tables/view.go (sort by name, size, rows, cache hit)
-- [ ] T025 [US2] Implement Update() for sort keys (s cycles column, S toggles direction) in internal/ui/views/tables/view.go
-- [ ] T026 [US2] Add sort indicator to column headers in renderMainView in internal/ui/views/tables/view.go
-- [ ] T027 [US2] Implement dynamic column widths based on terminal width in renderMainView in internal/ui/views/tables/view.go
+- [X] T023 [US2] Add table statistics columns to renderMainView in internal/ui/views/tables/view.go (Name, Size, Rows, Cache Hit %)
+- [X] T024 [US2] Implement sortTables helper in internal/ui/views/tables/view.go (sort by name, size, rows, cache hit)
+- [X] T025 [US2] Implement Update() for sort keys (s cycles column, S toggles direction) in internal/ui/views/tables/view.go
+- [X] T026 [US2] Add sort indicator to column headers in renderMainView in internal/ui/views/tables/view.go
+- [X] T027 [US2] Implement dynamic column widths based on terminal width in renderMainView in internal/ui/views/tables/view.go
 
 **Checkpoint**: User Story 2 complete - can view table statistics and sort by any column
 

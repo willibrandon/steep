@@ -4,6 +4,7 @@ package tables
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -411,6 +412,12 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		}
 		v.ensureVisible()
 
+	// Sorting
+	case "s":
+		v.cycleSortColumn()
+	case "S":
+		v.toggleSortDirection()
+
 	// Refresh
 	case "r":
 		if !v.refreshing {
@@ -446,6 +453,8 @@ func (v *TablesView) buildTreeItems() {
 		}
 
 		tables := tablesBySchema[schema.Name]
+		// Sort tables within each schema
+		v.sortTables(tables)
 		isLastSchema := v.isLastVisibleSchema(i)
 
 		// Add schema item
@@ -514,6 +523,54 @@ func (v *TablesView) getIndexesForTable(tableOID uint32) []models.Index {
 		}
 	}
 	return result
+}
+
+// sortTables sorts a slice of tables by the current sort column and direction.
+func (v *TablesView) sortTables(tables []models.Table) {
+	sort.Slice(tables, func(i, j int) bool {
+		var less bool
+		switch v.sortColumn {
+		case SortByName:
+			less = tables[i].Name < tables[j].Name
+		case SortBySize:
+			less = tables[i].TotalSize < tables[j].TotalSize
+		case SortByRows:
+			less = tables[i].RowCount < tables[j].RowCount
+		case SortByBloat:
+			less = tables[i].BloatPct < tables[j].BloatPct
+		case SortByCacheHit:
+			less = tables[i].CacheHitRatio < tables[j].CacheHitRatio
+		default:
+			less = tables[i].Name < tables[j].Name
+		}
+		if v.sortAscending {
+			return less
+		}
+		return !less
+	})
+}
+
+// cycleSortColumn cycles to the next sort column.
+func (v *TablesView) cycleSortColumn() {
+	switch v.sortColumn {
+	case SortByName:
+		v.sortColumn = SortBySize
+	case SortBySize:
+		v.sortColumn = SortByRows
+	case SortByRows:
+		v.sortColumn = SortByCacheHit
+	case SortByCacheHit:
+		v.sortColumn = SortByName
+	default:
+		v.sortColumn = SortByName
+	}
+	v.buildTreeItems()
+}
+
+// toggleSortDirection toggles between ascending and descending sort.
+func (v *TablesView) toggleSortDirection() {
+	v.sortAscending = !v.sortAscending
+	v.buildTreeItems()
 }
 
 // moveSelection moves the selection by delta rows.
@@ -727,13 +784,13 @@ func (v *TablesView) renderTitle() string {
 	return titleStyle.Render("Tables" + sysIndicator)
 }
 
-// renderHeader renders the column headers.
+// renderHeader renders the column headers with sort indicators.
 func (v *TablesView) renderHeader() string {
-	// Column widths
+	// Column widths (cache needs extra space for sort indicator)
 	nameWidth := 40
 	sizeWidth := 10
 	rowsWidth := 12
-	cacheWidth := 8
+	cacheWidth := 10
 
 	// Adjust name width based on terminal
 	remaining := v.width - sizeWidth - rowsWidth - cacheWidth - 6
@@ -741,11 +798,34 @@ func (v *TablesView) renderHeader() string {
 		nameWidth = remaining
 	}
 
+	// Sort indicator
+	sortIndicator := "▼" // descending (larger first)
+	if v.sortAscending {
+		sortIndicator = "▲" // ascending (smaller first)
+	}
+
+	// Build headers with sort indicator on active column
+	nameHeader := "Schema/Table"
+	sizeHeader := "Size"
+	rowsHeader := "Rows"
+	cacheHeader := "Cache %"
+
+	switch v.sortColumn {
+	case SortByName:
+		nameHeader = nameHeader + " " + sortIndicator
+	case SortBySize:
+		sizeHeader = sizeHeader + " " + sortIndicator
+	case SortByRows:
+		rowsHeader = rowsHeader + " " + sortIndicator
+	case SortByCacheHit:
+		cacheHeader = cacheHeader + " " + sortIndicator
+	}
+
 	headers := []string{
-		padRight("Schema/Table", nameWidth),
-		padRight("Size", sizeWidth),
-		padRight("Rows", rowsWidth),
-		padRight("Cache %", cacheWidth),
+		padRight(nameHeader, nameWidth),
+		padRight(sizeHeader, sizeWidth),
+		padRight(rowsHeader, rowsWidth),
+		padRight(cacheHeader, cacheWidth),
 	}
 
 	headerLine := strings.Join(headers, " ")
@@ -788,11 +868,11 @@ func (v *TablesView) renderTable() string {
 
 // renderTreeRow renders a single tree row.
 func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
-	// Column widths
+	// Column widths (must match renderHeader)
 	nameWidth := 40
 	sizeWidth := 10
 	rowsWidth := 12
-	cacheWidth := 8
+	cacheWidth := 10
 
 	// Adjust name width based on terminal
 	remaining := v.width - sizeWidth - rowsWidth - cacheWidth - 6
@@ -885,7 +965,7 @@ func (v *TablesView) renderFooter() string {
 		}
 		hints = toastStyle.Render(v.toastMessage)
 	} else {
-		hints = styles.FooterHintStyle.Render("[j/k]nav [Enter]expand [P]sys schemas [r]efresh [h]elp")
+		hints = styles.FooterHintStyle.Render("[j/k]nav [Enter]expand [s/S]ort [P]sys [r]efresh [h]elp")
 	}
 
 	count := fmt.Sprintf("%d / %d", min(v.selectedIdx+1, len(v.treeItems)), len(v.treeItems))
@@ -917,6 +997,10 @@ Navigation
 Tree
   Enter / →     Expand/collapse schema or partitions
   ←             Collapse or move to parent
+
+Sorting
+  s             Cycle sort column (Name → Size → Rows → Cache)
+  S             Toggle sort direction (asc/desc)
 
 Display
   P             Toggle system schemas
