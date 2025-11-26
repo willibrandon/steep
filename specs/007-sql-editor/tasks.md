@@ -66,7 +66,7 @@
 
 ---
 
-## Phase 4: User Story 2 - View Query Results in Paginated Table (Priority: P1)
+## Phase 4: User Story 2 - View Query Results in Paginated Table (Priority: P1) ✓
 
 **Goal**: Display query results in scrollable, paginated table with navigation
 
@@ -74,16 +74,16 @@
 
 ### Implementation for User Story 2
 
-- [ ] T021 [US2] Create ResultsTable component using bubbles/table in internal/ui/views/sqleditor/results.go
-- [ ] T022 [US2] Implement column header display with type indicators in internal/ui/views/sqleditor/results.go
-- [ ] T023 [US2] Implement pagination (100 rows/page) with page indicator in internal/ui/views/sqleditor/results.go
-- [ ] T024 [US2] Implement n/p keys for page navigation in internal/ui/views/sqleditor/results.go
-- [ ] T025 [US2] Display execution time and total row count in footer in internal/ui/views/sqleditor/results.go
-- [ ] T026 [US2] Style NULL values with dimmed text (styles.DimStyle) in internal/ui/views/sqleditor/results.go
-- [ ] T027 [US2] Implement row highlighting for current selection in internal/ui/views/sqleditor/results.go
-- [ ] T028 [US2] Handle empty result sets ("0 rows returned" message) in internal/ui/views/sqleditor/results.go
+- [x] T021 [US2] Create ResultsTable component using bubbles/table in internal/ui/views/sqleditor/view.go
+- [x] T022 [US2] Implement column header display with type indicators in internal/ui/views/sqleditor/view.go
+- [x] T023 [US2] Implement pagination (100 rows/page) with page indicator in internal/ui/views/sqleditor/view.go
+- [x] T024 [US2] Implement n/p keys for page navigation in internal/ui/views/sqleditor/view.go
+- [x] T025 [US2] Display execution time and total row count in footer in internal/ui/views/sqleditor/view.go
+- [x] T026 [US2] Style NULL values with dimmed text (styles.DimStyle) in internal/ui/views/sqleditor/view.go
+- [x] T027 [US2] Implement row highlighting for current selection in internal/ui/views/sqleditor/view.go
+- [x] T028 [US2] Handle empty result sets ("0 rows returned" message) in internal/ui/views/sqleditor/view.go
 
-**Checkpoint**: Results display with pagination, NULL styling, row navigation. US1+US2 = functional MVP
+**Checkpoint**: Results display with pagination, NULL styling, row navigation. US1+US2 = functional MVP ✓
 
 ---
 

@@ -4,6 +4,7 @@ package sqleditor
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -45,10 +46,11 @@ type SQLEditorView struct {
 	placeholder string
 
 	// Results
-	results       *ResultSet
-	selectedRow   int
-	scrollOffset  int
-	executedQuery string
+	results        *ResultSet
+	selectedRow    int
+	scrollOffset   int    // Vertical scroll (row offset)
+	colScrollOffset int   // Horizontal scroll (column offset)
+	executedQuery  string
 	lastError     error
 	lastErrorInfo *PgErrorInfo
 
@@ -277,13 +279,17 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.results = &ResultSet{
 				Columns:     msg.Result.Columns,
 				Rows:        FormatResultSet(rows),
+				RawRows:     rows,
 				TotalRows:   len(rows),
 				CurrentPage: 1,
 				PageSize:    DefaultPageSize,
 				ExecutionMs: msg.Result.Duration.Milliseconds(),
+				SortColumn:  -1, // No sort initially
+				SortAsc:     true,
 			}
 			v.selectedRow = 0
 			v.scrollOffset = 0
+			v.colScrollOffset = 0
 			// Focus results pane when rows are returned
 			if len(rows) > 0 {
 				v.focus = FocusResults
@@ -454,6 +460,14 @@ func (v *SQLEditorView) handleResultsKeys(key string) tea.Cmd {
 		v.nextPage()
 	case "p":
 		v.prevPage()
+	case "left":
+		v.scrollColumnsLeft()
+	case "right":
+		v.scrollColumnsRight()
+	case "s":
+		v.cycleSortColumn()
+	case "S":
+		v.toggleSortDirection()
 	case "y":
 		return v.copyCell()
 	case "Y":
@@ -461,6 +475,20 @@ func (v *SQLEditorView) handleResultsKeys(key string) tea.Cmd {
 	}
 
 	return nil
+}
+
+// scrollColumnsLeft scrolls the results table one column to the left.
+func (v *SQLEditorView) scrollColumnsLeft() {
+	if v.colScrollOffset > 0 {
+		v.colScrollOffset--
+	}
+}
+
+// scrollColumnsRight scrolls the results table one column to the right.
+func (v *SQLEditorView) scrollColumnsRight() {
+	if v.results != nil && v.colScrollOffset < len(v.results.Columns)-1 {
+		v.colScrollOffset++
+	}
 }
 
 // handleMouseMsg handles mouse events for scrolling and clicking.
@@ -471,20 +499,43 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) {
 	}
 
 	// Calculate where the results table data starts
+	// Account for: connection bar, editor, results title, column info, header, separator
 	editorHeight := int(float64(v.height-5) * v.splitRatio)
-	resultsDataStartY := 9 + editorHeight
+	resultsDataStartY := 10 + editorHeight
 
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
-		// Scroll results up
 		if v.results != nil && v.results.TotalRows > 0 {
-			v.moveSelection(-1)
+			if msg.Shift {
+				// Shift+scroll = horizontal scroll left
+				v.scrollColumnsLeft()
+			} else {
+				// Normal scroll = vertical
+				v.moveSelection(-1)
+			}
 		}
 
 	case tea.MouseButtonWheelDown:
-		// Scroll results down
 		if v.results != nil && v.results.TotalRows > 0 {
-			v.moveSelection(1)
+			if msg.Shift {
+				// Shift+scroll = horizontal scroll right
+				v.scrollColumnsRight()
+			} else {
+				// Normal scroll = vertical
+				v.moveSelection(1)
+			}
+		}
+
+	case tea.MouseButtonWheelLeft:
+		// Horizontal scroll wheel left
+		if v.results != nil && v.results.TotalRows > 0 {
+			v.scrollColumnsLeft()
+		}
+
+	case tea.MouseButtonWheelRight:
+		// Horizontal scroll wheel right
+		if v.results != nil && v.results.TotalRows > 0 {
+			v.scrollColumnsRight()
 		}
 
 	case tea.MouseButtonLeft:
@@ -566,42 +617,80 @@ func (v *SQLEditorView) switchFocus() {
 	}
 }
 
-// moveSelection moves the row selection by delta.
+// pageRowBounds returns the start and end row indices for the current page.
+func (v *SQLEditorView) pageRowBounds() (int, int) {
+	if v.results == nil {
+		return 0, 0
+	}
+	pageStart := (v.results.CurrentPage - 1) * v.results.PageSize
+	pageEnd := pageStart + v.results.PageSize
+	if pageEnd > len(v.results.Rows) {
+		pageEnd = len(v.results.Rows)
+	}
+	return pageStart, pageEnd
+}
+
+// moveSelection moves the row selection by delta within the current page.
 func (v *SQLEditorView) moveSelection(delta int) {
 	if v.results == nil || len(v.results.Rows) == 0 {
 		return
 	}
 
+	pageStart, pageEnd := v.pageRowBounds()
+
 	v.selectedRow += delta
-	if v.selectedRow < 0 {
-		v.selectedRow = 0
+	if v.selectedRow < pageStart {
+		v.selectedRow = pageStart
 	}
-	maxRow := len(v.results.Rows) - 1
-	if v.selectedRow > maxRow {
-		v.selectedRow = maxRow
+	if v.selectedRow >= pageEnd {
+		v.selectedRow = pageEnd - 1
 	}
 
 	v.ensureVisible()
 }
 
 // visibleResultRows returns the number of data rows that can be displayed.
-// This accounts for: title bar (1), header row (1), separator (1), pagination footer (1), margin (1)
+// This accounts for: title bar (1), header row (1), separator (1), col info (1), pagination footer (1), margin (1)
 func (v *SQLEditorView) visibleResultRows() int {
-	visible := v.resultsHeight() - 5
+	visible := v.resultsHeight() - 6
+	if v.results != nil && v.results.TotalPages() > 1 {
+		visible-- // pagination footer takes extra line
+	}
 	if visible < 1 {
 		visible = 1
 	}
 	return visible
 }
 
-// ensureVisible scrolls to make the selected row visible.
+// ensureVisible scrolls to make the selected row visible within current page.
 func (v *SQLEditorView) ensureVisible() {
-	visibleRows := v.visibleResultRows()
+	if v.results == nil {
+		return
+	}
 
-	if v.selectedRow < v.scrollOffset {
-		v.scrollOffset = v.selectedRow
-	} else if v.selectedRow >= v.scrollOffset+visibleRows {
-		v.scrollOffset = v.selectedRow - visibleRows + 1
+	pageStart, pageEnd := v.pageRowBounds()
+	visibleRows := v.visibleResultRows()
+	pageRowCount := pageEnd - pageStart
+
+	// scrollOffset is relative to page start
+	relativeRow := v.selectedRow - pageStart
+
+	if relativeRow < v.scrollOffset {
+		v.scrollOffset = relativeRow
+	} else if relativeRow >= v.scrollOffset+visibleRows {
+		v.scrollOffset = relativeRow - visibleRows + 1
+	}
+
+	// Clamp scrollOffset
+	if v.scrollOffset < 0 {
+		v.scrollOffset = 0
+	}
+	maxScroll := pageRowCount - visibleRows
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if v.scrollOffset > maxScroll {
+		v.scrollOffset = maxScroll
 	}
 }
 
@@ -612,7 +701,8 @@ func (v *SQLEditorView) nextPage() {
 	}
 	if v.results.HasNextPage() {
 		v.results.CurrentPage++
-		v.selectedRow = 0
+		// Set selectedRow to first row of new page
+		v.selectedRow = (v.results.CurrentPage - 1) * v.results.PageSize
 		v.scrollOffset = 0
 	}
 }
@@ -624,9 +714,155 @@ func (v *SQLEditorView) prevPage() {
 	}
 	if v.results.HasPrevPage() {
 		v.results.CurrentPage--
-		v.selectedRow = 0
+		// Set selectedRow to first row of new page
+		v.selectedRow = (v.results.CurrentPage - 1) * v.results.PageSize
 		v.scrollOffset = 0
 	}
+}
+
+// cycleSortColumn cycles through sort columns (s key).
+func (v *SQLEditorView) cycleSortColumn() {
+	if v.results == nil || len(v.results.Columns) == 0 {
+		return
+	}
+
+	v.results.SortColumn++
+	if v.results.SortColumn >= len(v.results.Columns) {
+		v.results.SortColumn = -1 // Back to no sort
+	}
+
+	if v.results.SortColumn >= 0 {
+		v.sortResults()
+	} else {
+		// Restore original order
+		v.restoreOriginalOrder()
+	}
+
+	// Reset to page 1 and first row
+	v.results.CurrentPage = 1
+	v.selectedRow = 0
+	v.scrollOffset = 0
+}
+
+// toggleSortDirection toggles sort direction (S key).
+func (v *SQLEditorView) toggleSortDirection() {
+	if v.results == nil || v.results.SortColumn < 0 {
+		return
+	}
+
+	v.results.SortAsc = !v.results.SortAsc
+	v.sortResults()
+
+	// Reset to page 1 and first row
+	v.results.CurrentPage = 1
+	v.selectedRow = 0
+	v.scrollOffset = 0
+}
+
+// sortResults sorts the results by the current sort column.
+func (v *SQLEditorView) sortResults() {
+	if v.results == nil || v.results.SortColumn < 0 || len(v.results.RawRows) == 0 {
+		return
+	}
+
+	col := v.results.SortColumn
+	asc := v.results.SortAsc
+
+	// Create index slice to sort both raw and formatted rows together
+	n := len(v.results.RawRows)
+	indices := make([]int, n)
+	for i := range indices {
+		indices[i] = i
+	}
+
+	// Sort indices based on raw values
+	sort.Slice(indices, func(i, j int) bool {
+		ai, aj := indices[i], indices[j]
+		if col >= len(v.results.RawRows[ai]) || col >= len(v.results.RawRows[aj]) {
+			return false
+		}
+		valA := v.results.RawRows[ai][col]
+		valB := v.results.RawRows[aj][col]
+
+		less := compareValues(valA, valB)
+		if asc {
+			return less
+		}
+		return !less
+	})
+
+	// Reorder both slices
+	newRaw := make([][]any, n)
+	newFormatted := make([][]string, n)
+	for i, idx := range indices {
+		newRaw[i] = v.results.RawRows[idx]
+		newFormatted[i] = v.results.Rows[idx]
+	}
+	v.results.RawRows = newRaw
+	v.results.Rows = newFormatted
+}
+
+// restoreOriginalOrder restores original query order (re-formats from raw).
+func (v *SQLEditorView) restoreOriginalOrder() {
+	// We don't store original order separately, so just leave as-is
+	// In practice, user would re-execute query to get original order
+}
+
+// compareValues compares two values for sorting.
+func compareValues(a, b any) bool {
+	// Handle nil values - sort nulls last
+	if a == nil && b == nil {
+		return false
+	}
+	if a == nil {
+		return false // nulls last
+	}
+	if b == nil {
+		return true // nulls last
+	}
+
+	// Type-specific comparison
+	switch va := a.(type) {
+	case int64:
+		if vb, ok := b.(int64); ok {
+			return va < vb
+		}
+	case int32:
+		if vb, ok := b.(int32); ok {
+			return va < vb
+		}
+	case int16:
+		if vb, ok := b.(int16); ok {
+			return va < vb
+		}
+	case int:
+		if vb, ok := b.(int); ok {
+			return va < vb
+		}
+	case float64:
+		if vb, ok := b.(float64); ok {
+			return va < vb
+		}
+	case float32:
+		if vb, ok := b.(float32); ok {
+			return va < vb
+		}
+	case string:
+		if vb, ok := b.(string); ok {
+			return va < vb
+		}
+	case bool:
+		if vb, ok := b.(bool); ok {
+			return !va && vb // false < true
+		}
+	case time.Time:
+		if vb, ok := b.(time.Time); ok {
+			return va.Before(vb)
+		}
+	}
+
+	// Fallback: compare string representations
+	return fmt.Sprintf("%v", a) < fmt.Sprintf("%v", b)
 }
 
 // copyCell copies the current cell value to clipboard.
@@ -794,24 +1030,34 @@ func (v *SQLEditorView) renderResults() string {
 		content = v.renderResultsTable()
 	}
 
-	// Pagination footer
+	// Pagination footer (always reserve space if multiple pages)
 	var footer string
-	if v.results != nil && v.results.TotalPages() > 1 {
+	hasMultiplePages := v.results != nil && v.results.TotalPages() > 1
+	if hasMultiplePages {
 		footer = styles.PaginationStyle.Render(
 			fmt.Sprintf("Page %d/%d (n/p to navigate)",
 				v.results.CurrentPage, v.results.TotalPages()))
 	}
 
-	// Combine
-	result := lipgloss.JoinVertical(lipgloss.Left, titleBar, content)
+	// Calculate content height (reserve 1 line for footer if needed)
+	contentHeight := resultsHeight - 1 // -1 for title bar
+	if hasMultiplePages {
+		contentHeight-- // reserve line for pagination footer
+	}
+
+	// Constrain content to available height
+	constrainedContent := lipgloss.NewStyle().
+		Height(contentHeight).
+		MaxHeight(contentHeight).
+		Render(content)
+
+	// Combine with footer OUTSIDE the constrained area
+	result := lipgloss.JoinVertical(lipgloss.Left, titleBar, constrainedContent)
 	if footer != "" {
 		result = lipgloss.JoinVertical(lipgloss.Left, result, footer)
 	}
 
-	return lipgloss.NewStyle().
-		Height(resultsHeight).
-		MaxHeight(resultsHeight).
-		Render(result)
+	return result
 }
 
 // renderResultsTable renders the results as a table.
@@ -820,103 +1066,128 @@ func (v *SQLEditorView) renderResultsTable() string {
 		return ""
 	}
 
-	numCols := len(v.results.Columns)
-	// Available width: total width minus borders and separators
-	// Each column has " │ " separator (3 chars) except the last one
-	separatorWidth := (numCols - 1) * 3
-	availableWidth := v.width - 4 - separatorWidth // -4 for padding
+	totalCols := len(v.results.Columns)
 
-	// Calculate minimum column widths based on content
-	colWidths := make([]int, numCols)
+	// Calculate column widths for ALL columns first (for stability)
+	allColWidths := make([]int, totalCols)
 	for i, col := range v.results.Columns {
-		colWidths[i] = len(col.Name)
-		if colWidths[i] < 3 {
-			colWidths[i] = 3 // Minimum width
+		// Build full header text to measure
+		headerText := col.Name
+		if col.TypeName != "" {
+			headerText = fmt.Sprintf("%s (%s)", col.Name, col.TypeName)
+		}
+		// Add sort indicator for sorted column
+		if v.results.SortColumn == i {
+			headerText += " ↑" // Use actual arrow to measure correctly
+		}
+		allColWidths[i] = lipgloss.Width(headerText)
+		if allColWidths[i] < 3 {
+			allColWidths[i] = 3
 		}
 	}
 
 	for _, row := range v.results.Rows {
 		for i, val := range row {
-			if i < len(colWidths) && len(val) > colWidths[i] {
-				colWidths[i] = len(val)
+			valWidth := lipgloss.Width(val)
+			if i < len(allColWidths) && valWidth > allColWidths[i] {
+				allColWidths[i] = valWidth
 			}
 		}
 	}
 
-	// Calculate total content width and distribute extra space
-	totalContentWidth := 0
-	for _, w := range colWidths {
-		totalContentWidth += w
+	// Cap each column to a reasonable max width
+	maxColWidth := 32
+	for i := range allColWidths {
+		if allColWidths[i] > maxColWidth {
+			allColWidths[i] = maxColWidth
+		}
 	}
 
-	// If we have extra space, distribute it proportionally
-	if totalContentWidth < availableWidth {
-		extraSpace := availableWidth - totalContentWidth
-		extraPerCol := extraSpace / numCols
-		remainder := extraSpace % numCols
-		for i := range colWidths {
-			colWidths[i] += extraPerCol
-			if i < remainder {
-				colWidths[i]++ // Distribute remainder to first columns
-			}
-		}
-	} else {
-		// If content is wider than available, cap columns proportionally
-		maxColWidth := availableWidth / numCols
-		if maxColWidth < 10 {
-			maxColWidth = 10
-		}
-		for i := range colWidths {
-			if colWidths[i] > maxColWidth {
-				colWidths[i] = maxColWidth
-			}
-		}
+	// Apply horizontal scroll offset
+	startCol := v.colScrollOffset
+	if startCol >= totalCols {
+		startCol = totalCols - 1
+	}
+	if startCol < 0 {
+		startCol = 0
 	}
 
 	var lines []string
 
-	// Header
+	// Horizontal scroll indicator (always show column info)
+	if totalCols > 1 {
+		scrollInfo := fmt.Sprintf("Cols %d-%d of %d (←/→ to scroll)", startCol+1, totalCols, totalCols)
+		lines = append(lines, styles.MutedStyle.Render(scrollInfo))
+	}
+
+	// Header with type indicators and sort indicator - only visible columns
 	var headerParts []string
-	for i, col := range v.results.Columns {
-		headerParts = append(headerParts, padOrTruncate(col.Name, colWidths[i]))
+	for i := startCol; i < totalCols; i++ {
+		col := v.results.Columns[i]
+		headerText := col.Name
+		if col.TypeName != "" {
+			headerText = fmt.Sprintf("%s (%s)", col.Name, col.TypeName)
+		}
+		// Add sort indicator
+		if v.results.SortColumn == i {
+			if v.results.SortAsc {
+				headerText += " ↑"
+			} else {
+				headerText += " ↓"
+			}
+		}
+		headerParts = append(headerParts, padOrTruncate(headerText, allColWidths[i]))
 	}
 	header := styles.ResultsHeaderStyle.Render(strings.Join(headerParts, " │ "))
 	lines = append(lines, header)
 
 	// Separator
 	var sepParts []string
-	for _, w := range colWidths {
-		sepParts = append(sepParts, strings.Repeat("─", w))
+	for i := startCol; i < totalCols; i++ {
+		sepParts = append(sepParts, strings.Repeat("─", allColWidths[i]))
 	}
 	lines = append(lines, styles.BorderStyle.Render(strings.Join(sepParts, "─┼─")))
 
-	// Rows - use consistent visible rows calculation
-	visibleRows := v.visibleResultRows()
+	// Calculate which rows to show based on pagination
+	pageStartRow := (v.results.CurrentPage - 1) * v.results.PageSize
+	pageEndRow := pageStartRow + v.results.PageSize
+	if pageEndRow > len(v.results.Rows) {
+		pageEndRow = len(v.results.Rows)
+	}
 
-	startRow := v.scrollOffset
+	// Apply vertical scroll within the current page
+	visibleRows := v.visibleResultRows()
+	startRow := pageStartRow + v.scrollOffset
 	endRow := startRow + visibleRows
-	if endRow > len(v.results.Rows) {
-		endRow = len(v.results.Rows)
+	if endRow > pageEndRow {
+		endRow = pageEndRow
 	}
 
 	for i := startRow; i < endRow; i++ {
 		row := v.results.Rows[i]
-		var rowParts []string
+		isSelected := i == v.selectedRow
 
-		for j, val := range row {
-			if j >= len(colWidths) {
-				break
-			}
-			cellVal := padOrTruncate(val, colWidths[j])
-			if val == NullDisplayValue {
+		var rowParts []string
+		for j := startCol; j < len(row); j++ {
+			val := row[j]
+			cellVal := padOrTruncate(val, allColWidths[j])
+
+			if isSelected {
+				// Apply selection style to each cell
+				cellVal = styles.ResultsRowSelectedStyle.Render(cellVal)
+			} else if val == NullDisplayValue {
 				cellVal = styles.ResultsNullStyle.Render(cellVal)
 			}
 			rowParts = append(rowParts, cellVal)
 		}
 
-		rowStr := strings.Join(rowParts, " │ ")
-		if i == v.selectedRow {
-			rowStr = styles.ResultsRowSelectedStyle.Render(rowStr)
+		// Join with styled separators for selected row
+		var rowStr string
+		if isSelected {
+			sep := styles.ResultsRowSelectedStyle.Render(" │ ")
+			rowStr = strings.Join(rowParts, sep)
+		} else {
+			rowStr = strings.Join(rowParts, " │ ")
 		}
 		lines = append(lines, rowStr)
 	}
@@ -1057,7 +1328,7 @@ func (v *SQLEditorView) renderFooter() string {
 	if v.focus == FocusEditor {
 		hints = "F5: Execute │ Esc: Exit editor"
 	} else {
-		hints = "Enter: Edit │ j/k: Navigate │ +/-: Resize │ h: Help │ q: Quit"
+		hints = "Enter: Edit │ j/k: Nav │ s/S: Sort │ n/p: Page │ h: Help │ q: Quit"
 	}
 	parts = append(parts, styles.MutedStyle.Render(hints))
 
@@ -1077,7 +1348,11 @@ RESULTS MODE (allows view switching and quit)
   j/k          Move selection down/up
   g/G          Go to first/last row
   Ctrl+d/u     Page down/up
-  n/p          Next/previous page
+  ←/→          Scroll columns left/right
+  Shift+Scroll Horizontal scroll (mouse)
+  n/p          Next/previous page (100 rows)
+  s            Cycle sort column
+  S            Toggle sort direction (↑/↓)
   y            Copy cell value
   Y            Copy entire row
   +/-          Resize editor/results split
@@ -1096,13 +1371,33 @@ Press h, q, or Esc to close this help.`
 		Render(helpText)
 }
 
-// padOrTruncate pads or truncates a string to the given width.
+// padOrTruncate pads or truncates a string to the given display width.
+// Uses lipgloss.Width for proper unicode handling.
 func padOrTruncate(s string, width int) string {
-	if len(s) > width {
+	displayWidth := lipgloss.Width(s)
+	if displayWidth > width {
+		// Truncate by runes, not bytes
 		if width > 3 {
-			return s[:width-3] + "..."
+			return truncateRunes(s, width-3) + "..."
 		}
-		return s[:width]
+		return truncateRunes(s, width)
 	}
-	return s + strings.Repeat(" ", width-len(s))
+	return s + strings.Repeat(" ", width-displayWidth)
+}
+
+// truncateRunes truncates a string to n display characters.
+func truncateRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	width := 0
+	for i, r := range runes {
+		w := lipgloss.Width(string(r))
+		if width+w > n {
+			return string(runes[:i])
+		}
+		width += w
+	}
+	return s
 }

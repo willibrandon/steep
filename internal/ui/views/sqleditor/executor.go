@@ -409,8 +409,9 @@ func (se *SessionExecutor) executeStatement(ctx context.Context, sql string) (*E
 	columns := make([]Column, len(fieldDescs))
 	for i, fd := range fieldDescs {
 		columns[i] = Column{
-			Name:    string(fd.Name),
-			TypeOID: fd.DataTypeOID,
+			Name:     string(fd.Name),
+			TypeOID:  fd.DataTypeOID,
+			TypeName: oidToTypeName(fd.DataTypeOID),
 		}
 	}
 
@@ -673,4 +674,138 @@ func getLineStartOffset(sql string, pos int) int {
 		start--
 	}
 	return start + 1 // Convert to 1-indexed
+}
+
+// oidToTypeName converts a PostgreSQL OID to a human-readable type name.
+// Common OIDs from PostgreSQL's pg_type catalog.
+func oidToTypeName(oid uint32) string {
+	switch oid {
+	// Boolean
+	case 16:
+		return "bool"
+	// Bytes
+	case 17:
+		return "bytea"
+	// Characters
+	case 18:
+		return "char"
+	case 19:
+		return "name"
+	// Integers
+	case 20:
+		return "int8"
+	case 21:
+		return "int2"
+	case 23:
+		return "int4"
+	// Floating point
+	case 700:
+		return "float4"
+	case 701:
+		return "float8"
+	// Numeric
+	case 1700:
+		return "numeric"
+	// Money
+	case 790:
+		return "money"
+	// Text types
+	case 25:
+		return "text"
+	case 1042:
+		return "bpchar"
+	case 1043:
+		return "varchar"
+	// Date/Time
+	case 1082:
+		return "date"
+	case 1083:
+		return "time"
+	case 1114:
+		return "timestamp"
+	case 1184:
+		return "timestamptz"
+	case 1186:
+		return "interval"
+	case 1266:
+		return "timetz"
+	// UUID
+	case 2950:
+		return "uuid"
+	// JSON
+	case 114:
+		return "json"
+	case 3802:
+		return "jsonb"
+	// Network
+	case 869:
+		return "inet"
+	case 650:
+		return "cidr"
+	case 829:
+		return "macaddr"
+	case 774:
+		return "macaddr8"
+	// Geometric
+	case 600:
+		return "point"
+	case 601:
+		return "lseg"
+	case 602:
+		return "path"
+	case 603:
+		return "box"
+	case 604:
+		return "polygon"
+	case 628:
+		return "line"
+	case 718:
+		return "circle"
+	// Range types
+	case 3904:
+		return "int4range"
+	case 3906:
+		return "numrange"
+	case 3908:
+		return "tsrange"
+	case 3910:
+		return "tstzrange"
+	case 3912:
+		return "daterange"
+	case 3926:
+		return "int8range"
+	// Arrays (common ones)
+	case 1000:
+		return "bool[]"
+	case 1005:
+		return "int2[]"
+	case 1007:
+		return "int4[]"
+	case 1016:
+		return "int8[]"
+	case 1009:
+		return "text[]"
+	case 1015:
+		return "varchar[]"
+	case 1021:
+		return "float4[]"
+	case 1022:
+		return "float8[]"
+	// OID
+	case 26:
+		return "oid"
+	// XML
+	case 142:
+		return "xml"
+	// Bit strings
+	case 1560:
+		return "bit"
+	case 1562:
+		return "varbit"
+	// Serial types (returned as int4/int8)
+	case 2205:
+		return "regclass"
+	default:
+		return ""
+	}
 }

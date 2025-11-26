@@ -17,10 +17,13 @@ type Query struct {
 type ResultSet struct {
 	Columns     []Column   // Column metadata
 	Rows        [][]string // Row data (pre-formatted for display)
+	RawRows     [][]any    // Raw row data (for sorting)
 	TotalRows   int        // Total row count (before pagination)
 	CurrentPage int        // Current page (1-indexed)
 	PageSize    int        // Rows per page (default 100)
 	ExecutionMs int64      // Query execution time in milliseconds
+	SortColumn  int        // Currently sorted column (-1 for none)
+	SortAsc     bool       // Sort direction (true = ascending)
 }
 
 // Column represents a result column.
