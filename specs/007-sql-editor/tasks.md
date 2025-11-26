@@ -141,7 +141,7 @@
 
 ---
 
-## Phase 7: User Story 5 - Natural Keyboard Shortcuts (Priority: P2)
+## Phase 7: User Story 5 - Natural Keyboard Shortcuts (Priority: P2) ✓
 
 **Goal**: Vim-style and VS Code-like keyboard shortcuts for efficient navigation
 
@@ -149,16 +149,25 @@
 
 ### Implementation for User Story 5
 
-- [ ] T041 [US5] Implement Tab/Shift+Tab to switch focus between editor and results in internal/ui/views/sqleditor/view.go
-- [ ] T042 [US5] Implement j/k (vim-style) row navigation in results pane in internal/ui/views/sqleditor/results.go
-- [ ] T043 [US5] Implement g/G for first/last row navigation in internal/ui/views/sqleditor/results.go
-- [ ] T044 [US5] Implement y key to copy current cell value to clipboard in internal/ui/views/sqleditor/results.go
-- [ ] T045 [US5] Implement Y key to copy entire row (tab-separated) to clipboard in internal/ui/views/sqleditor/results.go
-- [ ] T046 [US5] Implement Ctrl+Up/Down to resize editor/results split in internal/ui/views/sqleditor/view.go
-- [ ] T047 [US5] Create help overlay content with all shortcuts in internal/ui/views/sqleditor/help.go
-- [ ] T048 [US5] Display keyboard hints in footer area in internal/ui/views/sqleditor/view.go
+- [x] T041 [US5] Implement Tab/Shift+Tab to switch focus between editor and results in internal/ui/views/sqleditor/view.go
+- [x] T042 [US5] Implement j/k (vim-style) row navigation in results pane in internal/ui/views/sqleditor/view.go
+- [x] T043 [US5] Implement g/G for first/last row navigation in internal/ui/views/sqleditor/view.go
+- [x] T044 [US5] Implement y key to copy current cell value to clipboard in internal/ui/views/sqleditor/view.go
+- [x] T045 [US5] Implement Y key to copy entire row (tab-separated) to clipboard in internal/ui/views/sqleditor/view.go
+- [x] T046 [US5] Implement Ctrl+Up/Down to resize editor/results split in internal/ui/views/sqleditor/view.go
+- [x] T047 [US5] Create help overlay content with all shortcuts in internal/ui/views/sqleditor/view.go (renderHelp)
+- [x] T048 [US5] Display keyboard hints in footer area in internal/ui/views/sqleditor/view.go (renderFooter)
 
-**Checkpoint**: All keyboard shortcuts working, help overlay available
+**Checkpoint**: All keyboard shortcuts working, help overlay available ✓
+
+**Implementation Notes**:
+- Tab/Shift+Tab switches focus between editor and results (only in NORMAL mode)
+- j/k, g/G, Ctrl+d/u for vertical navigation in results
+- ←/→ for horizontal column scrolling
+- y copies first column of selected row, Y copies entire row (tab-separated)
+- +/- and Ctrl+Up/Down resize editor/results split
+- h key shows help overlay with complete shortcut reference
+- Footer hints show context-sensitive shortcuts based on current focus
 
 ---
 

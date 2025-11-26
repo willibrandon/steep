@@ -477,7 +477,7 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil // Block all keys during execution except esc
 	}
 
-	// Tab switches focus between editor and results (only in NORMAL mode)
+	// Tab/Shift+Tab switches focus between editor and results (only in NORMAL mode)
 	// In INSERT mode, let vimtea handle Tab to insert actual tab character
 	if key == "tab" {
 		if v.focus == FocusResults {
@@ -489,6 +489,16 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		// INSERT mode - don't handle, let vimtea insert tab
+	}
+	if key == "shift+tab" {
+		if v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal {
+			v.focus = FocusResults
+			return nil
+		}
+		if v.focus == FocusResults {
+			v.focus = FocusEditor
+			return nil
+		}
 	}
 
 	// Enter key on results focuses editor and enters insert mode
@@ -505,14 +515,14 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
-	// +/- to resize panes (works in results focus, or editor normal mode)
-	if key == "+" || key == "=" {
+	// +/- and Ctrl+Up/Down to resize panes (works in results focus, or editor normal mode)
+	if key == "+" || key == "=" || key == "ctrl+down" {
 		if v.focus == FocusResults || (v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal) {
 			v.growResults()
 			return nil
 		}
 	}
-	if key == "-" || key == "_" {
+	if key == "-" || key == "_" || key == "ctrl+up" {
 		if v.focus == FocusResults || (v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal) {
 			v.shrinkResults()
 			return nil
@@ -1418,9 +1428,9 @@ func (v *SQLEditorView) renderFooter() string {
 	// Key hints based on focus
 	var hints string
 	if v.focus == FocusEditor {
-		hints = "F5: Execute │ Esc: Exit editor"
+		hints = "F5: Execute │ Tab: Results │ +/-: Resize │ h: Help"
 	} else {
-		hints = "Enter: Edit │ j/k: Nav │ s/S: Sort │ n/p: Page │ h: Help │ q: Quit"
+		hints = "Tab: Editor │ j/k: Nav │ y/Y: Copy │ s/S: Sort │ n/p: Page │ h: Help"
 	}
 	parts = append(parts, styles.MutedStyle.Render(hints))
 
@@ -1431,24 +1441,36 @@ func (v *SQLEditorView) renderFooter() string {
 func (v *SQLEditorView) renderHelp() string {
 	helpText := `SQL Editor Help
 
+FOCUS SWITCHING
+  Tab          Switch focus (editor ↔ results) in normal mode
+  Shift+Tab    Switch focus (reverse direction)
+  Enter        From results: enter editor in insert mode
+
 EDITOR MODE (● indicator shows focus)
   F5           Execute query
-  Esc          Exit editor → results mode
+  Ctrl+Enter   Execute query (insert mode)
+  i/a/o        Enter insert mode (vim-style)
+  Esc          Exit insert mode / switch to results
 
 RESULTS MODE (allows view switching and quit)
-  Enter        Return to editor mode
   j/k          Move selection down/up
   g/G          Go to first/last row
-  Ctrl+d/u     Page down/up
+  Ctrl+d/u     Page down/up (10 rows)
   ←/→          Scroll columns left/right
   Shift+Scroll Horizontal scroll (mouse)
   n/p          Next/previous page (100 rows)
   s            Cycle sort column
   S            Toggle sort direction (↑/↓)
   y            Copy cell value
-  Y            Copy entire row
-  +/-          Resize editor/results split
+  Y            Copy entire row (tab-separated)
+
+RESIZE EDITOR/RESULTS SPLIT
+  +/-          Resize panes
+  Ctrl+↑/↓     Resize panes (alternative)
+
+NAVIGATION
   1-7          Switch views
+  h            Show this help
   q            Quit application
 
 DURING EXECUTION
