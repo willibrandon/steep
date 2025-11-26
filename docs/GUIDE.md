@@ -20,7 +20,7 @@ This guide provides the complete logical sequence of `/speckit.specify` commands
 
 ## Overview
 
-Steep will be built through **12 distinct features**, each following the complete spec-kit workflow:
+Steep will be built through **13 distinct features** (including 006.5), each following the complete spec-kit workflow:
 
 1. `/speckit.specify` - Define user stories and requirements
 2. `/speckit.clarify` - Resolve ambiguities (optional but recommended)
@@ -60,17 +60,18 @@ Before starting feature development, ensure:
     ├── 004-locks-blocking (Lock monitoring)
     ├── 005-tables-statistics (Table stats)
     └── 006-replication-monitoring (Replication)
-        └── 007-sql-editor (Interactive queries)
-            ├── 008-configuration-viewer (Config display)
-            ├── 009-log-viewer (Log display)
-            └── 010-database-operations (Management)
-                ├── 011-advanced-visualizations (Charts)
-                └── 012-alert-system (Alerting)
+        └── 006.5-service-architecture (steep-agent daemon)
+            └── 007-sql-editor (Interactive queries)
+                ├── 008-configuration-viewer (Config display)
+                ├── 009-log-viewer (Log display)
+                └── 010-database-operations (Management)
+                    ├── 011-advanced-visualizations (Charts)
+                    └── 012-alert-system (Alerting)
 ```
 
 ### Priority Classification
 
-- **P1 (Must-Have)**: Features 001-006 - Core monitoring MVP
+- **P1 (Must-Have)**: Features 001-006, 006.5 - Core monitoring MVP + Service Architecture
 - **P2 (Should-Have)**: Features 007-010 - Management and operations
 - **P3 (Nice-to-Have)**: Features 011-012 - Advanced analytics
 
@@ -80,7 +81,7 @@ Before starting feature development, ensure:
 
 ### Phase 1: Foundation & Core Monitoring (P1)
 
-**Estimated Timeline**: 4-6 weeks for P1 features
+**Estimated Timeline**: 5-7 weeks for P1 features
 
 | Feature | Branch | Dependencies | Estimated Effort |
 |---------|--------|--------------|------------------|
@@ -90,6 +91,7 @@ Before starting feature development, ensure:
 | 004 - Locks & Blocking Detection | `004-locks-blocking` | 001 | 1 week |
 | 005 - Tables & Statistics Viewer | `005-tables-statistics` | 001 | 1 week |
 | 006 - Replication Monitoring | `006-replication-monitoring` | 001 | 1 week |
+| 006.5 - Service Architecture | `006-5-service-architecture` | 001-006 | 1 week |
 
 ### Phase 2: Interactive Operations (P2)
 
@@ -936,6 +938,226 @@ Build using Bubbletea framework with lipgloss styling matching Query Performance
 
 ---
 
+### Feature 006.5: Service Architecture (steep-agent)
+
+**Branch**: `006-5-service-architecture`
+
+**Purpose**: Introduce a background service/daemon (steep-agent) that continuously collects monitoring data and maintains the SQLite database, enabling data persistence and freshness regardless of whether the TUI is running. This establishes a client/server architecture where the TUI becomes a lightweight client reading from a shared SQLite database maintained by the service.
+
+**User Stories** (Priority Order):
+1. **P1**: As a DBA, I want monitoring data to be collected continuously even when the TUI is not running, so I have historical data available when I open Steep
+2. **P1**: As a DBA, I want to install steep-agent as a system service (systemd/launchd/Windows Service) so it starts automatically on boot
+3. **P1**: As a DBA, I want the TUI to work in both standalone mode (current behavior) and client mode (reading from agent-maintained SQLite)
+4. **P2**: As a DBA, I want steep-agent to handle data retention and cleanup automatically so the SQLite database doesn't grow unbounded
+5. **P2**: As a DBA, I want steep-agent to monitor multiple PostgreSQL instances and aggregate data into a single SQLite database
+6. **P2**: As a DBA, I want to configure steep-agent via the same YAML config file used by the TUI
+7. **P3**: As a DBA, I want steep-agent to support alerting/notifications when thresholds are breached
+8. **P3**: As a DBA, I want to query steep-agent status and health from the TUI
+
+**Architecture**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         DEPLOYMENT MODES                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Mode 1: Standalone TUI (current, no changes)                           │
+│  ┌─────────┐         ┌────────────┐         ┌──────────┐               │
+│  │  steep  │ ──────▶ │ PostgreSQL │ ──────▶ │  SQLite  │               │
+│  │  (TUI)  │         │  (source)  │         │ (embedded)│               │
+│  └─────────┘         └────────────┘         └──────────┘               │
+│                                                                          │
+│  Mode 2: With Service (new)                                             │
+│  ┌─────────────┐     ┌────────────┐     ┌──────────┐                   │
+│  │ steep-agent │ ──▶ │ PostgreSQL │ ──▶ │  SQLite  │ ◀── steep (TUI)  │
+│  │  (daemon)   │     │  (source)  │     │ (shared) │     (read-only)   │
+│  └─────────────┘     └────────────┘     └──────────┘                   │
+│        │                   │                                            │
+│        │              ┌────────────┐                                    │
+│        └────────────▶ │ PostgreSQL │  (multi-instance support)         │
+│                       │  (source2) │                                    │
+│                       └────────────┘                                    │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Technical Scope**:
+
+*Service Infrastructure (using kardianos/service)*:
+- Cross-platform service management: Windows Services, systemd, launchd, SysV init, Upstart, OpenRC
+- Service lifecycle: Install, Uninstall, Start, Stop, Restart, Status
+- Run as system service or user service
+- Graceful shutdown with context cancellation
+- PID file management on Unix systems
+- Service recovery/restart on failure
+
+*Data Collection*:
+- Goroutine-per-monitor pattern (reuse existing monitors)
+- Configurable collection intervals per data type
+- Connection pooling with automatic reconnection
+- Multi-instance PostgreSQL support (one connection pool per instance)
+
+*SQLite as Shared State*:
+- Single writer (steep-agent), multiple readers (TUI instances)
+- WAL mode for concurrent read access
+- Schema versioning for upgrades
+- Automatic data retention/pruning (configurable per table)
+- Database location: `~/.config/steep/steep.db` (same as current)
+
+*Communication Strategy*:
+- **Primary**: SQLite as shared state (no IPC needed)
+- **Optional Future**: Unix socket/named pipe for real-time streaming
+- **Optional Future**: gRPC for remote monitoring scenarios
+
+*CLI Commands*:
+```bash
+# Service management
+steep-agent install [--user]     # Install as system/user service
+steep-agent uninstall            # Remove service
+steep-agent start                # Start service
+steep-agent stop                 # Stop service
+steep-agent restart              # Restart service
+steep-agent status               # Show service status
+
+# Direct run (foreground, for debugging)
+steep-agent run                  # Run in foreground
+steep-agent run --config /path   # Run with custom config
+
+# TUI mode selection
+steep                            # Auto-detect: use agent if running, else standalone
+steep --standalone               # Force standalone mode (current behavior)
+steep --client                   # Force client mode (requires agent running)
+```
+
+**Configuration**:
+```yaml
+# ~/.config/steep/config.yaml
+
+# Agent-specific settings
+agent:
+  enabled: true
+
+  # Data collection intervals
+  intervals:
+    activity: 2s          # pg_stat_activity
+    queries: 5s           # Query stats from logs
+    replication: 2s       # Replication lag
+    locks: 2s             # Lock monitoring
+    tables: 30s           # Table statistics
+
+  # Data retention
+  retention:
+    activity_history: 24h
+    query_stats: 7d
+    replication_lag: 24h
+    lock_history: 24h
+
+  # Multi-instance support
+  instances:
+    - name: primary
+      connection: "host=localhost port=5432 dbname=postgres"
+    - name: replica1
+      connection: "host=replica1 port=5432 dbname=postgres"
+
+  # Alerting (P3)
+  alerts:
+    enabled: false
+    webhook_url: ""
+```
+
+**Libraries**:
+- `github.com/kardianos/service` - Cross-platform service management (Windows Services, systemd, launchd, SysV, Upstart, OpenRC)
+- `github.com/mattn/go-sqlite3` - SQLite with WAL mode for concurrent access
+- `github.com/jackc/pgx/v5/pgxpool` - PostgreSQL connection pooling
+- `github.com/spf13/viper` - Configuration management (existing)
+- `github.com/spf13/cobra` - CLI commands for service management
+
+**Directory Structure**:
+```
+steep/
+├── cmd/
+│   ├── steep/           # TUI application (existing)
+│   │   └── main.go
+│   └── steep-agent/     # Service/daemon (new)
+│       └── main.go
+├── internal/
+│   ├── agent/           # Agent-specific code (new)
+│   │   ├── agent.go     # Main agent orchestration
+│   │   ├── collector.go # Data collection coordination
+│   │   ├── service.go   # kardianos/service integration
+│   │   └── config.go    # Agent configuration
+│   ├── monitors/        # Reuse existing monitors
+│   └── storage/sqlite/  # Reuse existing SQLite code
+```
+
+**Acceptance Criteria**:
+
+*Service Management*:
+- `steep-agent install` installs service on Windows (SCM), macOS (launchd), Linux (systemd/sysv)
+- `steep-agent uninstall` cleanly removes service
+- `steep-agent start/stop/restart` control service lifecycle
+- `steep-agent status` shows: running/stopped, PID, uptime, last collection time
+- Service auto-starts on system boot when installed
+- Service restarts automatically on crash (with backoff)
+- Graceful shutdown completes in-flight writes to SQLite
+
+*Data Collection*:
+- Collects data continuously at configured intervals
+- Handles PostgreSQL connection failures with automatic reconnection
+- Supports monitoring multiple PostgreSQL instances
+- Logs collection errors without crashing
+- Respects configured retention periods
+
+*SQLite Integration*:
+- Uses WAL mode for concurrent TUI read access
+- Prevents database corruption on unclean shutdown
+- Automatic schema migration on version upgrades
+- Prunes old data based on retention config
+- TUI detects agent mode and switches to read-only SQLite access
+
+*TUI Integration*:
+- `steep` auto-detects if agent is running (checks PID file or SQLite lock)
+- `steep --standalone` forces current embedded behavior
+- `steep --client` requires agent, fails with helpful message if not running
+- Client mode TUI shows "Agent: Connected" in status bar
+- Client mode has fresher historical data (collected even when TUI closed)
+
+*Cross-Platform*:
+- Windows: Installs as Windows Service, visible in services.msc
+- macOS: Installs as launchd daemon, manageable via launchctl
+- Linux: Installs as systemd unit (or sysv/upstart on older systems)
+- All platforms: Same CLI interface, same config file format
+
+**Spec-Kit Command**:
+```bash
+/speckit.specify Implement Service Architecture (steep-agent) for continuous background data collection independent of TUI runtime. Use kardianos/service library for cross-platform service management supporting Windows Services, systemd, launchd, SysV init, Upstart, and OpenRC.
+
+**Architecture:**
+Create steep-agent daemon that continuously collects PostgreSQL monitoring data and writes to SQLite database. TUI becomes optional client reading from agent-maintained SQLite. Support two deployment modes: (1) Standalone TUI (current behavior, no changes) and (2) Agent + TUI client mode where agent handles all data collection.
+
+**Service Management:**
+Implement CLI commands: install, uninstall, start, stop, restart, status. Support both system-wide and user-level service installation. Handle graceful shutdown with context cancellation. Implement automatic restart on crash with exponential backoff.
+
+**Data Collection:**
+Reuse existing monitor goroutines (activity, queries, replication, locks, tables) running in agent process. Support configurable collection intervals per data type. Handle connection failures with automatic reconnection. Support monitoring multiple PostgreSQL instances with separate connection pools.
+
+**SQLite Integration:**
+Use SQLite WAL mode for concurrent read access from TUI. Implement automatic data retention/pruning based on configuration. Prevent corruption with proper shutdown handling. Use same database location (~/.config/steep/steep.db) for seamless TUI integration.
+
+**TUI Integration:**
+Add --standalone and --client flags to steep command. Auto-detect agent presence via PID file or SQLite write lock. Show agent connection status in TUI status bar. Client mode uses read-only SQLite access with fresher historical data.
+
+**Configuration:**
+Extend existing YAML config with agent section: collection intervals, retention periods, multi-instance connections, optional alerting webhook. Single config file shared between agent and TUI.
+
+**Directory Structure:**
+Create cmd/steep-agent/ for daemon entry point. Create internal/agent/ package for agent orchestration, service integration, and collector coordination. Reuse internal/monitors/ and internal/storage/sqlite/ packages.
+
+Prioritize P1 stories (continuous collection, service install/management, dual-mode TUI) then P2 (retention, multi-instance, shared config) then P3 (alerting, agent health monitoring). Target cross-platform support from day one using kardianos/service abstractions.
+```
+
+---
+
 ### Feature 007: SQL Editor & Execution
 
 **Branch**: `007-sql-editor`
@@ -1318,12 +1540,13 @@ Implement robust error handling:
 | 004 - Locks & Blocking | 001 | - |
 | 005 - Tables & Statistics | 001 | 010 (Operations) |
 | 006 - Replication | 001 | - |
+| 006.5 - Service Architecture | 001-006 | Enhanced data persistence, multi-instance |
 | 007 - SQL Editor | 001 | 010 (User management queries) |
 | 008 - Configuration Viewer | 001 | - |
 | 009 - Log Viewer | 001 | - |
 | 010 - Database Operations | 001, 005, 007 | - |
 | 011 - Advanced Visualizations | 001-006 | - |
-| 012 - Alert System | 001-006 | - |
+| 012 - Alert System | 001-006, 006.5 | - |
 
 ---
 
