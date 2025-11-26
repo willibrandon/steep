@@ -346,9 +346,10 @@ func (m *editorModel) handleKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ensureCursorVisible()
 			return m, cmd
 		} else {
-			// Insert regular characters
-			if len(msg.String()) == 1 {
-				return insertCharacter(m, msg.String())
+			// Insert regular characters (handles both single chars and paste)
+			text := msg.String()
+			if len(text) >= 1 && !strings.HasPrefix(text, "ctrl+") && !strings.HasPrefix(text, "alt+") {
+				return insertText(m, text)
 			}
 		}
 

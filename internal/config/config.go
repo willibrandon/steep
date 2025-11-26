@@ -36,6 +36,7 @@ type ConnectionConfig struct {
 // UIConfig holds user interface preferences
 type UIConfig struct {
 	Theme           string        `mapstructure:"theme"`
+	SyntaxTheme     string        `mapstructure:"syntax_theme"`
 	RefreshInterval time.Duration `mapstructure:"refresh_interval"`
 	DateFormat      string        `mapstructure:"date_format"`
 }
@@ -234,6 +235,7 @@ func applyDefaults() {
 
 	// UI defaults
 	viper.SetDefault("ui.theme", "dark")
+	viper.SetDefault("ui.syntax_theme", "monokai")
 	viper.SetDefault("ui.refresh_interval", "1s")
 	viper.SetDefault("ui.date_format", "2006-01-02 15:04:05")
 

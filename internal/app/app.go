@@ -129,7 +129,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 	replicationView.SetDebug(cfg.Debug)
 
 	// Initialize SQL Editor view
-	sqlEditorView := sqleditorview.NewSQLEditorView()
+	sqlEditorView := sqleditorview.NewSQLEditorView(cfg.UI.SyntaxTheme)
 	sqlEditorView.SetReadOnly(readonly)
 
 	// Define available views

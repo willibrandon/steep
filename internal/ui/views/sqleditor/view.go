@@ -81,11 +81,15 @@ type SQLEditorView struct {
 }
 
 // NewSQLEditorView creates a new SQL Editor view.
-func NewSQLEditorView() *SQLEditorView {
+// syntaxTheme is the Chroma theme for SQL highlighting (e.g., "monokai", "dracula", "nord").
+func NewSQLEditorView(syntaxTheme string) *SQLEditorView {
+	if syntaxTheme == "" {
+		syntaxTheme = "monokai"
+	}
 	// Create vimtea editor with SQL syntax highlighting
 	editor := vimtea.NewEditor(
-		vimtea.WithFileName("query.sql"),         // Enables SQL syntax highlighting
-		vimtea.WithDefaultSyntaxTheme("monokai"), // Match our existing theme
+		vimtea.WithFileName("query.sql"),           // Enables SQL syntax highlighting
+		vimtea.WithDefaultSyntaxTheme(syntaxTheme), // Configurable theme
 		vimtea.WithEnableStatusBar(true),         // Shows mode and :command line
 		vimtea.WithEnableModeCommand(true),       // Enable :commands
 		vimtea.WithRelativeNumbers(false),        // Standard line numbers
@@ -489,17 +493,22 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	// +/- to resize panes (works in results focus, or editor normal mode)
+	if key == "+" || key == "=" {
+		if v.focus == FocusResults || (v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal) {
+			v.growResults()
+			return nil
+		}
+	}
+	if key == "-" || key == "_" {
+		if v.focus == FocusResults || (v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal) {
+			v.shrinkResults()
+			return nil
+		}
+	}
+
 	// Focus-specific keys when results pane has focus
 	if v.focus == FocusResults {
-		// +/- to resize panes
-		if key == "+" || key == "=" {
-			v.growEditor()
-			return nil
-		}
-		if key == "-" || key == "_" {
-			v.shrinkEditor()
-			return nil
-		}
 		// Let number keys pass through to app for view switching
 		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 			return nil
@@ -979,20 +988,20 @@ func (v *SQLEditorView) copyRow() tea.Cmd {
 	}
 }
 
-// growEditor increases the editor portion of the split.
-func (v *SQLEditorView) growEditor() {
-	v.splitRatio += 0.1
-	if v.splitRatio > 0.8 {
-		v.splitRatio = 0.8
+// growResults increases the results portion (shrinks editor).
+func (v *SQLEditorView) growResults() {
+	v.splitRatio -= 0.1
+	if v.splitRatio < 0.2 {
+		v.splitRatio = 0.2
 	}
 	v.SetSize(v.width, v.height)
 }
 
-// shrinkEditor decreases the editor portion of the split.
-func (v *SQLEditorView) shrinkEditor() {
-	v.splitRatio -= 0.1
-	if v.splitRatio < 0.2 {
-		v.splitRatio = 0.2
+// shrinkResults decreases the results portion (grows editor).
+func (v *SQLEditorView) shrinkResults() {
+	v.splitRatio += 0.1
+	if v.splitRatio > 0.8 {
+		v.splitRatio = 0.8
 	}
 	v.SetSize(v.width, v.height)
 }
@@ -1040,8 +1049,6 @@ func (v *SQLEditorView) View() string {
 
 // renderEditor renders the SQL editor with vimtea.
 func (v *SQLEditorView) renderEditor() string {
-	editorHeight := int(float64(v.height-5) * v.splitRatio) // -5 for connection bar and footer
-
 	// Title bar (vimtea's status bar shows the mode)
 	title := "SQL Editor"
 	if v.focus == FocusEditor {
@@ -1058,9 +1065,10 @@ func (v *SQLEditorView) renderEditor() string {
 	// Combine
 	content := lipgloss.JoinVertical(lipgloss.Left, titleBar, editorView)
 
+	// Use v.editorHeight set in SetSize for consistent height
 	return lipgloss.NewStyle().
-		Height(editorHeight).
-		MaxHeight(editorHeight).
+		Height(v.editorHeight).
+		MaxHeight(v.editorHeight).
 		Render(content)
 }
 

@@ -266,6 +266,56 @@ func insertCharacter(model *editorModel, char string) (tea.Model, tea.Cmd) {
 	return model, nil
 }
 
+// insertText handles inserting text that may contain multiple characters or lines (paste support)
+func insertText(model *editorModel, text string) (tea.Model, tea.Cmd) {
+	model.buffer.saveUndoState(model.cursor)
+
+	if model.cursor.Col > model.buffer.lineLength(model.cursor.Row) {
+		model.cursor.Col = model.buffer.lineLength(model.cursor.Row)
+	}
+
+	// Normalize line endings: \r\n -> \n, \r -> \n
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+
+	// Strip bracketed paste mode markers if present
+	text = strings.TrimPrefix(text, "[")
+	text = strings.TrimSuffix(text, "]")
+
+	// Check if text contains newlines (multi-line paste)
+	if strings.Contains(text, "\n") {
+		lines := strings.Split(text, "\n")
+		currentLine := model.buffer.Line(model.cursor.Row)
+		beforeCursor := currentLine[:model.cursor.Col]
+		afterCursor := currentLine[model.cursor.Col:]
+
+		// First line: append to current position
+		model.buffer.setLine(model.cursor.Row, beforeCursor+lines[0])
+
+		// Middle lines: insert as new lines
+		for i := 1; i < len(lines)-1; i++ {
+			model.buffer.insertLine(model.cursor.Row+i, lines[i])
+		}
+
+		// Last line: insert with remainder of original line
+		if len(lines) > 1 {
+			lastLineIdx := model.cursor.Row + len(lines) - 1
+			model.buffer.insertLine(lastLineIdx, lines[len(lines)-1]+afterCursor)
+			model.cursor.Row = lastLineIdx
+			model.cursor.Col = len(lines[len(lines)-1])
+		}
+	} else {
+		// Single line paste - insert at cursor
+		line := model.buffer.Line(model.cursor.Row)
+		newLine := line[:model.cursor.Col] + text + line[model.cursor.Col:]
+		model.buffer.setLine(model.cursor.Row, newLine)
+		model.cursor.Col += len(text)
+	}
+
+	model.ensureCursorVisible()
+	return model, nil
+}
+
 func handleInsertBackspace(model *editorModel) tea.Cmd {
 	model.buffer.saveUndoState(model.cursor)
 
