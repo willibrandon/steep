@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kujtimiihoxha/vimtea"
+	"github.com/willibrandon/steep/internal/ui/components/vimtea"
 	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/db"
 	"github.com/willibrandon/steep/internal/db/queries"

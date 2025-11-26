@@ -11,7 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kujtimiihoxha/vimtea"
+	"github.com/willibrandon/steep/internal/ui/components/vimtea"
 
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/styles"
@@ -461,14 +461,18 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil // Block all keys during execution except esc
 	}
 
-	// Tab switches focus between editor and results
+	// Tab switches focus between editor and results (only in NORMAL mode)
+	// In INSERT mode, let vimtea handle Tab to insert actual tab character
 	if key == "tab" {
-		if v.focus == FocusEditor {
-			v.focus = FocusResults
-		} else {
+		if v.focus == FocusResults {
 			v.focus = FocusEditor
+			return nil
 		}
-		return nil
+		if v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal {
+			v.focus = FocusResults
+			return nil
+		}
+		// INSERT mode - don't handle, let vimtea insert tab
 	}
 
 	// Enter key on results focuses editor and enters insert mode

@@ -11,7 +11,6 @@ require (
 	github.com/fatih/color v1.18.0
 	github.com/guptarohit/asciigraph v0.7.3
 	github.com/jackc/pgx/v5 v5.7.6
-	github.com/kujtimiihoxha/vimtea v0.0.3-0.20250329221256-a250e98498f9
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/mitchellh/go-wordwrap v1.0.1
@@ -20,6 +19,7 @@ require (
 	github.com/spf13/viper v1.18.2
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/xlab/treeprint v1.2.0
+	golang.design/x/clipboard v0.7.0
 	golang.org/x/term v0.36.0
 )
 
@@ -107,7 +107,6 @@ require (
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
-	golang.design/x/clipboard v0.7.0 // indirect
 	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/exp/shiny v0.0.0-20251125195548-87e1e737ad39 // indirect
