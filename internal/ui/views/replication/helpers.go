@@ -124,12 +124,11 @@ func (v *ReplicationView) copySelectedReplica() {
 }
 
 func (v *ReplicationView) dropSlotCmd() tea.Cmd {
-	// This will be connected to the actual query in app.go
+	// Send request to app.go to execute the actual query
+	slotName := v.dropSlotName
 	return func() tea.Msg {
-		return ui.DropSlotResultMsg{
-			SlotName: v.dropSlotName,
-			Success:  false,
-			Error:    fmt.Errorf("not implemented"),
+		return ui.DropSlotRequestMsg{
+			SlotName: slotName,
 		}
 	}
 }

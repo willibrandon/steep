@@ -531,6 +531,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd := m.replicationView.Update(msg)
 		return m, cmd
 
+	case ui.DropSlotRequestMsg:
+		// Execute the drop slot query
+		return m, m.dropReplicationSlot(msg.SlotName)
+
 	case ui.DropSlotResultMsg:
 		// Forward to replication view
 		m.replicationView.Update(msg)
@@ -1175,6 +1179,37 @@ func (m Model) createReplicationUser(username, password string) tea.Cmd {
 		return ui.CreateReplicationUserResultMsg{
 			Success:  true,
 			Username: username,
+			Error:    nil,
+		}
+	}
+}
+
+// dropReplicationSlot drops a replication slot from the database
+func (m Model) dropReplicationSlot(slotName string) tea.Cmd {
+	return func() tea.Msg {
+		if m.dbPool == nil {
+			return ui.DropSlotResultMsg{
+				SlotName: slotName,
+				Success:  false,
+				Error:    fmt.Errorf("database connection not available"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := queries.DropReplicationSlot(ctx, m.dbPool, slotName)
+		if err != nil {
+			return ui.DropSlotResultMsg{
+				SlotName: slotName,
+				Success:  false,
+				Error:    err,
+			}
+		}
+
+		return ui.DropSlotResultMsg{
+			SlotName: slotName,
+			Success:  true,
 			Error:    nil,
 		}
 	}

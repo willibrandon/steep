@@ -167,6 +167,11 @@ type ReplicationDataMsg struct {
 	Error     error
 }
 
+// DropSlotRequestMsg requests dropping a replication slot.
+type DropSlotRequestMsg struct {
+	SlotName string
+}
+
 // DropSlotResultMsg contains the result of dropping a replication slot.
 type DropSlotResultMsg struct {
 	SlotName string

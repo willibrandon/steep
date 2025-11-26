@@ -294,11 +294,11 @@ Based on plan.md structure:
 
 ### Implementation for User Story 12
 
-- [ ] T087 [US12] Implement DropSlot() query (pg_drop_replication_slot) in `internal/db/queries/replication.go`
-- [ ] T088 [US12] Add confirmation dialog for slot deletion with data loss warning in `internal/ui/views/replication/view.go`
-- [ ] T089 [US12] Implement `d` key shortcut to drop selected slot in Slots tab in `internal/ui/views/replication/view.go`
-- [ ] T090 [US12] Block slot management in read-only mode with appropriate message in `internal/ui/views/replication/view.go`
-- [ ] T091 [US12] Refresh slot list after successful deletion in `internal/ui/views/replication/view.go`
+- [x] T087 [US12] Implement DropSlot() query (pg_drop_replication_slot) in `internal/db/queries/replication.go`
+- [x] T088 [US12] Add confirmation dialog for slot deletion with data loss warning in `internal/ui/views/replication/view.go`
+- [x] T089 [US12] Implement `D` key shortcut to drop selected slot in Slots tab in `internal/ui/views/replication/keys.go`
+- [x] T090 [US12] Block slot management in read-only mode with appropriate message in `internal/ui/views/replication/keys.go`
+- [x] T091 [US12] Refresh slot list after successful deletion in `internal/ui/views/replication/view.go`
 
 **Checkpoint**: User Story 12 complete - can manage replication slots
 
