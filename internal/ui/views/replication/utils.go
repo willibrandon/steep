@@ -39,7 +39,14 @@ func formatDuration(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%.1fs", d.Seconds())
 	}
-	return fmt.Sprintf("%.1fm", d.Minutes())
+	if d < time.Hour {
+		return fmt.Sprintf("%.0fm", d.Minutes())
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%.0fh", d.Hours())
+	}
+	days := d.Hours() / 24
+	return fmt.Sprintf("%.0fd", days)
 }
 
 func sortByFunc(replicas []models.Replica, less func(a, b models.Replica) bool) {

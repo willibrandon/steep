@@ -187,6 +187,7 @@ func (v *ReplicationView) handleOverviewKeys(key string) tea.Cmd {
 		}
 	case "w":
 		// Cycle time window and request historical data
+		// 1m -> 5m -> 15m -> 1h -> 6h -> 12h -> 24h -> 7d -> 1m
 		switch v.timeWindow {
 		case time.Minute:
 			v.timeWindow = 5 * time.Minute
@@ -194,6 +195,14 @@ func (v *ReplicationView) handleOverviewKeys(key string) tea.Cmd {
 			v.timeWindow = 15 * time.Minute
 		case 15 * time.Minute:
 			v.timeWindow = time.Hour
+		case time.Hour:
+			v.timeWindow = 6 * time.Hour
+		case 6 * time.Hour:
+			v.timeWindow = 12 * time.Hour
+		case 12 * time.Hour:
+			v.timeWindow = 24 * time.Hour
+		case 24 * time.Hour:
+			v.timeWindow = 7 * 24 * time.Hour // 7 days
 		default:
 			v.timeWindow = time.Minute
 		}
@@ -416,7 +425,8 @@ func (v *ReplicationView) handlePhysicalWizardKeys(key string) tea.Cmd {
 
 	case "y":
 		// Copy to clipboard
-		if w.Step == setup.StepUserConfig {
+		switch w.Step {
+		case setup.StepUserConfig:
 			// T085: Copy password to clipboard
 			if !v.clipboard.IsAvailable() {
 				v.showToast("Clipboard unavailable", true)
@@ -427,7 +437,7 @@ func (v *ReplicationView) handlePhysicalWizardKeys(key string) tea.Cmd {
 				return nil
 			}
 			v.showToast("Password copied to clipboard", false)
-		} else if w.Step == setup.StepReview {
+		case setup.StepReview:
 			cmd := setup.GetSelectedCommand(w)
 			if cmd != "" {
 				if !v.clipboard.IsAvailable() {
@@ -541,9 +551,10 @@ func (v *ReplicationView) startEditingField() {
 	// Initialize buffer with current value
 	switch w.Step {
 	case setup.StepUserConfig:
-		if w.SelectedField == 0 {
+		switch w.SelectedField {
+		case 0:
 			w.InputBuffer = w.Config.Username
-		} else if w.SelectedField == 2 {
+		case 2:
 			w.InputBuffer = w.Config.Password
 		}
 	case setup.StepNetworkSecurity:
@@ -574,9 +585,10 @@ func (v *ReplicationView) commitEditingField() {
 
 	switch w.Step {
 	case setup.StepUserConfig:
-		if w.SelectedField == 0 {
+		switch w.SelectedField {
+		case 0:
 			w.Config.Username = w.InputBuffer
-		} else if w.SelectedField == 2 {
+		case 2:
 			w.Config.Password = w.InputBuffer
 		}
 	case setup.StepNetworkSecurity:
@@ -633,9 +645,10 @@ func (v *ReplicationView) handleWizardSpaceKey() {
 		}
 	case setup.StepNetworkSecurity:
 		// Cycle SSL mode or Auth method
-		if w.SelectedField == 3 {
+		switch w.SelectedField {
+		case 3:
 			w.Config.SSLMode = setup.CycleSSLMode(w.Config.SSLMode)
-		} else if w.SelectedField == 4 {
+		case 4:
 			w.Config.AuthMethod = setup.CycleAuthMethod(w.Config.AuthMethod)
 		}
 	case setup.StepReplicationMode:
@@ -989,9 +1002,10 @@ func (v *ReplicationView) handleLogicalWizardSpaceKey() {
 
 	case setup.LogicalStepConnection:
 		// Toggle copy_data and enabled
-		if w.SelectedField == 7 {
+		switch w.SelectedField {
+		case 7:
 			w.Config.CopyData = !w.Config.CopyData
-		} else if w.SelectedField == 8 {
+		case 8:
 			w.Config.Enabled = !w.Config.Enabled
 		}
 	}

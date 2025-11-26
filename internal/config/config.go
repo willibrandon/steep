@@ -11,10 +11,11 @@ import (
 
 // Config represents the root configuration structure
 type Config struct {
-	Connection ConnectionConfig `mapstructure:"connection"`
-	UI         UIConfig         `mapstructure:"ui"`
-	Queries    QueriesConfig    `mapstructure:"queries"`
-	Debug      bool             `mapstructure:"debug"`
+	Connection  ConnectionConfig  `mapstructure:"connection"`
+	UI          UIConfig          `mapstructure:"ui"`
+	Queries     QueriesConfig     `mapstructure:"queries"`
+	Replication ReplicationConfig `mapstructure:"replication"`
+	Debug       bool              `mapstructure:"debug"`
 }
 
 // ConnectionConfig holds database connection parameters
@@ -37,6 +38,12 @@ type UIConfig struct {
 	Theme           string        `mapstructure:"theme"`
 	RefreshInterval time.Duration `mapstructure:"refresh_interval"`
 	DateFormat      string        `mapstructure:"date_format"`
+}
+
+// ReplicationConfig holds replication monitoring configuration
+type ReplicationConfig struct {
+	// LagHistoryRetention is how long to keep lag history data (default: 24h, max: 168h/7d)
+	LagHistoryRetention time.Duration `mapstructure:"lag_history_retention"`
 }
 
 // LoadConfig loads configuration from YAML file and environment variables.
@@ -108,7 +115,10 @@ func createDefaultConfig() (*Config, error) {
 			DateFormat:      viper.GetString("ui.date_format"),
 		},
 		Queries: DefaultQueriesConfig(),
-		Debug:   viper.GetBool("debug"),
+		Replication: ReplicationConfig{
+			LagHistoryRetention: viper.GetDuration("replication.lag_history_retention"),
+		},
+		Debug: viper.GetBool("debug"),
 	}
 
 	return config, nil
@@ -194,6 +204,13 @@ func ValidateConfig(cfg *Config) error {
 		return fmt.Errorf("ui.refresh_interval must be between 100ms and 60s, got %v", cfg.UI.RefreshInterval)
 	}
 
+	// Validate replication config
+	minRetention := time.Hour
+	maxRetention := 168 * time.Hour // 7 days
+	if cfg.Replication.LagHistoryRetention < minRetention || cfg.Replication.LagHistoryRetention > maxRetention {
+		return fmt.Errorf("replication.lag_history_retention must be between 1h and 168h (7d), got %v", cfg.Replication.LagHistoryRetention)
+	}
+
 	return nil
 }
 
@@ -219,6 +236,9 @@ func applyDefaults() {
 	viper.SetDefault("ui.theme", "dark")
 	viper.SetDefault("ui.refresh_interval", "1s")
 	viper.SetDefault("ui.date_format", "2006-01-02 15:04:05")
+
+	// Replication defaults
+	viper.SetDefault("replication.lag_history_retention", "24h")
 
 	// Debug default
 	viper.SetDefault("debug", false)

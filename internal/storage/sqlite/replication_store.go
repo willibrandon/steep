@@ -94,6 +94,7 @@ func (s *ReplicationStore) SaveLagEntries(ctx context.Context, entries []models.
 }
 
 // GetLagHistory retrieves lag history entries for a replica since a given time.
+// Uses idx_lag_history_replica index (replica_name, timestamp) for efficient queries.
 func (s *ReplicationStore) GetLagHistory(ctx context.Context, replicaName string, since time.Time) ([]models.LagHistoryEntry, error) {
 	query := `
 		SELECT
@@ -181,6 +182,8 @@ func (s *ReplicationStore) GetLagHistory(ctx context.Context, replicaName string
 }
 
 // GetLagHistoryForAllReplicas retrieves lag history for all replicas since a given time.
+// Uses idx_lag_history_time index (timestamp, replica_name) for efficient time-range queries.
+// Limited to 10000 entries to prevent memory issues with very long time ranges.
 func (s *ReplicationStore) GetLagHistoryForAllReplicas(ctx context.Context, since time.Time) (map[string][]models.LagHistoryEntry, error) {
 	query := `
 		SELECT
@@ -189,6 +192,7 @@ func (s *ReplicationStore) GetLagHistoryForAllReplicas(ctx context.Context, sinc
 		FROM replication_lag_history
 		WHERE timestamp >= ?
 		ORDER BY replica_name, timestamp ASC
+		LIMIT 10000
 	`
 
 	rows, err := s.db.conn.QueryContext(ctx, query, since.Format("2006-01-02 15:04:05"))
@@ -267,6 +271,7 @@ func (s *ReplicationStore) GetLagHistoryForAllReplicas(ctx context.Context, sinc
 }
 
 // GetLagValues retrieves just the byte lag values as float64 for sparkline rendering.
+// Uses idx_lag_history_replica index (replica_name, timestamp) for efficient queries.
 func (s *ReplicationStore) GetLagValues(ctx context.Context, replicaName string, since time.Time, limit int) ([]float64, error) {
 	query := `
 		SELECT byte_lag

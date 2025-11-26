@@ -313,11 +313,14 @@ func (v *ReplicationView) renderReplicaRow(r models.Replica, selected bool, head
 // renderLagSparkline renders a sparkline for the given replica's lag history.
 func (v *ReplicationView) renderLagSparkline(replicaName string, width int) string {
 	// Use SQLite data for windows > 1 minute, otherwise use in-memory ring buffer
+	// Fall back to in-memory if SQLite has no data for this replica
 	var history []float64
 	var ok bool
 	if v.timeWindow > time.Minute && v.sqliteLagHistory != nil {
 		history, ok = v.sqliteLagHistory[replicaName]
-	} else {
+	}
+	// Fall back to in-memory ring buffer if no SQLite data
+	if !ok || len(history) == 0 {
 		history, ok = v.data.LagHistory[replicaName]
 	}
 	if !ok || len(history) == 0 {

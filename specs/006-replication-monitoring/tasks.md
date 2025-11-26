@@ -312,10 +312,10 @@ Based on plan.md structure:
 
 ### Implementation for User Story 13
 
-- [ ] T092 [US13] Add lag history retention configuration option (default 24h, max 7 days) in `internal/config/config.go`
-- [ ] T093 [US13] Implement automatic cleanup of old lag history entries based on retention setting in `internal/monitors/replication.go`
-- [ ] T094 [US13] Add extended time window options (6h, 12h, 24h, 7d) to sparkline selector in `internal/ui/views/replication/view.go`
-- [ ] T095 [US13] Optimize GetLagHistory() query with proper indexing for long time ranges in `internal/storage/sqlite/replication_store.go`
+- [x] T092 [US13] Add lag history retention configuration option (default 24h, max 7 days) in `internal/config/config.go`
+- [x] T093 [US13] Implement automatic cleanup of old lag history entries based on retention setting in `internal/monitors/replication.go`
+- [x] T094 [US13] Add extended time window options (6h, 12h, 24h, 7d) to sparkline selector in `internal/ui/views/replication/keys.go`
+- [x] T095 [US13] Optimize GetLagHistory() query with proper indexing for long time ranges in `internal/storage/sqlite/replication_store.go`
 
 **Checkpoint**: User Story 13 complete - can analyze historical lag trends
 

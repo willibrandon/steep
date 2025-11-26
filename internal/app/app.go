@@ -259,6 +259,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.replicationStore = sqlite.NewReplicationStore(queryDB)
 			m.replicationMonitor = monitors.NewReplicationMonitor(msg.Pool, 2*time.Second, m.replicationStore)
 
+			// Set retention from config (convert duration to hours)
+			retentionHours := int(m.config.Replication.LagHistoryRetention.Hours())
+			if retentionHours > 0 {
+				m.replicationMonitor.SetRetentionHours(retentionHours)
+			}
+
 			// Initialize deadlock monitor
 			ctx := context.Background()
 			m.deadlockMonitor, _ = monitors.NewDeadlockMonitor(ctx, msg.Pool, m.deadlockStore, 30*time.Second)
