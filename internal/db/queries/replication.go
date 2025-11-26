@@ -591,3 +591,23 @@ func quoteLiteral(s string) string {
 	escaped := strings.ReplaceAll(s, "'", "''")
 	return "'" + escaped + "'"
 }
+
+// IsSuperuser checks if the current connection has superuser privileges.
+func IsSuperuser(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
+	var isSuperuser bool
+	err := pool.QueryRow(ctx, "SELECT current_setting('is_superuser') = 'on'").Scan(&isSuperuser)
+	if err != nil {
+		return false, fmt.Errorf("check superuser: %w", err)
+	}
+	return isSuperuser, nil
+}
+
+// ReplicationUserExists checks if a replication user already exists.
+func ReplicationUserExists(ctx context.Context, pool *pgxpool.Pool, username string) (bool, error) {
+	var exists bool
+	err := pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", username).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check user exists: %w", err)
+	}
+	return exists, nil
+}

@@ -220,3 +220,16 @@ type ConnTestResponseMsg struct {
 	Message string
 	Error   error
 }
+
+// CreateReplicationUserMsg requests creation of a replication user.
+type CreateReplicationUserMsg struct {
+	Username string
+	Password string
+}
+
+// CreateReplicationUserResultMsg contains the result of user creation.
+type CreateReplicationUserResultMsg struct {
+	Success  bool
+	Username string
+	Error    error
+}

@@ -275,12 +275,12 @@ Based on plan.md structure:
 
 ### Implementation for User Story 11
 
-- [ ] T081 [US11] Implement secure password generation using sethvargo/go-password in `internal/db/queries/replication.go`
-- [ ] T082 [US11] Add password strength validation for user-provided passwords in `internal/db/queries/replication.go`
-- [ ] T083 [US11] Implement CreateReplicationUser() query (CREATE USER with REPLICATION LOGIN) in `internal/db/queries/replication.go`
-- [ ] T084 [US11] Create user creation form with username input and password option (auto/manual) in `internal/ui/views/replication/setup/physical_wizard.go`
-- [ ] T085 [US11] Display generated password once with copy option, then mask in `internal/ui/views/replication/setup/physical_wizard.go`
-- [ ] T086 [US11] Require superuser for user creation with clear error if unavailable in `internal/ui/views/replication/setup/physical_wizard.go`
+- [x] T081 [US11] Implement secure password generation using sethvargo/go-password in `internal/db/queries/replication.go`
+- [x] T082 [US11] Add password strength validation for user-provided passwords in `internal/db/queries/replication.go`
+- [x] T083 [US11] Implement CreateReplicationUser() query (CREATE USER with REPLICATION LOGIN) in `internal/db/queries/replication.go`
+- [x] T084 [US11] Create user creation form with username input and password option (auto/manual) in `internal/ui/views/replication/setup/physical_wizard.go`
+- [x] T085 [US11] Display generated password once with copy option, then mask in `internal/ui/views/replication/setup/physical_wizard.go`
+- [x] T086 [US11] Require superuser for user creation with clear error if unavailable in `internal/ui/views/replication/setup/physical_wizard.go`
 
 **Checkpoint**: User Story 11 complete - can create replication users
 

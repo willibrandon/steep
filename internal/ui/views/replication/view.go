@@ -278,6 +278,29 @@ func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case ui.CreateReplicationUserResultMsg:
+		// Handle user creation result
+		if v.physicalWizard != nil {
+			v.physicalWizard.CreatingUser = false
+			if msg.Error != nil {
+				v.showToast("Failed to create user: "+msg.Error.Error(), true)
+			} else if msg.Success {
+				v.showToast(fmt.Sprintf("User '%s' created successfully", msg.Username), false)
+				// Hide password after successful creation
+				v.physicalWizard.Config.PasswordShown = false
+			}
+		}
+		if v.logicalWizard != nil {
+			v.logicalWizard.CreatingUser = false
+			if msg.Error != nil {
+				v.showToast("Failed to create user: "+msg.Error.Error(), true)
+			} else if msg.Success {
+				v.showToast(fmt.Sprintf("User '%s' created successfully", msg.Username), false)
+				// Hide password after successful creation
+				v.logicalWizard.Config.PasswordShown = false
+			}
+		}
+
 	case tea.WindowSizeMsg:
 		v.SetSize(msg.Width, msg.Height)
 

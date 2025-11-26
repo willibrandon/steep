@@ -36,13 +36,17 @@ type LogicalWizardConfig struct {
 	Mode LogicalWizardMode
 
 	// Publication config
-	PublicationName string
-	AllTables       bool
-	SelectedTables  map[string]bool // schema.table -> selected
-	OpInsert        bool
-	OpUpdate        bool
-	OpDelete        bool
-	OpTruncate      bool
+	PublicationName  string
+	AllTables        bool
+	SelectedTables   map[string]bool // schema.table -> selected
+	OpInsert         bool
+	OpUpdate         bool
+	OpDelete         bool
+	OpTruncate       bool
+	ReplicationUser  string // User for subscribers to connect
+	ReplicationPass  string
+	AutoGenPass      bool
+	PasswordShown    bool
 
 	// Subscription config
 	SubscriptionName string
@@ -73,8 +77,9 @@ type LogicalWizardState struct {
 	SelectedField int
 	EditingField  int
 	InputBuffer   string
-	TableCursor   int // For table selection navigation
-	TableOffset   int // Scroll offset for table list
+	TableCursor   int  // For table selection navigation
+	TableOffset   int  // Scroll offset for table list
+	CreatingUser  bool // True while user creation is in progress
 }
 
 // NewLogicalWizardState creates a new logical wizard state with defaults.
@@ -98,6 +103,9 @@ func NewLogicalWizardState(tables []models.Table) *LogicalWizardState {
 		selectedTables[fullName] = false
 	}
 
+	// Generate default password for replication user
+	defaultPassword, _ := GenerateReplicationPassword()
+
 	return &LogicalWizardState{
 		Step:   LogicalStepType,
 		Tables: tableInfos,
@@ -110,6 +118,10 @@ func NewLogicalWizardState(tables []models.Table) *LogicalWizardState {
 			OpUpdate:         true,
 			OpDelete:         true,
 			OpTruncate:       false,
+			ReplicationUser:  "replicator",
+			ReplicationPass:  defaultPassword,
+			AutoGenPass:      true,
+			PasswordShown:    false,
 			SubscriptionName: "my_subscription",
 			PublicationNames: []string{"my_publication"},
 			ConnectionHost:   "primary-host",
@@ -390,8 +402,62 @@ func renderLogicalTableSelectionStep(state *LogicalWizardState, maxHeight int) s
 		}
 	}
 
+	// Replication User section
 	b.WriteString("\n")
-	b.WriteString(hintStyle.Render("[Space] toggle  [Enter] edit name"))
+	b.WriteString(lipgloss.NewStyle().Bold(true).Render("Replication User (for subscribers)"))
+	b.WriteString("\n\n")
+
+	// Username field
+	userLabel := labelStyle.Render("Username:")
+	if state.SelectedField == 3 {
+		if state.EditingField == 3 {
+			b.WriteString(selectedStyle.Render(userLabel + " " + state.InputBuffer + "▌"))
+		} else {
+			b.WriteString(selectedStyle.Render(userLabel + " " + state.Config.ReplicationUser))
+		}
+	} else {
+		b.WriteString(userLabel + " " + valueStyle.Render(state.Config.ReplicationUser))
+	}
+	b.WriteString("\n")
+
+	// Password mode field
+	passMode := "Auto-generated"
+	if !state.Config.AutoGenPass {
+		passMode = "Manual"
+	}
+	passModeLabel := labelStyle.Render("Password Mode:")
+	if state.SelectedField == 4 {
+		b.WriteString(selectedStyle.Render(passModeLabel + " " + passMode))
+	} else {
+		b.WriteString(passModeLabel + " " + valueStyle.Render(passMode))
+	}
+	b.WriteString("\n")
+
+	// Password field
+	passDisplay := "••••••••••••••••••••••••"
+	if state.Config.PasswordShown {
+		passDisplay = state.Config.ReplicationPass
+	}
+	passLabel := labelStyle.Render("Password:")
+	if state.SelectedField == 5 {
+		if state.EditingField == 5 {
+			b.WriteString(selectedStyle.Render(passLabel + " " + state.InputBuffer + "▌"))
+		} else {
+			b.WriteString(selectedStyle.Render(passLabel + " " + passDisplay))
+		}
+	} else {
+		b.WriteString(passLabel + " " + valueStyle.Render(passDisplay))
+	}
+	b.WriteString("\n")
+
+	// Creating user status
+	if state.CreatingUser {
+		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("Creating user..."))
+	}
+
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("[Space] toggle  [Enter] edit  [v] show/hide pw  [r] regen pw  [y] copy pw  [c] create user"))
 
 	return b.String()
 }
@@ -762,7 +828,7 @@ func GetLogicalMaxFieldForStep(state *LogicalWizardState) int {
 	case LogicalStepType:
 		return 1 // publication, subscription
 	case LogicalStepTableSelection:
-		return 2 // name, all tables toggle, table list
+		return 5 // name, all tables toggle, table list, username, pass mode, password
 	case LogicalStepOperations:
 		return 3 // insert, update, delete, truncate
 	case LogicalStepConnection:

@@ -415,8 +415,19 @@ func (v *ReplicationView) handlePhysicalWizardKeys(key string) tea.Cmd {
 		}
 
 	case "y":
-		// Copy to clipboard (Step 4: Review)
-		if w.Step == setup.StepReview {
+		// Copy to clipboard
+		if w.Step == setup.StepUserConfig {
+			// T085: Copy password to clipboard
+			if !v.clipboard.IsAvailable() {
+				v.showToast("Clipboard unavailable", true)
+				return nil
+			}
+			if err := v.clipboard.Write(w.Config.Password); err != nil {
+				v.showToast("Copy failed: "+err.Error(), true)
+				return nil
+			}
+			v.showToast("Password copied to clipboard", false)
+		} else if w.Step == setup.StepReview {
 			cmd := setup.GetSelectedCommand(w)
 			if cmd != "" {
 				if !v.clipboard.IsAvailable() {
@@ -428,6 +439,32 @@ func (v *ReplicationView) handlePhysicalWizardKeys(key string) tea.Cmd {
 					return nil
 				}
 				v.showToast("Copied to clipboard", false)
+			}
+		}
+
+	case "c":
+		// T084/T086: Create replication user (Step 1: User Config)
+		if w.Step == setup.StepUserConfig {
+			if v.readOnly {
+				v.showToast("Cannot create user in read-only mode", true)
+				return nil
+			}
+			if w.CreatingUser {
+				return nil // Already creating
+			}
+			// Validate password strength for manual passwords
+			if !w.Config.AutoGenPass {
+				if err := setup.ValidatePasswordStrength(w.Config.Password); err != nil {
+					v.showToast(err.Error(), true)
+					return nil
+				}
+			}
+			w.CreatingUser = true
+			return func() tea.Msg {
+				return ui.CreateReplicationUserMsg{
+					Username: w.Config.Username,
+					Password: w.Config.Password,
+				}
 			}
 		}
 
@@ -682,8 +719,19 @@ func (v *ReplicationView) handleLogicalWizardKeys(key string) tea.Cmd {
 		v.handleLogicalWizardSpaceKey()
 
 	case "y":
-		// Copy to clipboard (Review step)
-		if w.Step == setup.LogicalStepReview {
+		// Copy to clipboard
+		if w.Step == setup.LogicalStepTableSelection && w.Config.Mode == setup.LogicalModePublication {
+			// Copy password to clipboard
+			if !v.clipboard.IsAvailable() {
+				v.showToast("Clipboard unavailable", true)
+				return nil
+			}
+			if err := v.clipboard.Write(w.Config.ReplicationPass); err != nil {
+				v.showToast("Copy failed: "+err.Error(), true)
+				return nil
+			}
+			v.showToast("Password copied to clipboard", false)
+		} else if w.Step == setup.LogicalStepReview {
 			cmd := setup.GetLogicalSelectedCommand(w)
 			if cmd != "" {
 				if !v.clipboard.IsAvailable() {
@@ -695,6 +743,48 @@ func (v *ReplicationView) handleLogicalWizardKeys(key string) tea.Cmd {
 					return nil
 				}
 				v.showToast("Copied to clipboard", false)
+			}
+		}
+
+	case "v":
+		// Toggle password visibility (TableSelection step, Publication mode)
+		if w.Step == setup.LogicalStepTableSelection && w.Config.Mode == setup.LogicalModePublication {
+			w.Config.PasswordShown = !w.Config.PasswordShown
+		}
+
+	case "r":
+		// Regenerate password (TableSelection step, Publication mode)
+		if w.Step == setup.LogicalStepTableSelection && w.Config.Mode == setup.LogicalModePublication && w.Config.AutoGenPass {
+			newPass, err := setup.GenerateReplicationPassword()
+			if err == nil {
+				w.Config.ReplicationPass = newPass
+				v.showToast("Password regenerated", false)
+			}
+		}
+
+	case "c":
+		// Create replication user (TableSelection step, Publication mode)
+		if w.Step == setup.LogicalStepTableSelection && w.Config.Mode == setup.LogicalModePublication {
+			if v.readOnly {
+				v.showToast("Cannot create user in read-only mode", true)
+				return nil
+			}
+			if w.CreatingUser {
+				return nil // Already creating
+			}
+			// Validate password strength for manual passwords
+			if !w.Config.AutoGenPass {
+				if err := setup.ValidatePasswordStrength(w.Config.ReplicationPass); err != nil {
+					v.showToast(err.Error(), true)
+					return nil
+				}
+			}
+			w.CreatingUser = true
+			return func() tea.Msg {
+				return ui.CreateReplicationUserMsg{
+					Username: w.Config.ReplicationUser,
+					Password: w.Config.ReplicationPass,
+				}
 			}
 		}
 
@@ -752,7 +842,8 @@ func (v *ReplicationView) isLogicalEditableField() bool {
 	w := v.logicalWizard
 	switch w.Step {
 	case setup.LogicalStepTableSelection:
-		return w.SelectedField == 0 // publication name
+		// publication name (0), username (3), password (5)
+		return w.SelectedField == 0 || w.SelectedField == 3 || w.SelectedField == 5
 	case setup.LogicalStepConnection:
 		return w.SelectedField <= 6 // text fields before toggles
 	default:
@@ -768,8 +859,13 @@ func (v *ReplicationView) startLogicalEditingField() {
 	// Initialize buffer with current value
 	switch w.Step {
 	case setup.LogicalStepTableSelection:
-		if w.SelectedField == 0 {
+		switch w.SelectedField {
+		case 0:
 			w.InputBuffer = w.Config.PublicationName
+		case 3:
+			w.InputBuffer = w.Config.ReplicationUser
+		case 5:
+			w.InputBuffer = w.Config.ReplicationPass
 		}
 	case setup.LogicalStepConnection:
 		switch w.SelectedField {
@@ -800,8 +896,13 @@ func (v *ReplicationView) commitLogicalEditingField() {
 
 	switch w.Step {
 	case setup.LogicalStepTableSelection:
-		if w.SelectedField == 0 {
+		switch w.SelectedField {
+		case 0:
 			w.Config.PublicationName = w.InputBuffer
+		case 3:
+			w.Config.ReplicationUser = w.InputBuffer
+		case 5:
+			w.Config.ReplicationPass = w.InputBuffer
 		}
 	case setup.LogicalStepConnection:
 		switch w.SelectedField {
@@ -861,6 +962,16 @@ func (v *ReplicationView) handleLogicalWizardSpaceKey() {
 			t := w.Tables[w.TableCursor]
 			fullName := t.Schema + "." + t.Name
 			w.Config.SelectedTables[fullName] = !w.Config.SelectedTables[fullName]
+		} else if w.SelectedField == 4 {
+			// Toggle password mode (auto-generated vs manual)
+			w.Config.AutoGenPass = !w.Config.AutoGenPass
+			if w.Config.AutoGenPass {
+				// Regenerate password when switching to auto
+				newPass, err := setup.GenerateReplicationPassword()
+				if err == nil {
+					w.Config.ReplicationPass = newPass
+				}
+			}
 		}
 
 	case setup.LogicalStepOperations:

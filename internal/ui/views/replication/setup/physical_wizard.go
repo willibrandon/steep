@@ -70,9 +70,10 @@ type PhysicalWizardState struct {
 	Step          WizardStep
 	Config        PhysicalWizardConfig
 	Error         string
-	SelectedField int // For navigation within a step
-	EditingField  int // -1 if not editing, otherwise field index
+	SelectedField int  // For navigation within a step
+	EditingField  int  // -1 if not editing, otherwise field index
 	InputBuffer   string
+	CreatingUser  bool // True while user creation is in progress
 }
 
 // NewPhysicalWizardState creates a new wizard state with defaults.
@@ -257,8 +258,14 @@ func renderUserConfigStep(state *PhysicalWizardState, readOnly bool) string {
 	}
 	b.WriteString("\n")
 
+	// Creating user status
+	if state.CreatingUser {
+		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("Creating user..."))
+	}
+
 	b.WriteString("\n")
-	b.WriteString(hintStyle.Render("[Enter] edit  [Space] toggle mode  [v] show/hide  [r] regenerate"))
+	b.WriteString(hintStyle.Render("[Enter] edit  [Space] toggle mode  [v] show/hide  [r] regenerate  [y] copy pw  [c] create user"))
 
 	return b.String()
 }

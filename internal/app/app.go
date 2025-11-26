@@ -572,6 +572,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.replicationView.Update(msg)
 		return m, nil
 
+	case ui.CreateReplicationUserMsg:
+		// Create replication user
+		return m, m.createReplicationUser(msg.Username, msg.Password)
+
+	case ui.CreateReplicationUserResultMsg:
+		// Forward to replication view
+		m.replicationView.Update(msg)
+		return m, nil
+
 	case ui.DeadlockScanProgressMsg:
 		// Forward progress to locks view
 		m.locksView.Update(msg)
@@ -764,32 +773,34 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Check for view jumping (1-6)
-	switch msg.String() {
-	case "1":
-		m.currentView = views.ViewDashboard
-		return m, nil
-	case "2":
-		m.currentView = views.ViewActivity
-		return m, nil
-	case "3":
-		m.currentView = views.ViewQueries
-		return m, nil
-	case "4":
-		m.currentView = views.ViewLocks
-		return m, nil
-	case "5":
-		m.currentView = views.ViewTables
-		return m, nil
-	case "6":
-		m.currentView = views.ViewReplication
-		return m, nil
-	case "tab":
-		m.nextView()
-		return m, nil
-	case "shift+tab":
-		m.prevView()
-		return m, nil
+	// Check for view jumping (1-6) - but not when in input mode (editing fields)
+	if !inInputMode {
+		switch msg.String() {
+		case "1":
+			m.currentView = views.ViewDashboard
+			return m, nil
+		case "2":
+			m.currentView = views.ViewActivity
+			return m, nil
+		case "3":
+			m.currentView = views.ViewQueries
+			return m, nil
+		case "4":
+			m.currentView = views.ViewLocks
+			return m, nil
+		case "5":
+			m.currentView = views.ViewTables
+			return m, nil
+		case "6":
+			m.currentView = views.ViewReplication
+			return m, nil
+		case "tab":
+			m.nextView()
+			return m, nil
+		case "shift+tab":
+			m.prevView()
+			return m, nil
+		}
 	}
 
 	// Forward key events to current view
@@ -1097,6 +1108,74 @@ func (m Model) testConnection(connString string) tea.Cmd {
 			Success: true,
 			Message: "Connected to " + shortVersion,
 			Error:   nil,
+		}
+	}
+}
+
+// createReplicationUser creates a new replication user in the database
+func (m Model) createReplicationUser(username, password string) tea.Cmd {
+	return func() tea.Msg {
+		if m.dbPool == nil {
+			return ui.CreateReplicationUserResultMsg{
+				Success:  false,
+				Username: username,
+				Error:    fmt.Errorf("database connection not available"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Check if user is superuser
+		isSuperuser, err := queries.IsSuperuser(ctx, m.dbPool)
+		if err != nil {
+			return ui.CreateReplicationUserResultMsg{
+				Success:  false,
+				Username: username,
+				Error:    fmt.Errorf("failed to check privileges: %w", err),
+			}
+		}
+
+		if !isSuperuser {
+			return ui.CreateReplicationUserResultMsg{
+				Success:  false,
+				Username: username,
+				Error:    fmt.Errorf("superuser privileges required to create users"),
+			}
+		}
+
+		// Check if user already exists
+		exists, err := queries.ReplicationUserExists(ctx, m.dbPool, username)
+		if err != nil {
+			return ui.CreateReplicationUserResultMsg{
+				Success:  false,
+				Username: username,
+				Error:    fmt.Errorf("failed to check if user exists: %w", err),
+			}
+		}
+
+		if exists {
+			return ui.CreateReplicationUserResultMsg{
+				Success:  false,
+				Username: username,
+				Error:    fmt.Errorf("user '%s' already exists", username),
+			}
+		}
+
+		// Create the user
+		err = queries.CreateReplicationUser(ctx, m.dbPool, username, password)
+		if err != nil {
+			return ui.CreateReplicationUserResultMsg{
+				Success:  false,
+				Username: username,
+				Error:    err,
+			}
+		}
+
+		return ui.CreateReplicationUserResultMsg{
+			Success:  true,
+			Username: username,
+			Error:    nil,
 		}
 	}
 }
