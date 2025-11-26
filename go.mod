@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/fatih/color v1.18.0
+	github.com/guptarohit/asciigraph v0.7.3
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/mattn/go-sqlite3 v1.14.32

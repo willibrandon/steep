@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
@@ -206,17 +207,18 @@ func (v *ReplicationView) renderReplicaTable() string {
 	// Calculate available height for table
 	tableHeight := v.height - 6 // status + title + tabs + header + footer
 
-	// Column headers
+	// Column headers - include Trend sparkline column
 	headers := []struct {
 		name  string
 		width int
 	}{
-		{"Name", 20},
-		{"Client", 15},
-		{"State", 12},
-		{"Sync", 10},
-		{"Byte Lag", 12},
-		{"Time Lag", 10},
+		{"Name", 18},
+		{"Client", 14},
+		{"State", 10},
+		{"Sync", 8},
+		{"Byte Lag", 10},
+		{"Time Lag", 9},
+		{"Trend", 14}, // Sparkline column
 	}
 
 	// Header row
@@ -295,5 +297,44 @@ func (v *ReplicationView) renderReplicaRow(r models.Replica, selected bool, head
 	row.WriteString(lagStyle.Render(padRight(r.FormatByteLag(), headers[4].width)))
 	row.WriteString(lagStyle.Render(padRight(r.FormatReplayLag(), headers[5].width)))
 
+	// Sparkline column - get lag history for this replica
+	// Use lipgloss.Width for ANSI-aware width calculation
+	sparkline := v.renderLagSparkline(r.ApplicationName, headers[6].width-2)
+	sparklineWidth := lipgloss.Width(sparkline)
+	if sparklineWidth < headers[6].width {
+		sparkline += strings.Repeat(" ", headers[6].width-sparklineWidth)
+	}
+	// Add ANSI reset at the very end to prevent color bleeding to next row
+	row.WriteString(sparkline + "\033[0m")
+
 	return row.String()
+}
+
+// renderLagSparkline renders a sparkline for the given replica's lag history.
+func (v *ReplicationView) renderLagSparkline(replicaName string, width int) string {
+	// Use SQLite data for windows > 1 minute, otherwise use in-memory ring buffer
+	var history []float64
+	var ok bool
+	if v.timeWindow > time.Minute && v.sqliteLagHistory != nil {
+		history, ok = v.sqliteLagHistory[replicaName]
+	} else {
+		history, ok = v.data.LagHistory[replicaName]
+	}
+	if !ok || len(history) == 0 {
+		return strings.Repeat("─", width)
+	}
+
+	// Configure sparkline with severity-based coloring
+	config := components.SparklineConfig{
+		Width:  width,
+		Height: 1,
+	}
+
+	// Thresholds: 1MB warning, 10MB critical (in bytes)
+	const (
+		warningThreshold  = 1024 * 1024      // 1 MB
+		criticalThreshold = 10 * 1024 * 1024 // 10 MB
+	)
+
+	return components.RenderSparklineWithSeverity(history, config, float64(warningThreshold), float64(criticalThreshold))
 }

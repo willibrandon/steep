@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/views/replication/setup"
 )
 
@@ -175,7 +176,7 @@ func (v *ReplicationView) handleOverviewKeys(key string) tea.Cmd {
 			v.mode = ModeDetail
 		}
 	case "w":
-		// Cycle time window
+		// Cycle time window and request historical data
 		switch v.timeWindow {
 		case time.Minute:
 			v.timeWindow = 5 * time.Minute
@@ -187,6 +188,10 @@ func (v *ReplicationView) handleOverviewKeys(key string) tea.Cmd {
 			v.timeWindow = time.Minute
 		}
 		v.showToast(fmt.Sprintf("Time window: %s", formatDuration(v.timeWindow)), false)
+		// Request lag history from SQLite for the new window
+		return func() tea.Msg {
+			return ui.LagHistoryRequestMsg{Window: v.timeWindow}
+		}
 	case "y":
 		v.copySelectedReplica()
 	}

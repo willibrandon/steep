@@ -109,7 +109,9 @@ type ReplicationView struct {
 	toastTime    time.Time
 
 	// Time window for sparklines
-	timeWindow time.Duration
+	timeWindow          time.Duration
+	sqliteLagHistory    map[string][]float64 // Lag history from SQLite for longer windows
+	lastSqliteFetch     time.Time            // When we last fetched from SQLite
 
 	// Clipboard
 	clipboard *ui.ClipboardWriter
@@ -199,6 +201,15 @@ func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if v.mode == ModeDetail && v.activeTab == TabSlots {
 				v.prepareSlotDetail()
 			}
+			// Fetch SQLite lag history periodically when using longer windows
+			if v.timeWindow > time.Minute {
+				// Refresh every 30 seconds
+				if v.sqliteLagHistory == nil || time.Since(v.lastSqliteFetch) > 30*time.Second {
+					return v, func() tea.Msg {
+						return ui.LagHistoryRequestMsg{Window: v.timeWindow}
+					}
+				}
+			}
 		}
 
 	case ui.DropSlotResultMsg:
@@ -220,6 +231,15 @@ func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.showToast("Command executed successfully", false)
 		} else {
 			v.showToast("Command execution failed", true)
+		}
+
+	case ui.LagHistoryResponseMsg:
+		// Store SQLite lag history separately (not overwritten by monitor)
+		if msg.Error != nil {
+			v.showToast("Failed to fetch history: "+msg.Error.Error(), true)
+		} else if msg.LagHistory != nil {
+			v.sqliteLagHistory = msg.LagHistory
+			v.lastSqliteFetch = time.Now()
 		}
 
 	case tea.WindowSizeMsg:
@@ -301,11 +321,6 @@ func (v *ReplicationView) View() string {
 
 	// Content
 	b.WriteString(content)
-
-	// Toast if active
-	if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
-		return v.overlayToast(b.String())
-	}
 
 	return b.String()
 }

@@ -201,11 +201,11 @@ Based on plan.md structure:
 
 ### Implementation for User Story 7
 
-- [ ] T059 [US7] Create sparkline component using asciigraph with color support in `internal/ui/components/sparkline.go`
-- [ ] T060 [US7] Implement Unicode block alternative for compact single-line sparklines in `internal/ui/components/sparkline.go`
-- [ ] T061 [US7] Add sparkline column to replica table showing lag history in `internal/ui/views/replication/view.go`
-- [ ] T062 [US7] Implement time window selector (1m, 5m, 15m, 1h) with keyboard shortcut in `internal/ui/views/replication/view.go`
-- [ ] T063 [US7] Integrate with ReplicationStore to fetch historical data for extended windows in `internal/ui/views/replication/view.go`
+- [x] T059 [US7] Create sparkline component using asciigraph with color support in `internal/ui/components/sparkline.go`
+- [x] T060 [US7] Implement Unicode block alternative for compact single-line sparklines in `internal/ui/components/sparkline.go`
+- [x] T061 [US7] Add sparkline column to replica table showing lag history in `internal/ui/views/replication/view.go`
+- [x] T062 [US7] Implement time window selector (1m, 5m, 15m, 1h) with keyboard shortcut in `internal/ui/views/replication/view.go`
+- [x] T063 [US7] Integrate with ReplicationStore to fetch historical data for extended windows in `internal/ui/views/replication/view.go`
 
 **Checkpoint**: User Story 7 complete - can view lag trend sparklines
 

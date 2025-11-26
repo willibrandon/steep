@@ -52,10 +52,10 @@ type Model struct {
 	statusBar *components.StatusBar
 
 	// Views
-	currentView views.ViewType
-	viewList    []views.ViewType
-	dashboard   *views.DashboardView
-	queriesView *queriesview.QueriesView
+	currentView     views.ViewType
+	viewList        []views.ViewType
+	dashboard       *views.DashboardView
+	queriesView     *queriesview.QueriesView
 	locksView       *locksview.LocksView
 	tablesView      *tablesview.TablesView
 	replicationView *replicationview.ReplicationView
@@ -81,6 +81,7 @@ type Model struct {
 	deadlockMonitor    *monitors.DeadlockMonitor
 	deadlockStore      *sqlite.DeadlockStore
 	replicationMonitor *monitors.ReplicationMonitor
+	replicationStore   *sqlite.ReplicationStore
 
 	// Query performance monitoring
 	queryStatsDB    *sqlite.DB
@@ -234,8 +235,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		refreshInterval := m.config.UI.RefreshInterval
 		m.activityMonitor = monitors.NewActivityMonitor(msg.Pool, refreshInterval)
 		m.statsMonitor = monitors.NewStatsMonitor(msg.Pool, refreshInterval)
-		m.locksMonitor = monitors.NewLocksMonitor(msg.Pool, 2*time.Second)       // 2s refresh for locks
-		m.replicationMonitor = monitors.NewReplicationMonitor(msg.Pool, 2*time.Second, nil) // 2s refresh for replication
+		m.locksMonitor = monitors.NewLocksMonitor(msg.Pool, 2*time.Second) // 2s refresh for locks
 
 		// Initialize query stats storage
 		storagePath := m.config.Queries.StoragePath
@@ -251,6 +251,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Initialize deadlock store (shares same DB)
 			m.deadlockStore = sqlite.NewDeadlockStore(queryDB)
+
+			// Initialize replication store and monitor (shares same DB)
+			m.replicationStore = sqlite.NewReplicationStore(queryDB)
+			m.replicationMonitor = monitors.NewReplicationMonitor(msg.Pool, 2*time.Second, m.replicationStore)
 
 			// Initialize deadlock monitor
 			ctx := context.Background()
@@ -269,6 +273,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err == nil && !status.Enabled {
 				m.queriesView.SetLoggingDisabled()
 			}
+		}
+
+		// Fallback: create replication monitor without persistence if DB failed
+		if m.replicationMonitor == nil {
+			m.replicationMonitor = monitors.NewReplicationMonitor(msg.Pool, 2*time.Second, nil)
 		}
 
 		// Get our own PIDs for self-kill warning
@@ -515,9 +524,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ui.ReplicationDataMsg:
-		// Forward to replication view
-		m.replicationView.Update(msg)
-		return m, nil
+		// Forward to replication view and execute any returned cmd
+		_, cmd := m.replicationView.Update(msg)
+		return m, cmd
 
 	case ui.DropSlotResultMsg:
 		// Forward to replication view
@@ -529,6 +538,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.executeWizardCommand(msg.Command, msg.Label)
 
 	case ui.WizardExecResultMsg:
+		// Forward to replication view
+		m.replicationView.Update(msg)
+		return m, nil
+
+	case ui.LagHistoryRequestMsg:
+		// Fetch lag history from SQLite for the requested time window
+		return m, m.fetchLagHistory(msg.Window)
+
+	case ui.LagHistoryResponseMsg:
 		// Forward to replication view
 		m.replicationView.Update(msg)
 		return m, nil
@@ -946,6 +964,48 @@ func (m Model) executeWizardCommand(command, label string) tea.Cmd {
 			Label:   label,
 			Success: true,
 			Error:   nil,
+		}
+	}
+}
+
+// fetchLagHistory fetches lag history from SQLite for the given time window
+func (m Model) fetchLagHistory(window time.Duration) tea.Cmd {
+	return func() tea.Msg {
+		if m.replicationStore == nil {
+			return ui.LagHistoryResponseMsg{
+				LagHistory: nil,
+				Window:     window,
+				Error:      fmt.Errorf("replication store not available"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		since := time.Now().Add(-window)
+		entries, err := m.replicationStore.GetLagHistoryForAllReplicas(ctx, since)
+		if err != nil {
+			return ui.LagHistoryResponseMsg{
+				LagHistory: nil,
+				Window:     window,
+				Error:      err,
+			}
+		}
+
+		// Convert entries to float64 slices for sparklines
+		lagHistory := make(map[string][]float64)
+		for name, replicaEntries := range entries {
+			values := make([]float64, len(replicaEntries))
+			for i, e := range replicaEntries {
+				values[i] = float64(e.ByteLag)
+			}
+			lagHistory[name] = values
+		}
+
+		return ui.LagHistoryResponseMsg{
+			LagHistory: lagHistory,
+			Window:     window,
+			Error:      nil,
 		}
 	}
 }

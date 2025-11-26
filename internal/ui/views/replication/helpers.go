@@ -179,9 +179,11 @@ func (v *ReplicationView) renderFooter() string {
 	sortInfo := fmt.Sprintf("Sort: %s %s", v.sortColumn.String(), arrow)
 
 	var count string
+	var windowInfo string
 	switch v.activeTab {
 	case TabOverview:
 		count = fmt.Sprintf("%d / %d", min(v.selectedIdx+1, len(v.data.Replicas)), len(v.data.Replicas))
+		windowInfo = fmt.Sprintf("  [%s]", formatDuration(v.timeWindow))
 	case TabSlots:
 		count = fmt.Sprintf("%d / %d", min(v.slotSelectedIdx+1, len(v.data.Slots)), len(v.data.Slots))
 	case TabLogical:
@@ -194,7 +196,7 @@ func (v *ReplicationView) renderFooter() string {
 		count = ""
 	}
 
-	rightSide := styles.FooterCountStyle.Render(sortInfo + "  " + count)
+	rightSide := styles.FooterCountStyle.Render(sortInfo + "  " + count + windowInfo)
 
 	gap := v.width - lipgloss.Width(hints) - lipgloss.Width(rightSide) - 4
 	if gap < 1 {

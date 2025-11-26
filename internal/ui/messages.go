@@ -187,3 +187,15 @@ type WizardExecRequestMsg struct {
 	Command string
 	Label   string
 }
+
+// LagHistoryRequestMsg requests lag history data for a given time window.
+type LagHistoryRequestMsg struct {
+	Window time.Duration
+}
+
+// LagHistoryResponseMsg contains lag history data from SQLite.
+type LagHistoryResponseMsg struct {
+	LagHistory map[string][]float64
+	Window     time.Duration
+	Error      error
+}
