@@ -55,11 +55,17 @@ type SQLEditorView struct {
 	lastError       error
 	lastErrorInfo   *PgErrorInfo
 
+	// Server-side pagination state
+	paginationBaseSQL string // Original SELECT without LIMIT/OFFSET
+	paginationPage    int    // Current page (1-indexed), 0 if not paginating
+	paginationTotal   int64  // Total row count, -1 if unknown
+
 	// Execution
-	executor   *SessionExecutor
-	executing  bool
-	startTime  time.Time
-	lastUpdate time.Time
+	executor     *SessionExecutor
+	executing    bool
+	startTime    time.Time
+	lastUpdate   time.Time
+	queryTimeout time.Duration
 
 	// Key bindings
 	keys KeyMap
@@ -130,12 +136,13 @@ func NewSQLEditorView(syntaxTheme string) *SQLEditorView {
 	)
 
 	v := &SQLEditorView{
-		mode:       ModeNormal,
-		focus:      FocusEditor,
-		editor:     editor,
-		keys:       DefaultKeyMap(),
-		splitRatio: 0.4, // 40% editor, 60% results
-		clipboard:  ui.NewClipboardWriter(),
+		mode:         ModeNormal,
+		focus:        FocusEditor,
+		editor:       editor,
+		keys:         DefaultKeyMap(),
+		splitRatio:   0.4, // 40% editor, 60% results
+		queryTimeout: DefaultQueryTimeout,
+		clipboard:    ui.NewClipboardWriter(),
 		results: &ResultSet{
 			PageSize:    DefaultPageSize,
 			CurrentPage: 1,
@@ -317,6 +324,11 @@ func (v *SQLEditorView) SetReadOnly(readOnly bool) {
 	}
 }
 
+// SetQueryTimeout sets the query execution timeout.
+func (v *SQLEditorView) SetQueryTimeout(timeout time.Duration) {
+	v.queryTimeout = timeout
+}
+
 // clearEditorAndResults clears both the editor content and query results.
 func (v *SQLEditorView) clearEditorAndResults() {
 	// Clear editor content
@@ -435,13 +447,30 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.lastErrorInfo = msg.Result.ErrorInfo
 			// Show short toast, detailed error shown in results pane
 			v.showToast("Query failed - see error below", true)
-		} else if msg.Result.Message != "" {
-			v.showToast(msg.Result.Message, false)
-			v.lastError = nil
-			v.lastErrorInfo = nil
 		} else {
 			v.lastError = nil
 			v.lastErrorInfo = nil
+		}
+
+		// Check for pagination metadata in Message field
+		var pageNum int
+		var totalCount int64 = -1
+		isPaginated := false
+		if msg.Result.Message != "" && strings.HasPrefix(msg.Result.Message, "__PAGE__:") {
+			isPaginated = true
+			// Parse __PAGE__:pageNum:totalCount
+			parts := strings.Split(msg.Result.Message, ":")
+			if len(parts) >= 3 {
+				fmt.Sscanf(parts[1], "%d", &pageNum)
+				fmt.Sscanf(parts[2], "%d", &totalCount)
+			}
+			// Update pagination state
+			v.paginationPage = pageNum
+			if totalCount >= 0 {
+				v.paginationTotal = totalCount
+			}
+		} else if msg.Result.Message != "" {
+			v.showToast(msg.Result.Message, false)
 		}
 
 		// Convert results to display format (even for 0 rows, to show column headers)
@@ -450,12 +479,23 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if rows == nil {
 				rows = [][]any{} // Empty slice instead of nil
 			}
+
+			// For paginated results, use stored total; otherwise use row count
+			totalRows := len(rows)
+			currentPage := 1
+			if isPaginated {
+				currentPage = pageNum
+				if v.paginationTotal > 0 {
+					totalRows = int(v.paginationTotal)
+				}
+			}
+
 			v.results = &ResultSet{
 				Columns:     msg.Result.Columns,
 				Rows:        FormatResultSet(rows),
 				RawRows:     rows,
-				TotalRows:   len(rows),
-				CurrentPage: 1,
+				TotalRows:   totalRows,
+				CurrentPage: currentPage,
 				PageSize:    DefaultPageSize,
 				ExecutionMs: msg.Result.Duration.Milliseconds(),
 				SortColumn:  -1, // No sort initially
@@ -464,10 +504,17 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.selectedRow = 0
 			v.scrollOffset = 0
 			v.colScrollOffset = 0
-			// Keep focus on editor - user can Tab to results
-			// Show success toast with row count (or warning if DDL in transaction)
+
+			// Show appropriate toast
 			if msg.Result.Warning != "" {
 				v.showToast(msg.Result.Warning, true)
+			} else if isPaginated && v.paginationTotal > 0 {
+				maxPages := (int(v.paginationTotal) + DefaultPageSize - 1) / DefaultPageSize
+				v.showToast(fmt.Sprintf("Page %d/%d (%d total rows, %dms)",
+					currentPage, maxPages, v.paginationTotal, msg.Result.Duration.Milliseconds()), false)
+			} else if isPaginated {
+				v.showToast(fmt.Sprintf("Page %d - %d rows (%dms)",
+					currentPage, len(rows), msg.Result.Duration.Milliseconds()), false)
 			} else {
 				v.showToast(fmt.Sprintf("Query OK: %d rows (%dms)", len(rows), msg.Result.Duration.Milliseconds()), false)
 			}
@@ -731,8 +778,16 @@ func (v *SQLEditorView) handleResultsKeys(key string) tea.Cmd {
 	case "ctrl+u", "pgup":
 		v.moveSelection(-10)
 	case "n":
+		// Server-side pagination if we have a base query
+		if v.paginationBaseSQL != "" {
+			return v.fetchPage(v.paginationPage + 1)
+		}
 		v.nextPage()
 	case "p":
+		// Server-side pagination if we have a base query
+		if v.paginationBaseSQL != "" {
+			return v.fetchPage(v.paginationPage - 1)
+		}
 		v.prevPage()
 	case "left":
 		v.scrollColumnsLeft()
@@ -857,15 +912,60 @@ func (v *SQLEditorView) executeQueryCmd() tea.Cmd {
 	v.lastError = nil
 	v.lastErrorInfo = nil
 
-	// Capture executor reference for the goroutine
+	// For SELECT queries without LIMIT/OFFSET, use server-side pagination
+	if isSelectQuery(sql) && !hasLimitOrOffset(sql) {
+		// Strip trailing semicolon for appending LIMIT/OFFSET
+		baseSQL := strings.TrimSuffix(strings.TrimSpace(sql), ";")
+
+		// Store pagination state
+		v.paginationBaseSQL = baseSQL
+		v.paginationPage = 1
+		v.paginationTotal = -1
+
+		// Capture values for the goroutine
+		executor := v.executor
+		timeout := v.queryTimeout
+
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			// Get total count first (with shorter timeout, allow failure)
+			var totalCount int64 = -1
+			countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS _cnt", baseSQL)
+			countCtx, countCancel := context.WithTimeout(ctx, 30*time.Second)
+			_ = executor.pool.QueryRow(countCtx, countSQL).Scan(&totalCount)
+			countCancel()
+
+			// Execute paginated query (page 1)
+			paginatedSQL := fmt.Sprintf("%s LIMIT %d OFFSET 0", baseSQL, DefaultPageSize)
+			result, err := executor.ExecuteQuery(ctx, paginatedSQL, timeout)
+			if err != nil {
+				return QueryCompletedMsg{Result: &ExecutionResult{Error: err}}
+			}
+
+			// Encode pagination metadata in Message field
+			if result != nil {
+				result.Message = fmt.Sprintf("__PAGE__:%d:%d", 1, totalCount)
+			}
+
+			return QueryCompletedMsg{Result: result}
+		}
+	}
+
+	// Non-SELECT or query with LIMIT/OFFSET: clear pagination state, execute as-is
+	v.paginationBaseSQL = ""
+	v.paginationPage = 0
+	v.paginationTotal = -1
+
 	executor := v.executor
+	timeout := v.queryTimeout
 
 	return func() tea.Msg {
-		// Actually execute the query
 		result, err := executor.ExecuteQuery(
 			context.Background(),
 			sql,
-			DefaultQueryTimeout,
+			timeout,
 		)
 		if err != nil {
 			return QueryCompletedMsg{Result: &ExecutionResult{Error: err}}
@@ -888,6 +988,11 @@ func (v *SQLEditorView) pageRowBounds() (int, int) {
 	if v.results == nil {
 		return 0, 0
 	}
+	// For server-side pagination, rows array only contains current page (0 to len-1)
+	if v.paginationBaseSQL != "" {
+		return 0, len(v.results.Rows)
+	}
+	// Client-side pagination: calculate slice of all-in-memory rows
 	pageStart := (v.results.CurrentPage - 1) * v.results.PageSize
 	pageEnd := pageStart + v.results.PageSize
 	if pageEnd > len(v.results.Rows) {
@@ -1728,10 +1833,20 @@ func (v *SQLEditorView) renderResultsTable() string {
 	lines = append(lines, styles.BorderStyle.Render(strings.Join(sepParts, "─┼─")))
 
 	// Calculate which rows to show based on pagination
-	pageStartRow := (v.results.CurrentPage - 1) * v.results.PageSize
-	pageEndRow := pageStartRow + v.results.PageSize
-	if pageEndRow > len(v.results.Rows) {
+	// For server-side pagination, v.results.Rows only contains current page's data (indices 0 to len-1)
+	// For client-side pagination, v.results.Rows contains all data
+	var pageStartRow, pageEndRow int
+	if v.paginationBaseSQL != "" {
+		// Server-side: rows array only has current page's data
+		pageStartRow = 0
 		pageEndRow = len(v.results.Rows)
+	} else {
+		// Client-side: rows array has all data, slice by page
+		pageStartRow = (v.results.CurrentPage - 1) * v.results.PageSize
+		pageEndRow = pageStartRow + v.results.PageSize
+		if pageEndRow > len(v.results.Rows) {
+			pageEndRow = len(v.results.Rows)
+		}
 	}
 
 	// Apply vertical scroll within the current page
@@ -1744,6 +1859,7 @@ func (v *SQLEditorView) renderResultsTable() string {
 
 	for i := startRow; i < endRow; i++ {
 		row := v.results.Rows[i]
+		// For server-side pagination, selectedRow is relative to current page (0-based)
 		isSelected := i == v.selectedRow
 
 		var rowParts []string
@@ -2152,4 +2268,88 @@ func truncateRunes(s string, n int) string {
 		width += w
 	}
 	return s
+}
+
+// isSelectQuery checks if SQL is a SELECT-type query that returns rows.
+func isSelectQuery(sql string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(sql))
+	return strings.HasPrefix(upper, "SELECT") ||
+		strings.HasPrefix(upper, "WITH") ||
+		strings.HasPrefix(upper, "TABLE") ||
+		strings.HasPrefix(upper, "(SELECT") ||
+		strings.HasPrefix(upper, "VALUES")
+}
+
+// hasLimitOrOffset checks if SQL already contains LIMIT or OFFSET clause.
+func hasLimitOrOffset(sql string) bool {
+	upper := strings.ToUpper(sql)
+	// Check for LIMIT or OFFSET keywords (with word boundaries)
+	// This is a simple check - won't catch LIMIT in string literals, but good enough
+	return strings.Contains(upper, " LIMIT ") ||
+		strings.Contains(upper, " OFFSET ") ||
+		strings.Contains(upper, "\nLIMIT ") ||
+		strings.Contains(upper, "\tLIMIT ") ||
+		strings.Contains(upper, "\nOFFSET ") ||
+		strings.Contains(upper, "\tOFFSET ") ||
+		strings.HasSuffix(upper, " LIMIT") ||
+		strings.HasSuffix(upper, " OFFSET")
+}
+
+// fetchPage executes a paginated query and returns a tea.Cmd.
+// This is used by n/p keys to fetch different pages of results.
+func (v *SQLEditorView) fetchPage(page int) tea.Cmd {
+	// Validate we have pagination state
+	if v.paginationBaseSQL == "" {
+		v.showToast("No query to paginate", true)
+		return nil
+	}
+	if v.executor == nil || v.executor.pool == nil {
+		v.showToast("No database connection", true)
+		return nil
+	}
+
+	// Bounds check
+	if page < 1 {
+		return nil
+	}
+	if v.paginationTotal > 0 {
+		maxPages := (int(v.paginationTotal) + DefaultPageSize - 1) / DefaultPageSize
+		if page > maxPages {
+			return nil
+		}
+	}
+
+	// Set executing state BEFORE returning the command
+	v.mode = ModeExecuting
+	v.executing = true
+	v.startTime = time.Now()
+
+	// Capture all values needed by the goroutine
+	baseSQL := v.paginationBaseSQL
+	executor := v.executor
+	timeout := v.queryTimeout
+	offset := (page - 1) * DefaultPageSize
+	targetPage := page
+	storedTotal := v.paginationTotal
+
+	return func() tea.Msg {
+		// Build paginated SQL
+		paginatedSQL := fmt.Sprintf("%s LIMIT %d OFFSET %d", baseSQL, DefaultPageSize, offset)
+
+		// Execute with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		result, err := executor.ExecuteQuery(ctx, paginatedSQL, timeout)
+		if err != nil {
+			return QueryCompletedMsg{Result: &ExecutionResult{Error: err}}
+		}
+
+		// Attach pagination metadata to result
+		if result != nil {
+			result.Message = fmt.Sprintf("__PAGE__:%d:%d", targetPage, storedTotal)
+		}
+
+		return QueryCompletedMsg{Result: result}
+	}
 }

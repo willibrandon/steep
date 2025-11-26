@@ -131,6 +131,9 @@ func New(readonly bool, configPath string) (*Model, error) {
 	// Initialize SQL Editor view
 	sqlEditorView := sqleditorview.NewSQLEditorView(cfg.UI.SyntaxTheme)
 	sqlEditorView.SetReadOnly(readonly)
+	if cfg.UI.QueryTimeout > 0 {
+		sqlEditorView.SetQueryTimeout(cfg.UI.QueryTimeout)
+	}
 
 	// Define available views
 	viewList := []views.ViewType{

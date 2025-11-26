@@ -39,6 +39,7 @@ type UIConfig struct {
 	SyntaxTheme     string        `mapstructure:"syntax_theme"`
 	RefreshInterval time.Duration `mapstructure:"refresh_interval"`
 	DateFormat      string        `mapstructure:"date_format"`
+	QueryTimeout    time.Duration `mapstructure:"query_timeout"`
 }
 
 // ReplicationConfig holds replication monitoring configuration
@@ -238,6 +239,7 @@ func applyDefaults() {
 	viper.SetDefault("ui.syntax_theme", "monokai")
 	viper.SetDefault("ui.refresh_interval", "1s")
 	viper.SetDefault("ui.date_format", "2006-01-02 15:04:05")
+	viper.SetDefault("ui.query_timeout", "30s")
 
 	// Replication defaults
 	viper.SetDefault("replication.lag_history_retention", "24h")

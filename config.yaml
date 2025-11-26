@@ -26,8 +26,9 @@ connection:
 
 ui:
   theme: dark
-  syntax_theme: dracula # Options: steep, steep-light, monokai, dracula, nord, gruvbox, etc.
+  syntax_theme: monokai # Options: steep, steep-light, monokai, dracula, nord, gruvbox, etc.
   refresh_interval: 1s
   date_format: "2006-01-02 15:04:05"
+  query_timeout: 2m  # SQL Editor query timeout (default: 30s)
 
 debug: true
