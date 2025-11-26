@@ -1162,45 +1162,265 @@ Prioritize P1 stories (continuous collection, service install/management, dual-m
 
 **Branch**: `007-sql-editor`
 
-**Purpose**: Provide interactive SQL editor with query execution, syntax highlighting, and transaction management.
+**Purpose**: Provide an interactive SQL editor with query execution, syntax highlighting, and transaction management. This is a dedicated view (accessible via `7` key) designed to feel like a professional SQL IDE that DBAs and developers will love using.
 
 **User Stories** (Priority Order):
 1. **P1**: As a DBA, I want to write and execute SQL queries to interact with the database interactively
 2. **P1**: As a DBA, I want to see query results in a paginated table to review query output
 3. **P2**: As a DBA, I want syntax highlighting for SQL to write queries more easily
 4. **P2**: As a DBA, I want to manage transactions (BEGIN, COMMIT, ROLLBACK) to test changes safely
-5. **P3**: As a DBA, I want query history with recall to re-execute previous queries
-6. **P3**: As a DBA, I want to save queries as snippets to reuse common queries
+5. **P2**: As a DBA, I want keyboard shortcuts that feel natural (like VS Code or vim)
+6. **P3**: As a DBA, I want query history with recall to re-execute previous queries
+7. **P3**: As a DBA, I want to save queries as snippets to reuse common queries
+
+**UI Architecture**:
+
+```
+┌─────────────────────────── SQL Editor ────────────────────────────┐
+│ ┌─ Status Bar ─────────────────────────────────────────────────┐ │
+│ │ postgres@localhost:5432/mydb   │ TX: Active │ 15:32:45       │ │
+│ └──────────────────────────────────────────────────────────────┘ │
+│                                                                   │
+│ ┌─ SQL Input (bubbles/textarea) ───────────────────────────────┐ │
+│ │  1 │ SELECT                                                   │ │
+│ │  2 │   u.id,                                                  │ │
+│ │  3 │   u.name,                                                │ │
+│ │  4 │   COUNT(o.id) as order_count                            │ │
+│ │  5 │ FROM users u                                             │ │
+│ │▌ 6 │ LEFT JOIN orders o ON o.user_id = u.id█                 │ │
+│ │  7 │ GROUP BY u.id, u.name                                    │ │
+│ │  8 │ ORDER BY order_count DESC                                │ │
+│ │  9 │ LIMIT 100;                                               │ │
+│ └──────────────────────────────────────────────────────────────┘ │
+│                                                                   │
+│ ┌─ Results (bubbles/viewport + bubbles/table) ─────────────────┐ │
+│ │  id  │  name           │  order_count                        │ │
+│ │──────┼─────────────────┼─────────────────────────────────────│ │
+│ │  42  │  Alice Johnson  │  156                                │ │
+│ │  17  │  Bob Smith      │  142                                │ │
+│ │  89  │  Carol White    │  128                                │ │
+│ │  ...                                                          │ │
+│ │                                   [Page 1/5 • 100 rows • 45ms]│ │
+│ └──────────────────────────────────────────────────────────────┘ │
+│                                                                   │
+│ ┌─ Footer ─────────────────────────────────────────────────────┐ │
+│ │ [Ctrl+Enter] Execute  [Tab] Focus  [Ctrl+S] Save  [h] Help   │ │
+│ └──────────────────────────────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────┘
+```
 
 **Technical Scope**:
-- Full-screen SQL editor view
-- Multi-line text input component
-- SQL syntax highlighting using chroma library
-- Query execution with result display in table format
-- Result pagination (for large result sets)
-- Transaction state management
-- Query history storage (in-memory and persistent)
-- Saved queries/snippets library (YAML file storage)
-- Export results (CSV, JSON formats)
+
+*Editor Component (using bubbles/textarea)*:
+- Multi-line text input with line numbers enabled (`ShowLineNumbers = true`)
+- Cursor line highlighting for current line (using `FocusedStyle.CursorLine`)
+- Focused/blurred border states for input focus indication
+- Tab/Shift+Tab to switch focus between SQL input and results pane
+- Placeholder text: "Enter SQL query... (Ctrl+Enter to execute)"
+
+*Syntax Highlighting (reusing existing chroma pattern from explain.go)*:
+- Reuse `quick.Highlight(&buf, sql, "postgresql", "terminal256", "monokai")` pattern
+- Applied to: query history display, executed query header, copy/export operations
+- **Note**: Live highlighting during editing deferred for MVP (not built into bubbles/textarea; would require custom component or fork)
+- Same pragmatic approach as psql/pgcli - highlight output, not live input
+- Future enhancement: Could add live highlighting via custom editor component
+
+*Results Display (using bubbles/viewport + custom table)*:
+- Scrollable viewport for result navigation
+- Column headers with type indicators
+- Row count and execution time display
+- Page navigation for large result sets (100 rows per page)
+- NULL value display with distinct styling (dimmed "NULL")
+- Copy cell/row/column functionality
+
+*Transaction Management*:
+- Transaction state indicator in status bar (green "TX" when active)
+- Implicit transaction wrapping option (configurable)
+- Warning before executing DDL in transaction
+- Savepoint support (`:savepoint <name>`, `:rollback to <name>`)
+
+*Query History*:
+- In-memory history buffer (last 100 queries)
+- Persistent history in SQLite (`~/.config/steep/query_history.db`)
+- History browser with search (`Ctrl+R` reverse search)
+- Duplicate detection (don't store consecutive identical queries)
+
+**Libraries** (all already in go.mod):
+- `github.com/charmbracelet/bubbles/textarea` - Multi-line SQL input with line numbers
+- `github.com/charmbracelet/bubbles/viewport` - Scrollable results pane
+- `github.com/charmbracelet/bubbles/table` - Tabular result display
+- `github.com/charmbracelet/lipgloss` - Styling, borders, layout composition
+- `github.com/alecthomas/chroma/v2` - SQL syntax highlighting (already used in explain.go)
+- `github.com/jackc/pgx/v5` - Query execution with context cancellation
+
+**Visual Design Guidelines**:
+
+*Inspired by*:
+- VS Code integrated terminal SQL extensions
+- pgcli/mycli command-line SQL clients
+- DataGrip's query editor aesthetics
+
+*Color Scheme*:
+```go
+// SQL syntax highlighting colors (matching Steep palette)
+keywordStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))  // Blue - SELECT, FROM, WHERE
+stringStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))  // Green - 'string literals'
+numberStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Orange - 123, 45.67
+commentStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241")) // Gray - -- comments
+functionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("183")) // Purple - COUNT, SUM
+
+// Editor chrome
+cursorLineStyle = lipgloss.NewStyle().
+    Background(lipgloss.Color("236")).
+    Foreground(lipgloss.Color("255"))
+
+focusedBorderStyle = lipgloss.NewStyle().
+    Border(lipgloss.RoundedBorder()).
+    BorderForeground(lipgloss.Color("39"))
+
+blurredBorderStyle = lipgloss.NewStyle().
+    Border(lipgloss.RoundedBorder()).
+    BorderForeground(lipgloss.Color("238"))
+```
+
+*Layout Proportions*:
+- Status bar: 1 line (fixed)
+- SQL input: 40% of remaining height (min 5 lines, max 20 lines)
+- Results: 60% of remaining height
+- Footer: 1 line (fixed)
+- Resizable split with `Ctrl+Up/Down` to adjust
+
+**Keyboard Navigation**:
+
+*Editor Mode (SQL input focused)*:
+- `Ctrl+Enter`: Execute query
+- `Ctrl+L`: Clear editor
+- `Ctrl+/`: Toggle comment on current line
+- `Ctrl+D`: Duplicate line
+- `Ctrl+Shift+K`: Delete line
+- `Ctrl+Up/Down`: Resize split (editor larger/smaller)
+- `Tab`: Move focus to results pane
+- `Esc`: Blur editor (allows view-level shortcuts)
+- `Up/Down`: Navigate within editor (when at top/bottom line, recall history)
+
+*Results Mode (results focused)*:
+- `j/k` or `Up/Down`: Navigate rows
+- `h/l` or `Left/Right`: Scroll columns horizontally
+- `n/p`: Next/previous page
+- `g/G`: Go to first/last row
+- `y`: Copy current cell value
+- `Y`: Copy entire row (tab-separated)
+- `Tab`: Move focus back to editor
+- `Enter` or `d`: View full cell content (for long values)
+
+*Global (any mode)*:
+- `7`: Switch to SQL Editor view (from other views)
+- `:begin`: Start transaction
+- `:commit`: Commit transaction
+- `:rollback`: Rollback transaction
+- `:save <name>`: Save query to snippets
+- `:load <name>`: Load saved query
+- `:export csv <file>`: Export results to CSV
+- `:export json <file>`: Export results to JSON
+- `Ctrl+S`: Save current query (prompts for name)
+- `h` or `?`: Show help overlay
 
 **Acceptance Criteria**:
-- SQL Editor accessible via `e` key or view navigation
-- Multi-line editor with syntax highlighting for SQL keywords, strings, comments
-- Execute query with `Ctrl+Enter`
+- SQL Editor accessible via `7` key
+- Multi-line editor with line numbers and cursor line highlighting
+- Syntax highlighting for SQL keywords, strings, comments, numbers, functions
+- Execute query with `Ctrl+Enter` (query runs with 30s timeout, configurable)
 - Results displayed in paginated table (100 rows per page)
-- Navigation: `n` for next page, `p` for previous page
-- Transaction controls: `:begin`, `:commit`, `:rollback` commands
-- Transaction indicator in status bar (shows "TX" when in transaction)
-- Query history: Up/Down arrow to recall previous queries
-- Save query: `:save <name>` command
-- Load query: `:load <name>` command
+- Column headers show data types on hover/detail
+- Page navigation with `n/p` keys, shows "Page X/Y • N rows • Xms"
+- Transaction controls via `:begin`, `:commit`, `:rollback` commands
+- Transaction indicator in status bar: green "TX" badge when active
+- Query history: `Up/Down` at editor boundary recalls previous queries
+- History search: `Ctrl+R` opens reverse search overlay
+- Save query: `:save <name>` stores in `~/.config/steep/snippets.yaml`
+- Load query: `:load <name>` or `Ctrl+O` opens snippet browser
 - Export results: `:export csv <file>` or `:export json <file>`
-- Error display with helpful messages
-- Query timeout (configurable, default 30 seconds)
+- Error display: Red border on results pane, error message with line/column position
+- Query timeout indicator: Shows elapsed time during execution, cancellable with `Esc`
+- Focus indication: Blue border on focused pane, gray on blurred
+- Split resizing: `Ctrl+Up/Down` adjusts editor/results proportion
+- Copy functionality: `y` for cell, `Y` for row, `Ctrl+A, Ctrl+C` for all results
+- Read-only mode: Disable DDL/DML with warning, allow SELECT only
+
+**Directory Structure**:
+```
+internal/ui/views/sqleditor/
+├── view.go           # Main SQLEditorView implementing ViewModel
+├── editor.go         # Textarea wrapper with syntax highlighting
+├── results.go        # Results table with pagination
+├── history.go        # Query history management
+├── snippets.go       # Saved query snippet management
+├── highlight.go      # Chroma-based SQL syntax highlighting
+└── export.go         # CSV/JSON export functionality
+```
 
 **Spec-Kit Command**:
 ```bash
-/speckit.specify Implement interactive SQL Editor with full-screen multi-line editor, syntax highlighting using chroma library, and query execution capabilities. Display results in paginated tables supporting large result sets. Provide transaction management (BEGIN, COMMIT, ROLLBACK) with transaction state indicator. Include query history with up/down arrow recall and saved queries/snippets library. Support result export to CSV and JSON formats. Prioritize P1 stories (basic query execution) over P2 (syntax highlighting, transactions) and P3 (history, snippets). Implement query timeout with configurable limit (default 30s).
+/speckit.specify Implement SQL Editor & Execution view (accessible via '7' key) as a professional-grade SQL IDE experience within the TUI.
+
+**UI Layout:**
+Split view with SQL input textarea (top 40%) and scrollable results table (bottom 60%). Use bubbles/textarea for multi-line input with line numbers and cursor line highlighting. Use bubbles/viewport + custom table for paginated results display. Include status bar showing connection info and transaction state, plus footer with keyboard hints.
+
+**Editor Features:**
+Multi-line SQL input using charmbracelet/bubbles/textarea with:
+- Line numbers enabled (ShowLineNumbers = true)
+- Cursor line highlighting using FocusedStyle.CursorLine
+- Focus/blur border states (blue focused, gray blurred)
+- Placeholder text guidance
+- Tab key to switch focus between editor and results
+
+**Syntax Highlighting:**
+Reuse existing chroma pattern from explain.go (`quick.Highlight` with postgresql lexer, terminal256 formatter, monokai style):
+- Applied to: query history, executed query header, copy/export operations
+- Live highlighting during editing deferred for MVP (would require custom component or textarea fork)
+- Same pragmatic approach as psql/pgcli CLI tools
+- Future: Could add live highlighting as enhancement
+
+**Results Display:**
+Scrollable viewport with tabular results showing:
+- Column headers with data type indicators
+- Row navigation with j/k keys
+- Page navigation with n/p keys (100 rows per page)
+- Execution time and row count display
+- NULL value styling (dimmed text)
+- Copy cell/row/all functionality
+
+**Transaction Management:**
+- Transaction state indicator in status bar (green "TX" badge)
+- Commands: :begin, :commit, :rollback, :savepoint <name>
+- Warning before DDL in active transaction
+- Configurable implicit transaction wrapping
+
+**Query History:**
+- In-memory buffer (100 queries)
+- Persistent SQLite storage (~/.config/steep/query_history.db)
+- Up/Down arrow at editor boundary recalls history
+- Ctrl+R reverse search for history browsing
+
+**Snippets:**
+- Save: :save <name> stores to ~/.config/steep/snippets.yaml
+- Load: :load <name> or Ctrl+O snippet browser
+- YAML format for easy manual editing
+
+**Export:**
+- :export csv <file> - Tab-separated or comma-separated
+- :export json <file> - Array of objects format
+
+**Performance:**
+- Query execution with 30s default timeout (configurable)
+- Progress indicator during long queries
+- Cancellable with Esc key
+- Results streaming for large result sets
+
+**Visual Design:**
+Study pgcli, DataGrip, and VS Code SQL extensions for inspiration. Match quality of existing Steep views (Replication topology, Locks tree, Query sparklines). Professional feel that DBAs will appreciate.
+
+Prioritize P1 stories (editor, execution, results) then P2 (syntax highlighting, transactions, keyboard UX) then P3 (history, snippets). Build using Bubbletea patterns consistent with other Steep views.
 ```
 
 ---
@@ -1550,7 +1770,7 @@ Implement robust error handling:
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: 2025-11-19
+**Document Version**: 1.1
+**Last Updated**: 2025-11-25
 **Status**: Implementation Roadmap
 **Maintained By**: Steep Development Team
