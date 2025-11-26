@@ -268,18 +268,6 @@ func (v *SQLEditorView) SetPool(pool *pgxpool.Pool) {
 	v.executor = NewSessionExecutor(pool, v.readOnly)
 	// Set up query audit logging
 	v.executor.SetLogFunc(v.logQuery)
-	// Set up connection status notifications
-	v.executor.SetStatusFunc(v.handleConnectionStatus)
-}
-
-// handleConnectionStatus handles connection status changes from the executor.
-func (v *SQLEditorView) handleConnectionStatus(connected, reconnected bool, err error) {
-	v.connected = connected
-	if err != nil {
-		v.showToast("Connection lost: "+err.Error(), true)
-	} else if reconnected {
-		v.showToast("Reconnected to database", false)
-	}
 }
 
 // SetDatabase initializes the history manager with the shared SQLite database.

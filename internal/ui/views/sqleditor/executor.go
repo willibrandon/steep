@@ -41,13 +41,6 @@ type SessionExecutor struct {
 	cancelFunc context.CancelFunc
 	cancelMu   sync.Mutex
 
-	// Connection status
-	connected     bool
-	lastError     error
-	reconnecting  bool
-	reconnectMu   sync.Mutex
-	statusFunc    func(connected, reconnected bool, err error) // Connection status callback
-
 	// Logging callback (optional)
 	logFunc func(sql string, duration time.Duration, rowCount int64, err error)
 }
@@ -55,9 +48,8 @@ type SessionExecutor struct {
 // NewSessionExecutor creates a new executor with the given connection pool.
 func NewSessionExecutor(pool *pgxpool.Pool, readOnly bool) *SessionExecutor {
 	return &SessionExecutor{
-		pool:      pool,
-		readOnly:  readOnly,
-		connected: true, // Assume connected initially
+		pool:     pool,
+		readOnly: readOnly,
 		txState: &TransactionState{
 			Active:         false,
 			SavepointStack: make([]string, 0),
@@ -68,117 +60,6 @@ func NewSessionExecutor(pool *pgxpool.Pool, readOnly bool) *SessionExecutor {
 // SetLogFunc sets an optional callback for query audit logging.
 func (se *SessionExecutor) SetLogFunc(fn func(sql string, duration time.Duration, rowCount int64, err error)) {
 	se.logFunc = fn
-}
-
-// SetStatusFunc sets an optional callback for connection status changes.
-func (se *SessionExecutor) SetStatusFunc(fn func(connected, reconnected bool, err error)) {
-	se.statusFunc = fn
-}
-
-// IsConnected returns the current connection status.
-func (se *SessionExecutor) IsConnected() bool {
-	se.reconnectMu.Lock()
-	defer se.reconnectMu.Unlock()
-	return se.connected
-}
-
-// IsReconnecting returns true if reconnection is in progress.
-func (se *SessionExecutor) IsReconnecting() bool {
-	se.reconnectMu.Lock()
-	defer se.reconnectMu.Unlock()
-	return se.reconnecting
-}
-
-// isConnectionError checks if an error indicates a connection problem.
-func isConnectionError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	connectionErrors := []string{
-		"connection refused",
-		"connection reset",
-		"connection timed out",
-		"no connection",
-		"broken pipe",
-		"EOF",
-		"i/o timeout",
-		"network is unreachable",
-		"host is unreachable",
-		"connection closed",
-		"server closed the connection",
-	}
-	for _, ce := range connectionErrors {
-		if strings.Contains(strings.ToLower(errStr), strings.ToLower(ce)) {
-			return true
-		}
-	}
-	return false
-}
-
-// checkAndReconnect attempts reconnection if a connection error is detected.
-// Returns true if reconnection was successful, false otherwise.
-func (se *SessionExecutor) checkAndReconnect(ctx context.Context, err error) bool {
-	if !isConnectionError(err) {
-		return false
-	}
-
-	se.reconnectMu.Lock()
-	if se.reconnecting {
-		se.reconnectMu.Unlock()
-		return false // Already reconnecting
-	}
-	se.connected = false
-	se.reconnecting = true
-	se.lastError = err
-	se.reconnectMu.Unlock()
-
-	// Notify disconnected
-	if se.statusFunc != nil {
-		se.statusFunc(false, false, err)
-	}
-
-	// Attempt reconnection with exponential backoff
-	maxAttempts := 3
-	baseDelay := 500 * time.Millisecond
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// Check context cancellation
-		if ctx.Err() != nil {
-			break
-		}
-
-		delay := baseDelay * time.Duration(1<<(attempt-1)) // 500ms, 1s, 2s
-		time.Sleep(delay)
-
-		// Try a simple ping to test connection
-		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		pingErr := se.pool.Ping(pingCtx)
-		cancel()
-
-		if pingErr == nil {
-			// Reconnected successfully
-			se.reconnectMu.Lock()
-			se.connected = true
-			se.reconnecting = false
-			se.lastError = nil
-			se.reconnectMu.Unlock()
-
-			// Notify reconnected
-			if se.statusFunc != nil {
-				se.statusFunc(true, true, nil)
-			}
-
-			return true
-		}
-	}
-
-	// Failed to reconnect
-	se.reconnectMu.Lock()
-	se.reconnecting = false
-	se.reconnectMu.Unlock()
-
-	return false
 }
 
 // ExecuteQuery executes a SQL query with timeout and returns results.
@@ -486,7 +367,6 @@ func (se *SessionExecutor) handleReleaseSavepoint(ctx context.Context, sql strin
 }
 
 // executeStatement executes a regular SQL statement.
-// For non-transactional queries, attempts reconnection and retry on connection errors.
 func (se *SessionExecutor) executeStatement(ctx context.Context, sql string) (*ExecutionResult, error) {
 	var rows pgx.Rows
 	var err error
@@ -501,14 +381,6 @@ func (se *SessionExecutor) executeStatement(ctx context.Context, sql string) (*E
 		rows, err = se.tx.Query(ctx, sql)
 	} else {
 		rows, err = se.pool.Query(ctx, sql)
-
-		// For non-transactional queries, attempt reconnection and retry on connection errors
-		if err != nil && isConnectionError(err) && !se.txState.Active {
-			if se.checkAndReconnect(ctx, err) {
-				// Reconnected successfully, retry the query
-				rows, err = se.pool.Query(ctx, sql)
-			}
-		}
 	}
 
 	if err != nil {
