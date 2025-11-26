@@ -21,6 +21,7 @@ require (
 	github.com/xlab/treeprint v1.2.0
 	golang.design/x/clipboard v0.7.0
 	golang.org/x/term v0.36.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -117,5 +118,4 @@ require (
 	golang.org/x/text v0.31.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
