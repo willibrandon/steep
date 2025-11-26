@@ -26,6 +26,7 @@ const (
 	ModeConfirmDropSlot
 	ModeConfigCheck
 	ModePhysicalWizard
+	ModeLogicalWizard
 	ModeConfirmWizardExecute
 )
 
@@ -119,9 +120,14 @@ type ReplicationView struct {
 	// Physical wizard state
 	physicalWizard *setup.PhysicalWizardState
 
+	// Logical wizard state
+	logicalWizard *setup.LogicalWizardState
+	wizardTables  []models.Table // Tables for logical wizard
+
 	// Wizard execute confirmation
 	wizardExecCommand string
 	wizardExecLabel   string
+	wizardExecSource  ReplicationMode // Which wizard triggered the confirmation
 }
 
 // NewReplicationView creates a new replication view.
@@ -242,6 +248,16 @@ func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.lastSqliteFetch = time.Now()
 		}
 
+	case ui.TablesResponseMsg:
+		// Open logical wizard with tables
+		if msg.Error != nil {
+			v.showToast("Failed to fetch tables: "+msg.Error.Error(), true)
+		} else {
+			v.wizardTables = msg.Tables
+			v.initLogicalWizard(msg.Tables)
+			v.mode = ModeLogicalWizard
+		}
+
 	case tea.WindowSizeMsg:
 		v.SetSize(msg.Width, msg.Height)
 
@@ -266,6 +282,13 @@ func (v *ReplicationView) View() string {
 		return v.renderDropSlotConfirm()
 	case ModePhysicalWizard:
 		content := v.renderPhysicalWizard()
+		// Apply toast overlay if active
+		if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
+			return v.overlayToast(content)
+		}
+		return content
+	case ModeLogicalWizard:
+		content := v.renderLogicalWizard()
 		// Apply toast overlay if active
 		if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
 			return v.overlayToast(content)

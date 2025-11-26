@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/ui/styles"
 	"github.com/willibrandon/steep/internal/ui/views/replication/setup"
 )
@@ -98,4 +99,23 @@ func (v *ReplicationView) initPhysicalWizard() {
 		}
 	}
 	v.physicalWizard = setup.NewPhysicalWizardState(host, port)
+}
+
+// renderLogicalWizard renders the logical replication setup wizard.
+// T074: Integrate logical wizard into Setup tab
+func (v *ReplicationView) renderLogicalWizard() string {
+	if v.logicalWizard == nil {
+		return ""
+	}
+	cfg := setup.LogicalWizardRenderConfig{
+		Width:    v.width,
+		Height:   v.height,
+		ReadOnly: v.readOnly,
+	}
+	return setup.RenderLogicalWizard(v.logicalWizard, cfg)
+}
+
+// initLogicalWizard initializes the logical wizard state.
+func (v *ReplicationView) initLogicalWizard(tables []models.Table) {
+	v.logicalWizard = setup.NewLogicalWizardState(tables)
 }

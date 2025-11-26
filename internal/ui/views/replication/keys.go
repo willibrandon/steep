@@ -40,10 +40,10 @@ func (v *ReplicationView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	if v.mode == ModeConfirmWizardExecute {
 		switch key {
 		case "y", "Y":
-			v.mode = ModePhysicalWizard
+			v.mode = v.wizardExecSource
 			return v.executeWizardCmd()
 		case "n", "N", "esc", "q":
-			v.mode = ModePhysicalWizard
+			v.mode = v.wizardExecSource
 			v.wizardExecCommand = ""
 			v.wizardExecLabel = ""
 		}
@@ -109,6 +109,11 @@ func (v *ReplicationView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Handle physical wizard mode
 	if v.mode == ModePhysicalWizard {
 		return v.handlePhysicalWizardKeys(key)
+	}
+
+	// Handle logical wizard mode
+	if v.mode == ModeLogicalWizard {
+		return v.handleLogicalWizardKeys(key)
 	}
 
 	// Normal mode - global keys
@@ -292,7 +297,13 @@ func (v *ReplicationView) handleSetupKeys(key string) tea.Cmd {
 		v.initPhysicalWizard()
 		v.mode = ModePhysicalWizard
 	case "o":
-		v.showToast("Logical wizard (not yet implemented)", false)
+		// T074: Block wizard in read-only mode
+		if v.readOnly {
+			v.showToast("Logical wizard is disabled in read-only mode", true)
+			return nil
+		}
+		// T074: Request tables for logical wizard
+		return func() tea.Msg { return ui.TablesRequestMsg{} }
 	case "n":
 		v.showToast("Connection builder (not yet implemented)", false)
 	case "c":
@@ -427,6 +438,7 @@ func (v *ReplicationView) handlePhysicalWizardKeys(key string) tea.Cmd {
 			// Store command details and show confirmation
 			v.wizardExecCommand = setup.GetSelectedCommand(w)
 			v.wizardExecLabel = setup.GetSelectedCommandLabel(w)
+			v.wizardExecSource = ModePhysicalWizard
 			v.mode = ModeConfirmWizardExecute
 		}
 	}
@@ -590,6 +602,279 @@ func (v *ReplicationView) handleWizardSpaceKey() {
 			} else {
 				w.Config.SyncMode = "async"
 			}
+		}
+	}
+}
+
+// handleLogicalWizardKeys handles keys specific to the logical wizard.
+func (v *ReplicationView) handleLogicalWizardKeys(key string) tea.Cmd {
+	if v.logicalWizard == nil {
+		v.mode = ModeNormal
+		return nil
+	}
+
+	w := v.logicalWizard
+
+	// If editing a text field, handle text input
+	if w.EditingField >= 0 {
+		return v.handleLogicalWizardTextInput(key)
+	}
+
+	// Normal navigation mode
+	switch key {
+	case "esc", "q":
+		// Cancel wizard
+		v.logicalWizard = nil
+		v.mode = ModeNormal
+		return nil
+
+	case "j", "down":
+		// Move selection down
+		w.SelectedField++
+		v.ensureLogicalWizardFieldValid()
+
+	case "k", "up":
+		// Move selection up
+		if w.SelectedField > 0 {
+			w.SelectedField--
+		}
+
+	case ">":
+		// Move to next step
+		nextStep := setup.GetNextLogicalStep(w)
+		if nextStep != w.Step {
+			w.Step = nextStep
+			w.SelectedField = 0
+		}
+
+	case "<":
+		// Move to previous step
+		prevStep := setup.GetPrevLogicalStep(w)
+		if prevStep != w.Step {
+			w.Step = prevStep
+			w.SelectedField = 0
+		}
+
+	case "enter":
+		// Start editing text field or select mode
+		if w.Step == setup.LogicalStepType {
+			// Select the mode and advance
+			if w.SelectedField == 0 {
+				w.Config.Mode = setup.LogicalModePublication
+			} else {
+				w.Config.Mode = setup.LogicalModeSubscription
+			}
+			w.Step = setup.GetNextLogicalStep(w)
+			w.SelectedField = 0
+		} else if v.isLogicalEditableField() {
+			v.startLogicalEditingField()
+		}
+
+	case " ":
+		// Toggle/select
+		v.handleLogicalWizardSpaceKey()
+
+	case "y":
+		// Copy to clipboard (Review step)
+		if w.Step == setup.LogicalStepReview {
+			cmd := setup.GetLogicalSelectedCommand(w)
+			if cmd != "" {
+				if !v.clipboard.IsAvailable() {
+					v.showToast("Clipboard unavailable", true)
+					return nil
+				}
+				if err := v.clipboard.Write(cmd); err != nil {
+					v.showToast("Copy failed: "+err.Error(), true)
+					return nil
+				}
+				v.showToast("Copied to clipboard", false)
+			}
+		}
+
+	case "x":
+		// Execute selected command (Review step)
+		if w.Step == setup.LogicalStepReview {
+			if v.readOnly {
+				v.showToast("Cannot execute in read-only mode", true)
+				return nil
+			}
+			if !setup.IsLogicalSelectedCommandExecutable(w) {
+				v.showToast("This command cannot be executed remotely", true)
+				return nil
+			}
+			// Store command details and show confirmation
+			v.wizardExecCommand = setup.GetLogicalSelectedCommand(w)
+			v.wizardExecLabel = "Logical Replication SQL"
+			v.wizardExecSource = ModeLogicalWizard
+			v.mode = ModeConfirmWizardExecute
+		}
+	}
+
+	return nil
+}
+
+// handleLogicalWizardTextInput handles text input when editing a field in logical wizard.
+func (v *ReplicationView) handleLogicalWizardTextInput(key string) tea.Cmd {
+	w := v.logicalWizard
+
+	switch key {
+	case "enter":
+		// Commit edit
+		v.commitLogicalEditingField()
+		w.EditingField = -1
+	case "esc":
+		// Cancel edit
+		w.EditingField = -1
+		w.InputBuffer = ""
+	case "backspace":
+		// Delete character
+		if len(w.InputBuffer) > 0 {
+			w.InputBuffer = w.InputBuffer[:len(w.InputBuffer)-1]
+		}
+	default:
+		// Add character (only printable)
+		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
+			w.InputBuffer += key
+		}
+	}
+	return nil
+}
+
+// isLogicalEditableField returns true if the current field is a text-editable field.
+func (v *ReplicationView) isLogicalEditableField() bool {
+	w := v.logicalWizard
+	switch w.Step {
+	case setup.LogicalStepTableSelection:
+		return w.SelectedField == 0 // publication name
+	case setup.LogicalStepConnection:
+		return w.SelectedField <= 6 // text fields before toggles
+	default:
+		return false
+	}
+}
+
+// startLogicalEditingField initializes editing mode for the current field.
+func (v *ReplicationView) startLogicalEditingField() {
+	w := v.logicalWizard
+	w.EditingField = w.SelectedField
+
+	// Initialize buffer with current value
+	switch w.Step {
+	case setup.LogicalStepTableSelection:
+		if w.SelectedField == 0 {
+			w.InputBuffer = w.Config.PublicationName
+		}
+	case setup.LogicalStepConnection:
+		switch w.SelectedField {
+		case 0:
+			w.InputBuffer = w.Config.SubscriptionName
+		case 1:
+			w.InputBuffer = w.Config.PublicationNames[0]
+		case 2:
+			w.InputBuffer = w.Config.ConnectionHost
+		case 3:
+			w.InputBuffer = w.Config.ConnectionPort
+		case 4:
+			w.InputBuffer = w.Config.ConnectionDB
+		case 5:
+			w.InputBuffer = w.Config.ConnectionUser
+		case 6:
+			w.InputBuffer = w.Config.ConnectionPass
+		}
+	}
+}
+
+// commitLogicalEditingField saves the edited value to the config.
+func (v *ReplicationView) commitLogicalEditingField() {
+	w := v.logicalWizard
+	if w.InputBuffer == "" {
+		return // Don't commit empty values
+	}
+
+	switch w.Step {
+	case setup.LogicalStepTableSelection:
+		if w.SelectedField == 0 {
+			w.Config.PublicationName = w.InputBuffer
+		}
+	case setup.LogicalStepConnection:
+		switch w.SelectedField {
+		case 0:
+			w.Config.SubscriptionName = w.InputBuffer
+		case 1:
+			w.Config.PublicationNames = []string{w.InputBuffer}
+		case 2:
+			w.Config.ConnectionHost = w.InputBuffer
+		case 3:
+			w.Config.ConnectionPort = w.InputBuffer
+		case 4:
+			w.Config.ConnectionDB = w.InputBuffer
+		case 5:
+			w.Config.ConnectionUser = w.InputBuffer
+		case 6:
+			w.Config.ConnectionPass = w.InputBuffer
+		}
+	}
+	w.InputBuffer = ""
+}
+
+// ensureLogicalWizardFieldValid ensures the selected field is within valid range.
+func (v *ReplicationView) ensureLogicalWizardFieldValid() {
+	if v.logicalWizard == nil {
+		return
+	}
+	w := v.logicalWizard
+	maxField := setup.GetLogicalMaxFieldForStep(w)
+	if w.SelectedField > maxField {
+		w.SelectedField = maxField
+	}
+}
+
+// handleLogicalWizardSpaceKey handles space key for toggles in the logical wizard.
+func (v *ReplicationView) handleLogicalWizardSpaceKey() {
+	if v.logicalWizard == nil {
+		return
+	}
+	w := v.logicalWizard
+
+	switch w.Step {
+	case setup.LogicalStepType:
+		// Toggle mode selection
+		if w.SelectedField == 0 {
+			w.Config.Mode = setup.LogicalModePublication
+		} else {
+			w.Config.Mode = setup.LogicalModeSubscription
+		}
+
+	case setup.LogicalStepTableSelection:
+		// Toggle all tables or individual table
+		if w.SelectedField == 1 {
+			w.Config.AllTables = !w.Config.AllTables
+		} else if w.SelectedField == 2 && len(w.Tables) > 0 {
+			// Toggle table selection
+			t := w.Tables[w.TableCursor]
+			fullName := t.Schema + "." + t.Name
+			w.Config.SelectedTables[fullName] = !w.Config.SelectedTables[fullName]
+		}
+
+	case setup.LogicalStepOperations:
+		// Toggle operations
+		switch w.SelectedField {
+		case 0:
+			w.Config.OpInsert = !w.Config.OpInsert
+		case 1:
+			w.Config.OpUpdate = !w.Config.OpUpdate
+		case 2:
+			w.Config.OpDelete = !w.Config.OpDelete
+		case 3:
+			w.Config.OpTruncate = !w.Config.OpTruncate
+		}
+
+	case setup.LogicalStepConnection:
+		// Toggle copy_data and enabled
+		if w.SelectedField == 7 {
+			w.Config.CopyData = !w.Config.CopyData
+		} else if w.SelectedField == 8 {
+			w.Config.Enabled = !w.Config.Enabled
 		}
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/db"
+	"github.com/willibrandon/steep/internal/db/queries"
 	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/monitors"
 	querymonitor "github.com/willibrandon/steep/internal/monitors/queries"
@@ -551,6 +552,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.replicationView.Update(msg)
 		return m, nil
 
+	case ui.TablesRequestMsg:
+		// Fetch tables for logical wizard
+		return m, m.fetchTablesForWizard()
+
+	case ui.TablesResponseMsg:
+		// Forward to replication view
+		m.replicationView.Update(msg)
+		return m, nil
+
 	case ui.DeadlockScanProgressMsg:
 		// Forward progress to locks view
 		m.locksView.Update(msg)
@@ -1006,6 +1016,34 @@ func (m Model) fetchLagHistory(window time.Duration) tea.Cmd {
 			LagHistory: lagHistory,
 			Window:     window,
 			Error:      nil,
+		}
+	}
+}
+
+// fetchTablesForWizard fetches tables for the logical wizard
+func (m Model) fetchTablesForWizard() tea.Cmd {
+	return func() tea.Msg {
+		if m.dbPool == nil {
+			return ui.TablesResponseMsg{
+				Tables: nil,
+				Error:  fmt.Errorf("database connection not available"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		tables, err := queries.GetTablesWithStats(ctx, m.dbPool)
+		if err != nil {
+			return ui.TablesResponseMsg{
+				Tables: nil,
+				Error:  err,
+			}
+		}
+
+		return ui.TablesResponseMsg{
+			Tables: tables,
+			Error:  nil,
 		}
 	}
 }

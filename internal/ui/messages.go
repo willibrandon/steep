@@ -199,3 +199,12 @@ type LagHistoryResponseMsg struct {
 	Window     time.Duration
 	Error      error
 }
+
+// TablesRequestMsg requests table list for the logical wizard.
+type TablesRequestMsg struct{}
+
+// TablesResponseMsg contains table list for the logical wizard.
+type TablesResponseMsg struct {
+	Tables []models.Table
+	Error  error
+}

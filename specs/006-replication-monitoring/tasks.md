@@ -236,13 +236,13 @@ Based on plan.md structure:
 
 ### Implementation for User Story 9
 
-- [ ] T068 [US9] Create LogicalWizard struct with multi-step form using charmbracelet/huh in `internal/ui/views/replication/setup/logical_wizard.go`
-- [ ] T069 [US9] Implement table selection step showing tables with size and row counts in `internal/ui/views/replication/setup/logical_wizard.go`
-- [ ] T070 [US9] Add warning for tables over 1GB about initial sync duration in `internal/ui/views/replication/setup/logical_wizard.go`
-- [ ] T071 [US9] Generate CREATE PUBLICATION SQL with selected tables and operations in `internal/ui/views/replication/setup/logical_wizard.go`
-- [ ] T072 [US9] Generate CREATE SUBSCRIPTION SQL with connection string and publication reference in `internal/ui/views/replication/setup/logical_wizard.go`
-- [ ] T073 [US9] Add copy-to-clipboard for generated SQL in `internal/ui/views/replication/setup/logical_wizard.go`
-- [ ] T074 [US9] Integrate logical wizard into Setup tab with keyboard shortcut in `internal/ui/views/replication/view.go`
+- [x] T068 [US9] Create LogicalWizard struct with multi-step form using charmbracelet/huh in `internal/ui/views/replication/setup/logical_wizard.go`
+- [x] T069 [US9] Implement table selection step showing tables with size and row counts in `internal/ui/views/replication/setup/logical_wizard.go`
+- [x] T070 [US9] Add warning for tables over 1GB about initial sync duration in `internal/ui/views/replication/setup/logical_wizard.go`
+- [x] T071 [US9] Generate CREATE PUBLICATION SQL with selected tables and operations in `internal/ui/views/replication/setup/logical_wizard.go`
+- [x] T072 [US9] Generate CREATE SUBSCRIPTION SQL with connection string and publication reference in `internal/ui/views/replication/setup/logical_wizard.go`
+- [x] T073 [US9] Add copy-to-clipboard for generated SQL in `internal/ui/views/replication/setup/logical_wizard.go`
+- [x] T074 [US9] Integrate logical wizard into Setup tab with keyboard shortcut in `internal/ui/views/replication/view.go`
 
 **Checkpoint**: User Story 9 complete - can run logical replication setup wizard
 
