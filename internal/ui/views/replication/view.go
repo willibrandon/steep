@@ -25,9 +25,11 @@ const (
 	ModeTopology
 	ModeConfirmDropSlot
 	ModeConfigCheck
+	ModeConfigEditor
 	ModePhysicalWizard
 	ModeLogicalWizard
 	ModeConfirmWizardExecute
+	ModeConfirmAlterSystem
 	ModeConnStringBuilder
 )
 
@@ -70,6 +72,7 @@ type ReplicationView struct {
 	lastUpdate     time.Time
 	refreshing     bool
 	readOnly       bool
+	debug          bool
 
 	// Data
 	data       *models.ReplicationData
@@ -132,6 +135,9 @@ type ReplicationView struct {
 
 	// Connection string builder state
 	connStringBuilder *setup.ConnStringState
+
+	// Config editor state
+	configEditor *setup.ConfigEditorState
 }
 
 // NewReplicationView creates a new replication view.
@@ -172,6 +178,11 @@ func (v *ReplicationView) SetConnected(connected bool) {
 // SetConnectionInfo sets the connection info string.
 func (v *ReplicationView) SetConnectionInfo(info string) {
 	v.connectionInfo = info
+}
+
+// SetDebug sets the debug mode for displaying query timing.
+func (v *ReplicationView) SetDebug(debug bool) {
+	v.debug = debug
 }
 
 // IsInputMode returns true when the view is in a mode that should consume keys
@@ -301,6 +312,19 @@ func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case ui.AlterSystemResultMsg:
+		// Handle ALTER SYSTEM execution result
+		if msg.Error != nil {
+			v.showToast("ALTER SYSTEM failed: "+msg.Error.Error(), true)
+		} else if msg.Success {
+			v.showToast(fmt.Sprintf("Executed %d ALTER SYSTEM command(s)", len(msg.Commands)), false)
+			// Clear the config editor state to refresh
+			v.configEditor = nil
+			v.mode = ModeNormal
+		} else {
+			v.showToast("ALTER SYSTEM execution failed", true)
+		}
+
 	case tea.WindowSizeMsg:
 		v.SetSize(msg.Width, msg.Height)
 
@@ -346,6 +370,15 @@ func (v *ReplicationView) View() string {
 			return v.overlayToast(content)
 		}
 		return content
+	case ModeConfigEditor:
+		content := v.renderConfigEditor()
+		// Apply toast overlay if active
+		if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
+			return v.overlayToast(content)
+		}
+		return content
+	case ModeConfirmAlterSystem:
+		return v.renderAlterSystemConfirm()
 	}
 
 	var content string

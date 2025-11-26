@@ -56,8 +56,8 @@ run: build ## Build and run the application
 	@echo "Running $(BINARY_NAME)..."
 	@$(BUILD_DIR)/$(BINARY_NAME) --banner
 
-run-dev: build ## Run with local config.yaml (for Docker replication testing)
-	@echo "Running $(BINARY_NAME) with local config..."
-	@PGPASSWORD=postgres $(BUILD_DIR)/$(BINARY_NAME) --config ./config.yaml
+run-dev: build ## Run with local config.yaml and debug (for Docker replication testing)
+	@echo "Running $(BINARY_NAME) with local config and debug..."
+	@PGPASSWORD=postgres $(BUILD_DIR)/$(BINARY_NAME) --config ./config.yaml --debug
 
 .DEFAULT_GOAL := help

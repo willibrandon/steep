@@ -11,6 +11,7 @@ import (
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/styles"
+	"github.com/willibrandon/steep/internal/ui/views/replication/setup"
 )
 
 func (v *ReplicationView) moveSelection(delta int) {
@@ -166,36 +167,37 @@ func (v *ReplicationView) renderFooter() string {
 		case TabLogical:
 			hints = styles.FooterHintStyle.Render("[j/k]nav [p]ubs/subs [d]etail [h]elp")
 		case TabSetup:
-			hints = styles.FooterHintStyle.Render("[p]hysical l[o]gical con[n]str [c]heck [h]elp")
+			hints = styles.FooterHintStyle.Render("[c]heck [e]dit [p]hysical l[o]gical con[n]str [h]elp")
 		}
 	}
 
-	// Right side: sort info + count
-	arrow := "↓"
-	if v.sortAsc {
-		arrow = "↑"
-	}
-	sortInfo := fmt.Sprintf("Sort: %s %s", v.sortColumn.String(), arrow)
-
-	var count string
-	var windowInfo string
-	switch v.activeTab {
-	case TabOverview:
-		count = fmt.Sprintf("%d / %d", min(v.selectedIdx+1, len(v.data.Replicas)), len(v.data.Replicas))
-		windowInfo = fmt.Sprintf("  [%s]", formatDuration(v.timeWindow))
-	case TabSlots:
-		count = fmt.Sprintf("%d / %d", min(v.slotSelectedIdx+1, len(v.data.Slots)), len(v.data.Slots))
-	case TabLogical:
-		if v.logicalFocusPubs {
-			count = fmt.Sprintf("%d pubs", len(v.data.Publications))
-		} else {
-			count = fmt.Sprintf("%d subs", len(v.data.Subscriptions))
+	// Right side: sort info + count (not shown for Setup tab)
+	var rightSide string
+	if v.activeTab != TabSetup {
+		arrow := "↓"
+		if v.sortAsc {
+			arrow = "↑"
 		}
-	default:
-		count = ""
-	}
+		sortInfo := fmt.Sprintf("Sort: %s %s", v.sortColumn.String(), arrow)
 
-	rightSide := styles.FooterCountStyle.Render(sortInfo + "  " + count + windowInfo)
+		var count string
+		var windowInfo string
+		switch v.activeTab {
+		case TabOverview:
+			count = fmt.Sprintf("%d / %d", min(v.selectedIdx+1, len(v.data.Replicas)), len(v.data.Replicas))
+			windowInfo = fmt.Sprintf("  [%s]", formatDuration(v.timeWindow))
+		case TabSlots:
+			count = fmt.Sprintf("%d / %d", min(v.slotSelectedIdx+1, len(v.data.Slots)), len(v.data.Slots))
+		case TabLogical:
+			if v.logicalFocusPubs {
+				count = fmt.Sprintf("%d pubs", len(v.data.Publications))
+			} else {
+				count = fmt.Sprintf("%d subs", len(v.data.Subscriptions))
+			}
+		}
+
+		rightSide = styles.FooterCountStyle.Render(sortInfo + "  " + count + windowInfo)
+	}
 
 	gap := v.width - lipgloss.Width(hints) - lipgloss.Width(rightSide) - 4
 	if gap < 1 {
@@ -231,4 +233,69 @@ func (v *ReplicationView) overlayToast(content string) string {
 		lines[len(lines)-1] = toast
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderConfigEditor renders the configuration editor view.
+func (v *ReplicationView) renderConfigEditor() string {
+	return setup.RenderConfigEditor(v.configEditor, v.width, v.height)
+}
+
+// renderAlterSystemConfirm renders the ALTER SYSTEM confirmation dialog.
+func (v *ReplicationView) renderAlterSystemConfirm() string {
+	if v.configEditor == nil {
+		return ""
+	}
+
+	// Get pending commands
+	commands := v.configEditor.GenerateAlterCommands()
+
+	var b strings.Builder
+
+	// Header
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214"))
+	b.WriteString("\n")
+	b.WriteString(headerStyle.Render("Confirm ALTER SYSTEM Execution"))
+	b.WriteString("\n\n")
+
+	// Warning
+	warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	b.WriteString(warnStyle.Render("The following commands will be executed:"))
+	b.WriteString("\n\n")
+
+	// Commands
+	cmdStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
+	for _, cmd := range commands {
+		b.WriteString("  " + cmdStyle.Render(cmd) + "\n")
+	}
+
+	// Restart warning if needed
+	if v.configEditor.RequiresRestart() {
+		b.WriteString("\n")
+		restartStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+		b.WriteString(restartStyle.Render("⚠ Some changes require PostgreSQL restart to take effect!"))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+
+	// Prompt
+	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	b.WriteString(promptStyle.Render("Execute these commands? [y]es / [n]o"))
+	b.WriteString("\n")
+
+	// Center the dialog
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("214")).
+		Padding(1, 2).
+		Width(60)
+
+	dialog := dialogStyle.Render(b.String())
+
+	// Position in center of screen
+	return lipgloss.Place(
+		v.width, v.height,
+		lipgloss.Center, lipgloss.Center,
+		dialog,
+	)
 }

@@ -64,9 +64,22 @@ func (v *ReplicationView) renderStatusBar() string {
 	}
 	timestamp := styles.StatusTimeStyle.Render("Last refresh: " + updateStr)
 
+	// Query timing (debug mode only)
+	var queryTiming string
+	if v.debug && v.data != nil && v.data.QueryDuration > 0 {
+		timingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+		if v.data.QueryDuration > 500*time.Millisecond {
+			timingStyle = timingStyle.Foreground(lipgloss.Color("196")) // Red if > 500ms
+		} else if v.data.QueryDuration > 100*time.Millisecond {
+			timingStyle = timingStyle.Foreground(lipgloss.Color("214")) // Yellow if > 100ms
+		}
+		queryTiming = timingStyle.Render(fmt.Sprintf(" [query: %s]", v.data.QueryDuration.Round(time.Microsecond)))
+	}
+
 	// Calculate gap
 	leftContent := title + roleIndicator + indicators + staleIndicator
-	gap := v.width - lipgloss.Width(leftContent) - lipgloss.Width(timestamp) - 4
+	rightContent := queryTiming + " " + timestamp
+	gap := v.width - lipgloss.Width(leftContent) - lipgloss.Width(rightContent) - 4
 	if gap < 1 {
 		gap = 1
 	}
@@ -74,7 +87,7 @@ func (v *ReplicationView) renderStatusBar() string {
 
 	return styles.StatusBarStyle.
 		Width(v.width - 2).
-		Render(leftContent + spaces + timestamp)
+		Render(leftContent + spaces + rightContent)
 }
 
 // renderOverview renders the Overview tab content.
@@ -206,26 +219,22 @@ func (v *ReplicationView) renderReplicaTable() string {
 
 	// Calculate available height for table
 	tableHeight := v.height - 6 // status + title + tabs + header + footer
-
-	// Column headers - include Trend sparkline column
-	headers := []struct {
-		name  string
-		width int
-	}{
-		{"Name", 18},
-		{"Client", 14},
-		{"State", 10},
-		{"Sync", 8},
-		{"Byte Lag", 10},
-		{"Time Lag", 9},
-		{"Trend", 14}, // Sparkline column
+	if tableHeight < 3 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("241")).
+			Render("Terminal too small. Resize to at least 80x24.")
 	}
+
+	// Column headers - adaptive for terminal width
+	// Full width: 18+14+10+8+10+9+14 = 83
+	// Minimum (80): hide Trend column: 18+14+10+8+10+9 = 69
+	// Very narrow (<70): hide Client too: 18+10+8+10+9 = 55
+	headers := v.getAdaptiveHeaders()
 
 	// Header row
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
 	var headerRow strings.Builder
 	for i, h := range headers {
-		text := truncateWithEllipsis(h.name, h.width)
+		text := truncateWithEllipsis(h.Name, h.Width)
 		// Add sort indicator
 		if SortColumn(i) == v.sortColumn {
 			if v.sortAsc {
@@ -234,7 +243,7 @@ func (v *ReplicationView) renderReplicaTable() string {
 				text += " ↓"
 			}
 		}
-		headerRow.WriteString(headerStyle.Render(padRight(text, h.width)))
+		headerRow.WriteString(headerStyle.Render(padRight(text, h.Width)))
 	}
 	b.WriteString(headerRow.String())
 	b.WriteString("\n")
@@ -258,7 +267,7 @@ func (v *ReplicationView) renderReplicaTable() string {
 }
 
 // renderReplicaRow renders a single replica row.
-func (v *ReplicationView) renderReplicaRow(r models.Replica, selected bool, headers []struct{ name string; width int }) string {
+func (v *ReplicationView) renderReplicaRow(r models.Replica, selected bool, headers []ColumnConfig) string {
 	baseStyle := lipgloss.NewStyle()
 	if selected {
 		baseStyle = baseStyle.Background(lipgloss.Color("236"))
@@ -289,23 +298,33 @@ func (v *ReplicationView) renderReplicaRow(r models.Replica, selected bool, head
 		syncStyle = baseStyle.Foreground(lipgloss.Color("245"))
 	}
 
+	// Build row dynamically based on available columns
 	var row strings.Builder
-	row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(r.ApplicationName, headers[0].width), headers[0].width)))
-	row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(r.ClientAddr, headers[1].width), headers[1].width)))
-	row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(r.State, headers[2].width), headers[2].width)))
-	row.WriteString(syncStyle.Render(padRight(r.SyncState.String(), headers[3].width)))
-	row.WriteString(lagStyle.Render(padRight(r.FormatByteLag(), headers[4].width)))
-	row.WriteString(lagStyle.Render(padRight(r.FormatReplayLag(), headers[5].width)))
-
-	// Sparkline column - get lag history for this replica
-	// Use lipgloss.Width for ANSI-aware width calculation
-	sparkline := v.renderLagSparkline(r.ApplicationName, headers[6].width-2)
-	sparklineWidth := lipgloss.Width(sparkline)
-	if sparklineWidth < headers[6].width {
-		sparkline += strings.Repeat(" ", headers[6].width-sparklineWidth)
+	for _, h := range headers {
+		switch h.Key {
+		case "name":
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(r.ApplicationName, h.Width), h.Width)))
+		case "client":
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(r.ClientAddr, h.Width), h.Width)))
+		case "state":
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(r.State, h.Width), h.Width)))
+		case "sync":
+			row.WriteString(syncStyle.Render(padRight(r.SyncState.String(), h.Width)))
+		case "byte_lag":
+			row.WriteString(lagStyle.Render(padRight(r.FormatByteLag(), h.Width)))
+		case "time_lag":
+			row.WriteString(lagStyle.Render(padRight(r.FormatReplayLag(), h.Width)))
+		case "trend":
+			// Sparkline column - get lag history for this replica
+			sparkline := v.renderLagSparkline(r.ApplicationName, h.Width-2)
+			sparklineWidth := lipgloss.Width(sparkline)
+			if sparklineWidth < h.Width {
+				sparkline += strings.Repeat(" ", h.Width-sparklineWidth)
+			}
+			// Add ANSI reset at the very end to prevent color bleeding
+			row.WriteString(sparkline + "\033[0m")
+		}
 	}
-	// Add ANSI reset at the very end to prevent color bleeding to next row
-	row.WriteString(sparkline + "\033[0m")
 
 	return row.String()
 }
@@ -340,4 +359,51 @@ func (v *ReplicationView) renderLagSparkline(replicaName string, width int) stri
 	)
 
 	return components.RenderSparklineWithSeverity(history, config, float64(warningThreshold), float64(criticalThreshold))
+}
+
+// ColumnConfig represents a table column configuration.
+type ColumnConfig struct {
+	Name  string
+	Width int
+	Key   string // Key for identifying column type
+}
+
+// getAdaptiveHeaders returns headers adapted to terminal width.
+// T100: Ensure views render correctly at 80x24 minimum terminal size
+func (v *ReplicationView) getAdaptiveHeaders() []ColumnConfig {
+	// Full set of columns
+	allHeaders := []ColumnConfig{
+		{"Name", 18, "name"},
+		{"Client", 14, "client"},
+		{"State", 10, "state"},
+		{"Sync", 8, "sync"},
+		{"Byte Lag", 10, "byte_lag"},
+		{"Time Lag", 9, "time_lag"},
+		{"Trend", 14, "trend"},
+	}
+
+	// Calculate total width needed
+	totalWidth := 0
+	for _, h := range allHeaders {
+		totalWidth += h.Width
+	}
+
+	// If terminal is wide enough, return all columns
+	if v.width >= totalWidth+2 {
+		return allHeaders
+	}
+
+	// Drop Trend column for narrower terminals (80 chars)
+	if v.width >= 70 {
+		return allHeaders[:6] // All except Trend
+	}
+
+	// Drop Client and Trend for very narrow terminals (<70)
+	return []ColumnConfig{
+		{"Name", 18, "name"},
+		{"State", 10, "state"},
+		{"Sync", 8, "sync"},
+		{"Byte Lag", 10, "byte_lag"},
+		{"Time Lag", 9, "time_lag"},
+	}
 }

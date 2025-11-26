@@ -50,6 +50,23 @@ func (v *ReplicationView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	// Handle config editor mode
+	if v.mode == ModeConfigEditor {
+		return v.handleConfigEditorKeys(key)
+	}
+
+	// Handle confirm ALTER SYSTEM mode
+	if v.mode == ModeConfirmAlterSystem {
+		switch key {
+		case "y", "Y":
+			v.mode = ModeConfigEditor
+			return v.executeAlterSystemCmd()
+		case "n", "N", "esc", "q":
+			v.mode = ModeConfigEditor
+		}
+		return nil
+	}
+
 	// Handle detail mode
 	if v.mode == ModeDetail {
 		switch key {
@@ -325,6 +342,10 @@ func (v *ReplicationView) handleSetupKeys(key string) tea.Cmd {
 	case "c":
 		// T045: Integrate configuration checker into Setup tab
 		v.mode = ModeConfigCheck
+	case "e":
+		// Launch configuration editor
+		v.initConfigEditor()
+		v.mode = ModeConfigEditor
 	}
 	return nil
 }
@@ -1116,4 +1137,117 @@ func (v *ReplicationView) handleConnStringTextInput(key string) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// handleConfigEditorKeys handles keys for the configuration editor.
+func (v *ReplicationView) handleConfigEditorKeys(key string) tea.Cmd {
+	if v.configEditor == nil {
+		v.mode = ModeNormal
+		return nil
+	}
+
+	e := v.configEditor
+
+	// If editing a text field, handle text input
+	if e.Editing {
+		return v.handleConfigEditorTextInput(key)
+	}
+
+	// Normal navigation mode
+	switch key {
+	case "esc", "q":
+		// Close editor
+		v.configEditor = nil
+		v.mode = ModeNormal
+		return nil
+
+	case "j", "down":
+		e.MoveDown()
+
+	case "k", "up":
+		e.MoveUp()
+
+	case "enter":
+		// Start editing
+		e.StartEditing()
+
+	case "x":
+		// Execute ALTER SYSTEM commands
+		if v.readOnly {
+			v.showToast("Cannot execute in read-only mode", true)
+			return nil
+		}
+		if !e.HasChanges() {
+			v.showToast("No changes to execute", true)
+			return nil
+		}
+		// Show confirmation
+		v.mode = ModeConfirmAlterSystem
+
+	case "y":
+		// Copy ALTER SYSTEM commands to clipboard
+		if !e.HasChanges() {
+			v.showToast("No changes to copy", true)
+			return nil
+		}
+		if !v.clipboard.IsAvailable() {
+			v.showToast("Clipboard unavailable", true)
+			return nil
+		}
+		commands := e.GenerateAlterCommands()
+		allCommands := ""
+		for _, cmd := range commands {
+			allCommands += cmd + "\n"
+		}
+		if err := v.clipboard.Write(allCommands); err != nil {
+			v.showToast("Copy failed: "+err.Error(), true)
+			return nil
+		}
+		v.showToast(fmt.Sprintf("Copied %d command(s) to clipboard", len(commands)), false)
+	}
+
+	return nil
+}
+
+// handleConfigEditorTextInput handles text input when editing a config param.
+func (v *ReplicationView) handleConfigEditorTextInput(key string) tea.Cmd {
+	e := v.configEditor
+
+	switch key {
+	case "enter":
+		// Commit edit
+		e.CommitEdit()
+	case "esc":
+		// Cancel edit
+		e.CancelEdit()
+	case "backspace":
+		// Delete character
+		if len(e.InputBuffer) > 0 {
+			e.InputBuffer = e.InputBuffer[:len(e.InputBuffer)-1]
+		}
+	default:
+		// Add character (only printable)
+		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
+			e.InputBuffer += key
+		}
+	}
+	return nil
+}
+
+// executeAlterSystemCmd sends the ALTER SYSTEM commands for execution.
+func (v *ReplicationView) executeAlterSystemCmd() tea.Cmd {
+	if v.configEditor == nil {
+		return nil
+	}
+	commands := v.configEditor.GenerateAlterCommands()
+	return func() tea.Msg {
+		return ui.AlterSystemRequestMsg{
+			Commands: commands,
+		}
+	}
+}
+
+// initConfigEditor initializes the configuration editor.
+func (v *ReplicationView) initConfigEditor() {
+	v.configEditor = setup.NewConfigEditorState(v.data.Config, v.readOnly)
 }

@@ -123,6 +123,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 	// Initialize replication view
 	replicationView := replicationview.NewReplicationView()
 	replicationView.SetReadOnly(readonly)
+	replicationView.SetDebug(cfg.Debug)
 
 	// Define available views
 	viewList := []views.ViewType{
@@ -551,6 +552,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.executeWizardCommand(msg.Command, msg.Label)
 
 	case ui.WizardExecResultMsg:
+		// Forward to replication view
+		m.replicationView.Update(msg)
+		return m, nil
+
+	case ui.AlterSystemRequestMsg:
+		// Execute ALTER SYSTEM commands
+		return m, m.executeAlterSystemCommands(msg.Commands)
+
+	case ui.AlterSystemResultMsg:
 		// Forward to replication view
 		m.replicationView.Update(msg)
 		return m, nil
@@ -1006,6 +1016,40 @@ func (m Model) executeWizardCommand(command, label string) tea.Cmd {
 			Label:   label,
 			Success: true,
 			Error:   nil,
+		}
+	}
+}
+
+// executeAlterSystemCommands executes a series of ALTER SYSTEM commands
+func (m Model) executeAlterSystemCommands(commands []string) tea.Cmd {
+	return func() tea.Msg {
+		if m.dbPool == nil {
+			return ui.AlterSystemResultMsg{
+				Commands: commands,
+				Success:  false,
+				Error:    fmt.Errorf("no database connection"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		// Execute each command in sequence
+		for _, cmd := range commands {
+			_, err := m.dbPool.Exec(ctx, cmd)
+			if err != nil {
+				return ui.AlterSystemResultMsg{
+					Commands: commands,
+					Success:  false,
+					Error:    fmt.Errorf("failed on '%s': %w", cmd, err),
+				}
+			}
+		}
+
+		return ui.AlterSystemResultMsg{
+			Commands: commands,
+			Success:  true,
+			Error:    nil,
 		}
 	}
 }

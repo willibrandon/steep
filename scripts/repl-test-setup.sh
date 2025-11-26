@@ -128,8 +128,8 @@ docker run -d \
     -p "${PRIMARY_PORT}:5432" \
     "postgres:${PG_VERSION}" \
     -c wal_level=logical \
-    -c max_wal_senders=10 \
-    -c max_replication_slots=10 \
+    -c max_wal_senders=100 \
+    -c max_replication_slots=100 \
     -c hot_standby=on \
     -c hot_standby_feedback=on \
     -c wal_keep_size=256MB \
@@ -234,8 +234,8 @@ EOF
         -p "${replica_port}:5432" \
         "postgres:${PG_VERSION}" \
         -c hot_standby=on \
-        -c max_wal_senders=10 \
-        -c max_replication_slots=10 \
+        -c max_wal_senders=100 \
+        -c max_replication_slots=100 \
         -c wal_level=logical \
         > /dev/null
 

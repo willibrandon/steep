@@ -238,3 +238,15 @@ type CreateReplicationUserResultMsg struct {
 	Username string
 	Error    error
 }
+
+// AlterSystemRequestMsg requests execution of ALTER SYSTEM commands.
+type AlterSystemRequestMsg struct {
+	Commands []string
+}
+
+// AlterSystemResultMsg contains the result of ALTER SYSTEM execution.
+type AlterSystemResultMsg struct {
+	Success  bool
+	Commands []string
+	Error    error
+}

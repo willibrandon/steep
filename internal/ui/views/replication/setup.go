@@ -32,10 +32,11 @@ func (v *ReplicationView) renderSetup() string {
 		name string
 		desc string
 	}{
+		{"c", "Configuration Checker", "Verify PostgreSQL settings for replication"},
+		{"e", "Configuration Editor", "Edit and apply replication parameter changes with ALTER SYSTEM"},
 		{"p", "Physical Replication", "Set up streaming replication with pg_basebackup"},
 		{"o", "Logical Replication", "Create publications and subscriptions"},
 		{"n", "Connection Builder", "Generate primary_conninfo connection strings"},
-		{"c", "Configuration Checker", "Verify PostgreSQL settings for replication"},
 	}
 
 	for _, item := range items {
@@ -52,6 +53,9 @@ func (v *ReplicationView) renderSetup() string {
 			Foreground(lipgloss.Color("214")).
 			Render("Note: Setup wizards are disabled in read-only mode"))
 	}
+
+	b.WriteString("\n")
+	b.WriteString(v.renderFooter())
 
 	return b.String()
 }
