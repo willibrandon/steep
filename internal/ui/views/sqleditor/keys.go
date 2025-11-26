@@ -55,8 +55,8 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("esc", "cancel query"),
 		),
 		SwitchPane: key.NewBinding(
-			key.WithKeys("tab"),
-			key.WithHelp("tab", "switch pane"),
+			key.WithKeys("\\"),
+			key.WithHelp("\\", "switch pane"),
 		),
 
 		// Results navigation (vim-style)

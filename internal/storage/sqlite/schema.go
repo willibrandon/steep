@@ -85,6 +85,20 @@ func (db *DB) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_lag_history_time ON replication_lag_history(timestamp, replica_name);
 	CREATE INDEX IF NOT EXISTS idx_lag_history_replica ON replication_lag_history(replica_name, timestamp);
+
+	-- SQL Editor query history (shell-style: fingerprint is unique, re-running updates timestamp)
+	CREATE TABLE IF NOT EXISTS query_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		fingerprint INTEGER,
+		query TEXT NOT NULL,
+		executed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		duration_ms INTEGER DEFAULT 0,
+		row_count INTEGER DEFAULT 0,
+		error TEXT DEFAULT ''
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_query_history_executed_at ON query_history(executed_at DESC);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_query_history_fingerprint ON query_history(fingerprint);
 	`
 
 	_, err := db.conn.Exec(schema)
@@ -94,6 +108,10 @@ func (db *DB) initSchema() error {
 
 	// Migration: add sample_params column if it doesn't exist (for existing databases)
 	_, _ = db.conn.Exec("ALTER TABLE query_stats ADD COLUMN sample_params TEXT")
+
+	// Migration: add fingerprint column to query_history if it doesn't exist
+	_, _ = db.conn.Exec("ALTER TABLE query_history ADD COLUMN fingerprint INTEGER")
+	_, _ = db.conn.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_query_history_fingerprint ON query_history(fingerprint)")
 
 	return nil
 }

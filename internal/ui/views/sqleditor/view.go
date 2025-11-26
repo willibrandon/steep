@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui/components/vimtea"
 
 	"github.com/willibrandon/steep/internal/ui"
@@ -78,6 +79,17 @@ type SQLEditorView struct {
 
 	// Audit log
 	auditLog []*QueryAuditEntry
+
+	// History
+	history          *HistoryManager
+	historyBrowsing  bool   // Whether currently browsing history
+	savedEditorState string // Editor content before browsing history
+
+	// Search overlay (Ctrl+R)
+	searchMode   bool
+	searchQuery  string
+	searchResult []HistoryEntry
+	searchIndex  int
 }
 
 // NewSQLEditorView creates a new SQL Editor view.
@@ -121,6 +133,7 @@ func NewSQLEditorView(syntaxTheme string) *SQLEditorView {
 			CurrentPage: 1,
 		},
 		auditLog: make([]*QueryAuditEntry, 0, MaxAuditEntries),
+		// history initialized via SetDatabase() after connection
 	}
 
 	// Add F5 binding for query execution
@@ -168,6 +181,10 @@ func NewSQLEditorView(syntaxTheme string) *SQLEditorView {
 	})
 	v.editor.AddCommand("run", func(buf vimtea.Buffer, args []string) tea.Cmd {
 		return v.executeQueryCmd()
+	})
+	v.editor.AddCommand("clear", func(buf vimtea.Buffer, args []string) tea.Cmd {
+		v.clearEditorAndResults()
+		return nil
 	})
 
 	return v
@@ -217,6 +234,11 @@ func (v *SQLEditorView) SetPool(pool *pgxpool.Pool) {
 	v.executor.SetLogFunc(v.logQuery)
 }
 
+// SetDatabase initializes the history manager with the shared SQLite database.
+func (v *SQLEditorView) SetDatabase(db *sqlite.DB) {
+	v.history = NewHistoryManager(db, MaxHistoryEntries)
+}
+
 // logQuery logs query execution for audit purposes.
 func (v *SQLEditorView) logQuery(sql string, duration time.Duration, rowCount int64, err error) {
 	entry := &QueryAuditEntry{
@@ -257,6 +279,27 @@ func (v *SQLEditorView) SetReadOnly(readOnly bool) {
 	if v.executor != nil {
 		v.executor.readOnly = readOnly
 	}
+}
+
+// clearEditorAndResults clears both the editor content and query results.
+func (v *SQLEditorView) clearEditorAndResults() {
+	// Clear editor content
+	v.editor.SetContent("")
+
+	// Clear results
+	v.results = nil
+	v.selectedRow = 0
+	v.scrollOffset = 0
+	v.colScrollOffset = 0
+	v.executedQuery = ""
+	v.lastError = nil
+	v.lastErrorInfo = nil
+
+	// Reset history navigation
+	if v.history != nil {
+		v.history.ResetNavigation()
+	}
+	v.historyBrowsing = false
 }
 
 // IsInputMode returns true when the view is in a mode that should consume keys.
@@ -313,6 +356,37 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		v.mode = ModeNormal
 		v.executing = false
 		v.lastUpdate = time.Now()
+
+		// Switch editor to NORMAL mode for quick \ access to results
+		cmds = append(cmds, v.editor.SetMode(vimtea.ModeNormal))
+
+		// Reset history browsing state
+		v.historyBrowsing = false
+		v.savedEditorState = ""
+		if v.history != nil {
+			v.history.ResetNavigation()
+		}
+
+		// Add to history
+		if v.history != nil && v.executedQuery != "" {
+			var errMsg string
+			if msg.Result != nil && msg.Result.Error != nil {
+				errMsg = msg.Result.Error.Error()
+			}
+			var rowCount int64
+			if msg.Result != nil {
+				if len(msg.Result.Rows) > 0 {
+					rowCount = int64(len(msg.Result.Rows))
+				} else {
+					rowCount = msg.Result.RowsAffected
+				}
+			}
+			var durationMs int64
+			if msg.Result != nil {
+				durationMs = msg.Result.Duration.Milliseconds()
+			}
+			v.history.Add(v.executedQuery, durationMs, rowCount, errMsg)
+		}
 
 		if msg.Result == nil {
 			v.showToast("Query completed but result is nil", true)
@@ -430,15 +504,14 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	default:
-		// Pass other messages to editor (e.g., cursor blink)
-		if v.focus == FocusEditor {
-			newModel, cmd := v.editor.Update(msg)
-			if editor, ok := newModel.(vimtea.Editor); ok {
-				v.editor = editor
-			}
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
+		// Always pass timing messages to editor (cursor blink, yank highlight timeout)
+		// regardless of focus, so animations continue to work
+		newModel, cmd := v.editor.Update(msg)
+		if editor, ok := newModel.(vimtea.Editor); ok {
+			v.editor = editor
+		}
+		if cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
 
@@ -477,26 +550,68 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil // Block all keys during execution except esc
 	}
 
-	// Tab/Shift+Tab switches focus between editor and results (only in NORMAL mode)
-	// In INSERT mode, let vimtea handle Tab to insert actual tab character
-	if key == "tab" {
-		if v.focus == FocusResults {
-			v.focus = FocusEditor
-			return nil
-		}
-		if v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal {
-			v.focus = FocusResults
-			return nil
-		}
-		// INSERT mode - don't handle, let vimtea insert tab
+	// Handle search mode (Ctrl+R)
+	if v.searchMode {
+		return v.handleSearchInput(key)
 	}
-	if key == "shift+tab" {
-		if v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal {
-			v.focus = FocusResults
+
+	// Ctrl+R to enter reverse search mode (editor must be focused and in normal mode)
+	if key == "ctrl+r" && v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal {
+		v.searchMode = true
+		v.searchQuery = ""
+		v.searchResult = v.history.Search("")
+		v.searchIndex = 0
+		return nil
+	}
+
+	// History navigation with Up/Down arrows
+	// Start browsing: cursor must be at (0,0) to initiate
+	// Continue browsing: once in history mode, up/down navigate regardless of cursor
+	if v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal && v.history != nil {
+		row, col := v.editor.GetCursorPosition()
+		atStart := row == 0 && col == 0
+
+		if key == "up" && (atStart || v.historyBrowsing) {
+			// Navigate to previous history entry
+			if !v.historyBrowsing {
+				// Save current editor state before browsing
+				v.savedEditorState = v.editor.GetBuffer().Text()
+				v.historyBrowsing = true
+			}
+			if sql := v.history.Previous(); sql != "" {
+				v.editor.SetContent(sql)
+				v.editor.SetCursorPosition(0, 0) // Start at beginning for history
+				return nil
+			}
+			return nil // At beginning of history
+		}
+
+		if key == "down" && v.historyBrowsing {
+			// Navigate forward in history
+			if sql := v.history.Next(); sql != "" {
+				v.editor.SetContent(sql)
+				v.editor.SetCursorPosition(0, 0) // Start at beginning for history
+			} else {
+				// Past end of history - restore original content
+				v.editor.SetContent(v.savedEditorState)
+				v.editor.SetCursorPosition(0, 0)
+				v.historyBrowsing = false
+				v.savedEditorState = ""
+				v.history.ResetNavigation()
+			}
 			return nil
 		}
+	}
+
+	// Backslash toggles focus between editor and results (vim leader key style)
+	// Works from Results or Editor in normal mode
+	if key == "\\" {
 		if v.focus == FocusResults {
 			v.focus = FocusEditor
+			return nil
+		}
+		if v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal {
+			v.focus = FocusResults
 			return nil
 		}
 	}
@@ -968,6 +1083,60 @@ func compareValues(a, b any) bool {
 	return fmt.Sprintf("%v", a) < fmt.Sprintf("%v", b)
 }
 
+// handleSearchInput handles keyboard input during Ctrl+R search mode.
+func (v *SQLEditorView) handleSearchInput(key string) tea.Cmd {
+	switch key {
+	case "esc":
+		// Cancel search
+		v.searchMode = false
+		v.searchQuery = ""
+		v.searchResult = nil
+		return nil
+
+	case "enter":
+		// Accept current selection
+		if len(v.searchResult) > 0 && v.searchIndex < len(v.searchResult) {
+			v.editor.SetContent(v.searchResult[v.searchIndex].SQL)
+		}
+		v.searchMode = false
+		v.searchQuery = ""
+		v.searchResult = nil
+		return nil
+
+	case "ctrl+r", "up":
+		// Navigate to next result (older)
+		if len(v.searchResult) > 0 && v.searchIndex < len(v.searchResult)-1 {
+			v.searchIndex++
+		}
+		return nil
+
+	case "ctrl+s", "down":
+		// Navigate to previous result (newer)
+		if v.searchIndex > 0 {
+			v.searchIndex--
+		}
+		return nil
+
+	case "backspace":
+		// Delete last character from search query
+		if len(v.searchQuery) > 0 {
+			v.searchQuery = v.searchQuery[:len(v.searchQuery)-1]
+			v.searchResult = v.history.Search(v.searchQuery)
+			v.searchIndex = 0
+		}
+		return nil
+
+	default:
+		// Add character to search query (single printable characters only)
+		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
+			v.searchQuery += key
+			v.searchResult = v.history.Search(v.searchQuery)
+			v.searchIndex = 0
+		}
+		return nil
+	}
+}
+
 // copyCell copies the current cell value to clipboard.
 func (v *SQLEditorView) copyCell() tea.Cmd {
 	if v.results == nil || len(v.results.Rows) == 0 {
@@ -1050,6 +1219,11 @@ func (v *SQLEditorView) View() string {
 	// Help overlay
 	if v.showHelp {
 		return v.renderHelp()
+	}
+
+	// Search overlay (Ctrl+R)
+	if v.searchMode {
+		return v.renderSearchOverlay()
 	}
 
 	var sections []string
@@ -1428,9 +1602,9 @@ func (v *SQLEditorView) renderFooter() string {
 	// Key hints based on focus
 	var hints string
 	if v.focus == FocusEditor {
-		hints = "F5: Execute │ Tab: Results │ +/-: Resize │ h: Help"
+		hints = "F5: Execute │ \\: Results │ +/-: Resize │ h: Help"
 	} else {
-		hints = "Tab: Editor │ j/k: Nav │ y/Y: Copy │ s/S: Sort │ n/p: Page │ h: Help"
+		hints = "\\: Editor │ j/k: Nav │ y/Y: Copy │ s/S: Sort │ n/p: Page │ h: Help"
 	}
 	parts = append(parts, styles.MutedStyle.Render(hints))
 
@@ -1442,8 +1616,7 @@ func (v *SQLEditorView) renderHelp() string {
 	helpText := `SQL Editor Help
 
 FOCUS SWITCHING
-  Tab          Switch focus (editor ↔ results) in normal mode
-  Shift+Tab    Switch focus (reverse direction)
+  \            Toggle focus (editor ↔ results) in normal mode
   Enter        From results: enter editor in insert mode
 
 EDITOR MODE (● indicator shows focus)
@@ -1452,17 +1625,19 @@ EDITOR MODE (● indicator shows focus)
   i/a/o        Enter insert mode (vim-style)
   Esc          Exit insert mode / switch to results
 
+HISTORY (cursor at line 1, column 0)
+  ↑            Previous query in history
+  ↓            Next query in history
+  Ctrl+R       Search history (reverse search)
+
 RESULTS MODE (allows view switching and quit)
   j/k          Move selection down/up
   g/G          Go to first/last row
   Ctrl+d/u     Page down/up (10 rows)
   ←/→          Scroll columns left/right
-  Shift+Scroll Horizontal scroll (mouse)
   n/p          Next/previous page (100 rows)
-  s            Cycle sort column
-  S            Toggle sort direction (↑/↓)
-  y            Copy cell value
-  Y            Copy entire row (tab-separated)
+  s/S          Cycle sort column / toggle direction
+  y/Y          Copy cell / copy row
 
 RESIZE EDITOR/RESULTS SPLIT
   +/-          Resize panes
@@ -1473,9 +1648,6 @@ NAVIGATION
   h            Show this help
   q            Quit application
 
-DURING EXECUTION
-  Esc          Cancel running query
-
 Press h, q, or Esc to close this help.`
 
 	return lipgloss.NewStyle().
@@ -1483,6 +1655,74 @@ Press h, q, or Esc to close this help.`
 		Height(v.height).
 		Padding(2, 4).
 		Render(helpText)
+}
+
+// renderSearchOverlay renders the Ctrl+R reverse search overlay.
+func (v *SQLEditorView) renderSearchOverlay() string {
+	var sb strings.Builder
+
+	// Title
+	title := styles.HeaderStyle.Render("History Search (Ctrl+R)")
+	sb.WriteString(title)
+	sb.WriteString("\n\n")
+
+	// Search input
+	searchLine := fmt.Sprintf("Search: %s█", v.searchQuery)
+	sb.WriteString(styles.MutedStyle.Render(searchLine))
+	sb.WriteString("\n\n")
+
+	// Show results count
+	resultCount := len(v.searchResult)
+	if resultCount == 0 {
+		sb.WriteString(styles.MutedStyle.Render("No matching queries found"))
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString(styles.MutedStyle.Render(fmt.Sprintf("Found %d matching queries", resultCount)))
+		sb.WriteString("\n\n")
+
+		// Show visible results (up to 10)
+		maxVisible := 10
+		if maxVisible > resultCount {
+			maxVisible = resultCount
+		}
+
+		for i := 0; i < maxVisible; i++ {
+			entry := v.searchResult[i]
+
+			// Truncate SQL to fit on one line
+			sql := strings.ReplaceAll(entry.SQL, "\n", " ")
+			sql = strings.ReplaceAll(sql, "\t", " ")
+			maxLen := v.width - 10
+			if len(sql) > maxLen {
+				sql = sql[:maxLen-3] + "..."
+			}
+
+			// Highlight selected entry
+			if i == v.searchIndex {
+				// Apply syntax highlighting to selected entry
+				highlighted := HighlightSQL(sql)
+				sb.WriteString(styles.TableSelectedStyle.Render(fmt.Sprintf("► %s", highlighted)))
+			} else {
+				sb.WriteString(styles.MutedStyle.Render(fmt.Sprintf("  %s", sql)))
+			}
+			sb.WriteString("\n")
+		}
+
+		if resultCount > maxVisible {
+			sb.WriteString(styles.MutedStyle.Render(fmt.Sprintf("\n  ... and %d more", resultCount-maxVisible)))
+		}
+	}
+
+	// Footer hints
+	sb.WriteString("\n\n")
+	hints := "Enter: Select │ Ctrl+R/↑: Older │ Ctrl+S/↓: Newer │ Esc: Cancel"
+	sb.WriteString(styles.MutedStyle.Render(hints))
+
+	return lipgloss.NewStyle().
+		Width(v.width).
+		Height(v.height).
+		Padding(2, 4).
+		Render(sb.String())
 }
 
 // padOrTruncate pads or truncates a string to the given display width.

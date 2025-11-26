@@ -282,6 +282,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Initialize deadlock store (shares same DB)
 			m.deadlockStore = sqlite.NewDeadlockStore(queryDB)
 
+			// Initialize SQL Editor history (shares same DB)
+			m.sqlEditorView.SetDatabase(queryDB)
+
 			// Initialize replication store and monitor (shares same DB)
 			m.replicationStore = sqlite.NewReplicationStore(queryDB)
 			m.replicationMonitor = monitors.NewReplicationMonitor(msg.Pool, 2*time.Second, m.replicationStore)

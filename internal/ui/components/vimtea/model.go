@@ -73,6 +73,15 @@ type Editor interface {
 
 	// Reset restores the editor to its initial state
 	Reset() tea.Cmd
+
+	// GetCursorPosition returns the current cursor row and column (0-indexed)
+	GetCursorPosition() (row, col int)
+
+	// SetCursorPosition sets the cursor to the specified row and column (0-indexed)
+	SetCursorPosition(row, col int)
+
+	// SetContent sets the buffer content and moves cursor to the end
+	SetContent(content string)
 }
 
 // editorModel implements the Editor interface and maintains the editor state
@@ -235,6 +244,8 @@ func (m *editorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Reset cursor blink on keypress
 		m.cursorBlink = true
 		m.lastBlinkTime = time.Now()
+		// Clear yank highlight on any keypress - user has seen it
+		m.yankHighlight.Active = false
 		return m.handleKeypress(msg)
 	case tea.WindowSizeMsg:
 		if m.fullScreen {
@@ -595,6 +606,59 @@ func (m *editorModel) Reset() tea.Cmd {
 
 // statusMessageMsg is a message type for updating the status message
 type statusMessageMsg string
+
+// GetCursorPosition returns the current cursor row and column (0-indexed)
+func (m *editorModel) GetCursorPosition() (row, col int) {
+	return m.cursor.Row, m.cursor.Col
+}
+
+// SetCursorPosition sets the cursor to the specified row and column (0-indexed)
+func (m *editorModel) SetCursorPosition(row, col int) {
+	lineCount := m.buffer.lineCount()
+	if row < 0 {
+		row = 0
+	}
+	if row >= lineCount {
+		row = lineCount - 1
+	}
+	if row < 0 {
+		row = 0
+	}
+
+	lineLen := m.buffer.lineLength(row)
+	if col < 0 {
+		col = 0
+	}
+	if col >= lineLen && lineLen > 0 {
+		col = lineLen - 1
+	}
+	if col < 0 {
+		col = 0
+	}
+
+	m.cursor = newCursor(row, col)
+	m.ensureCursorVisible()
+}
+
+// SetContent sets the buffer content and moves cursor to the end
+func (m *editorModel) SetContent(content string) {
+	m.buffer.saveUndoState(m.cursor)
+	m.buffer = newBuffer(content)
+
+	// Move cursor to end of content
+	lineCount := m.buffer.lineCount()
+	if lineCount > 0 {
+		lastLine := lineCount - 1
+		lastCol := m.buffer.lineLength(lastLine)
+		if lastCol > 0 {
+			lastCol-- // Cursor should be on last character, not after
+		}
+		m.cursor = newCursor(lastLine, lastCol)
+	} else {
+		m.cursor = newCursor(0, 0)
+	}
+	m.ensureCursorVisible()
+}
 
 // WithContent sets the initial content for the editor
 func WithContent(content string) EditorOption {

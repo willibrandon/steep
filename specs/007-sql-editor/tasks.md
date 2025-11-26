@@ -171,7 +171,7 @@
 
 ---
 
-## Phase 8: User Story 6 - Query History with Recall (Priority: P3)
+## Phase 8: User Story 6 - Query History with Recall (Priority: P3) ✓
 
 **Goal**: Store and recall previously executed queries
 
@@ -179,17 +179,27 @@
 
 ### Implementation for User Story 6
 
-- [ ] T049 [US6] Create HistoryManager struct with in-memory cache (100 entries) in internal/ui/views/sqleditor/history.go
-- [ ] T050 [US6] Initialize SQLite database for persistent history in internal/ui/views/sqleditor/history.go
-- [ ] T051 [US6] Implement Add() to store query with deduplication in internal/ui/views/sqleditor/history.go
-- [ ] T052 [US6] Implement Previous()/Next() for navigation in internal/ui/views/sqleditor/history.go
-- [ ] T053 [US6] Detect cursor at editor boundary (isAtStart) for history trigger in internal/ui/views/sqleditor/editor.go
-- [ ] T054 [US6] Implement Up arrow at boundary to recall previous query in internal/ui/views/sqleditor/view.go
-- [ ] T055 [US6] Implement Down arrow to navigate forward in history in internal/ui/views/sqleditor/view.go
-- [ ] T056 [US6] Implement Ctrl+R reverse search overlay in internal/ui/views/sqleditor/view.go
-- [ ] T056b [US6] **REMINDER from US3**: Apply HighlightSQL() to history display (see highlight.go)
+- [x] T049 [US6] Create HistoryManager struct with in-memory cache (100 entries) in internal/ui/views/sqleditor/history.go
+- [x] T050 [US6] Initialize SQLite database for persistent history in internal/ui/views/sqleditor/history.go
+- [x] T051 [US6] Implement Add() to store query with deduplication in internal/ui/views/sqleditor/history.go
+- [x] T052 [US6] Implement Previous()/Next() for navigation in internal/ui/views/sqleditor/history.go
+- [x] T053 [US6] Detect cursor at editor boundary (GetCursorPosition) in internal/ui/components/vimtea/model.go
+- [x] T054 [US6] Implement Up arrow at boundary to recall previous query in internal/ui/views/sqleditor/view.go
+- [x] T055 [US6] Implement Down arrow to navigate forward in history in internal/ui/views/sqleditor/view.go
+- [x] T056 [US6] Implement Ctrl+R reverse search overlay in internal/ui/views/sqleditor/view.go
+- [x] T056b [US6] Apply HighlightSQL() to history display (see highlight.go)
 
-**Checkpoint**: Query history with recall and reverse search working
+**Checkpoint**: Query history with recall and reverse search working ✓
+
+**Implementation Notes**:
+- HistoryManager uses shared steep.db (~/.cache/steep/steep.db) via storage/sqlite package
+- query_history table added to schema.go with history_store.go for data access
+- Consecutive duplicate queries are not stored (deduplication)
+- Up arrow at cursor position (0,0) navigates to previous history entry
+- Down arrow navigates forward; past end restores original editor content
+- Ctrl+R opens reverse search overlay with syntax-highlighted results
+- Search supports incremental filtering with Ctrl+R/Up for older and Ctrl+S/Down for newer
+- Added GetCursorPosition() and SetContent() methods to vimtea Editor interface
 
 ---
 

@@ -844,7 +844,8 @@ func (m *editorModel) getYankHighlightBounds(rowIdx int) (int, int) {
 
 func (m *editorModel) renderLineWithYankHighlight(line string, rowIdx int) string {
 	var sb strings.Builder
-	highlightStyle := lipgloss.NewStyle().Background(lipgloss.Color("7"))
+	// Use a dark background (238) for better contrast with syntax-highlighted text
+	highlightStyle := lipgloss.NewStyle().Background(lipgloss.Color("238"))
 
 	start, end := m.getYankHighlightBounds(rowIdx)
 	if start < 0 || end < 0 {
