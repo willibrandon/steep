@@ -371,6 +371,12 @@ func (se *SessionExecutor) executeStatement(ctx context.Context, sql string) (*E
 	var rows pgx.Rows
 	var err error
 
+	// Check for DDL in transaction and prepare warning
+	var warning string
+	if se.txState.Active && isDDLOperation(sql) {
+		warning = "Warning: DDL executed within transaction. Failed DDL will abort the transaction."
+	}
+
 	if se.txState.Active && se.tx != nil {
 		rows, err = se.tx.Query(ctx, sql)
 	} else {
@@ -400,6 +406,7 @@ func (se *SessionExecutor) executeStatement(ctx context.Context, sql string) (*E
 		return &ExecutionResult{
 			Error:     err,
 			ErrorInfo: extractPgErrorInfo(err),
+			Warning:   warning,
 		}, nil
 	}
 	defer rows.Close()
@@ -440,6 +447,7 @@ func (se *SessionExecutor) executeStatement(ctx context.Context, sql string) (*E
 		Columns:      columns,
 		Rows:         resultRows,
 		RowsAffected: rowsAffected,
+		Warning:      warning,
 	}, nil
 }
 
@@ -482,6 +490,26 @@ func isWriteOperation(sql string) bool {
 		"VACUUM", "ANALYZE", "REINDEX", "CLUSTER",
 	}
 	for _, pattern := range writePatterns {
+		if strings.HasPrefix(upper, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// isDDLOperation checks if the SQL is a DDL (Data Definition Language) operation.
+// DDL operations may have unexpected behavior within transactions:
+// - CREATE INDEX CONCURRENTLY cannot run inside a transaction
+// - Some DDL takes locks that persist until commit
+// - Failed DDL in PostgreSQL aborts the transaction
+func isDDLOperation(sql string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(sql))
+	ddlPatterns := []string{
+		"CREATE", "ALTER", "DROP", "TRUNCATE",
+		"GRANT", "REVOKE",
+		"VACUUM", "ANALYZE", "REINDEX", "CLUSTER",
+	}
+	for _, pattern := range ddlPatterns {
 		if strings.HasPrefix(upper, pattern) {
 			return true
 		}

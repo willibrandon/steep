@@ -112,7 +112,7 @@
 
 ---
 
-## Phase 6: User Story 4 - Transaction Management (Priority: P2)
+## Phase 6: User Story 4 - Transaction Management (Priority: P2) ✓
 
 **Goal**: Support BEGIN/COMMIT/ROLLBACK commands with visual transaction indicator
 
@@ -120,17 +120,24 @@
 
 ### Implementation for User Story 4
 
-- [ ] T032 [US4] Implement DetectTransactionStatement function in internal/ui/views/sqleditor/transaction.go
-- [ ] T033 [US4] Handle BEGIN command - start pgx.Tx and update state in internal/ui/views/sqleditor/executor.go
-- [ ] T034 [US4] Handle COMMIT command - commit transaction and clear state in internal/ui/views/sqleditor/executor.go
-- [ ] T035 [US4] Handle ROLLBACK command - rollback transaction and clear state in internal/ui/views/sqleditor/executor.go
-- [ ] T036 [US4] Implement SAVEPOINT and ROLLBACK TO savepoint support in internal/ui/views/sqleditor/executor.go
-- [ ] T037 [US4] Create StatusBar component with connection info in internal/ui/views/sqleditor/statusbar.go
-- [ ] T038 [US4] Display transaction indicator (green "TX" badge) when active in internal/ui/views/sqleditor/statusbar.go
-- [ ] T039 [US4] Display DDL warning when in active transaction in internal/ui/views/sqleditor/view.go
-- [ ] T040 [US4] Block DDL/DML in read-only mode with warning in internal/ui/views/sqleditor/executor.go
+- [x] T032 [US4] Implement DetectTransactionStatement function in internal/ui/views/sqleditor/executor.go
+- [x] T033 [US4] Handle BEGIN command - start pgx.Tx and update state in internal/ui/views/sqleditor/executor.go
+- [x] T034 [US4] Handle COMMIT command - commit transaction and clear state in internal/ui/views/sqleditor/executor.go
+- [x] T035 [US4] Handle ROLLBACK command - rollback transaction and clear state in internal/ui/views/sqleditor/executor.go
+- [x] T036 [US4] Implement SAVEPOINT and ROLLBACK TO savepoint support in internal/ui/views/sqleditor/executor.go
+- [x] T037 [US4] Create StatusBar component with connection info in internal/ui/views/sqleditor/view.go (renderConnectionBar)
+- [x] T038 [US4] Display transaction indicator (green "TX" badge) when active in internal/ui/views/sqleditor/view.go
+- [x] T039 [US4] Display DDL warning when in active transaction in internal/ui/views/sqleditor/view.go
+- [x] T040 [US4] Block DDL/DML in read-only mode with warning in internal/ui/views/sqleditor/executor.go
 
-**Checkpoint**: Transaction control fully functional with visual indicator
+**Checkpoint**: Transaction control fully functional with visual indicator ✓
+
+**Implementation Notes**:
+- Transaction state tracked via SessionExecutor with dedicated pgx.Tx connection
+- DetectTransactionStatement handles BEGIN, START TRANSACTION, COMMIT, END, ROLLBACK, ABORT, SAVEPOINT, RELEASE
+- StatusBar shows "TX" badge (green) when in transaction, "TX ABORTED" (red) when transaction is aborted
+- DDL warning displayed as toast when executing DDL (CREATE/ALTER/DROP/etc.) within a transaction
+- Read-only mode blocks write operations with clear error message
 
 ---
 

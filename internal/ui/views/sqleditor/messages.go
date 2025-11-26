@@ -25,6 +25,7 @@ type ExecutionResult struct {
 	ErrorInfo    *PgErrorInfo  // Detailed PostgreSQL error info
 	Cancelled    bool          // Whether query was cancelled
 	Message      string        // Status message (e.g., "Transaction started")
+	Warning      string        // Warning message (e.g., DDL in transaction)
 }
 
 // PgErrorInfo contains detailed PostgreSQL error information.

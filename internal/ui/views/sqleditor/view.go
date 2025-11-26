@@ -354,14 +354,26 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.scrollOffset = 0
 			v.colScrollOffset = 0
 			// Keep focus on editor - user can Tab to results
-			// Show success toast with row count
-			v.showToast(fmt.Sprintf("Query OK: %d rows (%dms)", len(rows), msg.Result.Duration.Milliseconds()), false)
+			// Show success toast with row count (or warning if DDL in transaction)
+			if msg.Result.Warning != "" {
+				v.showToast(msg.Result.Warning, true)
+			} else {
+				v.showToast(fmt.Sprintf("Query OK: %d rows (%dms)", len(rows), msg.Result.Duration.Milliseconds()), false)
+			}
 		} else if msg.Result.RowsAffected > 0 {
 			// For INSERT/UPDATE/DELETE without returning rows
-			v.showToast(fmt.Sprintf("Query OK: %d rows affected (%dms)", msg.Result.RowsAffected, msg.Result.Duration.Milliseconds()), false)
+			if msg.Result.Warning != "" {
+				v.showToast(msg.Result.Warning, true)
+			} else {
+				v.showToast(fmt.Sprintf("Query OK: %d rows affected (%dms)", msg.Result.RowsAffected, msg.Result.Duration.Milliseconds()), false)
+			}
 		} else if msg.Result.Error == nil && msg.Result.Message == "" {
 			// Query completed but returned no rows (DDL like CREATE TABLE)
-			v.showToast(fmt.Sprintf("Query OK (%dms)", msg.Result.Duration.Milliseconds()), false)
+			if msg.Result.Warning != "" {
+				v.showToast(msg.Result.Warning, true)
+			} else {
+				v.showToast(fmt.Sprintf("Query OK (%dms)", msg.Result.Duration.Milliseconds()), false)
+			}
 		}
 
 	case QueryCancelledMsg:
