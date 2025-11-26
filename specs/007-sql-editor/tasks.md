@@ -28,19 +28,19 @@
 
 ---
 
-## Phase 2: Foundational (Blocking Prerequisites)
+## Phase 2: Foundational (Blocking Prerequisites) ✓
 
 **Purpose**: Core infrastructure required by ALL user stories
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 Create SessionExecutor with transaction state tracking in internal/ui/views/sqleditor/executor.go
-- [ ] T008 Implement query execution with timeout and cancellation in internal/db/queries/sqleditor.go
-- [ ] T009 [P] Implement value formatting (formatValue) for all PostgreSQL types in internal/ui/views/sqleditor/format.go
-- [ ] T010 Create main SQLEditorView struct with Init/Update/View/SetSize in internal/ui/views/sqleditor/view.go
-- [ ] T011 Wire SQL Editor view to app navigation ('7' key) in internal/ui/app/app.go
+- [x] T007 Create SessionExecutor with transaction state tracking in internal/ui/views/sqleditor/executor.go
+- [x] T008 Implement query execution with timeout and cancellation in internal/db/queries/sqleditor.go
+- [x] T009 [P] Implement value formatting (formatValue) for all PostgreSQL types in internal/ui/views/sqleditor/format.go
+- [x] T010 Create main SQLEditorView struct with Init/Update/View/SetSize in internal/ui/views/sqleditor/view.go
+- [x] T011 Wire SQL Editor view to app navigation ('7' key) in internal/app/app.go
 
-**Checkpoint**: SQL Editor view accessible via '7' key, foundation ready
+**Checkpoint**: SQL Editor view accessible via '7' key, foundation ready ✓
 
 ---
 

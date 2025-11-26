@@ -26,6 +26,7 @@ import (
 	locksview "github.com/willibrandon/steep/internal/ui/views/locks"
 	queriesview "github.com/willibrandon/steep/internal/ui/views/queries"
 	replicationview "github.com/willibrandon/steep/internal/ui/views/replication"
+	sqleditorview "github.com/willibrandon/steep/internal/ui/views/sqleditor"
 	tablesview "github.com/willibrandon/steep/internal/ui/views/tables"
 )
 
@@ -62,6 +63,7 @@ type Model struct {
 	locksView       *locksview.LocksView
 	tablesView      *tablesview.TablesView
 	replicationView *replicationview.ReplicationView
+	sqlEditorView   *sqleditorview.SQLEditorView
 
 	// Application state
 	helpVisible bool
@@ -125,6 +127,10 @@ func New(readonly bool, configPath string) (*Model, error) {
 	replicationView.SetReadOnly(readonly)
 	replicationView.SetDebug(cfg.Debug)
 
+	// Initialize SQL Editor view
+	sqlEditorView := sqleditorview.NewSQLEditorView()
+	sqlEditorView.SetReadOnly(readonly)
+
 	// Define available views
 	viewList := []views.ViewType{
 		views.ViewDashboard,
@@ -133,6 +139,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 		views.ViewLocks,
 		views.ViewTables,
 		views.ViewReplication,
+		views.ViewSQLEditor,
 	}
 
 	return &Model{
@@ -147,6 +154,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 		locksView:         locksView,
 		tablesView:        tablesView,
 		replicationView:   replicationView,
+		sqlEditorView:     sqlEditorView,
 		connected:         false,
 		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
 		reconnecting:      false,
@@ -166,6 +174,7 @@ func (m Model) Init() tea.Cmd {
 		m.locksView.Init(),
 		m.queriesView.Init(),
 		m.tablesView.Init(),
+		m.sqlEditorView.Init(),
 	)
 }
 
@@ -188,6 +197,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tablesView.Update(msg)
 		case views.ViewReplication:
 			m.replicationView.Update(msg)
+		case views.ViewSQLEditor:
+			m.sqlEditorView.Update(msg)
 		}
 		return m, nil
 
@@ -209,6 +220,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.locksView.SetSize(msg.Width, msg.Height-5)
 		m.tablesView.SetSize(msg.Width, msg.Height-5)
 		m.replicationView.SetSize(msg.Width, msg.Height-5)
+		m.sqlEditorView.SetSize(msg.Width, msg.Height-5)
 		return m, nil
 
 	case DatabaseConnectedMsg:
@@ -234,6 +246,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tablesView.SetPool(msg.Pool)
 		m.replicationView.SetConnected(true)
 		m.replicationView.SetConnectionInfo(connectionInfo)
+		m.sqlEditorView.SetConnected(true)
+		m.sqlEditorView.SetConnectionInfo(connectionInfo)
+		m.sqlEditorView.SetPool(msg.Pool)
 
 		// Initialize monitors
 		refreshInterval := m.config.UI.RefreshInterval
@@ -771,9 +786,11 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Check if the CURRENT view is in input mode (only check active view)
+	inInputMode := m.currentViewIsInputMode()
+
 	// Check for quit (but not when view is in input mode)
 	if msg.String() == "q" || msg.String() == "ctrl+c" {
-		inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode() || m.tablesView.IsInputMode() || m.replicationView.IsInputMode()
 		if !inInputMode {
 			m.quitting = true
 			return m, tea.Quit
@@ -787,13 +804,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Check for escape (close help) - but only if not in input mode
-	inInputMode := m.dashboard.IsInputMode() || m.queriesView.IsInputMode() || m.locksView.IsInputMode() || m.tablesView.IsInputMode() || m.replicationView.IsInputMode()
 	if msg.String() == "esc" && m.helpVisible && !inInputMode {
 		m.helpVisible = false
 		return m, nil
 	}
 
-	// Check for view jumping (1-6) - but not when in input mode (editing fields)
+	// Check for view jumping (1-7) - but not when in input mode (editing fields)
 	if !inInputMode {
 		switch msg.String() {
 		case "1":
@@ -813,6 +829,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "6":
 			m.currentView = views.ViewReplication
+			return m, nil
+		case "7":
+			m.currentView = views.ViewSQLEditor
 			return m, nil
 		case "tab":
 			m.nextView()
@@ -855,6 +874,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			_, cmd = m.replicationView.Update(msg)
 			return m, cmd
 		}
+	case views.ViewSQLEditor:
+		if m.connected {
+			var cmd tea.Cmd
+			_, cmd = m.sqlEditorView.Update(msg)
+			return m, cmd
+		}
 	}
 
 	return m, nil
@@ -884,6 +909,27 @@ func (m *Model) prevView() {
 	}
 	prevIndex := (currentIndex - 1 + len(m.viewList)) % len(m.viewList)
 	m.currentView = m.viewList[prevIndex]
+}
+
+// currentViewIsInputMode returns true if the current view is in input mode.
+// Only checks the active view, not all views.
+func (m *Model) currentViewIsInputMode() bool {
+	switch m.currentView {
+	case views.ViewDashboard:
+		return m.dashboard.IsInputMode()
+	case views.ViewQueries:
+		return m.queriesView.IsInputMode()
+	case views.ViewLocks:
+		return m.locksView.IsInputMode()
+	case views.ViewTables:
+		return m.tablesView.IsInputMode()
+	case views.ViewReplication:
+		return m.replicationView.IsInputMode()
+	case views.ViewSQLEditor:
+		return m.sqlEditorView.IsInputMode()
+	default:
+		return false
+	}
 }
 
 // View renders the application UI
@@ -953,6 +999,8 @@ func (m Model) renderCurrentView() string {
 		return m.tablesView.View()
 	case views.ViewReplication:
 		return m.replicationView.View()
+	case views.ViewSQLEditor:
+		return m.sqlEditorView.View()
 	default:
 		return styles.ErrorStyle.Render("Unknown view")
 	}

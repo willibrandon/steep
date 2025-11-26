@@ -153,6 +153,26 @@ var (
 			Padding(1, 2)
 )
 
+// Common UI styles
+var (
+	// TitleStyle is for section titles
+	TitleStyle = lipgloss.NewStyle().
+			Foreground(ColorAccent).
+			Bold(true)
+
+	// AccentStyle is for accented text
+	AccentStyle = lipgloss.NewStyle().
+			Foreground(ColorAccent)
+
+	// MutedStyle is for muted/secondary text
+	MutedStyle = lipgloss.NewStyle().
+			Foreground(ColorMuted)
+
+	// BorderStyle is for borders using muted color
+	BorderStyle = lipgloss.NewStyle().
+			Foreground(ColorBorder)
+)
+
 // Legacy compatibility styles (for existing components)
 var (
 	// InfoStyle is for informational messages
