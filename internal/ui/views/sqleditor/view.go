@@ -213,6 +213,11 @@ func NewSQLEditorView(syntaxTheme string) *SQLEditorView {
 		return v.deleteSnippetCmd(args)
 	})
 
+	// Export commands
+	v.editor.AddCommand("export", func(buf vimtea.Buffer, args []string) tea.Cmd {
+		return v.exportCmd(args)
+	})
+
 	// Initialize snippet manager
 	if sm, err := NewSnippetManager(); err == nil {
 		v.snippets = sm
@@ -1296,6 +1301,45 @@ func (v *SQLEditorView) deleteSnippetCmd(args []string) tea.Cmd {
 	return nil
 }
 
+// exportCmd handles the :export FORMAT FILENAME command.
+// FORMAT can be 'csv' or 'json'.
+// Examples:
+//   :export csv results.csv
+//   :export json ~/data/output.json
+func (v *SQLEditorView) exportCmd(args []string) tea.Cmd {
+	if len(args) < 2 {
+		v.showToast("Usage: :export csv|json FILENAME", true)
+		return nil
+	}
+
+	format := strings.ToLower(args[0])
+	filename := strings.Join(args[1:], " ") // Support filenames with spaces
+
+	if v.results == nil || len(v.results.Rows) == 0 {
+		v.showToast("No results to export", true)
+		return nil
+	}
+
+	var result *ExportResult
+	switch format {
+	case "csv":
+		result = ExportCSV(v.results, filename)
+	case "json":
+		result = ExportJSON(v.results, filename)
+	default:
+		v.showToast(fmt.Sprintf("Unknown format '%s'. Use 'csv' or 'json'", format), true)
+		return nil
+	}
+
+	if result.Error != nil {
+		v.showToast(fmt.Sprintf("Export failed: %s", result.Error.Error()), true)
+		return nil
+	}
+
+	v.showToast(FormatExportSuccess(result), false)
+	return nil
+}
+
 // openSnippetBrowser opens the snippet browser overlay.
 func (v *SQLEditorView) openSnippetBrowser() {
 	if v.snippets == nil {
@@ -1901,6 +1945,14 @@ RESULTS MODE (allows view switching and quit)
 RESIZE EDITOR/RESULTS SPLIT
   +/-          Resize panes
   Ctrl+↑/↓     Resize panes (alternative)
+
+COMMANDS (type ':' in normal mode)
+  :exec        Execute query
+  :save NAME   Save query as snippet
+  :load NAME   Load snippet into editor
+  :snippets    Open snippet browser (also Ctrl+O)
+  :export csv FILE   Export results to CSV
+  :export json FILE  Export results to JSON
 
 NAVIGATION
   1-7          Switch views

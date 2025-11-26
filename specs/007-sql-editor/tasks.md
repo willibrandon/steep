@@ -233,7 +233,7 @@
 
 ---
 
-## Phase 10: User Story 8 - Export Results (Priority: P3)
+## Phase 10: User Story 8 - Export Results (Priority: P3) ✓
 
 **Goal**: Export query results to CSV or JSON files
 
@@ -241,13 +241,22 @@
 
 ### Implementation for User Story 8
 
-- [ ] T064 [US8] Implement ExportCSV function with proper escaping in internal/ui/views/sqleditor/export.go
-- [ ] T065 [US8] Implement ExportJSON function (array of objects) in internal/ui/views/sqleditor/export.go
-- [ ] T066 [US8] Add :export csv FILENAME command handling in internal/ui/views/sqleditor/view.go
-- [ ] T067 [US8] Add :export json FILENAME command handling in internal/ui/views/sqleditor/view.go
-- [ ] T068 [US8] Display export success/error notification in internal/ui/views/sqleditor/view.go
+- [x] T064 [US8] Implement ExportCSV function with proper escaping in internal/ui/views/sqleditor/export.go
+- [x] T065 [US8] Implement ExportJSON function (array of objects) in internal/ui/views/sqleditor/export.go
+- [x] T066 [US8] Add :export csv FILENAME command handling in internal/ui/views/sqleditor/view.go
+- [x] T067 [US8] Add :export json FILENAME command handling in internal/ui/views/sqleditor/view.go
+- [x] T068 [US8] Display export success/error notification in internal/ui/views/sqleditor/view.go
 
-**Checkpoint**: CSV and JSON export fully functional
+**Checkpoint**: CSV and JSON export fully functional ✓
+
+**Implementation Notes**:
+- ExportCSV uses Go's encoding/csv which handles RFC 4180 compliant CSV escaping
+- ExportJSON produces indented array of objects with column names as keys
+- NULL values exported as empty string in CSV, null in JSON
+- Tilde (~) expansion supported for paths (e.g., ~/data/output.csv)
+- Extension auto-added if missing (.csv or .json)
+- Parent directories created automatically if needed
+- Success/error notifications via toast messages
 
 ---
 
