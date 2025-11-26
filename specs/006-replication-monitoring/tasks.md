@@ -219,10 +219,10 @@ Based on plan.md structure:
 
 ### Implementation for User Story 8
 
-- [ ] T064 [US8] Implement Logical tab with publications table showing name, table count, operation flags in `internal/ui/views/replication/view.go`
-- [ ] T065 [US8] Add subscriptions table showing name, enabled status, upstream connection, lag in `internal/ui/views/replication/view.go`
-- [ ] T066 [US8] Display "No logical replication configured" when no publications/subscriptions exist in `internal/ui/views/replication/view.go`
-- [ ] T067 [US8] Handle wal_level != logical gracefully with guidance message in `internal/ui/views/replication/view.go`
+- [x] T064 [US8] Implement Logical tab with publications table showing name, table count, operation flags in `internal/ui/views/replication/logical.go`
+- [x] T065 [US8] Add subscriptions table showing name, enabled status, upstream connection, lag in `internal/ui/views/replication/logical.go`
+- [x] T066 [US8] Display "No logical replication configured" when no publications/subscriptions exist in `internal/ui/views/replication/logical.go`
+- [x] T067 [US8] Handle wal_level != logical gracefully with guidance message in `internal/ui/views/replication/logical.go`
 
 **Checkpoint**: User Story 8 complete - can monitor logical replication
 

@@ -175,6 +175,7 @@ docker exec "$PRIMARY_NAME" psql -U postgres -d steep_test -c "
     CREATE TABLE lag_test (
         id SERIAL PRIMARY KEY,
         data TEXT,
+        padding TEXT,
         created_at TIMESTAMP DEFAULT NOW()
     );
     CREATE INDEX idx_lag_test_created ON lag_test(created_at);
@@ -312,6 +313,7 @@ if [[ "$LOGICAL" == "true" ]]; then
         CREATE TABLE lag_test (
             id SERIAL PRIMARY KEY,
             data TEXT,
+            padding TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
         CREATE INDEX idx_lag_test_created ON lag_test(created_at);

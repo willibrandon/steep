@@ -70,17 +70,12 @@ if ! psql -h localhost -p "$PRIMARY_PORT" -U postgres -d "$DB_NAME" -c "SELECT 1
     exit 1
 fi
 
-# Create table (drop if exists to ensure correct schema)
-echo -e "${CYAN}Creating lag test table...${NC}"
-psql -h localhost -p "$PRIMARY_PORT" -U postgres -d "$DB_NAME" -q <<'EOF'
-DROP TABLE IF EXISTS lag_test;
-CREATE TABLE lag_test (
-    id SERIAL PRIMARY KEY,
-    data TEXT,
-    padding TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-EOF
+# Ensure lag_test table exists (created by repl-test-setup.sh)
+echo -e "${CYAN}Verifying lag test table...${NC}"
+if ! psql -h localhost -p "$PRIMARY_PORT" -U postgres -d "$DB_NAME" -tAc "SELECT 1 FROM pg_tables WHERE tablename='lag_test'" | grep -q 1; then
+    echo -e "${RED}Error: lag_test table not found. Run ./scripts/repl-test-setup.sh first${NC}"
+    exit 1
+fi
 
 # Show initial replication status
 echo -e "${CYAN}Initial replication status:${NC}"

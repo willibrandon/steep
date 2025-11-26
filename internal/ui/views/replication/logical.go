@@ -12,14 +12,52 @@ import (
 
 // renderLogical renders the Logical tab content.
 func (v *ReplicationView) renderLogical() string {
+	// Check if wal_level is not 'logical' - can't use logical replication
+	if v.data.Config != nil && v.data.Config.WALLevel.CurrentValue != "logical" {
+		walLevel := v.data.Config.WALLevel.CurrentValue
+		if walLevel == "" {
+			walLevel = "unknown"
+		}
+
+		title := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("214")). // Yellow warning
+			Render("⚠ Logical Replication Not Available")
+
+		details := fmt.Sprintf("Current wal_level: %s\n"+
+			"Required: logical\n\n"+
+			"To enable logical replication:\n"+
+			"  1. Set wal_level = 'logical' in postgresql.conf\n"+
+			"     or: ALTER SYSTEM SET wal_level = 'logical';\n"+
+			"  2. Restart PostgreSQL (requires full restart)\n"+
+			"  3. Return here to create publications/subscriptions",
+			walLevel)
+
+		msg := lipgloss.JoinVertical(lipgloss.Center,
+			title,
+			"",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(details),
+		)
+		return lipgloss.Place(v.width, v.height-4, lipgloss.Center, lipgloss.Center, msg)
+	}
+
+	// wal_level is 'logical' but no pubs/subs exist
 	if !v.data.HasLogicalReplication() {
-		msg := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Render("No logical replication configured.\n\n" +
-				"To set up logical replication:\n" +
-				"  1. Ensure wal_level = 'logical'\n" +
-				"  2. Press Tab to go to Setup tab\n" +
-				"  3. Use logical replication wizard (2)")
+		title := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("42")). // Green - ready
+			Render("✓ Ready for Logical Replication")
+
+		details := "No publications or subscriptions configured.\n\n" +
+			"To set up logical replication:\n" +
+			"  1. Press Tab to go to Setup tab\n" +
+			"  2. Use logical replication wizard [o]"
+
+		msg := lipgloss.JoinVertical(lipgloss.Center,
+			title,
+			"",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(details),
+		)
 		return lipgloss.Place(v.width, v.height-4, lipgloss.Center, lipgloss.Center, msg)
 	}
 
