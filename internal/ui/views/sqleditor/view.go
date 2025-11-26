@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kujtimiihoxha/vimtea"
 
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/styles"
@@ -41,18 +41,18 @@ type SQLEditorView struct {
 	connectionInfo string
 	readOnly       bool
 
-	// Editor
-	textarea    textarea.Model
-	placeholder string
+	// Editor (vimtea with syntax highlighting)
+	editor       vimtea.Editor
+	editorHeight int
 
 	// Results
-	results        *ResultSet
-	selectedRow    int
-	scrollOffset   int    // Vertical scroll (row offset)
-	colScrollOffset int   // Horizontal scroll (column offset)
-	executedQuery  string
-	lastError     error
-	lastErrorInfo *PgErrorInfo
+	results         *ResultSet
+	selectedRow     int
+	scrollOffset    int // Vertical scroll (row offset)
+	colScrollOffset int // Horizontal scroll (column offset)
+	executedQuery   string
+	lastError       error
+	lastErrorInfo   *PgErrorInfo
 
 	// Execution
 	executor   *SessionExecutor
@@ -64,9 +64,9 @@ type SQLEditorView struct {
 	keys KeyMap
 
 	// UI state
-	splitRatio  float64 // 0.0-1.0, portion for editor
-	showHelp    bool
-	helpScroll  int
+	splitRatio float64 // 0.0-1.0, portion for editor
+	showHelp   bool
+	helpScroll int
 
 	// Toast message
 	toastMessage string
@@ -82,24 +82,33 @@ type SQLEditorView struct {
 
 // NewSQLEditorView creates a new SQL Editor view.
 func NewSQLEditorView() *SQLEditorView {
-	ta := textarea.New()
-	ta.Placeholder = "Enter SQL query... (Ctrl+Enter to execute)"
-	ta.ShowLineNumbers = true
-	ta.CharLimit = MaxCharLimit
-	ta.SetWidth(80)
-	ta.SetHeight(10)
+	// Create vimtea editor with SQL syntax highlighting
+	editor := vimtea.NewEditor(
+		vimtea.WithFileName("query.sql"),         // Enables SQL syntax highlighting
+		vimtea.WithDefaultSyntaxTheme("monokai"), // Match our existing theme
+		vimtea.WithEnableStatusBar(true),         // Shows mode and :command line
+		vimtea.WithEnableModeCommand(true),       // Enable :commands
+		vimtea.WithRelativeNumbers(false),        // Standard line numbers
+		vimtea.WithContent(""),                   // Start empty
+		vimtea.WithTextStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("252"))),
+		vimtea.WithLineNumberStyle(styles.EditorLineNumberStyle.PaddingRight(1)), // Add space after line number
+		vimtea.WithCurrentLineNumberStyle(styles.EditorLineNumberStyle.Foreground(styles.ColorAccent).PaddingRight(1)),
+		vimtea.WithCursorStyle(lipgloss.NewStyle().
+			Background(styles.ColorAccent).
+			Foreground(lipgloss.Color("0"))), // Black text on cyan cursor for contrast
+		vimtea.WithStatusStyle(lipgloss.NewStyle().
+			Background(lipgloss.Color("236")).
+			Foreground(lipgloss.Color("252")).
+			Bold(true)),
+		vimtea.WithCommandStyle(lipgloss.NewStyle().
+			Background(lipgloss.Color("236")).
+			Foreground(lipgloss.Color("252"))),
+	)
 
-	// Apply focused style
-	ta.FocusedStyle.Base = styles.EditorBorderStyle
-	ta.FocusedStyle.CursorLine = styles.EditorCursorLineStyle
-	ta.BlurredStyle.Base = styles.EditorBlurredBorderStyle
-
-	ta.Focus()
-
-	return &SQLEditorView{
+	v := &SQLEditorView{
 		mode:       ModeNormal,
 		focus:      FocusEditor,
-		textarea:   ta,
+		editor:     editor,
 		keys:       DefaultKeyMap(),
 		splitRatio: 0.4, // 40% editor, 60% results
 		clipboard:  ui.NewClipboardWriter(),
@@ -109,6 +118,55 @@ func NewSQLEditorView() *SQLEditorView {
 		},
 		auditLog: make([]*QueryAuditEntry, 0, MaxAuditEntries),
 	}
+
+	// Add F5 binding for query execution
+	v.editor.AddBinding(vimtea.KeyBinding{
+		Key:         "f5",
+		Mode:        vimtea.ModeNormal,
+		Description: "Execute query",
+		Handler: func(buf vimtea.Buffer) tea.Cmd {
+			return v.executeQueryCmd()
+		},
+	})
+	v.editor.AddBinding(vimtea.KeyBinding{
+		Key:         "f5",
+		Mode:        vimtea.ModeInsert,
+		Description: "Execute query",
+		Handler: func(buf vimtea.Buffer) tea.Cmd {
+			return v.executeQueryCmd()
+		},
+	})
+
+	// Add Ctrl+Enter binding for query execution (alternative)
+	v.editor.AddBinding(vimtea.KeyBinding{
+		Key:         "ctrl+enter",
+		Mode:        vimtea.ModeInsert,
+		Description: "Execute query",
+		Handler: func(buf vimtea.Buffer) tea.Cmd {
+			return v.executeQueryCmd()
+		},
+	})
+
+	// Add Esc in results to return to editor
+	v.editor.AddBinding(vimtea.KeyBinding{
+		Key:         "tab",
+		Mode:        vimtea.ModeNormal,
+		Description: "Switch to results",
+		Handler: func(buf vimtea.Buffer) tea.Cmd {
+			v.focus = FocusResults
+			return nil
+		},
+	})
+
+	// Add custom commands for SQL execution
+	v.editor.AddCommand("exec", func(buf vimtea.Buffer, args []string) tea.Cmd {
+		return v.executeQueryCmd()
+	})
+	v.editor.AddCommand("run", func(buf vimtea.Buffer, args []string) tea.Cmd {
+		return v.executeQueryCmd()
+	})
+
+	return v
 }
 
 // GetAuditLog returns the query audit log for external access.
@@ -129,7 +187,7 @@ func (v *SQLEditorView) GetLastAuditEntries(n int) []*QueryAuditEntry {
 
 // Init initializes the SQL Editor view.
 func (v *SQLEditorView) Init() tea.Cmd {
-	return textarea.Blink
+	return v.editor.Init()
 }
 
 // SetSize sets the dimensions of the view.
@@ -138,14 +196,14 @@ func (v *SQLEditorView) SetSize(width, height int) {
 	v.height = height
 
 	// Calculate editor and results heights
-	editorHeight := int(float64(height-4) * v.splitRatio) // -4 for status bar and padding
-	if editorHeight < 3 {
-		editorHeight = 3
+	v.editorHeight = int(float64(height-4) * v.splitRatio) // -4 for status bar and padding
+	if v.editorHeight < 7 {
+		v.editorHeight = 7
 	}
 
-	// Set textarea dimensions (account for border)
-	v.textarea.SetWidth(width - 4)
-	v.textarea.SetHeight(editorHeight - 2)
+	// Set vimtea editor dimensions (subtract 1 for our title bar)
+	// vimtea internally reserves 2 lines for its own status bar when enabled
+	v.editor.SetSize(width-2, v.editorHeight-1)
 }
 
 // SetPool sets the database connection pool and creates executor.
@@ -199,20 +257,21 @@ func (v *SQLEditorView) SetReadOnly(readOnly bool) {
 
 // IsInputMode returns true when the view is in a mode that should consume keys.
 // For SQL Editor:
-// - When focus is on editor, we're typing SQL (true)
-// - When focus is on results, number keys can switch views (false)
-// - Special modes like command line also consume keys (true)
+// - When focus is on editor and in insert mode, consume all keys
+// - When focus is on results, allow view switching (number keys)
+// - During query execution, block keys
 func (v *SQLEditorView) IsInputMode() bool {
 	switch v.mode {
 	case ModeHelp:
 		return false
-	case ModeCommandLine, ModeHistorySearch, ModeSnippetBrowser:
-		return true
 	case ModeExecuting:
 		return true // Block keys during execution
 	default:
-		// In normal mode, only consume keys when editor has focus
-		return v.focus == FocusEditor
+		// When editor has focus and in insert mode, consume keys
+		if v.focus == FocusEditor {
+			return v.editor.GetMode() == vimtea.ModeInsert
+		}
+		return false
 	}
 }
 
@@ -220,23 +279,23 @@ func (v *SQLEditorView) IsInputMode() bool {
 func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	// Track if we handled a key to prevent textarea from consuming it
-	var keyHandled bool
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// F5 executes query (standard SQL editor shortcut)
-		// Intercept BEFORE textarea to prevent any key consumption
-		if msg.Type == tea.KeyF5 {
-			cmd := v.executeQuery()
-			// Return command directly - must not be batched or it won't run
-			return v, cmd
+		// Handle our custom modes first
+		if cmd := v.handleKeyPress(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+			return v, tea.Batch(cmds...)
 		}
 
-		cmd, handled := v.handleKeyPress(msg)
-		keyHandled = handled
-		if cmd != nil {
-			cmds = append(cmds, cmd)
+		// Pass keys to editor when it has focus
+		if v.focus == FocusEditor && v.mode == ModeNormal {
+			newModel, cmd := v.editor.Update(msg)
+			if editor, ok := newModel.(vimtea.Editor); ok {
+				v.editor = editor
+			}
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 
 	case QueryExecutingMsg:
@@ -290,11 +349,7 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.selectedRow = 0
 			v.scrollOffset = 0
 			v.colScrollOffset = 0
-			// Focus results pane when rows are returned
-			if len(rows) > 0 {
-				v.focus = FocusResults
-				v.textarea.Blur()
-			}
+			// Keep focus on editor - user can Tab to results
 			// Show success toast with row count
 			v.showToast(fmt.Sprintf("Query OK: %d rows (%dms)", len(rows), msg.Result.Duration.Milliseconds()), false)
 		} else if msg.Result.RowsAffected > 0 {
@@ -337,23 +392,46 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			v.showToast("Row copied", false)
 		}
-	}
 
-	// Update textarea if editor has focus and key wasn't already handled
-	if v.focus == FocusEditor && v.mode == ModeNormal && !keyHandled {
-		var cmd tea.Cmd
-		v.textarea, cmd = v.textarea.Update(msg)
+	case vimtea.CommandMsg:
+		// Pass to vimtea to execute the registered command
+		newModel, cmd := v.editor.Update(msg)
+		if editor, ok := newModel.(vimtea.Editor); ok {
+			v.editor = editor
+		}
 		if cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+
+	case vimtea.EditorModeMsg, vimtea.UndoRedoMsg:
+		// Pass vimtea internal messages directly to editor
+		newModel, cmd := v.editor.Update(msg)
+		if editor, ok := newModel.(vimtea.Editor); ok {
+			v.editor = editor
+		}
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	default:
+		// Pass other messages to editor (e.g., cursor blink)
+		if v.focus == FocusEditor {
+			newModel, cmd := v.editor.Update(msg)
+			if editor, ok := newModel.(vimtea.Editor); ok {
+				v.editor = editor
+			}
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 
 	return v, tea.Batch(cmds...)
 }
 
-// handleKeyPress processes keyboard input.
-// Returns (cmd, handled) where handled indicates the key was consumed and shouldn't be passed to textarea.
-func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) (tea.Cmd, bool) {
+// handleKeyPress processes keyboard input for custom modes.
+// Returns a tea.Cmd if the key was handled, nil otherwise (let vimtea handle it).
+func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	key := msg.String()
 
 	// Handle help mode
@@ -369,7 +447,7 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) (tea.Cmd, bool) {
 				v.helpScroll--
 			}
 		}
-		return nil, true // All keys in help mode are handled
+		return nil // Handled, but no command
 	}
 
 	// Handle executing mode - only allow cancel
@@ -378,61 +456,59 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) (tea.Cmd, bool) {
 			if v.executor != nil {
 				v.executor.CancelQuery()
 			}
-			return func() tea.Msg { return QueryCancelledMsg{} }, true
+			return func() tea.Msg { return QueryCancelledMsg{} }
 		}
-		return nil, true // Block all keys during execution except esc
+		return nil // Block all keys during execution except esc
 	}
 
-	// Esc exits editor focus (allows 'q' to quit, number keys to switch views)
-	if key == "esc" {
+	// Tab switches focus between editor and results
+	if key == "tab" {
 		if v.focus == FocusEditor {
 			v.focus = FocusResults
-			v.textarea.Blur()
-			return nil, true
+		} else {
+			v.focus = FocusEditor
 		}
-		// If already on results, let it pass through (does nothing)
-		return nil, false
+		return nil
 	}
 
-	// Enter key on results focuses editor
+	// Enter key on results focuses editor and enters insert mode
 	if key == "enter" && v.focus == FocusResults {
 		v.focus = FocusEditor
-		v.textarea.Focus()
-		return nil, true
+		return v.editor.SetMode(vimtea.ModeInsert)
 	}
 
-	// 'h' for help (only when not in editor focus, to allow typing 'h')
+	// 'h' for help (only when results have focus)
 	if key == "h" && v.focus == FocusResults {
 		v.mode = ModeHelp
 		v.showHelp = true
 		v.helpScroll = 0
-		return nil, true
+		return nil
 	}
 
 	// Focus-specific keys when results pane has focus
 	if v.focus == FocusResults {
-		// +/- to resize panes (only in results mode so users can type in editor)
+		// +/- to resize panes
 		if key == "+" || key == "=" {
 			v.growEditor()
-			return nil, true
+			return nil
 		}
 		if key == "-" || key == "_" {
 			v.shrinkEditor()
-			return nil, true
+			return nil
 		}
 		// Let number keys pass through to app for view switching
 		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
-			return nil, false
+			return nil
 		}
 		// Let 'q' pass through to app for quitting
 		if key == "q" {
-			return nil, false
+			return nil
 		}
-		return v.handleResultsKeys(key), true
+		return v.handleResultsKeys(key)
 	}
 
-	// Key not handled - let textarea process it
-	return nil, false
+	// Key not handled - let vimtea process it
+	return nil
 }
 
 // handleResultsKeys handles keys when results pane has focus.
@@ -548,25 +624,19 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) {
 					v.selectedRow = clickedRow
 					v.ensureVisible()
 					// Switch focus to results when clicking in results area
-					if v.focus == FocusEditor {
-						v.focus = FocusResults
-						v.textarea.Blur()
-					}
+					v.focus = FocusResults
 				}
 			} else if msg.Y < resultsDataStartY-3 && msg.Y > 4 {
 				// Click in editor area - switch focus to editor
-				if v.focus == FocusResults {
-					v.focus = FocusEditor
-					v.textarea.Focus()
-				}
+				v.focus = FocusEditor
 			}
 		}
 	}
 }
 
-// executeQuery executes the current query.
-func (v *SQLEditorView) executeQuery() tea.Cmd {
-	sql := strings.TrimSpace(v.textarea.Value())
+// executeQueryCmd executes the current query (called from vimtea key bindings).
+func (v *SQLEditorView) executeQueryCmd() tea.Cmd {
+	sql := strings.TrimSpace(v.editor.GetBuffer().Text())
 	if sql == "" {
 		v.showToast("No query to execute", true)
 		return nil
@@ -610,10 +680,8 @@ func (v *SQLEditorView) executeQuery() tea.Cmd {
 func (v *SQLEditorView) switchFocus() {
 	if v.focus == FocusEditor {
 		v.focus = FocusResults
-		v.textarea.Blur()
 	} else {
 		v.focus = FocusEditor
-		v.textarea.Focus()
 	}
 }
 
@@ -966,11 +1034,11 @@ func (v *SQLEditorView) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
-// renderEditor renders the SQL editor textarea.
+// renderEditor renders the SQL editor with vimtea.
 func (v *SQLEditorView) renderEditor() string {
 	editorHeight := int(float64(v.height-5) * v.splitRatio) // -5 for connection bar and footer
 
-	// Title bar
+	// Title bar (vimtea's status bar shows the mode)
 	title := "SQL Editor"
 	if v.focus == FocusEditor {
 		title = styles.AccentStyle.Render("● ") + title
@@ -980,11 +1048,11 @@ func (v *SQLEditorView) renderEditor() string {
 
 	titleBar := styles.TitleStyle.Render(title)
 
-	// Textarea
-	editor := v.textarea.View()
+	// Vimtea editor view (includes its own status bar with mode/command line)
+	editorView := v.editor.View()
 
 	// Combine
-	content := lipgloss.JoinVertical(lipgloss.Left, titleBar, editor)
+	content := lipgloss.JoinVertical(lipgloss.Left, titleBar, editorView)
 
 	return lipgloss.NewStyle().
 		Height(editorHeight).
@@ -1066,6 +1134,8 @@ func (v *SQLEditorView) renderResultsTable() string {
 		return ""
 	}
 
+	var lines []string
+
 	totalCols := len(v.results.Columns)
 
 	// Calculate column widths for ALL columns first (for stability)
@@ -1111,8 +1181,6 @@ func (v *SQLEditorView) renderResultsTable() string {
 	if startCol < 0 {
 		startCol = 0
 	}
-
-	var lines []string
 
 	// Horizontal scroll indicator (always show column info)
 	if totalCols > 1 {

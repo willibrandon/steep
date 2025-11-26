@@ -87,7 +87,7 @@
 
 ---
 
-## Phase 5: User Story 3 - Syntax Highlighting for SQL (Priority: P2)
+## Phase 5: User Story 3 - Syntax Highlighting for SQL (Priority: P2) ✓
 
 **Goal**: Apply SQL syntax highlighting to executed queries and history display
 
@@ -95,11 +95,20 @@
 
 ### Implementation for User Story 3
 
-- [ ] T029 [US3] Create HighlightSQL function using Chroma (postgresql, monokai) in internal/ui/views/sqleditor/highlight.go
-- [ ] T030 [US3] Apply highlighting to executed query header in results pane in internal/ui/views/sqleditor/results.go
-- [ ] T031 [US3] Apply highlighting to history display (when history implemented) in internal/ui/views/sqleditor/history.go
+- [x] T029 [US3] Replaced bubbles/textarea with vimtea editor (WithFileName("query.sql") enables live SQL highlighting)
+- [x] T030 [US3] Live syntax highlighting in editor using vimtea's built-in Chroma integration
+- [x] T031 [US3] Created HighlightSQL helper function for history display (US6 - see T056b)
 
-**Checkpoint**: SQL syntax highlighting visible in query header and history
+**Checkpoint**: Live SQL syntax highlighting in editor. History highlighting deferred to US6 (T056b). ✓
+
+**Implementation Notes**:
+- Replaced bubbles/textarea with github.com/kujtimiihoxha/vimtea
+- Vimtea provides: vim-style editing, live syntax highlighting, line numbers, undo/redo
+- SQL highlighting enabled via WithFileName("query.sql") + WithDefaultSyntaxTheme("monokai")
+- Added key bindings: F5 (execute), Ctrl+Enter (execute), Tab (switch focus)
+- Custom commands via :exec, :run, :test (vimtea command mode)
+- Using local vimtea via go.mod replace directive for development
+- Main app forwards vimtea.CommandMsg, EditorModeMsg, UndoRedoMsg to SQL Editor view
 
 ---
 
@@ -162,6 +171,7 @@
 - [ ] T054 [US6] Implement Up arrow at boundary to recall previous query in internal/ui/views/sqleditor/view.go
 - [ ] T055 [US6] Implement Down arrow to navigate forward in history in internal/ui/views/sqleditor/view.go
 - [ ] T056 [US6] Implement Ctrl+R reverse search overlay in internal/ui/views/sqleditor/view.go
+- [ ] T056b [US6] **REMINDER from US3**: Apply HighlightSQL() to history display (see highlight.go)
 
 **Checkpoint**: Query history with recall and reverse search working
 

@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kujtimiihoxha/vimtea"
 	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/db"
 	"github.com/willibrandon/steep/internal/db/queries"
@@ -186,6 +187,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Forward SQL Editor messages to the SQL Editor view
 	case sqleditorview.QueryCompletedMsg, sqleditorview.QueryCancelledMsg:
+		_, cmd := m.sqlEditorView.Update(msg)
+		return m, cmd
+
+	// Forward vimtea messages to the SQL Editor view
+	case vimtea.CommandMsg, vimtea.EditorModeMsg, vimtea.UndoRedoMsg:
 		_, cmd := m.sqlEditorView.Update(msg)
 		return m, cmd
 
