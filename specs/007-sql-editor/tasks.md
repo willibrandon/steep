@@ -44,7 +44,7 @@
 
 ---
 
-## Phase 3: User Story 1 - Write and Execute SQL Queries (Priority: P1)
+## Phase 3: User Story 1 - Write and Execute SQL Queries (Priority: P1) ✓
 
 **Goal**: Enable DBAs to write multi-line SQL queries and execute them against the database
 
@@ -52,17 +52,17 @@
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Create Editor component wrapping bubbles/textarea with line numbers in internal/ui/views/sqleditor/editor.go
-- [ ] T013 [US1] Configure textarea with ShowLineNumbers, FocusedStyle, BlurredStyle in internal/ui/views/sqleditor/editor.go
-- [ ] T014 [US1] Implement focus management (Focus/Blur methods) in internal/ui/views/sqleditor/editor.go
-- [ ] T015 [US1] Add placeholder text "Enter SQL query... (Ctrl+Enter to execute)" in internal/ui/views/sqleditor/editor.go
-- [ ] T016 [US1] Implement Ctrl+Enter key binding to trigger query execution in internal/ui/views/sqleditor/view.go
-- [ ] T017 [US1] Implement Esc key to cancel running query in internal/ui/views/sqleditor/view.go
-- [ ] T018 [US1] Display query execution progress indicator in internal/ui/views/sqleditor/view.go
-- [ ] T019 [US1] Display database error messages with line/position info in internal/ui/views/sqleditor/view.go
-- [ ] T020 [US1] Add query audit logging with timestamp/status/duration in internal/ui/views/sqleditor/executor.go
+- [x] T012 [US1] Create Editor component wrapping bubbles/textarea with line numbers in internal/ui/views/sqleditor/view.go
+- [x] T013 [US1] Configure textarea with ShowLineNumbers, FocusedStyle, BlurredStyle in internal/ui/views/sqleditor/view.go
+- [x] T014 [US1] Implement focus management (Focus/Blur methods) in internal/ui/views/sqleditor/view.go
+- [x] T015 [US1] Add placeholder text "Enter SQL query... (Ctrl+Enter to execute)" in internal/ui/views/sqleditor/view.go
+- [x] T016 [US1] Implement Ctrl+Enter key binding to trigger query execution in internal/ui/views/sqleditor/view.go
+- [x] T017 [US1] Implement Esc key to cancel running query in internal/ui/views/sqleditor/view.go
+- [x] T018 [US1] Display query execution progress indicator in internal/ui/views/sqleditor/view.go
+- [x] T019 [US1] Display database error messages with line/position info in internal/ui/views/sqleditor/view.go
+- [x] T020 [US1] Add query audit logging with timestamp/status/duration in internal/ui/views/sqleditor/executor.go
 
-**Checkpoint**: Can write and execute queries, see success or error messages
+**Checkpoint**: Can write and execute queries, see success or error messages ✓
 
 ---
 

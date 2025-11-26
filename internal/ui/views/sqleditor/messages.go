@@ -22,8 +22,25 @@ type ExecutionResult struct {
 	RowsAffected int64         // For INSERT/UPDATE/DELETE
 	Duration     time.Duration // Execution time
 	Error        error         // Query error if any
+	ErrorInfo    *PgErrorInfo  // Detailed PostgreSQL error info
 	Cancelled    bool          // Whether query was cancelled
 	Message      string        // Status message (e.g., "Transaction started")
+}
+
+// PgErrorInfo contains detailed PostgreSQL error information.
+type PgErrorInfo struct {
+	Severity       string // ERROR, WARNING, etc.
+	Code           string // PostgreSQL error code (e.g., "42P01")
+	Message        string // Primary error message
+	Detail         string // Optional detail message
+	Hint           string // Optional hint message
+	Position       int    // Error position in query (1-indexed, 0 if not available)
+	InternalPos    int    // Internal query position
+	Where          string // Context string
+	SchemaName     string // Schema name if applicable
+	TableName      string // Table name if applicable
+	ColumnName     string // Column name if applicable
+	ConstraintName string // Constraint name if applicable
 }
 
 // QueryCancelledMsg indicates a query was cancelled.
@@ -106,6 +123,19 @@ type CommandEnteredMsg struct {
 
 // RefreshSQLEditorMsg requests a data refresh.
 type RefreshSQLEditorMsg struct{}
+
+// QueryAuditEntry represents a logged query for audit purposes.
+type QueryAuditEntry struct {
+	SQL        string        // The SQL text
+	ExecutedAt time.Time     // When query was executed
+	Duration   time.Duration // Execution time
+	RowCount   int64         // Number of rows returned/affected
+	Error      string        // Error message if failed
+	Success    bool          // Whether query succeeded
+}
+
+// MaxAuditEntries is the maximum number of audit entries to keep in memory.
+const MaxAuditEntries = 500
 
 // CellCopiedMsg indicates a cell value was copied to clipboard.
 type CellCopiedMsg struct {

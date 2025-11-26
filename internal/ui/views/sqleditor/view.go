@@ -50,6 +50,7 @@ type SQLEditorView struct {
 	scrollOffset  int
 	executedQuery string
 	lastError     error
+	lastErrorInfo *PgErrorInfo
 
 	// Execution
 	executor   *SessionExecutor
@@ -72,6 +73,9 @@ type SQLEditorView struct {
 
 	// Clipboard
 	clipboard *ui.ClipboardWriter
+
+	// Audit log
+	auditLog []*QueryAuditEntry
 }
 
 // NewSQLEditorView creates a new SQL Editor view.
@@ -101,7 +105,24 @@ func NewSQLEditorView() *SQLEditorView {
 			PageSize:    DefaultPageSize,
 			CurrentPage: 1,
 		},
+		auditLog: make([]*QueryAuditEntry, 0, MaxAuditEntries),
 	}
+}
+
+// GetAuditLog returns the query audit log for external access.
+func (v *SQLEditorView) GetAuditLog() []*QueryAuditEntry {
+	return v.auditLog
+}
+
+// GetLastAuditEntries returns the last n audit entries.
+func (v *SQLEditorView) GetLastAuditEntries(n int) []*QueryAuditEntry {
+	if n <= 0 || len(v.auditLog) == 0 {
+		return nil
+	}
+	if n > len(v.auditLog) {
+		n = len(v.auditLog)
+	}
+	return v.auditLog[len(v.auditLog)-n:]
 }
 
 // Init initializes the SQL Editor view.
@@ -128,6 +149,32 @@ func (v *SQLEditorView) SetSize(width, height int) {
 // SetPool sets the database connection pool and creates executor.
 func (v *SQLEditorView) SetPool(pool *pgxpool.Pool) {
 	v.executor = NewSessionExecutor(pool, v.readOnly)
+	// Set up query audit logging
+	v.executor.SetLogFunc(v.logQuery)
+}
+
+// logQuery logs query execution for audit purposes.
+func (v *SQLEditorView) logQuery(sql string, duration time.Duration, rowCount int64, err error) {
+	entry := &QueryAuditEntry{
+		SQL:        sql,
+		ExecutedAt: time.Now(),
+		Duration:   duration,
+		RowCount:   rowCount,
+	}
+	if err != nil {
+		entry.Error = err.Error()
+		entry.Success = false
+	} else {
+		entry.Success = true
+	}
+
+	// Add to audit log (in-memory for now)
+	v.auditLog = append(v.auditLog, entry)
+
+	// Keep last MaxAuditEntries
+	if len(v.auditLog) > MaxAuditEntries {
+		v.auditLog = v.auditLog[len(v.auditLog)-MaxAuditEntries:]
+	}
 }
 
 // SetConnected sets the connection status.
@@ -149,17 +196,43 @@ func (v *SQLEditorView) SetReadOnly(readOnly bool) {
 }
 
 // IsInputMode returns true when the view is in a mode that should consume keys.
+// For SQL Editor:
+// - When focus is on editor, we're typing SQL (true)
+// - When focus is on results, number keys can switch views (false)
+// - Special modes like command line also consume keys (true)
 func (v *SQLEditorView) IsInputMode() bool {
-	return v.focus == FocusEditor || v.mode == ModeCommandLine || v.mode == ModeHistorySearch || v.mode == ModeSnippetBrowser
+	switch v.mode {
+	case ModeHelp:
+		return false
+	case ModeCommandLine, ModeHistorySearch, ModeSnippetBrowser:
+		return true
+	case ModeExecuting:
+		return true // Block keys during execution
+	default:
+		// In normal mode, only consume keys when editor has focus
+		return v.focus == FocusEditor
+	}
 }
 
 // Update handles messages for the SQL Editor view.
 func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	// Track if we handled a key to prevent textarea from consuming it
+	var keyHandled bool
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		cmd := v.handleKeyPress(msg)
+		// F5 executes query (standard SQL editor shortcut)
+		// Intercept BEFORE textarea to prevent any key consumption
+		if msg.Type == tea.KeyF5 {
+			cmd := v.executeQuery()
+			// Return command directly - must not be batched or it won't run
+			return v, cmd
+		}
+
+		cmd, handled := v.handleKeyPress(msg)
+		keyHandled = handled
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -176,27 +249,54 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		v.executing = false
 		v.lastUpdate = time.Now()
 
-		if msg.Result != nil {
-			if msg.Result.Error != nil {
-				v.lastError = msg.Result.Error
-				v.showToast(msg.Result.Error.Error(), true)
-			} else if msg.Result.Message != "" {
-				v.showToast(msg.Result.Message, false)
-			}
+		if msg.Result == nil {
+			v.showToast("Query completed but result is nil", true)
+			return v, nil
+		}
 
-			// Convert results to display format
-			if msg.Result.Rows != nil {
-				v.results = &ResultSet{
-					Columns:     msg.Result.Columns,
-					Rows:        FormatResultSet(msg.Result.Rows),
-					TotalRows:   len(msg.Result.Rows),
-					CurrentPage: 1,
-					PageSize:    DefaultPageSize,
-					ExecutionMs: msg.Result.Duration.Milliseconds(),
-				}
-				v.selectedRow = 0
-				v.scrollOffset = 0
+		if msg.Result.Error != nil {
+			v.lastError = msg.Result.Error
+			v.lastErrorInfo = msg.Result.ErrorInfo
+			// Show short toast, detailed error shown in results pane
+			v.showToast("Query failed - see error below", true)
+		} else if msg.Result.Message != "" {
+			v.showToast(msg.Result.Message, false)
+			v.lastError = nil
+			v.lastErrorInfo = nil
+		} else {
+			v.lastError = nil
+			v.lastErrorInfo = nil
+		}
+
+		// Convert results to display format (even for 0 rows, to show column headers)
+		if msg.Result.Columns != nil || msg.Result.Rows != nil {
+			rows := msg.Result.Rows
+			if rows == nil {
+				rows = [][]any{} // Empty slice instead of nil
 			}
+			v.results = &ResultSet{
+				Columns:     msg.Result.Columns,
+				Rows:        FormatResultSet(rows),
+				TotalRows:   len(rows),
+				CurrentPage: 1,
+				PageSize:    DefaultPageSize,
+				ExecutionMs: msg.Result.Duration.Milliseconds(),
+			}
+			v.selectedRow = 0
+			v.scrollOffset = 0
+			// Focus results pane when rows are returned
+			if len(rows) > 0 {
+				v.focus = FocusResults
+				v.textarea.Blur()
+			}
+			// Show success toast with row count
+			v.showToast(fmt.Sprintf("Query OK: %d rows (%dms)", len(rows), msg.Result.Duration.Milliseconds()), false)
+		} else if msg.Result.RowsAffected > 0 {
+			// For INSERT/UPDATE/DELETE without returning rows
+			v.showToast(fmt.Sprintf("Query OK: %d rows affected (%dms)", msg.Result.RowsAffected, msg.Result.Duration.Milliseconds()), false)
+		} else if msg.Result.Error == nil && msg.Result.Message == "" {
+			// Query completed but returned no rows (DDL like CREATE TABLE)
+			v.showToast(fmt.Sprintf("Query OK (%dms)", msg.Result.Duration.Milliseconds()), false)
 		}
 
 	case QueryCancelledMsg:
@@ -215,6 +315,9 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.showToast("Connection lost: "+msg.Error.Error(), true)
 		}
 
+	case tea.MouseMsg:
+		v.handleMouseMsg(msg)
+
 	case CellCopiedMsg:
 		if msg.Error != nil {
 			v.showToast("Copy failed: "+msg.Error.Error(), true)
@@ -230,8 +333,8 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Update textarea if editor has focus
-	if v.focus == FocusEditor && v.mode == ModeNormal {
+	// Update textarea if editor has focus and key wasn't already handled
+	if v.focus == FocusEditor && v.mode == ModeNormal && !keyHandled {
 		var cmd tea.Cmd
 		v.textarea, cmd = v.textarea.Update(msg)
 		if cmd != nil {
@@ -243,13 +346,14 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // handleKeyPress processes keyboard input.
-func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
+// Returns (cmd, handled) where handled indicates the key was consumed and shouldn't be passed to textarea.
+func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) (tea.Cmd, bool) {
 	key := msg.String()
 
 	// Handle help mode
 	if v.mode == ModeHelp {
 		switch key {
-		case "?", "esc", "q":
+		case "h", "esc", "q":
 			v.mode = ModeNormal
 			v.showHelp = false
 		case "j", "down":
@@ -259,7 +363,7 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 				v.helpScroll--
 			}
 		}
-		return nil
+		return nil, true // All keys in help mode are handled
 	}
 
 	// Handle executing mode - only allow cancel
@@ -268,41 +372,61 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			if v.executor != nil {
 				v.executor.CancelQuery()
 			}
-			return func() tea.Msg { return QueryCancelledMsg{} }
+			return func() tea.Msg { return QueryCancelledMsg{} }, true
 		}
-		return nil
+		return nil, true // Block all keys during execution except esc
 	}
 
-	// Global keys
-	switch key {
-	case "?":
+	// Esc exits editor focus (allows 'q' to quit, number keys to switch views)
+	if key == "esc" {
+		if v.focus == FocusEditor {
+			v.focus = FocusResults
+			v.textarea.Blur()
+			return nil, true
+		}
+		// If already on results, let it pass through (does nothing)
+		return nil, false
+	}
+
+	// Enter key on results focuses editor
+	if key == "enter" && v.focus == FocusResults {
+		v.focus = FocusEditor
+		v.textarea.Focus()
+		return nil, true
+	}
+
+	// 'h' for help (only when not in editor focus, to allow typing 'h')
+	if key == "h" && v.focus == FocusResults {
 		v.mode = ModeHelp
 		v.showHelp = true
 		v.helpScroll = 0
-		return nil
-
-	case "ctrl+enter":
-		return v.executeQuery()
-
-	case "tab":
-		v.switchFocus()
-		return nil
-
-	case "ctrl+up":
-		v.growEditor()
-		return nil
-
-	case "ctrl+down":
-		v.shrinkEditor()
-		return nil
+		return nil, true
 	}
 
-	// Focus-specific keys
+	// Focus-specific keys when results pane has focus
 	if v.focus == FocusResults {
-		return v.handleResultsKeys(key)
+		// +/- to resize panes (only in results mode so users can type in editor)
+		if key == "+" || key == "=" {
+			v.growEditor()
+			return nil, true
+		}
+		if key == "-" || key == "_" {
+			v.shrinkEditor()
+			return nil, true
+		}
+		// Let number keys pass through to app for view switching
+		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+			return nil, false
+		}
+		// Let 'q' pass through to app for quitting
+		if key == "q" {
+			return nil, false
+		}
+		return v.handleResultsKeys(key), true
 	}
 
-	return nil
+	// Key not handled - let textarea process it
+	return nil, false
 }
 
 // handleResultsKeys handles keys when results pane has focus.
@@ -339,6 +463,56 @@ func (v *SQLEditorView) handleResultsKeys(key string) tea.Cmd {
 	return nil
 }
 
+// handleMouseMsg handles mouse events for scrolling and clicking.
+func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) {
+	// Don't handle mouse during execution or help mode
+	if v.mode == ModeExecuting || v.mode == ModeHelp {
+		return
+	}
+
+	// Calculate where the results table data starts
+	editorHeight := int(float64(v.height-5) * v.splitRatio)
+	resultsDataStartY := 9 + editorHeight
+
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		// Scroll results up
+		if v.results != nil && v.results.TotalRows > 0 {
+			v.moveSelection(-1)
+		}
+
+	case tea.MouseButtonWheelDown:
+		// Scroll results down
+		if v.results != nil && v.results.TotalRows > 0 {
+			v.moveSelection(1)
+		}
+
+	case tea.MouseButtonLeft:
+		if msg.Action == tea.MouseActionPress {
+			// Check if click is in results area
+			if msg.Y >= resultsDataStartY && v.results != nil && v.results.TotalRows > 0 {
+				// Calculate which row was clicked
+				clickedRow := msg.Y - resultsDataStartY + v.scrollOffset
+				if clickedRow >= 0 && clickedRow < len(v.results.Rows) {
+					v.selectedRow = clickedRow
+					v.ensureVisible()
+					// Switch focus to results when clicking in results area
+					if v.focus == FocusEditor {
+						v.focus = FocusResults
+						v.textarea.Blur()
+					}
+				}
+			} else if msg.Y < resultsDataStartY-3 && msg.Y > 4 {
+				// Click in editor area - switch focus to editor
+				if v.focus == FocusResults {
+					v.focus = FocusEditor
+					v.textarea.Focus()
+				}
+			}
+		}
+	}
+}
+
 // executeQuery executes the current query.
 func (v *SQLEditorView) executeQuery() tea.Cmd {
 	sql := strings.TrimSpace(v.textarea.Value())
@@ -348,7 +522,12 @@ func (v *SQLEditorView) executeQuery() tea.Cmd {
 	}
 
 	if v.executor == nil {
-		v.showToast("No database connection", true)
+		v.showToast("No database connection - executor is nil", true)
+		return nil
+	}
+
+	if v.executor.pool == nil {
+		v.showToast("No database connection - pool is nil", true)
 		return nil
 	}
 
@@ -356,31 +535,22 @@ func (v *SQLEditorView) executeQuery() tea.Cmd {
 	v.executing = true
 	v.startTime = time.Now()
 	v.executedQuery = sql
+	v.lastError = nil
+	v.lastErrorInfo = nil
+
+	// Capture executor reference for the goroutine
+	executor := v.executor
 
 	return func() tea.Msg {
-		// Return executing message immediately
-		return QueryExecutingMsg{
-			SQL:       sql,
-			StartTime: time.Now(),
-		}
-	}
-}
-
-// ExecuteQueryCmd returns a command that executes the query.
-// This should be called from the app to perform actual execution.
-func (v *SQLEditorView) ExecuteQueryCmd() tea.Cmd {
-	if v.executor == nil || v.executedQuery == "" {
-		return nil
-	}
-
-	sql := v.executedQuery
-
-	return func() tea.Msg {
-		result, _ := v.executor.ExecuteQuery(
+		// Actually execute the query
+		result, err := executor.ExecuteQuery(
 			context.Background(),
 			sql,
 			DefaultQueryTimeout,
 		)
+		if err != nil {
+			return QueryCompletedMsg{Result: &ExecutionResult{Error: err}}
+		}
 		return QueryCompletedMsg{Result: result}
 	}
 }
@@ -414,12 +584,19 @@ func (v *SQLEditorView) moveSelection(delta int) {
 	v.ensureVisible()
 }
 
+// visibleResultRows returns the number of data rows that can be displayed.
+// This accounts for: title bar (1), header row (1), separator (1), pagination footer (1), margin (1)
+func (v *SQLEditorView) visibleResultRows() int {
+	visible := v.resultsHeight() - 5
+	if visible < 1 {
+		visible = 1
+	}
+	return visible
+}
+
 // ensureVisible scrolls to make the selected row visible.
 func (v *SQLEditorView) ensureVisible() {
-	visibleRows := v.resultsHeight() - 3 // Account for header and footer
-	if visibleRows < 1 {
-		visibleRows = 1
-	}
+	visibleRows := v.visibleResultRows()
 
 	if v.selectedRow < v.scrollOffset {
 		v.scrollOffset = v.selectedRow
@@ -514,8 +691,8 @@ func (v *SQLEditorView) shrinkEditor() {
 
 // resultsHeight returns the height available for results.
 func (v *SQLEditorView) resultsHeight() int {
-	editorHeight := int(float64(v.height-4) * v.splitRatio)
-	return v.height - editorHeight - 4 // -4 for status and padding
+	editorHeight := int(float64(v.height-5) * v.splitRatio)
+	return v.height - editorHeight - 5 // -5 for connection bar, footer, and padding
 }
 
 // showToast displays a toast message.
@@ -538,21 +715,24 @@ func (v *SQLEditorView) View() string {
 
 	var sections []string
 
+	// Connection info at the top (below app title bar)
+	sections = append(sections, v.renderConnectionBar())
+
 	// Editor section
 	sections = append(sections, v.renderEditor())
 
 	// Results section
 	sections = append(sections, v.renderResults())
 
-	// Status bar
-	sections = append(sections, v.renderStatusBar())
+	// Footer with key hints
+	sections = append(sections, v.renderFooter())
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
 // renderEditor renders the SQL editor textarea.
 func (v *SQLEditorView) renderEditor() string {
-	editorHeight := int(float64(v.height-4) * v.splitRatio)
+	editorHeight := int(float64(v.height-5) * v.splitRatio) // -5 for connection bar and footer
 
 	// Title bar
 	title := "SQL Editor"
@@ -560,16 +740,6 @@ func (v *SQLEditorView) renderEditor() string {
 		title = styles.AccentStyle.Render("● ") + title
 	} else {
 		title = "  " + title
-	}
-
-	// Transaction indicator
-	if v.executor != nil && v.executor.IsInTransaction() {
-		txState := v.executor.TransactionState()
-		if txState.StateType == TxAborted {
-			title += " " + styles.TransactionAbortedBadgeStyle.Render("TX ABORTED")
-		} else {
-			title += " " + styles.TransactionBadgeStyle.Render("TX")
-		}
 	}
 
 	titleBar := styles.TitleStyle.Render(title)
@@ -612,9 +782,14 @@ func (v *SQLEditorView) renderResults() string {
 	if v.executing {
 		content = styles.ExecutingStyle.Render("Executing query...")
 	} else if v.lastError != nil {
-		content = styles.ErrorStyle.Render(v.lastError.Error())
+		// Use enhanced error formatting with position info
+		content = v.renderError()
 	} else if v.results == nil || v.results.TotalRows == 0 {
-		content = styles.MutedStyle.Render("No results. Execute a query with Ctrl+Enter.")
+		if v.executedQuery != "" {
+			content = styles.MutedStyle.Render("Query returned 0 rows.")
+		} else {
+			content = styles.MutedStyle.Render("No results. Execute a query with F5.")
+		}
 	} else {
 		content = v.renderResultsTable()
 	}
@@ -645,15 +820,19 @@ func (v *SQLEditorView) renderResultsTable() string {
 		return ""
 	}
 
-	// Calculate column widths
-	colWidths := make([]int, len(v.results.Columns))
-	maxColWidth := (v.width - 4) / len(v.results.Columns)
-	if maxColWidth < 10 {
-		maxColWidth = 10
-	}
+	numCols := len(v.results.Columns)
+	// Available width: total width minus borders and separators
+	// Each column has " │ " separator (3 chars) except the last one
+	separatorWidth := (numCols - 1) * 3
+	availableWidth := v.width - 4 - separatorWidth // -4 for padding
 
+	// Calculate minimum column widths based on content
+	colWidths := make([]int, numCols)
 	for i, col := range v.results.Columns {
 		colWidths[i] = len(col.Name)
+		if colWidths[i] < 3 {
+			colWidths[i] = 3 // Minimum width
+		}
 	}
 
 	for _, row := range v.results.Rows {
@@ -664,10 +843,33 @@ func (v *SQLEditorView) renderResultsTable() string {
 		}
 	}
 
-	// Cap column widths
-	for i := range colWidths {
-		if colWidths[i] > maxColWidth {
-			colWidths[i] = maxColWidth
+	// Calculate total content width and distribute extra space
+	totalContentWidth := 0
+	for _, w := range colWidths {
+		totalContentWidth += w
+	}
+
+	// If we have extra space, distribute it proportionally
+	if totalContentWidth < availableWidth {
+		extraSpace := availableWidth - totalContentWidth
+		extraPerCol := extraSpace / numCols
+		remainder := extraSpace % numCols
+		for i := range colWidths {
+			colWidths[i] += extraPerCol
+			if i < remainder {
+				colWidths[i]++ // Distribute remainder to first columns
+			}
+		}
+	} else {
+		// If content is wider than available, cap columns proportionally
+		maxColWidth := availableWidth / numCols
+		if maxColWidth < 10 {
+			maxColWidth = 10
+		}
+		for i := range colWidths {
+			if colWidths[i] > maxColWidth {
+				colWidths[i] = maxColWidth
+			}
 		}
 	}
 
@@ -688,11 +890,8 @@ func (v *SQLEditorView) renderResultsTable() string {
 	}
 	lines = append(lines, styles.BorderStyle.Render(strings.Join(sepParts, "─┼─")))
 
-	// Rows
-	visibleRows := v.resultsHeight() - 5 // Account for header, separator, footer
-	if visibleRows < 1 {
-		visibleRows = 1
-	}
+	// Rows - use consistent visible rows calculation
+	visibleRows := v.visibleResultRows()
 
 	startRow := v.scrollOffset
 	endRow := startRow + visibleRows
@@ -725,21 +924,126 @@ func (v *SQLEditorView) renderResultsTable() string {
 	return strings.Join(lines, "\n")
 }
 
-// renderStatusBar renders the bottom status bar.
-func (v *SQLEditorView) renderStatusBar() string {
-	var parts []string
+// renderError renders the error message with position info.
+func (v *SQLEditorView) renderError() string {
+	if v.lastError == nil {
+		return ""
+	}
 
-	// Connection info
-	if v.connectionInfo != "" {
-		parts = append(parts, styles.MutedStyle.Render(v.connectionInfo))
+	var lines []string
+
+	// If we have detailed error info, format it nicely
+	if v.lastErrorInfo != nil {
+		// Error header with severity and code
+		header := v.lastErrorInfo.Severity
+		if v.lastErrorInfo.Code != "" {
+			header += fmt.Sprintf(" [%s]", v.lastErrorInfo.Code)
+		}
+		lines = append(lines, styles.ErrorStyle.Render(header))
+
+		// Main error message
+		lines = append(lines, styles.ErrorStyle.Render(v.lastErrorInfo.Message))
+
+		// Position information
+		if v.lastErrorInfo.Position > 0 && v.executedQuery != "" {
+			line, col := positionToLineCol(v.executedQuery, v.lastErrorInfo.Position)
+			lines = append(lines, styles.MutedStyle.Render(fmt.Sprintf("At line %d, column %d", line, col)))
+
+			// Show the problematic line with an indicator
+			lineText := getLineAtPosition(v.executedQuery, v.lastErrorInfo.Position)
+			if lineText != "" {
+				lines = append(lines, "")
+				lines = append(lines, styles.MutedStyle.Render(lineText))
+				// Add caret at the error position within the line
+				offset := v.lastErrorInfo.Position - getLineStartOffset(v.executedQuery, v.lastErrorInfo.Position)
+				if offset > 0 && offset <= len(lineText) {
+					caret := strings.Repeat(" ", offset-1) + "^"
+					lines = append(lines, styles.ErrorStyle.Render(caret))
+				}
+			}
+		}
+
+		// Detail message
+		if v.lastErrorInfo.Detail != "" {
+			lines = append(lines, "")
+			lines = append(lines, styles.MutedStyle.Render("Detail: "+v.lastErrorInfo.Detail))
+		}
+
+		// Hint message
+		if v.lastErrorInfo.Hint != "" {
+			lines = append(lines, styles.SuccessStyle.Render("Hint: "+v.lastErrorInfo.Hint))
+		}
+
+		// Table/column/constraint info
+		if v.lastErrorInfo.TableName != "" {
+			info := "Table: " + v.lastErrorInfo.TableName
+			if v.lastErrorInfo.SchemaName != "" {
+				info = "Table: " + v.lastErrorInfo.SchemaName + "." + v.lastErrorInfo.TableName
+			}
+			lines = append(lines, styles.MutedStyle.Render(info))
+		}
+		if v.lastErrorInfo.ColumnName != "" {
+			lines = append(lines, styles.MutedStyle.Render("Column: "+v.lastErrorInfo.ColumnName))
+		}
+		if v.lastErrorInfo.ConstraintName != "" {
+			lines = append(lines, styles.MutedStyle.Render("Constraint: "+v.lastErrorInfo.ConstraintName))
+		}
+
+		// Context
+		if v.lastErrorInfo.Where != "" {
+			lines = append(lines, styles.MutedStyle.Render("Context: "+v.lastErrorInfo.Where))
+		}
+	} else {
+		// Simple error without detailed info
+		lines = append(lines, styles.ErrorStyle.Render(v.lastError.Error()))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderConnectionBar renders the connection info bar at the top (matches other views).
+func (v *SQLEditorView) renderConnectionBar() string {
+	// Connection info title
+	title := styles.StatusTitleStyle.Render(v.connectionInfo)
+
+	// Build right-side indicators
+	var indicators []string
+
+	// Transaction indicator
+	if v.executor != nil && v.executor.IsInTransaction() {
+		txState := v.executor.TransactionState()
+		if txState.StateType == TxAborted {
+			indicators = append(indicators, styles.TransactionAbortedBadgeStyle.Render("TX ABORTED"))
+		} else {
+			indicators = append(indicators, styles.TransactionBadgeStyle.Render("TX"))
+		}
 	}
 
 	// Read-only indicator
 	if v.readOnly {
-		parts = append(parts, styles.WarningStyle.Render("[READ-ONLY]"))
+		indicators = append(indicators, styles.WarningStyle.Render("[READ-ONLY]"))
 	}
 
-	// Toast message
+	// Calculate spacing
+	rightContent := strings.Join(indicators, " ")
+	titleLen := lipgloss.Width(title)
+	rightLen := lipgloss.Width(rightContent)
+	gap := v.width - 2 - titleLen - rightLen
+	if gap < 1 {
+		gap = 1
+	}
+	spaces := lipgloss.NewStyle().Width(gap).Render("")
+
+	return styles.StatusBarStyle.
+		Width(v.width - 2).
+		Render(title + spaces + rightContent)
+}
+
+// renderFooter renders the bottom footer with key hints and toast messages.
+func (v *SQLEditorView) renderFooter() string {
+	var parts []string
+
+	// Toast message (shows for 5 seconds)
 	if v.toastMessage != "" && time.Since(v.toastTime) < 5*time.Second {
 		if v.toastError {
 			parts = append(parts, styles.ErrorStyle.Render(v.toastMessage))
@@ -748,8 +1052,13 @@ func (v *SQLEditorView) renderStatusBar() string {
 		}
 	}
 
-	// Key hints
-	hints := "Ctrl+Enter: Execute | Tab: Switch Pane | ?: Help"
+	// Key hints based on focus
+	var hints string
+	if v.focus == FocusEditor {
+		hints = "F5: Execute │ Esc: Exit editor"
+	} else {
+		hints = "Enter: Edit │ j/k: Navigate │ +/-: Resize │ h: Help │ q: Quit"
+	}
 	parts = append(parts, styles.MutedStyle.Render(hints))
 
 	return strings.Join(parts, " │ ")
@@ -759,28 +1068,26 @@ func (v *SQLEditorView) renderStatusBar() string {
 func (v *SQLEditorView) renderHelp() string {
 	helpText := `SQL Editor Help
 
-EXECUTION
-  Ctrl+Enter   Execute query
-  Esc          Cancel running query
+EDITOR MODE (● indicator shows focus)
+  F5           Execute query
+  Esc          Exit editor → results mode
 
-NAVIGATION
-  Tab          Switch between editor and results
-  Ctrl+Up      Grow editor pane
-  Ctrl+Down    Shrink editor pane
-
-RESULTS (when focused)
+RESULTS MODE (allows view switching and quit)
+  Enter        Return to editor mode
   j/k          Move selection down/up
   g/G          Go to first/last row
   Ctrl+d/u     Page down/up
   n/p          Next/previous page
   y            Copy cell value
   Y            Copy entire row
+  +/-          Resize editor/results split
+  1-7          Switch views
+  q            Quit application
 
-GENERAL
-  ?            Toggle this help
-  q/Esc        Close help
+DURING EXECUTION
+  Esc          Cancel running query
 
-Press ? or Esc to close this help.`
+Press h, q, or Esc to close this help.`
 
 	return lipgloss.NewStyle().
 		Width(v.width).

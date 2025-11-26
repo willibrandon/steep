@@ -184,6 +184,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
 
+	// Forward SQL Editor messages to the SQL Editor view
+	case sqleditorview.QueryCompletedMsg, sqleditorview.QueryCancelledMsg:
+		_, cmd := m.sqlEditorView.Update(msg)
+		return m, cmd
+
 	case tea.MouseMsg:
 		// Forward mouse events to the active view
 		switch m.currentView {

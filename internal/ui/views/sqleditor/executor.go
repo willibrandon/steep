@@ -2,6 +2,7 @@ package sqleditor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -394,7 +396,11 @@ func (se *SessionExecutor) executeStatement(ctx context.Context, sql string) (*E
 			se.txState.StateType = TxAborted
 		}
 
-		return &ExecutionResult{Error: err}, nil
+		// Extract detailed PostgreSQL error info
+		return &ExecutionResult{
+			Error:     err,
+			ErrorInfo: extractPgErrorInfo(err),
+		}, nil
 	}
 	defer rows.Close()
 
@@ -529,4 +535,142 @@ func extractReleaseSavepointName(sql string) string {
 		return matches[1]
 	}
 	return ""
+}
+
+// extractPgErrorInfo extracts detailed error information from a PostgreSQL error.
+func extractPgErrorInfo(err error) *PgErrorInfo {
+	if err == nil {
+		return nil
+	}
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return &PgErrorInfo{
+			Severity:       pgErr.Severity,
+			Code:           pgErr.Code,
+			Message:        pgErr.Message,
+			Detail:         pgErr.Detail,
+			Hint:           pgErr.Hint,
+			Position:       int(pgErr.Position),
+			InternalPos:    int(pgErr.InternalPosition),
+			Where:          pgErr.Where,
+			SchemaName:     pgErr.SchemaName,
+			TableName:      pgErr.TableName,
+			ColumnName:     pgErr.ColumnName,
+			ConstraintName: pgErr.ConstraintName,
+		}
+	}
+	return nil
+}
+
+// FormatErrorWithPosition returns a formatted error string with position indicator.
+func FormatErrorWithPosition(err error, sql string) string {
+	errInfo := extractPgErrorInfo(err)
+	if errInfo == nil {
+		return err.Error()
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%s: %s", errInfo.Severity, errInfo.Message))
+
+	// Add error code
+	if errInfo.Code != "" {
+		sb.WriteString(fmt.Sprintf(" [%s]", errInfo.Code))
+	}
+
+	// Add position information
+	if errInfo.Position > 0 && sql != "" {
+		line, col := positionToLineCol(sql, errInfo.Position)
+		sb.WriteString(fmt.Sprintf("\nAt line %d, column %d", line, col))
+
+		// Show the problematic line with an indicator
+		lineText := getLineAtPosition(sql, errInfo.Position)
+		if lineText != "" {
+			sb.WriteString("\n")
+			sb.WriteString(lineText)
+			sb.WriteString("\n")
+			// Add caret at the error position within the line
+			offset := errInfo.Position - getLineStartOffset(sql, errInfo.Position)
+			if offset > 0 && offset <= len(lineText) {
+				sb.WriteString(strings.Repeat(" ", offset-1))
+				sb.WriteString("^")
+			}
+		}
+	}
+
+	// Add detail and hint
+	if errInfo.Detail != "" {
+		sb.WriteString("\nDetail: ")
+		sb.WriteString(errInfo.Detail)
+	}
+	if errInfo.Hint != "" {
+		sb.WriteString("\nHint: ")
+		sb.WriteString(errInfo.Hint)
+	}
+
+	// Add context
+	if errInfo.Where != "" {
+		sb.WriteString("\nContext: ")
+		sb.WriteString(errInfo.Where)
+	}
+
+	return sb.String()
+}
+
+// positionToLineCol converts a 1-indexed character position to line and column.
+func positionToLineCol(sql string, pos int) (line, col int) {
+	if pos <= 0 || pos > len(sql) {
+		return 1, pos
+	}
+
+	line = 1
+	lineStart := 0
+	for i := 0; i < pos-1 && i < len(sql); i++ {
+		if sql[i] == '\n' {
+			line++
+			lineStart = i + 1
+		}
+	}
+	col = pos - lineStart
+	if col < 1 {
+		col = 1
+	}
+	return line, col
+}
+
+// getLineAtPosition returns the line containing the given position.
+func getLineAtPosition(sql string, pos int) string {
+	if pos <= 0 || pos > len(sql) {
+		return ""
+	}
+
+	// Find line start
+	start := pos - 1
+	for start > 0 && sql[start-1] != '\n' {
+		start--
+	}
+
+	// Find line end
+	end := pos - 1
+	for end < len(sql) && sql[end] != '\n' {
+		end++
+	}
+
+	if start <= end && start < len(sql) {
+		return sql[start:end]
+	}
+	return ""
+}
+
+// getLineStartOffset returns the 1-indexed position of the start of the line.
+func getLineStartOffset(sql string, pos int) int {
+	if pos <= 0 || pos > len(sql) {
+		return 1
+	}
+
+	start := pos - 1
+	for start > 0 && sql[start-1] != '\n' {
+		start--
+	}
+	return start + 1 // Convert to 1-indexed
 }
