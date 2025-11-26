@@ -313,8 +313,18 @@ These reference implementations are available for studying UI/UX patterns before
 - Go 1.21+ (Go 1.25.4 per go.mod) + bubbletea, bubbles, lipgloss, pgx/pgxpool, golang.design/x/clipboard (005-tables-statistics)
 - PostgreSQL (source database via pg_stat_all_tables, pg_stat_all_indexes, pgstattuple) (005-tables-statistics)
 - Go 1.25.4 (per go.mod) (006-replication-monitoring)
+- Go 1.25.4 + bubbletea, vimtea (vim-style editor), lipgloss, pgx/pgxpool, chroma (syntax highlighting), golang.design/x/clipboard, go-yaml (007-sql-editor)
+- SQLite (query history in ~/.config/steep/), YAML (snippets in ~/.config/steep/snippets.yaml) (007-sql-editor)
 
 ## Recent Changes
+- 007-sql-editor: Multi-line SQL editor with vim-style editing (vimtea), Chroma syntax highlighting
+- 007-sql-editor: Query execution with F5/Ctrl+Enter, paginated results (100 rows/page), column sorting
+- 007-sql-editor: Transaction support (BEGIN/COMMIT/ROLLBACK/SAVEPOINT) with state tracking
+- 007-sql-editor: Query history with SQLite persistence, shell-style deduplication, Ctrl+R search
+- 007-sql-editor: Named snippets with YAML persistence, snippet browser (Ctrl+O)
+- 007-sql-editor: Export to CSV/JSON with :export command, tilde expansion, auto-extension
+- 007-sql-editor: Automatic reconnection on connection loss with exponential backoff and query retry
+- 007-sql-editor: Configurable themes, resize support, read-only mode blocking DDL/DML
 - 005-tables-statistics: Hierarchical schema/table browser with expand/collapse, partition visualization
 - 005-tables-statistics: Table statistics (size, rows, cache hit, bloat) with color-coded bloat warnings
 - 005-tables-statistics: Index usage panel with unused index highlighting (yellow)

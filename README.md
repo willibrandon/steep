@@ -6,7 +6,8 @@ A terminal-based PostgreSQL monitoring tool built with Go and [Bubbletea](https:
 
 - **Real-time Dashboard** - Monitor database metrics, connections, and server status
 - **Query Performance Monitoring** - Track slow queries, view EXPLAIN plans with tree visualization, search/filter by pattern
-- **Multiple Views** - Dashboard, Activity, Queries, Locks, Tables, and Replication monitoring
+- **SQL Editor** - Interactive SQL editor with vim-style editing, syntax highlighting, transaction support, history, and snippets
+- **Multiple Views** - Dashboard, Activity, Queries, Locks, Tables, SQL Editor, and Replication monitoring
 - **Keyboard Navigation** - Vim-style and intuitive keyboard shortcuts
 - **Automatic Reconnection** - Resilient connection handling with exponential backoff
 - **Password Management** - Secure password handling via environment variables or commands
@@ -187,6 +188,7 @@ connection:
 - `4` - Locks view
 - `5` - Tables view
 - `6` - Replication view
+- `7` - SQL Editor view
 - `Tab` - Next view
 - `Shift+Tab` - Previous view
 
@@ -241,6 +243,51 @@ connection:
 - Replication lag
 - Replica status
 - WAL statistics
+
+#### SQL Editor
+- Multi-line SQL query editor with vim-style editing
+- Live SQL syntax highlighting (Chroma-based)
+- Query execution with F5 or Ctrl+Enter
+- Paginated results table with sorting (100 rows/page)
+- Transaction management (BEGIN, COMMIT, ROLLBACK, SAVEPOINT)
+- Query history with Up/Down navigation and Ctrl+R search
+- Named query snippets with YAML persistence
+- Export results to CSV or JSON
+- Keyboard shortcuts: `\` focus toggle, j/k navigation, y/Y copy
+- Read-only mode support (blocks DDL/DML)
+- Press `h` for keybinding help
+
+**SQL Editor Key Bindings:**
+
+| Key | Action |
+|-----|--------|
+| `F5` or `Ctrl+Enter` | Execute query |
+| `\` | Toggle focus (editor ↔ results) |
+| `Tab` | Switch to results |
+| `Enter` (results) | Switch to editor, enter insert mode |
+| `j/k` | Navigate results rows |
+| `n/p` | Next/previous page |
+| `g/G` | First/last row |
+| `y/Y` | Copy cell/row |
+| `s/S` | Cycle sort column/toggle direction |
+| `+/-` | Resize editor/results split |
+| `Up` (at line 1) | Previous history entry |
+| `Ctrl+R` | Search history |
+| `Ctrl+O` | Open snippet browser |
+
+**SQL Editor Commands (type `:` in normal mode):**
+
+| Command | Description |
+|---------|-------------|
+| `:exec` or `:run` | Execute query |
+| `:save NAME` | Save query as snippet |
+| `:save! NAME` | Save (overwrite existing) |
+| `:load NAME` | Load snippet into editor |
+| `:delete NAME` | Delete snippet |
+| `:snippets` | Open snippet browser |
+| `:export csv FILE` | Export results to CSV |
+| `:export json FILE` | Export results to JSON |
+| `:clear` | Clear editor and results |
 
 ### Status Bar
 
@@ -420,6 +467,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] Query performance view
 - [x] Lock monitoring view
 - [x] Table statistics view
+- [x] SQL Editor with history and snippets
 - [ ] Replication monitoring
 - [ ] Export metrics to Prometheus
 - [ ] Alert configuration
