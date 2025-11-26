@@ -203,7 +203,7 @@
 
 ---
 
-## Phase 9: User Story 7 - Save Queries as Snippets (Priority: P3)
+## Phase 9: User Story 7 - Save Queries as Snippets (Priority: P3) ✓
 
 **Goal**: Save and load named query snippets
 
@@ -211,15 +211,25 @@
 
 ### Implementation for User Story 7
 
-- [ ] T057 [US7] Create SnippetManager struct with YAML persistence in internal/ui/views/sqleditor/snippets.go
-- [ ] T058 [US7] Implement Save(name, sql) with overwrite confirmation in internal/ui/views/sqleditor/snippets.go
-- [ ] T059 [US7] Implement Load(name) to retrieve snippet in internal/ui/views/sqleditor/snippets.go
-- [ ] T060 [US7] Implement List() to get all saved snippets in internal/ui/views/sqleditor/snippets.go
-- [ ] T061 [US7] Add :save NAME command handling in internal/ui/views/sqleditor/view.go
-- [ ] T062 [US7] Add :load NAME command handling in internal/ui/views/sqleditor/view.go
-- [ ] T063 [US7] Implement Ctrl+O snippet browser overlay in internal/ui/views/sqleditor/view.go
+- [x] T057 [US7] Create SnippetManager struct with YAML persistence in internal/ui/views/sqleditor/snippets.go
+- [x] T058 [US7] Implement Save(name, sql) with overwrite confirmation in internal/ui/views/sqleditor/snippets.go
+- [x] T059 [US7] Implement Load(name) to retrieve snippet in internal/ui/views/sqleditor/snippets.go
+- [x] T060 [US7] Implement List() to get all saved snippets in internal/ui/views/sqleditor/snippets.go
+- [x] T061 [US7] Add :save NAME command handling in internal/ui/views/sqleditor/view.go
+- [x] T062 [US7] Add :load NAME command handling in internal/ui/views/sqleditor/view.go
+- [x] T063 [US7] Implement Ctrl+O snippet browser overlay in internal/ui/views/sqleditor/view.go
 
-**Checkpoint**: Snippets save/load with YAML persistence working
+**Checkpoint**: Snippets save/load with YAML persistence working ✓
+
+**Implementation Notes**:
+- SnippetManager stores snippets in ~/Library/Application Support/steep/snippets.yaml
+- :save NAME saves current query (warns if exists, use :save! to overwrite)
+- :save! NAME forces overwrite without confirmation
+- :load NAME loads snippet into editor
+- :delete NAME removes snippet
+- :snippets lists all saved snippets
+- Ctrl+O opens interactive snippet browser with search/filter
+- Snippet browser: j/k navigation, Enter to load, d to delete, type to filter
 
 ---
 

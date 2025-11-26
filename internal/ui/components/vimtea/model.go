@@ -283,7 +283,15 @@ func (m *editorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case CommandMsg:
 		// Execute registered command
-		registeredCmd := m.commands.Get(msg.Command)
+		// Parse command name (first word) from the full command string
+		cmdParts := strings.Fields(msg.Command)
+		cmdName := ""
+		if len(cmdParts) > 0 {
+			cmdName = cmdParts[0]
+		}
+		// Store full command in buffer so AddCommand handlers can parse args
+		m.commandBuffer = msg.Command
+		registeredCmd := m.commands.Get(cmdName)
 		if registeredCmd != nil {
 			cmd = registeredCmd(m)
 		} else {

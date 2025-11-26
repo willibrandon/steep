@@ -90,6 +90,14 @@ type SQLEditorView struct {
 	searchQuery  string
 	searchResult []HistoryEntry
 	searchIndex  int
+
+	// Snippets
+	snippets           *SnippetManager
+	snippetBrowsing    bool
+	snippetList        []Snippet
+	snippetIndex       int
+	snippetSearchQuery string
+	pendingSaveName    string // For overwrite confirmation
 }
 
 // NewSQLEditorView creates a new SQL Editor view.
@@ -186,6 +194,29 @@ func NewSQLEditorView(syntaxTheme string) *SQLEditorView {
 		v.clearEditorAndResults()
 		return nil
 	})
+
+	// Snippet commands
+	v.editor.AddCommand("save", func(buf vimtea.Buffer, args []string) tea.Cmd {
+		return v.saveSnippetCmd(args)
+	})
+	v.editor.AddCommand("save!", func(buf vimtea.Buffer, args []string) tea.Cmd {
+		return v.saveSnippetForceCmd(args)
+	})
+	v.editor.AddCommand("load", func(buf vimtea.Buffer, args []string) tea.Cmd {
+		return v.loadSnippetCmd(args)
+	})
+	v.editor.AddCommand("snippets", func(buf vimtea.Buffer, args []string) tea.Cmd {
+		v.openSnippetBrowser()
+		return nil
+	})
+	v.editor.AddCommand("delete", func(buf vimtea.Buffer, args []string) tea.Cmd {
+		return v.deleteSnippetCmd(args)
+	})
+
+	// Initialize snippet manager
+	if sm, err := NewSnippetManager(); err == nil {
+		v.snippets = sm
+	}
 
 	return v
 }
@@ -304,7 +335,7 @@ func (v *SQLEditorView) clearEditorAndResults() {
 
 // IsInputMode returns true when the view is in a mode that should consume keys.
 // For SQL Editor:
-// - When focus is on editor and in insert mode, consume all keys
+// - When focus is on editor and in insert/command mode, consume all keys
 // - When focus is on results, allow view switching (number keys)
 // - During query execution, block keys
 func (v *SQLEditorView) IsInputMode() bool {
@@ -314,9 +345,10 @@ func (v *SQLEditorView) IsInputMode() bool {
 	case ModeExecuting:
 		return true // Block keys during execution
 	default:
-		// When editor has focus and in insert mode, consume keys
+		// When editor has focus and in insert or command mode, consume keys
 		if v.focus == FocusEditor {
-			return v.editor.GetMode() == vimtea.ModeInsert
+			editorMode := v.editor.GetMode()
+			return editorMode == vimtea.ModeInsert || editorMode == vimtea.ModeCommand
 		}
 		return false
 	}
@@ -555,12 +587,23 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return v.handleSearchInput(key)
 	}
 
+	// Handle snippet browser mode
+	if v.snippetBrowsing {
+		return v.handleSnippetBrowserInput(key)
+	}
+
 	// Ctrl+R to enter reverse search mode (editor must be focused and in normal mode)
 	if key == "ctrl+r" && v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal {
 		v.searchMode = true
 		v.searchQuery = ""
 		v.searchResult = v.history.Search("")
 		v.searchIndex = 0
+		return nil
+	}
+
+	// Ctrl+O to open snippet browser (editor must be focused and in normal mode)
+	if key == "ctrl+o" && v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal {
+		v.openSnippetBrowser()
 		return nil
 	}
 
@@ -1137,6 +1180,217 @@ func (v *SQLEditorView) handleSearchInput(key string) tea.Cmd {
 	}
 }
 
+// saveSnippetCmd handles the :save NAME command.
+// If snippet exists, warns user to use :save! to overwrite.
+func (v *SQLEditorView) saveSnippetCmd(args []string) tea.Cmd {
+	if v.snippets == nil {
+		v.showToast("Snippet manager not available", true)
+		return nil
+	}
+
+	if len(args) == 0 {
+		v.showToast("Usage: :save NAME", true)
+		return nil
+	}
+
+	name := args[0]
+	sql := strings.TrimSpace(v.editor.GetBuffer().Text())
+	if sql == "" {
+		v.showToast("No query to save", true)
+		return nil
+	}
+
+	// Check if snippet exists - require :save! to overwrite
+	if v.snippets.Exists(name) {
+		v.showToast(fmt.Sprintf("Snippet '%s' exists. Use :save! %s to overwrite", name, name), true)
+		return nil
+	}
+
+	_, err := v.snippets.Save(name, sql, "")
+	if err != nil {
+		v.showToast(fmt.Sprintf("Save failed: %s", err.Error()), true)
+		return nil
+	}
+
+	v.showToast(fmt.Sprintf("Saved snippet '%s'", name), false)
+	return nil
+}
+
+// saveSnippetForceCmd handles the :save! NAME command (force overwrite).
+func (v *SQLEditorView) saveSnippetForceCmd(args []string) tea.Cmd {
+	if v.snippets == nil {
+		v.showToast("Snippet manager not available", true)
+		return nil
+	}
+
+	if len(args) == 0 {
+		v.showToast("Usage: :save! NAME", true)
+		return nil
+	}
+
+	name := args[0]
+	sql := strings.TrimSpace(v.editor.GetBuffer().Text())
+	if sql == "" {
+		v.showToast("No query to save", true)
+		return nil
+	}
+
+	overwritten, err := v.snippets.Save(name, sql, "")
+	if err != nil {
+		v.showToast(fmt.Sprintf("Save failed: %s", err.Error()), true)
+		return nil
+	}
+
+	if overwritten {
+		v.showToast(fmt.Sprintf("Updated snippet '%s'", name), false)
+	} else {
+		v.showToast(fmt.Sprintf("Saved snippet '%s'", name), false)
+	}
+	return nil
+}
+
+// loadSnippetCmd handles the :load NAME command.
+func (v *SQLEditorView) loadSnippetCmd(args []string) tea.Cmd {
+	if v.snippets == nil {
+		v.showToast("Snippet manager not available", true)
+		return nil
+	}
+
+	if len(args) == 0 {
+		v.showToast("Usage: :load NAME", true)
+		return nil
+	}
+
+	name := args[0]
+	snippet, err := v.snippets.Load(name)
+	if err != nil {
+		v.showToast(err.Error(), true)
+		return nil
+	}
+
+	v.editor.SetContent(snippet.SQL)
+	v.editor.SetCursorPosition(0, 0)
+	v.showToast(fmt.Sprintf("Loaded snippet '%s'", name), false)
+	return nil
+}
+
+// deleteSnippetCmd handles the :delete NAME command for snippets.
+func (v *SQLEditorView) deleteSnippetCmd(args []string) tea.Cmd {
+	if v.snippets == nil {
+		v.showToast("Snippet manager not available", true)
+		return nil
+	}
+
+	if len(args) == 0 {
+		v.showToast("Usage: :delete NAME", true)
+		return nil
+	}
+
+	name := args[0]
+	if err := v.snippets.Delete(name); err != nil {
+		v.showToast(err.Error(), true)
+		return nil
+	}
+
+	v.showToast(fmt.Sprintf("Deleted snippet '%s'", name), false)
+	return nil
+}
+
+// openSnippetBrowser opens the snippet browser overlay.
+func (v *SQLEditorView) openSnippetBrowser() {
+	if v.snippets == nil {
+		v.showToast("Snippet manager not available", true)
+		return
+	}
+
+	v.mode = ModeSnippetBrowser
+	v.snippetBrowsing = true
+	v.snippetSearchQuery = ""
+	v.snippetList = v.snippets.List()
+	v.snippetIndex = 0
+}
+
+// closeSnippetBrowser closes the snippet browser overlay.
+func (v *SQLEditorView) closeSnippetBrowser() {
+	v.mode = ModeNormal
+	v.snippetBrowsing = false
+	v.snippetSearchQuery = ""
+	v.snippetList = nil
+	v.snippetIndex = 0
+}
+
+// handleSnippetBrowserInput handles keyboard input in snippet browser mode.
+func (v *SQLEditorView) handleSnippetBrowserInput(key string) tea.Cmd {
+	switch key {
+	case "esc", "ctrl+o":
+		v.closeSnippetBrowser()
+		return nil
+
+	case "enter":
+		if len(v.snippetList) > 0 && v.snippetIndex < len(v.snippetList) {
+			snippet := v.snippetList[v.snippetIndex]
+			v.editor.SetContent(snippet.SQL)
+			v.editor.SetCursorPosition(0, 0)
+			v.closeSnippetBrowser()
+			v.showToast(fmt.Sprintf("Loaded snippet '%s'", snippet.Name), false)
+		}
+		return nil
+
+	case "up", "k":
+		if v.snippetIndex > 0 {
+			v.snippetIndex--
+		}
+		return nil
+
+	case "down", "j":
+		if v.snippetIndex < len(v.snippetList)-1 {
+			v.snippetIndex++
+		}
+		return nil
+
+	case "g":
+		v.snippetIndex = 0
+		return nil
+
+	case "G":
+		if len(v.snippetList) > 0 {
+			v.snippetIndex = len(v.snippetList) - 1
+		}
+		return nil
+
+	case "d", "delete":
+		// Delete current snippet
+		if len(v.snippetList) > 0 && v.snippetIndex < len(v.snippetList) {
+			name := v.snippetList[v.snippetIndex].Name
+			if err := v.snippets.Delete(name); err == nil {
+				v.showToast(fmt.Sprintf("Deleted snippet '%s'", name), false)
+				v.snippetList = v.snippets.Search(v.snippetSearchQuery)
+				if v.snippetIndex >= len(v.snippetList) && v.snippetIndex > 0 {
+					v.snippetIndex--
+				}
+			}
+		}
+		return nil
+
+	case "backspace":
+		if len(v.snippetSearchQuery) > 0 {
+			v.snippetSearchQuery = v.snippetSearchQuery[:len(v.snippetSearchQuery)-1]
+			v.snippetList = v.snippets.Search(v.snippetSearchQuery)
+			v.snippetIndex = 0
+		}
+		return nil
+
+	default:
+		// Add to search query if printable character
+		if len(key) == 1 && key[0] >= 32 && key[0] <= 126 {
+			v.snippetSearchQuery += key
+			v.snippetList = v.snippets.Search(v.snippetSearchQuery)
+			v.snippetIndex = 0
+		}
+		return nil
+	}
+}
+
 // copyCell copies the current cell value to clipboard.
 func (v *SQLEditorView) copyCell() tea.Cmd {
 	if v.results == nil || len(v.results.Rows) == 0 {
@@ -1224,6 +1478,11 @@ func (v *SQLEditorView) View() string {
 	// Search overlay (Ctrl+R)
 	if v.searchMode {
 		return v.renderSearchOverlay()
+	}
+
+	// Snippet browser overlay (Ctrl+O)
+	if v.snippetBrowsing {
+		return v.renderSnippetBrowser()
 	}
 
 	var sections []string
@@ -1716,6 +1975,93 @@ func (v *SQLEditorView) renderSearchOverlay() string {
 	// Footer hints
 	sb.WriteString("\n\n")
 	hints := "Enter: Select │ Ctrl+R/↑: Older │ Ctrl+S/↓: Newer │ Esc: Cancel"
+	sb.WriteString(styles.MutedStyle.Render(hints))
+
+	return lipgloss.NewStyle().
+		Width(v.width).
+		Height(v.height).
+		Padding(2, 4).
+		Render(sb.String())
+}
+
+// renderSnippetBrowser renders the Ctrl+O snippet browser overlay.
+func (v *SQLEditorView) renderSnippetBrowser() string {
+	var sb strings.Builder
+
+	// Title
+	title := styles.HeaderStyle.Render("Snippets (Ctrl+O)")
+	sb.WriteString(title)
+	sb.WriteString("\n\n")
+
+	// Search input
+	if v.snippetSearchQuery != "" {
+		searchLine := fmt.Sprintf("Filter: %s█", v.snippetSearchQuery)
+		sb.WriteString(styles.MutedStyle.Render(searchLine))
+		sb.WriteString("\n\n")
+	}
+
+	// Show results count
+	resultCount := len(v.snippetList)
+	if resultCount == 0 {
+		if v.snippetSearchQuery != "" {
+			sb.WriteString(styles.MutedStyle.Render("No matching snippets found"))
+		} else {
+			sb.WriteString(styles.MutedStyle.Render("No snippets saved yet"))
+			sb.WriteString("\n\n")
+			sb.WriteString(styles.MutedStyle.Render("Use :save NAME to save the current query as a snippet"))
+		}
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString(styles.MutedStyle.Render(fmt.Sprintf("%d snippet(s)", resultCount)))
+		sb.WriteString("\n\n")
+
+		// Show visible results (up to 12)
+		maxVisible := 12
+		if maxVisible > resultCount {
+			maxVisible = resultCount
+		}
+
+		// Adjust scroll to keep selected item visible
+		startIdx := 0
+		if v.snippetIndex >= maxVisible {
+			startIdx = v.snippetIndex - maxVisible + 1
+		}
+		endIdx := startIdx + maxVisible
+		if endIdx > resultCount {
+			endIdx = resultCount
+		}
+
+		for i := startIdx; i < endIdx; i++ {
+			snippet := v.snippetList[i]
+
+			// Truncate SQL to fit on one line
+			sql := strings.ReplaceAll(snippet.SQL, "\n", " ")
+			sql = strings.ReplaceAll(sql, "\t", " ")
+			maxLen := v.width - 30
+			if len(sql) > maxLen {
+				sql = sql[:maxLen-3] + "..."
+			}
+
+			// Format: name - sql preview
+			line := fmt.Sprintf("%-20s %s", snippet.Name, sql)
+
+			// Highlight selected entry
+			if i == v.snippetIndex {
+				sb.WriteString(styles.TableSelectedStyle.Render(fmt.Sprintf("► %s", line)))
+			} else {
+				sb.WriteString(styles.MutedStyle.Render(fmt.Sprintf("  %s", line)))
+			}
+			sb.WriteString("\n")
+		}
+
+		if resultCount > maxVisible {
+			sb.WriteString(styles.MutedStyle.Render(fmt.Sprintf("\n  ... showing %d-%d of %d", startIdx+1, endIdx, resultCount)))
+		}
+	}
+
+	// Footer hints
+	sb.WriteString("\n\n")
+	hints := "Enter: Load │ j/k: Navigate │ d: Delete │ Type to filter │ Esc: Cancel"
 	sb.WriteString(styles.MutedStyle.Render(hints))
 
 	return lipgloss.NewStyle().
