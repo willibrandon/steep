@@ -256,12 +256,12 @@ Based on plan.md structure:
 
 ### Implementation for User Story 10
 
-- [ ] T075 [US10] Create connection string builder form with host, port, user, application_name fields in `internal/ui/views/replication/setup/connstring.go`
-- [ ] T076 [US10] Implement live preview of generated primary_conninfo string in `internal/ui/views/replication/setup/connstring.go`
-- [ ] T077 [US10] Add test connection button to validate connectivity in `internal/ui/views/replication/setup/connstring.go`
-- [ ] T078 [US10] Default to sslmode=prefer in generated connection strings in `internal/ui/views/replication/setup/connstring.go`
-- [ ] T079 [US10] Add copy-to-clipboard for generated string in `internal/ui/views/replication/setup/connstring.go`
-- [ ] T080 [US10] Integrate connection builder into Setup tab in `internal/ui/views/replication/view.go`
+- [x] T075 [US10] Create connection string builder form with host, port, user, application_name fields in `internal/ui/views/replication/setup/connstring.go`
+- [x] T076 [US10] Implement live preview of generated primary_conninfo string in `internal/ui/views/replication/setup/connstring.go`
+- [x] T077 [US10] Add test connection button to validate connectivity in `internal/ui/views/replication/setup/connstring.go`
+- [x] T078 [US10] Default to sslmode=prefer in generated connection strings in `internal/ui/views/replication/setup/connstring.go`
+- [x] T079 [US10] Add copy-to-clipboard for generated string in `internal/ui/views/replication/setup/connstring.go`
+- [x] T080 [US10] Integrate connection builder into Setup tab in `internal/ui/views/replication/view.go`
 
 **Checkpoint**: User Story 10 complete - can generate and test connection strings
 

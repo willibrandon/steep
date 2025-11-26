@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/db"
@@ -561,6 +563,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.replicationView.Update(msg)
 		return m, nil
 
+	case ui.ConnTestRequestMsg:
+		// Test connection for connection string builder
+		return m, m.testConnection(msg.ConnString)
+
+	case ui.ConnTestResponseMsg:
+		// Forward to replication view
+		m.replicationView.Update(msg)
+		return m, nil
+
 	case ui.DeadlockScanProgressMsg:
 		// Forward progress to locks view
 		m.locksView.Update(msg)
@@ -1044,6 +1055,48 @@ func (m Model) fetchTablesForWizard() tea.Cmd {
 		return ui.TablesResponseMsg{
 			Tables: tables,
 			Error:  nil,
+		}
+	}
+}
+
+// testConnection tests a connection string for the connection string builder
+func (m Model) testConnection(connString string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Try to connect using the provided connection string
+		conn, err := pgx.Connect(ctx, connString)
+		if err != nil {
+			return ui.ConnTestResponseMsg{
+				Success: false,
+				Message: "",
+				Error:   err,
+			}
+		}
+		defer conn.Close(ctx)
+
+		// Test the connection with a simple query
+		var version string
+		err = conn.QueryRow(ctx, "SELECT version()").Scan(&version)
+		if err != nil {
+			return ui.ConnTestResponseMsg{
+				Success: false,
+				Message: "",
+				Error:   fmt.Errorf("connection succeeded but query failed: %w", err),
+			}
+		}
+
+		// Extract short version info
+		shortVersion := version
+		if idx := strings.Index(version, " on "); idx > 0 {
+			shortVersion = version[:idx]
+		}
+
+		return ui.ConnTestResponseMsg{
+			Success: true,
+			Message: "Connected to " + shortVersion,
+			Error:   nil,
 		}
 	}
 }

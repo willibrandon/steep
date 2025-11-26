@@ -116,6 +116,11 @@ func (v *ReplicationView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return v.handleLogicalWizardKeys(key)
 	}
 
+	// Handle connection string builder mode
+	if v.mode == ModeConnStringBuilder {
+		return v.handleConnStringBuilderKeys(key)
+	}
+
 	// Normal mode - global keys
 	switch key {
 	case "h", "?":
@@ -305,7 +310,9 @@ func (v *ReplicationView) handleSetupKeys(key string) tea.Cmd {
 		// T074: Request tables for logical wizard
 		return func() tea.Msg { return ui.TablesRequestMsg{} }
 	case "n":
-		v.showToast("Connection builder (not yet implemented)", false)
+		// T080: Launch connection string builder
+		v.initConnStringBuilder()
+		v.mode = ModeConnStringBuilder
 	case "c":
 		// T045: Integrate configuration checker into Setup tab
 		v.mode = ModeConfigCheck
@@ -877,4 +884,111 @@ func (v *ReplicationView) handleLogicalWizardSpaceKey() {
 			w.Config.Enabled = !w.Config.Enabled
 		}
 	}
+}
+
+// handleConnStringBuilderKeys handles keys for the connection string builder.
+func (v *ReplicationView) handleConnStringBuilderKeys(key string) tea.Cmd {
+	if v.connStringBuilder == nil {
+		v.mode = ModeNormal
+		return nil
+	}
+
+	s := v.connStringBuilder
+
+	// If editing a text field, handle text input
+	if s.EditingField >= 0 {
+		return v.handleConnStringTextInput(key)
+	}
+
+	// Normal navigation mode
+	switch key {
+	case "esc", "q":
+		// Close builder
+		v.connStringBuilder = nil
+		v.mode = ModeNormal
+		return nil
+
+	case "j", "down":
+		// Move selection down
+		if s.SelectedField < setup.GetConnStringMaxField() {
+			s.SelectedField++
+		}
+
+	case "k", "up":
+		// Move selection up
+		if s.SelectedField > 0 {
+			s.SelectedField--
+		}
+
+	case "enter":
+		// Start editing text field (except SSL mode)
+		if setup.IsConnStringFieldEditable(s.SelectedField) {
+			s.EditingField = s.SelectedField
+			s.InputBuffer = setup.GetConnStringFieldValue(s, s.SelectedField)
+		}
+
+	case " ":
+		// Cycle SSL mode if on that field
+		if s.SelectedField == 6 {
+			s.Config.SSLMode = setup.CycleSSLMode(s.Config.SSLMode)
+		}
+
+	case "t":
+		// T077: Test connection
+		if s.Testing {
+			return nil // Already testing
+		}
+		s.Testing = true
+		s.TestResult = ""
+		connStr := setup.GetConnStringForTest(&s.Config)
+		return func() tea.Msg {
+			return ui.ConnTestRequestMsg{ConnString: connStr}
+		}
+
+	case "y":
+		// T079: Copy to clipboard
+		if !v.clipboard.IsAvailable() {
+			v.showToast("Clipboard unavailable", true)
+			return nil
+		}
+		connStr := setup.GeneratePrimaryConnInfoFromConfig(&s.Config)
+		if err := v.clipboard.Write(connStr); err != nil {
+			v.showToast("Copy failed: "+err.Error(), true)
+			return nil
+		}
+		v.showToast("Copied primary_conninfo to clipboard", false)
+	}
+
+	return nil
+}
+
+// handleConnStringTextInput handles text input when editing a field.
+func (v *ReplicationView) handleConnStringTextInput(key string) tea.Cmd {
+	s := v.connStringBuilder
+
+	switch key {
+	case "enter":
+		// Commit edit
+		if s.InputBuffer != "" || s.SelectedField == 3 || s.SelectedField == 4 || s.SelectedField == 8 {
+			// Allow empty for password, database, and target_session
+			setup.SetConnStringFieldValue(s, s.EditingField, s.InputBuffer)
+		}
+		s.EditingField = -1
+		s.InputBuffer = ""
+	case "esc":
+		// Cancel edit
+		s.EditingField = -1
+		s.InputBuffer = ""
+	case "backspace":
+		// Delete character
+		if len(s.InputBuffer) > 0 {
+			s.InputBuffer = s.InputBuffer[:len(s.InputBuffer)-1]
+		}
+	default:
+		// Add character (only printable)
+		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
+			s.InputBuffer += key
+		}
+	}
+	return nil
 }

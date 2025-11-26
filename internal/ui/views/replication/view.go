@@ -28,6 +28,7 @@ const (
 	ModePhysicalWizard
 	ModeLogicalWizard
 	ModeConfirmWizardExecute
+	ModeConnStringBuilder
 )
 
 // SortColumn represents the available sort columns for replicas.
@@ -128,6 +129,9 @@ type ReplicationView struct {
 	wizardExecCommand string
 	wizardExecLabel   string
 	wizardExecSource  ReplicationMode // Which wizard triggered the confirmation
+
+	// Connection string builder state
+	connStringBuilder *setup.ConnStringState
 }
 
 // NewReplicationView creates a new replication view.
@@ -258,6 +262,22 @@ func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.mode = ModeLogicalWizard
 		}
 
+	case ui.ConnTestResponseMsg:
+		// Handle connection test result
+		if v.connStringBuilder != nil {
+			v.connStringBuilder.Testing = false
+			if msg.Error != nil {
+				v.connStringBuilder.TestResult = msg.Error.Error()
+				v.connStringBuilder.TestError = true
+			} else if msg.Success {
+				v.connStringBuilder.TestResult = msg.Message
+				v.connStringBuilder.TestError = false
+			} else {
+				v.connStringBuilder.TestResult = msg.Message
+				v.connStringBuilder.TestError = true
+			}
+		}
+
 	case tea.WindowSizeMsg:
 		v.SetSize(msg.Width, msg.Height)
 
@@ -296,6 +316,13 @@ func (v *ReplicationView) View() string {
 		return content
 	case ModeConfirmWizardExecute:
 		return v.renderWizardExecConfirm()
+	case ModeConnStringBuilder:
+		content := v.renderConnStringBuilder()
+		// Apply toast overlay if active
+		if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
+			return v.overlayToast(content)
+		}
+		return content
 	}
 
 	var content string

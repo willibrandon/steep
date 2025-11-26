@@ -208,3 +208,15 @@ type TablesResponseMsg struct {
 	Tables []models.Table
 	Error  error
 }
+
+// ConnTestRequestMsg requests a connection test for the connection string builder.
+type ConnTestRequestMsg struct {
+	ConnString string
+}
+
+// ConnTestResponseMsg contains the result of a connection test.
+type ConnTestResponseMsg struct {
+	Success bool
+	Message string
+	Error   error
+}
