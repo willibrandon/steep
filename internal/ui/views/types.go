@@ -12,6 +12,7 @@ const (
 	ViewLocks
 	ViewTables
 	ViewReplication
+	ViewSQLEditor
 )
 
 // String returns the string representation of the view type
@@ -29,6 +30,8 @@ func (v ViewType) String() string {
 		return "Tables"
 	case ViewReplication:
 		return "Replication"
+	case ViewSQLEditor:
+		return "SQL Editor"
 	default:
 		return "Unknown"
 	}
@@ -49,6 +52,8 @@ func (v ViewType) ShortName() string {
 		return "tbl"
 	case ViewReplication:
 		return "rep"
+	case ViewSQLEditor:
+		return "sql"
 	default:
 		return "unk"
 	}

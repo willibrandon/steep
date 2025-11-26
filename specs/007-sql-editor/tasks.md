@@ -15,16 +15,16 @@
 
 ---
 
-## Phase 1: Setup
+## Phase 1: Setup ✓
 
 **Purpose**: Create project structure and shared infrastructure
 
-- [ ] T001 Create sqleditor package directory at internal/ui/views/sqleditor/
-- [ ] T002 [P] Add ViewSQLEditor constant to internal/ui/views/types.go
-- [ ] T003 [P] Create SQL Editor styles in internal/ui/styles/sqleditor.go
-- [ ] T004 [P] Create data models (Query, ResultSet, TransactionState, HistoryEntry, Snippet, EditorState) in internal/ui/views/sqleditor/models.go
-- [ ] T005 [P] Create Bubbletea message types in internal/ui/views/sqleditor/messages.go
-- [ ] T006 [P] Define key bindings in internal/ui/views/sqleditor/keys.go
+- [x] T001 Create sqleditor package directory at internal/ui/views/sqleditor/
+- [x] T002 [P] Add ViewSQLEditor constant to internal/ui/views/types.go
+- [x] T003 [P] Create SQL Editor styles in internal/ui/styles/sqleditor.go
+- [x] T004 [P] Create data models (Query, ResultSet, TransactionState, HistoryEntry, Snippet, EditorState) in internal/ui/views/sqleditor/models.go
+- [x] T005 [P] Create Bubbletea message types in internal/ui/views/sqleditor/messages.go
+- [x] T006 [P] Define key bindings in internal/ui/views/sqleditor/keys.go
 
 ---
 
