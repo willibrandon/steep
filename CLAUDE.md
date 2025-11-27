@@ -315,6 +315,8 @@ These reference implementations are available for studying UI/UX patterns before
 - Go 1.25.4 (per go.mod) (006-replication-monitoring)
 - Go 1.25.4 + bubbletea, vimtea (vim-style editor), lipgloss, pgx/pgxpool, chroma (syntax highlighting), golang.design/x/clipboard, go-yaml (007-sql-editor)
 - SQLite (query history in ~/.config/steep/), YAML (snippets in ~/.config/steep/snippets.yaml) (007-sql-editor)
+- Go 1.25.4 (per go.mod) + bubbletea, bubbles (table, viewport), lipgloss, pgx/pgxpool (008-configuration-viewer)
+- PostgreSQL (pg_settings view - read-only) (008-configuration-viewer)
 
 ## Recent Changes
 - 007-sql-editor: Multi-line SQL editor with vim-style editing (vimtea), Chroma syntax highlighting
