@@ -46,6 +46,12 @@ var (
 				Foreground(ColorSelectedFg).
 				Background(ColorSelectedBg)
 
+	// ResultsCellSelectedStyle is for the selected cell (brighter highlight)
+	ResultsCellSelectedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("0")).
+				Background(ColorAccent).
+				Bold(true)
+
 	// TransactionBadgeStyle is for the TX indicator when in transaction
 	TransactionBadgeStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("0")).

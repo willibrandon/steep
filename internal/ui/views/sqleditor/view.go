@@ -46,6 +46,7 @@ type SQLEditorView struct {
 	// Results
 	results         *ResultSet
 	selectedRow     int
+	selectedCol     int // Selected column for cell copy (-1 = none)
 	scrollOffset    int // Vertical scroll (row offset)
 	colScrollOffset int // Horizontal scroll (column offset)
 	executedQuery   string
@@ -113,10 +114,10 @@ func NewSQLEditorView(syntaxTheme string) *SQLEditorView {
 	editor := vimtea.NewEditor(
 		vimtea.WithFileName("query.sql"),           // Enables SQL syntax highlighting
 		vimtea.WithDefaultSyntaxTheme(syntaxTheme), // Configurable theme
-		vimtea.WithEnableStatusBar(true),         // Shows mode and :command line
-		vimtea.WithEnableModeCommand(true),       // Enable :commands
-		vimtea.WithRelativeNumbers(false),        // Standard line numbers
-		vimtea.WithContent(""),                   // Start empty
+		vimtea.WithEnableStatusBar(true),           // Shows mode and :command line
+		vimtea.WithEnableModeCommand(true),         // Enable :commands
+		vimtea.WithRelativeNumbers(false),          // Standard line numbers
+		vimtea.WithContent(""),                     // Start empty
 		vimtea.WithTextStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("252"))),
 		vimtea.WithLineNumberStyle(styles.EditorLineNumberStyle.PaddingRight(1)), // Add space after line number
 		vimtea.WithCurrentLineNumberStyle(styles.EditorLineNumberStyle.Foreground(styles.ColorAccent).PaddingRight(1)),
@@ -241,10 +242,9 @@ func (v *SQLEditorView) SetSize(width, height int) {
 	v.height = height
 
 	// Calculate editor and results heights
-	v.editorHeight = int(float64(height-4) * v.splitRatio) // -4 for status bar and padding
-	if v.editorHeight < 7 {
-		v.editorHeight = 7
-	}
+	v.editorHeight = max(
+		// -4 for status bar and padding
+		int(float64(height-4)*v.splitRatio), 7)
 
 	// Set vimtea editor dimensions (subtract 1 for our title bar)
 	// vimtea internally reserves 2 lines for its own status bar when enabled
@@ -459,6 +459,7 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				SortAsc:     true,
 			}
 			v.selectedRow = -1 // No row selected initially
+			v.selectedCol = 0  // Default to first column when row is selected
 			v.scrollOffset = 0
 			v.colScrollOffset = 0
 
@@ -567,7 +568,7 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Handle help mode
 	if v.mode == ModeHelp {
 		switch key {
-		case "h", "esc", "q":
+		case "H", "esc", "q":
 			v.mode = ModeNormal
 			v.showHelp = false
 		case "j", "down":
@@ -674,8 +675,8 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return v.editor.SetMode(vimtea.ModeInsert)
 	}
 
-	// 'h' for help (only when results have focus)
-	if key == "h" && v.focus == FocusResults {
+	// 'H' for SQL editor help (shift+h since h is column navigation)
+	if key == "H" && v.focus == FocusResults {
 		v.mode = ModeHelp
 		v.showHelp = true
 		v.helpScroll = 0
@@ -702,8 +703,8 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 			return nil
 		}
-		// Let 'q' pass through to app for quitting
-		if key == "q" {
+		// Let 'q' and '?' pass through to app for quitting and help
+		if key == "q" || key == "?" {
 			return nil
 		}
 		return v.handleResultsKeys(key)
@@ -730,4 +731,3 @@ func (v *SQLEditorView) shrinkResults() {
 	}
 	v.SetSize(v.width, v.height)
 }
-

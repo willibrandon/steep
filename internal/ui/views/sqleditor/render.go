@@ -274,15 +274,18 @@ func (v *SQLEditorView) renderResultsTable() string {
 	for i := startRow; i < endRow; i++ {
 		row := v.results.Rows[i]
 		// For server-side pagination, selectedRow is relative to current page (0-based)
-		isSelected := i == v.selectedRow
+		isRowSelected := i == v.selectedRow
 
 		var rowParts []string
 		for j := startCol; j < len(row); j++ {
 			val := row[j]
 			cellVal := padOrTruncate(val, allColWidths[j])
 
-			if isSelected {
-				// Apply selection style to each cell
+			if isRowSelected && j == v.selectedCol {
+				// This is the selected cell - highlight it distinctly
+				cellVal = styles.ResultsCellSelectedStyle.Render(cellVal)
+			} else if isRowSelected {
+				// Row is selected but not this cell
 				cellVal = styles.ResultsRowSelectedStyle.Render(cellVal)
 			} else if val == NullDisplayValue {
 				cellVal = styles.ResultsNullStyle.Render(cellVal)
@@ -292,7 +295,7 @@ func (v *SQLEditorView) renderResultsTable() string {
 
 		// Join with styled separators for selected row
 		var rowStr string
-		if isSelected {
+		if isRowSelected {
 			sep := styles.ResultsRowSelectedStyle.Render(" │ ")
 			rowStr = strings.Join(rowParts, sep)
 		} else {
@@ -435,9 +438,9 @@ func (v *SQLEditorView) renderFooter() string {
 	// Key hints based on focus
 	var hints string
 	if v.focus == FocusEditor {
-		hints = "F5: Execute │ \\: Results │ +/-: Resize │ h: Help"
+		hints = "F5: Execute │ \\: Results │ +/-: Resize │ H: Help"
 	} else {
-		hints = "\\: Editor │ j/k: Nav │ y/Y: Copy │ s/S: Sort │ n/p: Page │ h: Help"
+		hints = "\\: Editor │ hjkl: Nav │ y/Y: Copy │ s/S: Sort │ n/p: Page │ H: Help"
 	}
 	parts = append(parts, styles.MutedStyle.Render(hints))
 
@@ -465,6 +468,8 @@ HISTORY (cursor at line 1, column 0)
 
 RESULTS MODE (allows view switching and quit)
   j/k          Move selection down/up
+  h/l          Move selection left/right (cell)
+  0/$          First/last column
   g/G          Go to first/last row
   Ctrl+d/u     Page down/up (10 rows)
   ←/→          Scroll columns left/right
@@ -486,10 +491,10 @@ COMMANDS (type ':' in normal mode)
 
 NAVIGATION
   1-7          Switch views
-  h            Show this help
+  H            Show this help
   q            Quit application
 
-Press h, q, or Esc to close this help.`
+Press H, q, or Esc to close this help.`
 
 	return lipgloss.NewStyle().
 		Width(v.width).

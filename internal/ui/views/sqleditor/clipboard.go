@@ -13,14 +13,17 @@ func (v *SQLEditorView) copyCell() tea.Cmd {
 		return nil
 	}
 
-	// For now, copy first column of selected row
-	// TODO: Track column selection
 	row := v.results.Rows[v.selectedRow]
 	if len(row) == 0 {
 		return nil
 	}
 
-	value := row[0]
+	// Use selected column, default to 0 if out of bounds
+	col := v.selectedCol
+	if col < 0 || col >= len(row) {
+		col = 0
+	}
+	value := row[col]
 
 	return func() tea.Msg {
 		if !v.clipboard.IsAvailable() {
