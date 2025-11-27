@@ -58,26 +58,26 @@ Based on plan.md structure:
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] Unit test for Parameter.IsModified() in tests/unit/config_model_test.go
-- [ ] T011 [P] [US1] Unit test for Parameter helper methods (RequiresRestart, TopLevelCategory) in tests/unit/config_model_test.go
-- [ ] T012 [P] [US1] Integration test for GetAllParameters query in tests/integration/config_test.go
+- [x] T010 [P] [US1] Unit test for Parameter.IsModified() in tests/unit/config_model_test.go
+- [x] T011 [P] [US1] Unit test for Parameter helper methods (RequiresRestart, TopLevelCategory) in tests/unit/config_model_test.go
+- [x] T012 [P] [US1] Integration test for GetAllParameters query in tests/integration/config_test.go
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Create ConfigView struct with width, height, mode, data, selectedIdx, scrollOffset, sortColumn, sortAsc, lastUpdate, refreshing, err fields in internal/ui/views/config/view.go
-- [ ] T014 [US1] Implement NewConfigView() constructor in internal/ui/views/config/view.go
-- [ ] T015 [US1] Implement Init() returning initial refresh command in internal/ui/views/config/view.go
-- [ ] T016 [US1] Implement SetSize(width, height int) method in internal/ui/views/config/view.go
-- [ ] T017 [US1] Create SortColumn enum (SortByName, SortByCategory) with String() method in internal/ui/views/config/view.go
-- [ ] T018 [US1] Implement sortParameters() helper for sorting by name or category in internal/ui/views/config/view.go
-- [ ] T019 [US1] Implement renderTable() for main parameter table with columns: Name, Value, Unit, Category, Description in internal/ui/views/config/view.go
-- [ ] T020 [US1] Add yellow highlighting style for modified parameters (where IsModified() returns true) in renderTable()
-- [ ] T021 [US1] Implement View() composing header, table, and footer in internal/ui/views/config/view.go
-- [ ] T022 [US1] Implement Update() handling ConfigDataMsg, tea.KeyMsg for navigation (j/k/↑/↓/g/G) in internal/ui/views/config/view.go
-- [ ] T023 [US1] Add sort key handling (`s` to cycle column, `S` to toggle direction) in Update()
-- [ ] T024 [US1] Create config monitor with 60-second refresh interval in internal/monitors/config.go
-- [ ] T025 [US1] Register ConfigView and config monitor in internal/app/app.go
-- [ ] T026 [US1] Add `8` key binding to switch to Configuration view in internal/app/app.go
+- [x] T013 [US1] Create ConfigView struct with width, height, mode, data, selectedIdx, scrollOffset, sortColumn, sortAsc, lastUpdate, refreshing, err fields in internal/ui/views/config/view.go
+- [x] T014 [US1] Implement NewConfigView() constructor in internal/ui/views/config/view.go
+- [x] T015 [US1] Implement Init() returning initial refresh command in internal/ui/views/config/view.go
+- [x] T016 [US1] Implement SetSize(width, height int) method in internal/ui/views/config/view.go
+- [x] T017 [US1] Create SortColumn enum (SortByName, SortByCategory) with String() method in internal/ui/views/config/view.go
+- [x] T018 [US1] Implement sortParameters() helper for sorting by name or category in internal/ui/views/config/view.go
+- [x] T019 [US1] Implement renderTable() for main parameter table with columns: Name, Value, Unit, Category, Description in internal/ui/views/config/view.go
+- [x] T020 [US1] Add yellow highlighting style for modified parameters (where IsModified() returns true) in renderTable()
+- [x] T021 [US1] Implement View() composing header, table, and footer in internal/ui/views/config/view.go
+- [x] T022 [US1] Implement Update() handling ConfigDataMsg, tea.KeyMsg for navigation (j/k/↑/↓/g/G) in internal/ui/views/config/view.go
+- [x] T023 [US1] Add sort key handling (`s` to cycle column, `S` to toggle direction) in Update()
+- [x] T024 [US1] Create config monitor with 60-second refresh interval in internal/monitors/config.go
+- [x] T025 [US1] Register ConfigView and config monitor in internal/app/app.go
+- [x] T026 [US1] Add `8` key binding to switch to Configuration view in internal/app/app.go
 
 **Checkpoint**: User Story 1 complete - can browse all parameters, sort, see modified highlighted yellow
 

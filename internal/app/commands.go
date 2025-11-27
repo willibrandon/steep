@@ -391,3 +391,11 @@ func resetLogPositions(store *sqlite.DeadlockStore, monitor *monitors.DeadlockMo
 		}
 	}
 }
+
+// fetchConfigData creates a command to fetch configuration data
+func fetchConfigData(monitor *monitors.ConfigMonitor) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		return monitor.FetchOnce(ctx)
+	}
+}
