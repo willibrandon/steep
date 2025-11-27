@@ -137,7 +137,11 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
 	editorHeight := int(float64(v.height-5) * v.splitRatio)
 	editorContentStartY := 6                                     // After app header, connection bar, and editor title
 	editorContentEndY := editorContentStartY + editorHeight - 2  // -2 for title and status bar within editor
-	resultsDataStartY := 10 + editorHeight
+	// Results layout: title(1) + [scroll info if >1 col](0-1) + header(1) + separator(1) + data
+	resultsDataStartY := 9 + editorHeight
+	if v.results != nil && len(v.results.Columns) > 1 {
+		resultsDataStartY++ // account for "Cols X-Y of Z" scroll info line
+	}
 
 	switch msg.Button {
 	case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
