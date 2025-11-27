@@ -129,16 +129,14 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
 		return nil
 	}
 
-	// Calculate layout boundaries
+	// Calculate layout boundaries using v.editorHeight set by SetSize
 	// App header: lines 0-3 (title, tabs, etc.)
 	// Connection bar: line 4
-	// Editor title: line 5
-	// Editor content: lines 6+
-	editorHeight := int(float64(v.height-5) * v.splitRatio)
-	editorContentStartY := 6                                     // After app header, connection bar, and editor title
-	editorContentEndY := editorContentStartY + editorHeight - 2  // -2 for title and status bar within editor
+	// Editor section starts at line 5
+	editorContentStartY := 6                                       // After app header, connection bar, and editor title
+	editorContentEndY := editorContentStartY + v.editorHeight - 2  // -2 for title and status bar within editor
 	// Results layout: title(1) + [scroll info if >1 col](0-1) + header(1) + separator(1) + data
-	resultsDataStartY := 9 + editorHeight
+	resultsDataStartY := 9 + v.editorHeight
 	if v.results != nil && len(v.results.Columns) > 1 {
 		resultsDataStartY++ // account for "Cols X-Y of Z" scroll info line
 	}
@@ -227,15 +225,6 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
 		return nil
 	}
 	return nil
-}
-
-// switchFocus toggles focus between editor and results.
-func (v *SQLEditorView) switchFocus() {
-	if v.focus == FocusEditor {
-		v.focus = FocusResults
-	} else {
-		v.focus = FocusEditor
-	}
 }
 
 // columnAtX returns the column index at the given X position, or -1 if none.

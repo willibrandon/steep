@@ -410,19 +410,21 @@ func formatRange[T any](r pgtype.Range[T]) string {
 
 	var left, right string
 
-	if r.LowerType == pgtype.Inclusive {
+	switch r.LowerType {
+	case pgtype.Inclusive:
 		left = "["
-	} else if r.LowerType == pgtype.Exclusive {
+	case pgtype.Exclusive:
 		left = "("
-	} else {
+	default:
 		left = "("
 	}
 
-	if r.UpperType == pgtype.Inclusive {
+	switch r.UpperType {
+	case pgtype.Inclusive:
 		right = "]"
-	} else if r.UpperType == pgtype.Exclusive {
+	case pgtype.Exclusive:
 		right = ")"
-	} else {
+	default:
 		right = ")"
 	}
 
