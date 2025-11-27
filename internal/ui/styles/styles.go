@@ -191,8 +191,7 @@ var (
 	// HeaderStyle is for section headers
 	HeaderStyle = lipgloss.NewStyle().
 			Foreground(ColorAccent).
-			Bold(true).
-			MarginTop(1)
+			Bold(true)
 
 	// StatusConnectedStyle is for connected status indicator
 	StatusConnectedStyle = lipgloss.NewStyle().
