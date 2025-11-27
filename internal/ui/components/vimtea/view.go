@@ -212,6 +212,7 @@ func (m *editorModel) renderCursor(char string) string {
 	case ModeCommand:
 		return char
 	default:
+		// Block cursor for NORMAL/VISUAL (inverted)
 		return m.cursorStyle.Render(char)
 	}
 }
@@ -824,6 +825,7 @@ func (m *editorModel) renderStatusLine() string {
 	// NORMAL: Blue (calm, neutral home state)
 	// INSERT: Green (go, create, add text)
 	// VISUAL: Purple/magenta (selection is a distinct operation)
+	// REPLACE: Red (warning, overwriting)
 	// COMMAND: Cyan (transient, utility)
 	// Blurred: Gray (unfocused)
 	var modeStyle lipgloss.Style
@@ -846,6 +848,13 @@ func (m *editorModel) renderStatusLine() string {
 		// Purple for VISUAL (selection)
 		modeStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("134")).
+			Foreground(lipgloss.Color("255")).
+			Bold(true).
+			Padding(0, 1)
+	case m.mode == ModeReplace:
+		// Red for REPLACE (warning, overwriting)
+		modeStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("160")).
 			Foreground(lipgloss.Color("255")).
 			Bold(true).
 			Padding(0, 1)

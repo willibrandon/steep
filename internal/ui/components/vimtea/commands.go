@@ -57,6 +57,7 @@ func switchMode(model *editorModel, newMode EditorMode) tea.Cmd {
 
 func registerBindings(m *editorModel) {
 	m.registry.Add("i", enterModeInsert, ModeNormal, "Enter insert mode")
+	m.registry.Add("R", enterModeReplace, ModeNormal, "Enter replace mode")
 	m.registry.Add("v", beginVisualSelection, ModeNormal, "Enter visual mode")
 	m.registry.Add("V", beginVisualLineSelection, ModeNormal, "Enter visual line mode")
 	m.registry.Add("x", deleteCharAtCursor, ModeNormal, "Delete character at cursor")
@@ -120,6 +121,14 @@ func registerBindings(m *editorModel) {
 	m.registry.Add("down", handleArrowKeys("down"), ModeInsert, "Move cursor down")
 	m.registry.Add("left", handleArrowKeys("left"), ModeInsert, "Move cursor left")
 	m.registry.Add("right", handleArrowKeys("right"), ModeInsert, "Move cursor right")
+
+	m.registry.Add("esc", exitModeReplace, ModeReplace, "Exit replace mode")
+	m.registry.Add("backspace", handleReplaceBackspace, ModeReplace, "Backspace")
+	m.registry.Add("enter", handleReplaceEnterKey, ModeReplace, "Enter")
+	m.registry.Add("up", handleArrowKeys("up"), ModeReplace, "Move cursor up")
+	m.registry.Add("down", handleArrowKeys("down"), ModeReplace, "Move cursor down")
+	m.registry.Add("left", handleArrowKeys("left"), ModeReplace, "Move cursor left")
+	m.registry.Add("right", handleArrowKeys("right"), ModeReplace, "Move cursor right")
 
 	m.registry.Add("esc", exitModeCommand, ModeCommand, "Exit command mode")
 	m.registry.Add("enter", executeCommand, ModeCommand, "Execute command")
@@ -195,6 +204,14 @@ func exitModeInsert(model *editorModel) tea.Cmd {
 
 func enterModeInsert(model *editorModel) tea.Cmd {
 	return switchMode(model, ModeInsert)
+}
+
+func enterModeReplace(model *editorModel) tea.Cmd {
+	return switchMode(model, ModeReplace)
+}
+
+func exitModeReplace(model *editorModel) tea.Cmd {
+	return switchMode(model, ModeNormal)
 }
 
 func enterModeCommand(model *editorModel) tea.Cmd {
@@ -361,6 +378,51 @@ func handleInsertEnterKey(m *editorModel) tea.Cmd {
 	m.cursor.Col = 0
 	m.ensureCursorVisible()
 	return nil
+}
+
+// handleReplaceBackspace moves cursor back and doesn't delete (vim replace mode behavior)
+func handleReplaceBackspace(model *editorModel) tea.Cmd {
+	if model.cursor.Col > 0 {
+		model.cursor.Col--
+	} else if model.cursor.Row > 0 {
+		model.cursor.Row--
+		model.cursor.Col = model.buffer.lineLength(model.cursor.Row)
+		if model.cursor.Col > 0 {
+			model.cursor.Col--
+		}
+	}
+	return nil
+}
+
+// handleReplaceEnterKey moves to the start of the next line in replace mode
+func handleReplaceEnterKey(m *editorModel) tea.Cmd {
+	if m.cursor.Row < m.buffer.lineCount()-1 {
+		m.cursor.Row++
+		m.cursor.Col = 0
+		m.ensureCursorVisible()
+	}
+	return nil
+}
+
+// replaceCharacter overwrites the character at the cursor position
+func replaceCharacter(model *editorModel, char string) (tea.Model, tea.Cmd) {
+	model.buffer.saveUndoState(model.cursor)
+
+	line := model.buffer.Line(model.cursor.Row)
+	lineLen := len(line)
+
+	if model.cursor.Col >= lineLen {
+		// At end of line, append the character
+		model.buffer.setLine(model.cursor.Row, line+char)
+		model.cursor.Col++
+	} else {
+		// Overwrite the character at cursor position
+		newLine := line[:model.cursor.Col] + char + line[model.cursor.Col+1:]
+		model.buffer.setLine(model.cursor.Row, newLine)
+		model.cursor.Col++
+	}
+
+	return model, nil
 }
 
 func moveCursorLeft(model *editorModel) tea.Cmd {

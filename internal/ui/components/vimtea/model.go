@@ -32,6 +32,8 @@ const (
 	ModeVisual
 	// ModeCommand is for entering commands with a colon prompt
 	ModeCommand
+	// ModeReplace is for overwriting text character by character
+	ModeReplace
 )
 
 // cursorBlinkMsg is used for cursor blinking animation
@@ -39,7 +41,7 @@ type cursorBlinkMsg time.Time
 
 // String returns the string representation of the editor mode
 func (m EditorMode) String() string {
-	return [...]string{"NORMAL", "INSERT", "VISUAL", "COMMAND"}[m]
+	return [...]string{"NORMAL", "INSERT", "VISUAL", "COMMAND", "REPLACE"}[m]
 }
 
 // Editor defines the interface for interacting with the editor component
@@ -388,6 +390,20 @@ func (m *editorModel) handleKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			text := msg.String()
 			if len(text) >= 1 && !strings.HasPrefix(text, "ctrl+") && !strings.HasPrefix(text, "alt+") {
 				return insertText(m, text)
+			}
+		}
+
+	case ModeReplace:
+		// Check for registered keybindings first
+		if binding := m.registry.FindExact(msg.String(), ModeReplace); binding != nil {
+			cmd := binding.Command(m)
+			m.ensureCursorVisible()
+			return m, cmd
+		} else {
+			// Replace characters one at a time (overwrite mode)
+			text := msg.String()
+			if len(text) == 1 && !strings.HasPrefix(text, "ctrl+") && !strings.HasPrefix(text, "alt+") {
+				return replaceCharacter(m, text)
 			}
 		}
 
