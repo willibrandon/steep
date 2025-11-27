@@ -802,6 +802,9 @@ func (v *SQLEditorView) handleResultsKeys(key string) tea.Cmd {
 		return v.copyCell()
 	case "Y":
 		return v.copyRow()
+	case "esc":
+		// Deselect row
+		v.selectedRow = -1
 	}
 
 	return nil
@@ -902,11 +905,16 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
 			}
 			// Check if click is in results area
 			if msg.Y >= resultsDataStartY && v.results != nil && v.results.TotalRows > 0 {
-				clickedRow := msg.Y - resultsDataStartY + v.scrollOffset
-				if clickedRow >= 0 && clickedRow < len(v.results.Rows) {
-					v.selectedRow = clickedRow
-					v.ensureVisible()
-					v.focus = FocusResults
+				v.focus = FocusResults
+				// Shift+click to deselect
+				if msg.Shift {
+					v.selectedRow = -1
+				} else {
+					clickedRow := msg.Y - resultsDataStartY + v.scrollOffset
+					if clickedRow >= 0 && clickedRow < len(v.results.Rows) {
+						v.selectedRow = clickedRow
+						v.ensureVisible()
+					}
 				}
 			}
 		}
