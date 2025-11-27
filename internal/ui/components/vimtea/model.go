@@ -82,6 +82,18 @@ type Editor interface {
 
 	// SetContent sets the buffer content and moves cursor to the end
 	SetContent(content string)
+
+	// Focus marks the editor as focused and shows the cursor
+	Focus()
+
+	// Blur marks the editor as unfocused and hides the cursor
+	Blur()
+
+	// SetDisplayName sets a name to show in the status line (e.g., snippet name)
+	SetDisplayName(name string)
+
+	// GetDisplayName returns the current display name
+	GetDisplayName() string
 }
 
 // editorModel implements the Editor interface and maintains the editor state
@@ -110,7 +122,9 @@ type editorModel struct {
 	width           int            // Window width
 	height          int            // Window height
 	statusMessage   string         // Current status message
+	displayName     string         // Name to show in status line (e.g., snippet name)
 	cursorBlink     bool           // Whether cursor is visible (for blinking)
+	focused         bool           // Whether the editor has focus (hides cursor when false)
 	lastBlinkTime   time.Time      // Time of last cursor blink
 	blinkInterval   time.Duration  // Cursor blink interval
 	enableStatusBar bool           // Whether to show the status bar
@@ -190,6 +204,7 @@ func NewEditor(opts ...EditorOption) Editor {
 		keySequence:            []string{},
 		viewport:               viewport.New(0, 0),
 		cursorBlink:            true,
+		focused:                true,
 		lastBlinkTime:          time.Now(),
 		blinkInterval:          options.BlinkInterval,
 		lineNumberStyle:        options.LineNumberStyle,
@@ -747,6 +762,27 @@ func (m *editorModel) SetContent(content string) {
 		m.cursor = newCursor(0, 0)
 	}
 	m.ensureCursorVisible()
+}
+
+// Focus marks the editor as focused and shows the cursor
+func (m *editorModel) Focus() {
+	m.focused = true
+	m.cursorBlink = true
+}
+
+// Blur marks the editor as unfocused and hides the cursor
+func (m *editorModel) Blur() {
+	m.focused = false
+}
+
+// SetDisplayName sets a name to show in the status line (e.g., snippet name)
+func (m *editorModel) SetDisplayName(name string) {
+	m.displayName = name
+}
+
+// GetDisplayName returns the current display name
+func (m *editorModel) GetDisplayName() string {
+	return m.displayName
 }
 
 // WithContent sets the initial content for the editor

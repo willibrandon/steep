@@ -162,6 +162,11 @@ func (m *editorModel) renderLine(line string, rowIdx int, inVisualSelection bool
 	}
 
 	if rowIdx == m.cursor.Row {
+		// When not focused, skip cursor rendering and just return highlighted line
+		if !m.focused {
+			return highlightedLine
+		}
+
 		if len(line) == 0 {
 			if m.cursor.Col == 0 {
 				return m.renderCursor(" ")
@@ -192,6 +197,11 @@ func (m *editorModel) renderLine(line string, rowIdx int, inVisualSelection bool
 }
 
 func (m *editorModel) renderCursor(char string) string {
+	// Hide cursor when editor is not focused
+	if !m.focused {
+		return char
+	}
+
 	if !m.cursorBlink {
 		return char
 	}
@@ -810,12 +820,89 @@ func (m editorModel) getVisibleContent() []string {
 }
 
 func (m *editorModel) renderStatusLine() string {
-	status := m.getStatusText()
+	// Mode-specific colors (semantic vim-airline style)
+	// NORMAL: Blue (calm, neutral home state)
+	// INSERT: Green (go, create, add text)
+	// VISUAL: Purple/magenta (selection is a distinct operation)
+	// COMMAND: Cyan (transient, utility)
+	// Blurred: Gray (unfocused)
+	var modeStyle lipgloss.Style
+	switch {
+	case !m.focused:
+		// Gray when not focused
+		modeStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("240")).
+			Foreground(lipgloss.Color("252")).
+			Bold(true).
+			Padding(0, 1)
+	case m.mode == ModeInsert:
+		// Green for INSERT (go, create)
+		modeStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("34")).
+			Foreground(lipgloss.Color("255")).
+			Bold(true).
+			Padding(0, 1)
+	case m.mode == ModeVisual:
+		// Purple for VISUAL (selection)
+		modeStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("134")).
+			Foreground(lipgloss.Color("255")).
+			Bold(true).
+			Padding(0, 1)
+	case m.mode == ModeCommand:
+		// Cyan for COMMAND (transient, utility)
+		modeStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("37")).
+			Foreground(lipgloss.Color("255")).
+			Bold(true).
+			Padding(0, 1)
+	default:
+		// Blue for NORMAL (calm, home state)
+		modeStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("33")).
+			Foreground(lipgloss.Color("255")).
+			Bold(true).
+			Padding(0, 1)
+	}
+
+	// Build mode indicator
+	modeText := modeStyle.Render(m.mode.String())
+
+	// Build display name segment (if set)
+	nameText := ""
+	if m.displayName != "" {
+		nameStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252")).
+			Padding(0, 1)
+		nameText = nameStyle.Render(m.displayName)
+	}
+
+	// Build the rest of the status
+	var statusParts []string
+	if m.mode == ModeCommand {
+		statusParts = append(statusParts, ":"+m.commandBuffer)
+	} else {
+		if len(m.keySequence) > 0 {
+			statusParts = append(statusParts, strings.Join(m.keySequence, ""))
+		}
+		if m.statusMessage != "" {
+			statusParts = append(statusParts, m.statusMessage)
+		}
+	}
+
+	statusText := ""
+	if len(statusParts) > 0 {
+		statusText = " " + strings.Join(statusParts, " │ ")
+	}
+
 	cursorPos := fmt.Sprintf(" %d:%d ", m.cursor.Row+1, m.cursor.Col+1)
 
-	padding := max(m.width-lipgloss.Width(status)-lipgloss.Width(cursorPos), 0)
+	// Calculate padding
+	usedWidth := lipgloss.Width(modeText) + lipgloss.Width(nameText) + lipgloss.Width(statusText) + lipgloss.Width(cursorPos)
+	padding := max(m.width-usedWidth, 0)
 
-	return m.statusStyle.Render(status + strings.Repeat(" ", padding) + cursorPos)
+	// Compose the full status line
+	return modeText + nameText + m.statusStyle.Render(statusText+strings.Repeat(" ", padding)+cursorPos)
 }
 
 func (m *editorModel) getStatusText() string {

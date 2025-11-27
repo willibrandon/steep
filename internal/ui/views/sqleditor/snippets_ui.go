@@ -93,6 +93,7 @@ func (v *SQLEditorView) saveSnippetCmd(args []string) tea.Cmd {
 		return nil
 	}
 
+	v.editor.SetDisplayName(name)
 	v.showToast(fmt.Sprintf("Saved snippet '%s'", name), false)
 	return nil
 }
@@ -122,6 +123,7 @@ func (v *SQLEditorView) saveSnippetForceCmd(args []string) tea.Cmd {
 		return nil
 	}
 
+	v.editor.SetDisplayName(name)
 	if overwritten {
 		v.showToast(fmt.Sprintf("Updated snippet '%s'", name), false)
 	} else {
@@ -151,6 +153,7 @@ func (v *SQLEditorView) loadSnippetCmd(args []string) tea.Cmd {
 
 	v.editor.SetContent(snippet.SQL)
 	v.editor.SetCursorPosition(0, 0)
+	v.editor.SetDisplayName(name)
 	v.showToast(fmt.Sprintf("Loaded snippet '%s'", name), false)
 	return nil
 }
@@ -252,6 +255,7 @@ func (v *SQLEditorView) handleSnippetBrowserInput(key string) tea.Cmd {
 			snippet := v.snippetList[v.snippetIndex]
 			v.editor.SetContent(snippet.SQL)
 			v.editor.SetCursorPosition(0, 0)
+			v.editor.SetDisplayName(snippet.Name)
 			v.closeSnippetBrowser()
 			v.showToast(fmt.Sprintf("Loaded snippet '%s'", snippet.Name), false)
 		}

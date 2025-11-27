@@ -184,6 +184,7 @@ func NewSQLEditorView(syntaxTheme string) *SQLEditorView {
 		Description: "Switch to results",
 		Handler: func(buf vimtea.Buffer) tea.Cmd {
 			v.focus = FocusResults
+			v.editor.Blur()
 			return nil
 		},
 	})
@@ -288,8 +289,9 @@ func (v *SQLEditorView) SetQueryTimeout(timeout time.Duration) {
 
 // clearEditorAndResults clears both the editor content and query results.
 func (v *SQLEditorView) clearEditorAndResults() {
-	// Clear editor content
+	// Clear editor content and display name
 	v.editor.SetContent("")
+	v.editor.SetDisplayName("")
 
 	// Clear results
 	v.results = nil
@@ -661,10 +663,12 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	if key == "\\" {
 		if v.focus == FocusResults {
 			v.focus = FocusEditor
+			v.editor.Focus()
 			return nil
 		}
 		if v.focus == FocusEditor && v.editor.GetMode() == vimtea.ModeNormal {
 			v.focus = FocusResults
+			v.editor.Blur()
 			return nil
 		}
 	}
@@ -672,6 +676,7 @@ func (v *SQLEditorView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Enter key on results focuses editor and enters insert mode
 	if key == "enter" && v.focus == FocusResults {
 		v.focus = FocusEditor
+		v.editor.Focus()
 		return v.editor.SetMode(vimtea.ModeInsert)
 	}
 

@@ -192,6 +192,7 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
 			// Check if click is in editor area
 			if msg.Y >= editorContentStartY && msg.Y <= editorContentEndY {
 				v.focus = FocusEditor
+				v.editor.Focus()
 				// Pass click to vimtea editor (adjust Y for editor's coordinate space)
 				adjustedMsg := tea.MouseMsg{
 					X:      msg.X,
@@ -205,6 +206,7 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
 			// Check if click is in results area
 			if msg.Y >= resultsDataStartY && v.results != nil && v.results.TotalRows > 0 {
 				v.focus = FocusResults
+				v.editor.Blur()
 				// Shift+click to deselect
 				if msg.Shift {
 					v.selectedRow = -1
