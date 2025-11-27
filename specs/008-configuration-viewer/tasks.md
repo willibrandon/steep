@@ -27,9 +27,9 @@ Based on plan.md structure:
 
 **Purpose**: Create package structure and shared types for Configuration Viewer
 
-- [ ] T001 Create config view package directory at internal/ui/views/config/
-- [ ] T002 [P] Add ViewConfig to ViewType enum in internal/ui/views/types.go
-- [ ] T003 [P] Add ViewConfig String() and ShortName() cases returning "Configuration" and "cfg" in internal/ui/views/types.go
+- [x] T001 Create config view package directory at internal/ui/views/config/
+- [x] T002 [P] Add ViewConfig to ViewType enum in internal/ui/views/types.go
+- [x] T003 [P] Add ViewConfig String() and ShortName() cases returning "Configuration" and "cfg" in internal/ui/views/types.go
 
 ---
 
