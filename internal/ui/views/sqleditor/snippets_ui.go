@@ -27,17 +27,17 @@ func (v *SQLEditorView) handleSearchInput(key string) tea.Cmd {
 		v.searchResult = nil
 		return nil
 
-	case "ctrl+r", "up":
-		// Navigate to next result (older)
-		if len(v.searchResult) > 0 && v.searchIndex < len(v.searchResult)-1 {
-			v.searchIndex++
+	case "ctrl+s", "up":
+		// Navigate up visually (to newer/more recent entries)
+		if v.searchIndex > 0 {
+			v.searchIndex--
 		}
 		return nil
 
-	case "ctrl+s", "down":
-		// Navigate to previous result (newer)
-		if v.searchIndex > 0 {
-			v.searchIndex--
+	case "ctrl+r", "down":
+		// Navigate down visually (to older entries)
+		if len(v.searchResult) > 0 && v.searchIndex < len(v.searchResult)-1 {
+			v.searchIndex++
 		}
 		return nil
 

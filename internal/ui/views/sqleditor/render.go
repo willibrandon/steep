@@ -526,13 +526,23 @@ func (v *SQLEditorView) renderSearchOverlay() string {
 		sb.WriteString(styles.MutedStyle.Render(fmt.Sprintf("Found %d matching queries", resultCount)))
 		sb.WriteString("\n\n")
 
-		// Show visible results (up to 10)
+		// Show visible results (up to 10) with scrolling
 		maxVisible := 10
 		if maxVisible > resultCount {
 			maxVisible = resultCount
 		}
 
-		for i := 0; i < maxVisible; i++ {
+		// Calculate scroll offset to keep selected item visible
+		startIdx := 0
+		if v.searchIndex >= maxVisible {
+			startIdx = v.searchIndex - maxVisible + 1
+		}
+		endIdx := startIdx + maxVisible
+		if endIdx > resultCount {
+			endIdx = resultCount
+		}
+
+		for i := startIdx; i < endIdx; i++ {
 			entry := v.searchResult[i]
 
 			// Truncate SQL to fit on one line
@@ -554,14 +564,15 @@ func (v *SQLEditorView) renderSearchOverlay() string {
 			sb.WriteString("\n")
 		}
 
-		if resultCount > maxVisible {
-			sb.WriteString(styles.MutedStyle.Render(fmt.Sprintf("\n  ... and %d more", resultCount-maxVisible)))
+		// Show scroll indicator if there are more items
+		if startIdx > 0 || endIdx < resultCount {
+			sb.WriteString(styles.MutedStyle.Render(fmt.Sprintf("\n  Showing %d-%d of %d", startIdx+1, endIdx, resultCount)))
 		}
 	}
 
 	// Footer hints
 	sb.WriteString("\n\n")
-	hints := "Enter: Select │ Ctrl+R/↑: Older │ Ctrl+S/↓: Newer │ Esc: Cancel"
+	hints := "Enter: Select │ ↑/Ctrl+S: Newer │ ↓/Ctrl+R: Older │ Esc: Cancel"
 	sb.WriteString(styles.MutedStyle.Render(hints))
 
 	return lipgloss.NewStyle().

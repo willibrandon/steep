@@ -98,8 +98,6 @@ type TransactionState struct {
 }
 
 // HistoryEntry represents a query in history.
-// TODO(US6): When displaying history entries, use HighlightSQL(entry.SQL)
-// from highlight.go for syntax highlighting. See T056b in tasks.md.
 type HistoryEntry struct {
 	ID         int64     // SQLite row ID
 	SQL        string    // Query text
