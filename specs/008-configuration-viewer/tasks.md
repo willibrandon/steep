@@ -118,14 +118,14 @@ Based on plan.md structure:
 
 ### Implementation for User Story 3
 
-- [ ] T038 [US3] Add ModeDetail to ConfigMode enum in internal/ui/views/config/view.go
-- [ ] T039 [US3] Add detailScrollOffset field for scrolling long descriptions in ConfigView struct
-- [ ] T040 [US3] Implement renderDetailView() showing all parameter fields with formatted layout per research.md mockup in internal/ui/views/config/view.go
-- [ ] T041 [US3] Add context explanation mapping (postmaster="Restart Required", sighup="Reload Required", etc.) in renderDetailView()
-- [ ] T042 [US3] Format constraints display: show min/max for numeric, enumvals for enum, "N/A" for string types in renderDetailView()
-- [ ] T043 [US3] Show source file and line number when sourcefile is non-empty in renderDetailView()
-- [ ] T044 [US3] Handle `d` key to enter detail mode, Escape/q to return to normal mode in Update()
-- [ ] T045 [US3] Add scroll handling (j/k) within detail view for long descriptions in Update()
+- [x] T038 [US3] Add ModeDetail to ConfigMode enum in internal/ui/views/config/view.go
+- [x] T039 [US3] Add detailScrollOffset field for scrolling long descriptions in ConfigView struct
+- [x] T040 [US3] Implement renderDetailView() showing all parameter fields with formatted layout per research.md mockup in internal/ui/views/config/view.go
+- [x] T041 [US3] Add context explanation mapping (postmaster="Restart Required", sighup="Reload Required", etc.) in renderDetailView()
+- [x] T042 [US3] Format constraints display: show min/max for numeric, enumvals for enum, "N/A" for string types in renderDetailView()
+- [x] T043 [US3] Show source file and line number when sourcefile is non-empty in renderDetailView()
+- [x] T044 [US3] Handle `d` key to enter detail mode, Escape/q to return to normal mode in Update()
+- [x] T045 [US3] Add scroll handling (j/k) within detail view for long descriptions in Update()
 
 **Checkpoint**: User Story 3 complete - can view full parameter details
 

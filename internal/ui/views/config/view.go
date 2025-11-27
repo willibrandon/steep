@@ -31,6 +31,7 @@ const (
 	ModeHelp
 	ModeSearch
 	ModeCategoryFilter
+	ModeDetail
 )
 
 // SortColumn represents the available sort columns.
@@ -81,6 +82,9 @@ type ConfigView struct {
 	categoryFilter   string // Active category filter
 	categoryIdx      int    // Selected index in category list
 	filteredParams   []models.Parameter // Cached filtered parameters
+
+	// Detail view state
+	detailScrollOffset int // Scroll offset for detail view
 }
 
 // NewConfigView creates a new configuration view.
@@ -248,6 +252,26 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	// Detail mode
+	if v.mode == ModeDetail {
+		switch key {
+		case "esc", "q", "d":
+			v.mode = ModeNormal
+			v.detailScrollOffset = 0
+		case "j", "down":
+			v.detailScrollOffset++
+		case "k", "up":
+			if v.detailScrollOffset > 0 {
+				v.detailScrollOffset--
+			}
+		case "g", "home":
+			v.detailScrollOffset = 0
+		case "G", "end":
+			v.detailScrollOffset = 999 // Will be clamped in renderDetailView
+		}
+		return nil
+	}
+
 	// Normal mode
 	switch key {
 	case "h":
@@ -294,6 +318,14 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		v.cycleSortColumn()
 	case "S":
 		v.toggleSortDirection()
+
+	// Detail view
+	case "d", "enter":
+		params := v.getDisplayParams()
+		if len(params) > 0 {
+			v.mode = ModeDetail
+			v.detailScrollOffset = 0
+		}
 	}
 
 	return nil
@@ -453,6 +485,11 @@ func (v *ConfigView) View() string {
 		return v.renderCategoryFilter()
 	}
 
+	// Detail view overlay
+	if v.mode == ModeDetail {
+		return v.renderDetailView()
+	}
+
 	var b strings.Builder
 
 	// Status bar
@@ -529,6 +566,234 @@ func (v *ConfigView) renderCategoryFilter() string {
 		Height(v.height).
 		Padding(2, 4).
 		Render(b.String())
+}
+
+// renderDetailView renders the parameter detail overlay.
+func (v *ConfigView) renderDetailView() string {
+	params := v.getDisplayParams()
+	if len(params) == 0 || v.selectedIdx >= len(params) {
+		return styles.MutedStyle.Render("No parameter selected")
+	}
+
+	p := params[v.selectedIdx]
+	var lines []string
+
+	// Title
+	lines = append(lines, styles.AccentStyle.Render("Parameter Details"))
+	lines = append(lines, "")
+
+	// Name (bold/highlight)
+	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("220"))
+	lines = append(lines, nameStyle.Render(p.Name))
+	lines = append(lines, "")
+
+	// Current value with unit
+	valueStr := p.Setting
+	if p.Unit != "" {
+		valueStr += " " + p.Unit
+	}
+	lines = append(lines, fmt.Sprintf("  %-16s %s", "Value:", valueStr))
+
+	// Type
+	lines = append(lines, fmt.Sprintf("  %-16s %s", "Type:", p.VarType))
+
+	// Context with explanation
+	contextExplanation := v.getContextExplanation(p.Context)
+	contextStyle := v.getContextStyle(p.Context)
+	lines = append(lines, fmt.Sprintf("  %-16s %s", "Context:", contextStyle.Render(contextExplanation)))
+
+	// Category
+	lines = append(lines, fmt.Sprintf("  %-16s %s", "Category:", p.Category))
+
+	// Source
+	lines = append(lines, fmt.Sprintf("  %-16s %s", "Source:", p.Source))
+
+	// Constraints (based on type)
+	constraints := v.formatConstraints(p)
+	if constraints != "" {
+		lines = append(lines, fmt.Sprintf("  %-16s %s", "Constraints:", constraints))
+	}
+
+	// Default value
+	if p.BootVal != "" {
+		defaultStr := p.BootVal
+		if p.Unit != "" {
+			defaultStr += " " + p.Unit
+		}
+		lines = append(lines, fmt.Sprintf("  %-16s %s", "Default:", defaultStr))
+	}
+
+	// Reset value (if different from current)
+	if p.ResetVal != "" && p.ResetVal != p.Setting {
+		resetStr := p.ResetVal
+		if p.Unit != "" {
+			resetStr += " " + p.Unit
+		}
+		lines = append(lines, fmt.Sprintf("  %-16s %s", "Reset Value:", resetStr))
+	}
+
+	// Source file and line
+	if p.SourceFile != "" {
+		sourceLocation := p.SourceFile
+		if p.SourceLine > 0 {
+			sourceLocation += fmt.Sprintf(":%d", p.SourceLine)
+		}
+		lines = append(lines, fmt.Sprintf("  %-16s %s", "Config File:", sourceLocation))
+	}
+
+	// Pending restart warning
+	if p.PendingRestart {
+		lines = append(lines, "")
+		lines = append(lines, styles.ErrorStyle.Render("  ⚠ Pending restart required for this change to take effect"))
+	}
+
+	// Modified indicator
+	if p.IsModified() {
+		lines = append(lines, "")
+		lines = append(lines, styles.WarningStyle.Render("  ● Modified from default"))
+	}
+
+	// Description section
+	lines = append(lines, "")
+	lines = append(lines, styles.AccentStyle.Render("Description"))
+	lines = append(lines, "")
+
+	// Wrap short description
+	descLines := v.wrapText(p.ShortDesc, v.width-12)
+	for _, dl := range descLines {
+		lines = append(lines, "  "+dl)
+	}
+
+	// Extra description if available
+	if p.ExtraDesc != "" {
+		lines = append(lines, "")
+		extraLines := v.wrapText(p.ExtraDesc, v.width-12)
+		for _, el := range extraLines {
+			lines = append(lines, "  "+styles.MutedStyle.Render(el))
+		}
+	}
+
+	// Footer hints
+	lines = append(lines, "")
+	lines = append(lines, styles.MutedStyle.Render("[esc/q]back [j/k]scroll"))
+
+	// Apply scroll offset
+	contentHeight := v.height - 6 // padding
+	totalLines := len(lines)
+
+	// Limit scroll offset
+	maxScroll := max(0, totalLines-contentHeight)
+	if v.detailScrollOffset > maxScroll {
+		v.detailScrollOffset = maxScroll
+	}
+	if v.detailScrollOffset < 0 {
+		v.detailScrollOffset = 0
+	}
+
+	// Get visible lines
+	startLine := v.detailScrollOffset
+	endLine := min(startLine+contentHeight, totalLines)
+	visibleLines := lines[startLine:endLine]
+
+	return lipgloss.NewStyle().
+		Width(v.width).
+		Height(v.height).
+		Padding(2, 4).
+		Render(strings.Join(visibleLines, "\n"))
+}
+
+// getContextExplanation returns a human-readable explanation for the context value.
+func (v *ConfigView) getContextExplanation(context string) string {
+	switch context {
+	case "internal":
+		return "Read-only (internal)"
+	case "postmaster":
+		return "Restart Required"
+	case "sighup":
+		return "Reload Required"
+	case "backend":
+		return "New Connections Only"
+	case "superuser":
+		return "Superuser Session"
+	case "user":
+		return "User Session"
+	default:
+		return context
+	}
+}
+
+// getContextStyle returns the appropriate style for the context.
+func (v *ConfigView) getContextStyle(context string) lipgloss.Style {
+	switch context {
+	case "internal":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Gray
+	case "postmaster":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+	case "sighup":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // Yellow
+	case "backend":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("51")) // Cyan
+	case "superuser":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("33")) // Blue
+	case "user":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
+	default:
+		return lipgloss.NewStyle()
+	}
+}
+
+// formatConstraints returns a formatted string of constraints based on parameter type.
+func (v *ConfigView) formatConstraints(p models.Parameter) string {
+	switch p.VarType {
+	case "integer", "real":
+		if p.MinVal != "" && p.MaxVal != "" {
+			return fmt.Sprintf("%s to %s", p.MinVal, p.MaxVal)
+		} else if p.MinVal != "" {
+			return fmt.Sprintf("min: %s", p.MinVal)
+		} else if p.MaxVal != "" {
+			return fmt.Sprintf("max: %s", p.MaxVal)
+		}
+		return ""
+	case "enum":
+		if len(p.EnumVals) > 0 {
+			return strings.Join(p.EnumVals, ", ")
+		}
+		return ""
+	case "bool":
+		return "on, off"
+	case "string":
+		return "" // No constraints for strings
+	default:
+		return ""
+	}
+}
+
+// wrapText wraps text to the specified width.
+func (v *ConfigView) wrapText(text string, width int) []string {
+	if width <= 0 {
+		width = 60
+	}
+
+	var lines []string
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return lines
+	}
+
+	currentLine := words[0]
+	for _, word := range words[1:] {
+		if len(currentLine)+1+len(word) <= width {
+			currentLine += " " + word
+		} else {
+			lines = append(lines, currentLine)
+			currentLine = word
+		}
+	}
+	if currentLine != "" {
+		lines = append(lines, currentLine)
+	}
+
+	return lines
 }
 
 // renderStatusBar renders the status bar at the top.
@@ -675,7 +940,7 @@ func (v *ConfigView) renderTable() string {
 func (v *ConfigView) renderFooter() string {
 	// Build hints based on current filter state
 	var hintParts []string
-	hintParts = append(hintParts, "[j/k]nav", "[s/S]ort", "[/]search", "[c]ategory")
+	hintParts = append(hintParts, "[j/k]nav", "[s/S]ort", "[d]etails", "[/]search", "[c]ategory")
 	if v.searchFilter != "" || v.categoryFilter != "" {
 		hintParts = append(hintParts, "[esc]clear")
 	}
@@ -728,6 +993,10 @@ SEARCH & FILTER
   /              Enter search mode (filter by name/description)
   c              Show category filter menu
   Esc            Clear active filters
+
+DETAILS
+  d or Enter     View parameter details
+  (in detail view: j/k to scroll, esc/q/d to return)
 
 OTHER
   h              Show this help
