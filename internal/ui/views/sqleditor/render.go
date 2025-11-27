@@ -49,6 +49,9 @@ func (v *SQLEditorView) View() string {
 	// Connection info at the top (below app title bar)
 	sections = append(sections, v.renderConnectionBar())
 
+	// Title (styled like other views)
+	sections = append(sections, v.renderTitle())
+
 	// Editor section
 	sections = append(sections, v.renderEditor())
 
@@ -61,23 +64,30 @@ func (v *SQLEditorView) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
-// renderEditor renders the SQL editor with vimtea.
-func (v *SQLEditorView) renderEditor() string {
-	// Title bar (vimtea's status bar shows the mode)
-	title := "SQL Editor"
+// renderTitle renders the view title (styled like other views).
+func (v *SQLEditorView) renderTitle() string {
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(styles.ColorAccent)
+
+	// Reserve space for focus indicator so title doesn't shift
+	var prefix string
 	if v.focus == FocusEditor {
-		title = styles.AccentStyle.Render("● ") + title
+		prefix = styles.AccentStyle.Render("● ")
 	} else {
-		title = "  " + title
+		prefix = "  "
 	}
 
-	titleBar := styles.TitleStyle.Render(title)
+	return prefix + titleStyle.Render("SQL Editor")
+}
 
+// renderEditor renders the SQL editor with vimtea.
+func (v *SQLEditorView) renderEditor() string {
 	// Vimtea editor view (includes its own status bar with mode/command line)
 	editorView := v.editor.View()
 
-	// Combine
-	content := lipgloss.JoinVertical(lipgloss.Left, titleBar, editorView)
+	// Editor content
+	content := editorView
 
 	// Use v.editorHeight set in SetSize for consistent height
 	return lipgloss.NewStyle().
