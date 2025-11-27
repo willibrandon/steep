@@ -157,14 +157,14 @@ Based on plan.md structure:
 
 **Purpose**: Help panel, error handling, and final polish
 
-- [ ] T055 [P] Create help panel content with all keybindings in internal/ui/views/config/help.go
-- [ ] T056 [P] Add ModeHelp to ConfigMode enum and `?` key handler in internal/ui/views/config/view.go
-- [ ] T057 [P] Implement renderHelpView() showing keyboard shortcuts in internal/ui/views/config/view.go
-- [ ] T058 Add connection error handling in config monitor with error message display in internal/monitors/config.go
-- [ ] T059 Add pending_restart warning indicator (red highlight or icon) for parameters with pending_restart=true
-- [ ] T060 Add clipboard copy for parameter name (`y`) and value (`Y`) using existing clipboard utility in internal/ui/views/config/view.go
-- [ ] T061 Run quickstart.md validation checklist and fix any issues
-- [ ] T062 Verify 80x24 minimum terminal size rendering
+- [x] T055 [P] Create help panel content with all keybindings in internal/ui/views/config/help.go (implemented inline in view.go)
+- [x] T056 [P] Add ModeHelp to ConfigMode enum and `h` key handler in internal/ui/views/config/view.go
+- [x] T057 [P] Implement renderHelp() showing keyboard shortcuts in internal/ui/views/config/view.go
+- [x] T058 Add connection error handling in config monitor with error message display in internal/monitors/config.go
+- [x] T059 Add pending_restart warning indicator (red highlight with "!" prefix) for parameters with pending_restart=true
+- [x] T060 Add clipboard copy for parameter name (`y`) and value (`Y`) using existing clipboard utility in internal/ui/views/config/view.go
+- [x] T061 Run quickstart.md validation checklist and fix any issues
+- [x] T062 Verify 80x24 minimum terminal size rendering (responsive column layout)
 
 ---
 

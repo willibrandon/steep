@@ -104,6 +104,9 @@ type ConfigView struct {
 
 	// Read-only mode
 	readOnly bool // If true, write operations are blocked
+
+	// Clipboard
+	clipboard *ui.ClipboardWriter
 }
 
 // NewConfigView creates a new configuration view.
@@ -113,6 +116,7 @@ func NewConfigView() *ConfigView {
 		data:       models.NewConfigData(),
 		sortColumn: SortByName,
 		sortAsc:    true,
+		clipboard:  ui.NewClipboardWriter(),
 	}
 }
 
@@ -442,6 +446,40 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		v.refreshing = true
 		return func() tea.Msg {
 			return RefreshConfigMsg{}
+		}
+
+	// Clipboard copy
+	case "y":
+		// Copy parameter name
+		params := v.getDisplayParams()
+		if len(params) > 0 && v.selectedIdx < len(params) {
+			p := params[v.selectedIdx]
+			if v.clipboard.IsAvailable() {
+				v.clipboard.Write(p.Name)
+				v.toastMessage = fmt.Sprintf("Copied name: %s", p.Name)
+				v.toastIsError = false
+				v.toastTime = time.Now()
+			} else {
+				v.toastMessage = "Clipboard not available"
+				v.toastIsError = true
+				v.toastTime = time.Now()
+			}
+		}
+	case "Y":
+		// Copy parameter value
+		params := v.getDisplayParams()
+		if len(params) > 0 && v.selectedIdx < len(params) {
+			p := params[v.selectedIdx]
+			if v.clipboard.IsAvailable() {
+				v.clipboard.Write(p.Setting)
+				v.toastMessage = fmt.Sprintf("Copied value: %s", p.Setting)
+				v.toastIsError = false
+				v.toastTime = time.Now()
+			} else {
+				v.toastMessage = "Clipboard not available"
+				v.toastIsError = true
+				v.toastTime = time.Now()
+			}
 		}
 	}
 
@@ -1099,14 +1137,30 @@ func (v *ConfigView) renderTable() string {
 
 	var lines []string
 
-	// Column widths
+	// Column widths - adapt for small terminals (80x24 minimum)
 	nameWidth := 30
 	valueWidth := 20
 	unitWidth := 6
 	categoryWidth := 25
-	descWidth := v.width - nameWidth - valueWidth - unitWidth - categoryWidth - 16 // separators
-	if descWidth < 10 {
-		descWidth = 10
+	descWidth := 20
+
+	// For narrow terminals, reduce column widths proportionally
+	if v.width < 120 {
+		// Compact mode for 80-column terminals
+		nameWidth = 25
+		valueWidth = 15
+		unitWidth = 5
+		categoryWidth = 0 // Hide category in narrow mode
+		descWidth = v.width - nameWidth - valueWidth - unitWidth - 12 // 3 separators
+		if descWidth < 10 {
+			descWidth = 10
+		}
+	} else {
+		// Standard mode
+		descWidth = v.width - nameWidth - valueWidth - unitWidth - categoryWidth - 16 // 4 separators
+		if descWidth < 10 {
+			descWidth = 10
+		}
 	}
 
 	// Header
@@ -1120,20 +1174,33 @@ func (v *ConfigView) renderTable() string {
 		return ""
 	}
 
-	header := fmt.Sprintf("%-*s │ %-*s │ %-*s │ %-*s │ %-*s",
-		nameWidth, "Name"+sortIndicator(SortByName),
-		valueWidth, "Value",
-		unitWidth, "Unit",
-		categoryWidth, "Category"+sortIndicator(SortByCategory),
-		descWidth, "Description")
+	var header, sep string
+	if categoryWidth > 0 {
+		// Full width mode with category column
+		header = fmt.Sprintf("%-*s │ %-*s │ %-*s │ %-*s │ %-*s",
+			nameWidth, "Name"+sortIndicator(SortByName),
+			valueWidth, "Value",
+			unitWidth, "Unit",
+			categoryWidth, "Category"+sortIndicator(SortByCategory),
+			descWidth, "Description")
+		sep = strings.Repeat("─", nameWidth) + "─┼─" +
+			strings.Repeat("─", valueWidth) + "─┼─" +
+			strings.Repeat("─", unitWidth) + "─┼─" +
+			strings.Repeat("─", categoryWidth) + "─┼─" +
+			strings.Repeat("─", descWidth)
+	} else {
+		// Compact mode without category column
+		header = fmt.Sprintf("%-*s │ %-*s │ %-*s │ %-*s",
+			nameWidth, "Name"+sortIndicator(SortByName),
+			valueWidth, "Value",
+			unitWidth, "Unit",
+			descWidth, "Description")
+		sep = strings.Repeat("─", nameWidth) + "─┼─" +
+			strings.Repeat("─", valueWidth) + "─┼─" +
+			strings.Repeat("─", unitWidth) + "─┼─" +
+			strings.Repeat("─", descWidth)
+	}
 	lines = append(lines, styles.TableHeaderStyle.Render(header))
-
-	// Separator - must match header width exactly
-	sep := strings.Repeat("─", nameWidth) + "─┼─" +
-		strings.Repeat("─", valueWidth) + "─┼─" +
-		strings.Repeat("─", unitWidth) + "─┼─" +
-		strings.Repeat("─", categoryWidth) + "─┼─" +
-		strings.Repeat("─", descWidth)
 	lines = append(lines, styles.BorderStyle.Render(sep))
 
 	// Rows
@@ -1145,26 +1212,44 @@ func (v *ConfigView) renderTable() string {
 
 	// Yellow style for modified parameters
 	modifiedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // Yellow
+	// Red style for pending restart parameters
+	pendingRestartStyle := lipgloss.NewStyle().Foreground(styles.ColorCriticalFg)
 
 	for i := v.scrollOffset; i < endIdx; i++ {
 		p := params[i]
 
-		name := truncate(p.Name, nameWidth)
+		// Add pending restart indicator to name
+		name := p.Name
+		if p.PendingRestart {
+			name = "! " + name // Prefix with warning indicator
+		}
+		name = truncate(name, nameWidth)
 		value := truncate(p.Setting, valueWidth)
 		unit := truncate(p.Unit, unitWidth)
-		category := truncate(p.TopLevelCategory(), categoryWidth)
 		desc := truncate(p.ShortDesc, descWidth)
 
-		row := fmt.Sprintf("%-*s │ %-*s │ %-*s │ %-*s │ %-*s",
-			nameWidth, name,
-			valueWidth, value,
-			unitWidth, unit,
-			categoryWidth, category,
-			descWidth, desc)
+		var row string
+		if categoryWidth > 0 {
+			category := truncate(p.TopLevelCategory(), categoryWidth)
+			row = fmt.Sprintf("%-*s │ %-*s │ %-*s │ %-*s │ %-*s",
+				nameWidth, name,
+				valueWidth, value,
+				unitWidth, unit,
+				categoryWidth, category,
+				descWidth, desc)
+		} else {
+			row = fmt.Sprintf("%-*s │ %-*s │ %-*s │ %-*s",
+				nameWidth, name,
+				valueWidth, value,
+				unitWidth, unit,
+				descWidth, desc)
+		}
 
-		// Apply styles
+		// Apply styles - pending restart takes priority over modified
 		if i == v.selectedIdx {
 			row = styles.TableSelectedStyle.Render(row)
+		} else if p.PendingRestart {
+			row = pendingRestartStyle.Render(row)
 		} else if p.IsModified() {
 			row = modifiedStyle.Render(row)
 		}
@@ -1191,7 +1276,7 @@ func (v *ConfigView) renderFooter() string {
 	} else {
 		// Build hints based on current filter state
 		var hintParts []string
-		hintParts = append(hintParts, "[j/k]nav", "[s/S]ort", "[d]etails", "[/]search", "[c]ategory", "[:]cmd", "[r]efresh")
+		hintParts = append(hintParts, "[j/k]nav", "[s/S]ort", "[d]etails", "[/]search", "[c]ategory", "[:]cmd", "[r]efresh", "[y]ank")
 		if v.searchFilter != "" || v.categoryFilter != "" {
 			hintParts = append(hintParts, "[esc]clear")
 		}
@@ -1249,6 +1334,10 @@ SEARCH & FILTER
 DETAILS
   d or Enter     View parameter details
   (in detail view: j/k to scroll, esc/q/d to return)
+
+CLIPBOARD
+  y              Copy parameter name
+  Y              Copy parameter value
 
 COMMANDS
   :              Enter command mode

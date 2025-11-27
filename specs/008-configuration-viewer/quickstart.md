@@ -37,7 +37,7 @@ export PGPASSWORD=mypass
 3. Use `j/k` or arrow keys to navigate parameters
 4. Press `/` to search by parameter name
 5. Press `d` to view parameter details
-6. Press `?` for help
+6. Press `h` for help
 
 ## Quick Test Queries
 
@@ -105,7 +105,7 @@ internal/
 
 ## Key Implementation Notes
 
-1. **Read-Only**: This view does NOT modify any configuration. It only reads from pg_settings.
+1. **Write Commands**: Use `:set <param> <value>` to change parameters (ALTER SYSTEM), `:reset <param>` to restore defaults, and `:reload` to apply sighup-context changes. Note: postmaster-context changes require a server restart.
 
 2. **Yellow Highlighting**: Parameters where `setting != boot_val` should be highlighted yellow to indicate customization.
 
@@ -117,13 +117,20 @@ internal/
 
 ## Validation Checklist
 
-- [ ] View opens with `8` key
-- [ ] All ~350 parameters displayed
-- [ ] Modified parameters highlighted yellow
-- [ ] Search (`/`) filters by name/description
-- [ ] Category filter works
-- [ ] Detail view (`d`) shows full info
-- [ ] Sort by name/category works
-- [ ] Export creates valid file
-- [ ] Help (`?`) shows keybindings
-- [ ] 60-second auto-refresh works
+- [x] View opens with `8` key
+- [x] All ~350 parameters displayed
+- [x] Modified parameters highlighted yellow
+- [x] Pending restart parameters highlighted red with "!" prefix
+- [x] Search (`/`) filters by name/description
+- [x] Category filter works
+- [x] Detail view (`d`) shows full info
+- [x] Sort by name/category works
+- [x] Export creates valid file (`:export config <file>`)
+- [x] Help (`h`) shows keybindings
+- [x] 60-second auto-refresh works
+- [x] Manual refresh with `r` key
+- [x] `:set <param> <value>` changes parameter
+- [x] `:reset <param>` resets to default
+- [x] `:reload` applies sighup-context changes
+- [x] Clipboard copy with `y` (name) and `Y` (value)
+- [x] Read-only mode blocks write operations
