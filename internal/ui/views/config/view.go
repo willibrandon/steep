@@ -23,6 +23,14 @@ type ConfigDataMsg struct {
 // RefreshConfigMsg triggers a data refresh.
 type RefreshConfigMsg struct{}
 
+// ExportConfigResultMsg contains the result of a config export operation.
+type ExportConfigResultMsg struct {
+	Filename string
+	Count    int
+	Success  bool
+	Error    error
+}
+
 // ConfigMode represents the current interaction mode.
 type ConfigMode int
 
@@ -32,6 +40,7 @@ const (
 	ModeSearch
 	ModeCategoryFilter
 	ModeDetail
+	ModeCommand
 )
 
 // SortColumn represents the available sort columns.
@@ -85,6 +94,12 @@ type ConfigView struct {
 
 	// Detail view state
 	detailScrollOffset int // Scroll offset for detail view
+
+	// Command mode state
+	commandInput string    // Current command input
+	toastMessage string    // Toast message to display
+	toastIsError bool      // Whether toast is an error message
+	toastTime    time.Time // When toast was shown
 }
 
 // NewConfigView creates a new configuration view.
@@ -178,6 +193,16 @@ func (v *ConfigView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		v.SetSize(msg.Width, msg.Height)
+
+	case ExportConfigResultMsg:
+		if msg.Success {
+			v.toastMessage = fmt.Sprintf("Exported %d parameters to %s", msg.Count, msg.Filename)
+			v.toastIsError = false
+		} else {
+			v.toastMessage = fmt.Sprintf("Export failed: %v", msg.Error)
+			v.toastIsError = true
+		}
+		v.toastTime = time.Now()
 	}
 
 	return v, nil
@@ -272,6 +297,30 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	// Command mode
+	if v.mode == ModeCommand {
+		switch key {
+		case "esc":
+			v.mode = ModeNormal
+			v.commandInput = ""
+		case "enter":
+			cmd := v.commandInput
+			v.commandInput = ""
+			v.mode = ModeNormal
+			return v.executeCommand(cmd)
+		case "backspace":
+			if len(v.commandInput) > 0 {
+				v.commandInput = v.commandInput[:len(v.commandInput)-1]
+			}
+		default:
+			// Only add printable characters
+			if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
+				v.commandInput += key
+			}
+		}
+		return nil
+	}
+
 	// Normal mode
 	switch key {
 	case "h":
@@ -326,8 +375,37 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			v.mode = ModeDetail
 			v.detailScrollOffset = 0
 		}
+
+	// Command mode
+	case ":":
+		v.mode = ModeCommand
+		v.commandInput = ""
+		v.toastMessage = "" // Clear any existing toast
 	}
 
+	return nil
+}
+
+// executeCommand executes a command entered in command mode.
+func (v *ConfigView) executeCommand(cmd string) tea.Cmd {
+	// Try parsing as export command
+	if exportCmd := parseExportCommand(cmd); exportCmd != nil {
+		// Export currently filtered parameters
+		params := v.getDisplayParams()
+		return func() tea.Msg {
+			count, err := exportConfig(exportCmd.Filename, params, v.connectionInfo)
+			return ExportConfigResultMsg{
+				Filename: exportCmd.Filename,
+				Count:    count,
+				Success:  err == nil,
+				Error:    err,
+			}
+		}
+	}
+
+	// Unknown command
+	v.toastMessage = fmt.Sprintf("Unknown command: %s", cmd)
+	v.toastIsError = true
 	return nil
 }
 
@@ -431,6 +509,10 @@ func (v *ConfigView) visibleRows() int {
 	if v.mode == ModeSearch {
 		rows--
 	}
+	// Account for command input line when in command mode
+	if v.mode == ModeCommand {
+		rows--
+	}
 	return max(1, rows)
 }
 
@@ -512,6 +594,12 @@ func (v *ConfigView) View() string {
 		b.WriteString("\n")
 	}
 
+	// Command input (shown in command mode)
+	if v.mode == ModeCommand {
+		b.WriteString(v.renderCommandInput())
+		b.WriteString("\n")
+	}
+
 	// Table
 	b.WriteString(v.renderTable())
 
@@ -538,6 +626,13 @@ func (v *ConfigView) getFilterStatusText() string {
 func (v *ConfigView) renderSearchInput() string {
 	prompt := styles.AccentStyle.Render("Search: ")
 	input := v.searchInput + "_"
+	return prompt + input
+}
+
+// renderCommandInput renders the command input prompt.
+func (v *ConfigView) renderCommandInput() string {
+	prompt := styles.AccentStyle.Render(":")
+	input := v.commandInput + "_"
 	return prompt + input
 }
 
@@ -938,14 +1033,27 @@ func (v *ConfigView) renderTable() string {
 
 // renderFooter renders the footer with key hints.
 func (v *ConfigView) renderFooter() string {
-	// Build hints based on current filter state
-	var hintParts []string
-	hintParts = append(hintParts, "[j/k]nav", "[s/S]ort", "[d]etails", "[/]search", "[c]ategory")
-	if v.searchFilter != "" || v.categoryFilter != "" {
-		hintParts = append(hintParts, "[esc]clear")
+	var hints string
+
+	// Show toast message if recent (within 3 seconds)
+	if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
+		toastStyle := styles.FooterHintStyle
+		if v.toastIsError {
+			toastStyle = toastStyle.Foreground(styles.ColorCriticalFg)
+		} else {
+			toastStyle = toastStyle.Foreground(styles.ColorActive)
+		}
+		hints = toastStyle.Render(v.toastMessage)
+	} else {
+		// Build hints based on current filter state
+		var hintParts []string
+		hintParts = append(hintParts, "[j/k]nav", "[s/S]ort", "[d]etails", "[/]search", "[c]ategory", "[:]cmd")
+		if v.searchFilter != "" || v.categoryFilter != "" {
+			hintParts = append(hintParts, "[esc]clear")
+		}
+		hintParts = append(hintParts, "[h]elp")
+		hints = styles.FooterHintStyle.Render(strings.Join(hintParts, " "))
 	}
-	hintParts = append(hintParts, "[h]elp")
-	hints := styles.FooterHintStyle.Render(strings.Join(hintParts, " "))
 
 	arrow := "↓"
 	if v.sortAsc {
@@ -997,6 +1105,10 @@ SEARCH & FILTER
 DETAILS
   d or Enter     View parameter details
   (in detail view: j/k to scroll, esc/q/d to return)
+
+COMMANDS
+  :              Enter command mode
+  :export config <file>  Export parameters to file
 
 OTHER
   h              Show this help

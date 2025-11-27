@@ -598,6 +598,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.configView.Update(msg)
 		return m, nil
 
+	case configview.ExportConfigResultMsg:
+		// Forward to config view for toast display
+		m.configView.Update(msg)
+		return m, nil
+
 	case ui.ReplicationDataMsg:
 		// Forward to replication view and execute any returned cmd
 		_, cmd := m.replicationView.Update(msg)

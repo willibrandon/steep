@@ -139,15 +139,15 @@ Based on plan.md structure:
 
 ### Implementation for User Story 4
 
-- [ ] T046 [US4] Add ModeCommand to ConfigMode enum for command input mode in internal/ui/views/config/view.go
-- [ ] T047 [US4] Add commandInput field to ConfigView struct in internal/ui/views/config/view.go
-- [ ] T048 [US4] Create ExportConfigResultMsg message type with Filename, Count, Success, Error fields in internal/ui/views/config/view.go
-- [ ] T049 [US4] Implement parseExportCommand() to parse `:export config <filename>` syntax in internal/ui/views/config/export.go
-- [ ] T050 [US4] Implement exportConfig(filename string, params []Parameter) writing PostgreSQL conf format in internal/ui/views/config/export.go
-- [ ] T051 [US4] Add header comment with timestamp, server info, parameter count in export output
-- [ ] T052 [US4] Handle `:` key to enter command mode, capture input, execute on Enter in Update()
-- [ ] T053 [US4] Add toast message for export success/failure in Update() handling ExportConfigResultMsg
-- [ ] T054 [US4] Export only currently filtered parameters (respect active search/category filter) in exportConfig()
+- [x] T046 [US4] Add ModeCommand to ConfigMode enum for command input mode in internal/ui/views/config/view.go
+- [x] T047 [US4] Add commandInput field to ConfigView struct in internal/ui/views/config/view.go
+- [x] T048 [US4] Create ExportConfigResultMsg message type with Filename, Count, Success, Error fields in internal/ui/views/config/view.go
+- [x] T049 [US4] Implement parseExportCommand() to parse `:export config <filename>` syntax in internal/ui/views/config/export.go
+- [x] T050 [US4] Implement exportConfig(filename string, params []Parameter) writing PostgreSQL conf format in internal/ui/views/config/export.go
+- [x] T051 [US4] Add header comment with timestamp, server info, parameter count in export output
+- [x] T052 [US4] Handle `:` key to enter command mode, capture input, execute on Enter in Update()
+- [x] T053 [US4] Add toast message for export success/failure in Update() handling ExportConfigResultMsg
+- [x] T054 [US4] Export only currently filtered parameters (respect active search/category filter) in exportConfig()
 
 **Checkpoint**: User Story 4 complete - can export configuration to file
 
