@@ -552,7 +552,7 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseMsg:
-		v.handleMouseMsg(msg)
+		return v, v.handleMouseMsg(msg)
 
 	case CellCopiedMsg:
 		if msg.Error != nil {
@@ -822,70 +822,97 @@ func (v *SQLEditorView) scrollColumnsRight() {
 }
 
 // handleMouseMsg handles mouse events for scrolling and clicking.
-func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) {
+// Routes events to vimtea editor or results table based on focus.
+func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
 	// Don't handle mouse during execution or help mode
 	if v.mode == ModeExecuting || v.mode == ModeHelp {
-		return
+		return nil
 	}
 
-	// Calculate where the results table data starts
-	// Account for: connection bar, editor, results title, column info, header, separator
+	// Calculate layout boundaries
+	// App header: lines 0-3 (title, tabs, etc.)
+	// Connection bar: line 4
+	// Editor title: line 5
+	// Editor content: lines 6+
 	editorHeight := int(float64(v.height-5) * v.splitRatio)
-	resultsDataStartY := 11 + editorHeight
+	editorContentStartY := 6                        // After app header, connection bar, and editor title
+	editorContentEndY := editorContentStartY + editorHeight - 2 // -2 for title and status bar within editor
+	resultsDataStartY := 10 + editorHeight
 
 	switch msg.Button {
-	case tea.MouseButtonWheelUp:
+	case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
+		// Route scroll based on focus, not mouse position
+		if v.focus == FocusEditor {
+			// Pass scroll to vimtea editor (adjust Y for editor's coordinate space)
+			adjustedMsg := tea.MouseMsg{
+				X:      msg.X,
+				Y:      msg.Y - editorContentStartY,
+				Button: msg.Button,
+				Action: msg.Action,
+			}
+			_, cmd := v.editor.Update(adjustedMsg)
+			return cmd
+		}
+		// Results focus - scroll results
 		if v.results != nil && v.results.TotalRows > 0 {
 			if msg.Shift {
-				// Shift+scroll = horizontal scroll left
-				v.scrollColumnsLeft()
+				// Shift+scroll = horizontal scroll
+				if msg.Button == tea.MouseButtonWheelUp {
+					v.scrollColumnsLeft()
+				} else {
+					v.scrollColumnsRight()
+				}
 			} else {
-				// Normal scroll = vertical
-				v.moveSelection(-1)
+				// Normal scroll = vertical (move selection)
+				if msg.Button == tea.MouseButtonWheelUp {
+					v.moveSelection(-1)
+				} else {
+					v.moveSelection(1)
+				}
 			}
 		}
-
-	case tea.MouseButtonWheelDown:
-		if v.results != nil && v.results.TotalRows > 0 {
-			if msg.Shift {
-				// Shift+scroll = horizontal scroll right
-				v.scrollColumnsRight()
-			} else {
-				// Normal scroll = vertical
-				v.moveSelection(1)
-			}
-		}
+		return nil
 
 	case tea.MouseButtonWheelLeft:
-		// Horizontal scroll wheel left
-		if v.results != nil && v.results.TotalRows > 0 {
+		if v.focus == FocusResults && v.results != nil && v.results.TotalRows > 0 {
 			v.scrollColumnsLeft()
 		}
+		return nil
 
 	case tea.MouseButtonWheelRight:
-		// Horizontal scroll wheel right
-		if v.results != nil && v.results.TotalRows > 0 {
+		if v.focus == FocusResults && v.results != nil && v.results.TotalRows > 0 {
 			v.scrollColumnsRight()
 		}
+		return nil
 
 	case tea.MouseButtonLeft:
 		if msg.Action == tea.MouseActionPress {
+			// Check if click is in editor area
+			if msg.Y >= editorContentStartY && msg.Y <= editorContentEndY {
+				v.focus = FocusEditor
+				// Pass click to vimtea editor (adjust Y for editor's coordinate space)
+				adjustedMsg := tea.MouseMsg{
+					X:      msg.X,
+					Y:      msg.Y - editorContentStartY,
+					Button: msg.Button,
+					Action: msg.Action,
+				}
+				_, cmd := v.editor.Update(adjustedMsg)
+				return cmd
+			}
 			// Check if click is in results area
 			if msg.Y >= resultsDataStartY && v.results != nil && v.results.TotalRows > 0 {
-				// Calculate which row was clicked
 				clickedRow := msg.Y - resultsDataStartY + v.scrollOffset
 				if clickedRow >= 0 && clickedRow < len(v.results.Rows) {
 					v.selectedRow = clickedRow
 					v.ensureVisible()
-					// Switch focus to results when clicking in results area
 					v.focus = FocusResults
 				}
-			} else if msg.Y < resultsDataStartY-3 && msg.Y > 4 {
-				// Click in editor area - switch focus to editor
-				v.focus = FocusEditor
 			}
 		}
+		return nil
 	}
+	return nil
 }
 
 // executeQueryCmd executes the current query (called from vimtea key bindings).

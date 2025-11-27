@@ -58,6 +58,25 @@ func bufferToVisualPosition(line string, bufferCol int) int {
 	return visualCol
 }
 
+// visualToBufferPosition converts a visual column position to a buffer column
+// This is the inverse of bufferToVisualPosition, accounting for tabs
+func visualToBufferPosition(line string, visualCol int) int {
+	currentVisual := 0
+	for i, r := range line {
+		if currentVisual >= visualCol {
+			return i
+		}
+
+		if r == '\t' {
+			spaces := tabWidth - (currentVisual % tabWidth)
+			currentVisual += spaces
+		} else {
+			currentVisual++
+		}
+	}
+	return len(line)
+}
+
 // renderLineWithTabs renders a line with proper tab expansion
 func renderLineWithTabs(line string) string {
 	var sb strings.Builder

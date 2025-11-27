@@ -247,6 +247,10 @@ func (m *editorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Clear yank highlight on any keypress - user has seen it
 		m.yankHighlight.Active = false
 		return m.handleKeypress(msg)
+
+	case tea.MouseMsg:
+		return m.handleMouseMsg(msg)
+
 	case tea.WindowSizeMsg:
 		if m.fullScreen {
 			return m.SetSize(msg.Width, msg.Height)
@@ -508,6 +512,83 @@ func (m *editorModel) handlePrefixKeypress(mode EditorMode) func(msg tea.KeyMsg)
 		m.countPrefix = 1
 		return m, nil
 	}
+}
+
+// lineNumberWidth is the width of the line number column (4 digits + 1 space separator)
+const lineNumberWidth = 5
+
+// handleMouseMsg processes mouse events for click-to-position and scroll
+func (m *editorModel) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		// Scroll up by 3 lines
+		m.viewport.YOffset -= 3
+		if m.viewport.YOffset < 0 {
+			m.viewport.YOffset = 0
+		}
+		return m, nil
+
+	case tea.MouseButtonWheelDown:
+		// Scroll down by 3 lines
+		maxOffset := m.buffer.lineCount() - m.height
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		m.viewport.YOffset += 3
+		if m.viewport.YOffset > maxOffset {
+			m.viewport.YOffset = maxOffset
+		}
+		return m, nil
+
+	case tea.MouseButtonLeft:
+		if msg.Action != tea.MouseActionPress {
+			return m, nil
+		}
+
+		// Convert mouse Y to buffer row
+		row := msg.Y + m.viewport.YOffset
+
+		// Bounds check row
+		if row < 0 {
+			row = 0
+		}
+		if row >= m.buffer.lineCount() {
+			row = m.buffer.lineCount() - 1
+		}
+		if row < 0 {
+			return m, nil // Empty buffer
+		}
+
+		// Convert mouse X to buffer column (accounting for line number width)
+		visualCol := msg.X - lineNumberWidth
+		if visualCol < 0 {
+			visualCol = 0
+		}
+
+		// Convert visual column to buffer column (handling tabs)
+		line := m.buffer.Line(row)
+		col := visualToBufferPosition(line, visualCol)
+
+		// Adjust for normal mode (cursor can't be past last char)
+		lineLen := m.buffer.lineLength(row)
+		if m.mode != ModeInsert && lineLen > 0 && col >= lineLen {
+			col = lineLen - 1
+		}
+		if col < 0 {
+			col = 0
+		}
+
+		// Set cursor position
+		m.cursor = newCursor(row, col)
+		m.desiredCol = col
+		m.cursorBlink = true
+		m.lastBlinkTime = time.Now()
+		m.yankHighlight.Active = false
+
+		return m, nil
+	}
+
+	return m, nil
 }
 
 // GetBuffer returns a wrapped buffer that provides the Buffer interface
