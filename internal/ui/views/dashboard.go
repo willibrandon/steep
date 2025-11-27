@@ -1,8 +1,6 @@
 package views
 
 import (
-	"fmt"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,70 +12,28 @@ import (
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
-// DashboardMode represents the current interaction mode.
-type DashboardMode int
-
-const (
-	ModeNormal DashboardMode = iota
-	ModeFilter
-	ModeDetail
-	ModeConfirm
-)
-
-// DashboardView represents the main dashboard with activity table.
+// DashboardView represents the main dashboard with metrics overview.
 type DashboardView struct {
 	width  int
 	height int
 
 	// Components
-	table        *components.ActivityTable
-	detailView   *components.DetailView
 	metricsPanel *components.MetricsPanel
 
 	// State
-	mode           DashboardMode
 	connected      bool
 	connectionInfo string
-	filter         models.ActivityFilter
-	pagination     *models.Pagination
 	lastUpdate     time.Time
-	refreshing     bool
 
 	// Data
-	connections []models.Connection
-	totalCount  int
-	metrics     models.Metrics
-	err         error
-
-	// Filter input
-	filterInput string
-
-	// Confirm dialog
-	confirmAction   string
-	confirmPID      int
-	confirmSelfKill bool
-
-	// Toast message
-	toastMessage string
-	toastError   bool
-	toastTime    time.Time
-
-	// Read-only mode
-	readOnly bool
-
-	// Our own PIDs (to warn about self-kill)
-	ownPIDs []int
+	metrics models.Metrics
+	err     error
 }
 
 // NewDashboard creates a new dashboard view.
 func NewDashboard() *DashboardView {
 	return &DashboardView{
-		table:        components.NewActivityTable(),
-		detailView:   components.NewDetailView(),
 		metricsPanel: components.NewMetricsPanel(),
-		pagination:   models.NewPagination(),
-		filter:       models.ActivityFilter{ShowAllDatabases: true},
-		mode:         ModeNormal,
 	}
 }
 
@@ -88,49 +44,7 @@ func (d *DashboardView) Init() tea.Cmd {
 
 // Update handles messages for the dashboard view.
 func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		cmd := d.handleKeyPress(msg)
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case tea.MouseMsg:
-		if d.mode == ModeNormal && len(d.connections) > 0 {
-			switch msg.Button {
-			case tea.MouseButtonWheelUp:
-				d.table.MoveUp()
-			case tea.MouseButtonWheelDown:
-				d.table.MoveDown()
-			case tea.MouseButtonLeft:
-				if msg.Action == tea.MouseActionPress {
-					row := msg.Y - 12
-					if row >= 0 && row < len(d.connections) {
-						d.table.GotoTop()
-						for i := 0; i < row; i++ {
-							d.table.MoveDown()
-						}
-					}
-				}
-			}
-		}
-		return d, nil
-
-	case ui.ActivityDataMsg:
-		d.refreshing = false
-		if msg.Error != nil {
-			d.err = msg.Error
-		} else {
-			d.connections = msg.Connections
-			d.totalCount = msg.TotalCount
-			d.lastUpdate = msg.FetchedAt
-			d.err = nil
-			d.table.SetConnections(d.connections)
-			d.pagination.Update(d.totalCount)
-		}
-
 	case ui.MetricsDataMsg:
 		if msg.Error != nil {
 			d.err = msg.Error
@@ -142,274 +56,15 @@ func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		d.SetSize(msg.Width, msg.Height)
-
-	case ui.CancelQueryResultMsg:
-		if msg.Error != nil {
-			d.showToast(fmt.Sprintf("Failed to cancel PID %d: %s", msg.PID, msg.Error), true)
-		} else if msg.Success {
-			d.showToast(fmt.Sprintf("Query cancelled (PID %d)", msg.PID), false)
-		} else {
-			d.showToast(fmt.Sprintf("Cancel failed for PID %d (process may have ended)", msg.PID), true)
-		}
-
-	case ui.TerminateConnectionResultMsg:
-		if msg.Error != nil {
-			d.showToast(fmt.Sprintf("Failed to terminate PID %d: %s", msg.PID, msg.Error), true)
-		} else if msg.Success {
-			d.showToast(fmt.Sprintf("Connection terminated (PID %d)", msg.PID), false)
-		} else {
-			d.showToast(fmt.Sprintf("Terminate failed for PID %d (process may have ended)", msg.PID), true)
-		}
 	}
 
-	// Update table component
-	var cmd tea.Cmd
-	d.table, cmd = d.table.Update(msg)
-	if cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-
-	// Update detail view if in detail mode
-	if d.mode == ModeDetail {
-		d.detailView, cmd = d.detailView.Update(msg)
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-
-	return d, tea.Batch(cmds...)
-}
-
-// handleKeyPress processes keyboard input.
-func (d *DashboardView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
-	key := msg.String()
-
-	// Handle mode-specific keys
-	switch d.mode {
-	case ModeFilter:
-		return d.handleFilterMode(key, msg)
-	case ModeDetail:
-		return d.handleDetailMode(key)
-	case ModeConfirm:
-		return d.handleConfirmMode(key)
-	}
-
-	// Normal mode keys
-	switch key {
-	// Navigation - j/k/up/down handled by table.Update()
-	case "g", "home":
-		d.table.GotoTop()
-	case "G", "end":
-		d.table.GotoBottom()
-	case "pgup", "ctrl+u":
-		d.table.PageUp()
-	case "pgdown", "ctrl+d":
-		d.table.PageDown()
-
-	// Actions
-	case "d", "enter":
-		d.enterDetailMode()
-	case "c":
-		d.enterConfirmMode("cancel")
-	case "x":
-		d.enterConfirmMode("terminate")
-	case "r":
-		if !d.refreshing {
-			d.refreshing = true
-			return func() tea.Msg {
-				return ui.RefreshRequestMsg{}
-			}
-		}
-
-	// Filter
-	case "/":
-		d.enterFilterMode()
-	case "a":
-		// Toggle all databases filter and clear any specific database filter
-		if d.filter.DatabaseFilter != "" {
-			// If there's a specific db filter, clear it and show all
-			d.filter.DatabaseFilter = ""
-			d.filter.ShowAllDatabases = true
-		} else {
-			// Otherwise toggle
-			d.filter.ShowAllDatabases = !d.filter.ShowAllDatabases
-		}
-		return func() tea.Msg {
-			return ui.FilterChangedMsg{Filter: d.filter}
-		}
-	case "C":
-		// Clear all filters
-		d.filter.Clear()
-		d.filterInput = ""
-		return func() tea.Msg {
-			return ui.FilterChangedMsg{Filter: d.filter}
-		}
-	case "s":
-		// TODO: Cycle sort column
-
-	// Help
-	case "?":
-		// TODO: Show help overlay
-	}
-
-	return nil
-}
-
-// handleFilterMode processes keys in filter mode.
-func (d *DashboardView) handleFilterMode(key string, msg tea.KeyMsg) tea.Cmd {
-	switch key {
-	case "esc":
-		d.mode = ModeNormal
-		d.filterInput = ""
-	case "enter":
-		// Parse prefix syntax: db:, state:, query:, user:
-		input := d.filterInput
-
-		// Clear all filters first
-		d.filter.StateFilter = ""
-		d.filter.DatabaseFilter = ""
-		d.filter.QueryFilter = ""
-
-		if strings.HasPrefix(strings.ToLower(input), "db:") {
-			d.filter.DatabaseFilter = strings.TrimPrefix(input[3:], " ")
-		} else if strings.HasPrefix(strings.ToLower(input), "state:") {
-			d.filter.StateFilter = strings.ToLower(strings.TrimPrefix(input[6:], " "))
-		} else if strings.HasPrefix(strings.ToLower(input), "query:") {
-			d.filter.QueryFilter = strings.TrimPrefix(input[6:], " ")
-		} else {
-			// Default: filter by query text
-			d.filter.QueryFilter = input
-		}
-
-		d.mode = ModeNormal
-		// Return command to refresh with new filter
-		return func() tea.Msg {
-			return ui.FilterChangedMsg{Filter: d.filter}
-		}
-	case "backspace":
-		if len(d.filterInput) > 0 {
-			d.filterInput = d.filterInput[:len(d.filterInput)-1]
-		}
-	default:
-		// Add character to filter input
-		if len(key) == 1 {
-			d.filterInput += key
-		}
-	}
-	return nil
-}
-
-// handleDetailMode processes keys in detail mode.
-func (d *DashboardView) handleDetailMode(key string) tea.Cmd {
-	switch key {
-	case "esc", "q":
-		d.mode = ModeNormal
-	case "c":
-		d.enterConfirmMode("cancel")
-	case "x":
-		d.enterConfirmMode("terminate")
-	}
-	return nil
-}
-
-// handleConfirmMode processes keys in confirm mode.
-func (d *DashboardView) handleConfirmMode(key string) tea.Cmd {
-	switch key {
-	case "y", "Y":
-		d.mode = ModeNormal
-		// Return command to execute the action
-		if d.confirmAction == "cancel" {
-			return func() tea.Msg {
-				return ui.CancelQueryMsg{PID: d.confirmPID}
-			}
-		}
-		return func() tea.Msg {
-			return ui.TerminateConnectionMsg{PID: d.confirmPID}
-		}
-	case "n", "N", "esc":
-		d.mode = ModeNormal
-	}
-	return nil
-}
-
-// enterFilterMode switches to filter input mode.
-func (d *DashboardView) enterFilterMode() {
-	d.mode = ModeFilter
-	d.filterInput = d.filter.QueryFilter
-}
-
-// enterDetailMode switches to detail view mode.
-func (d *DashboardView) enterDetailMode() {
-	conn := d.table.SelectedConnection()
-	if conn != nil {
-		d.mode = ModeDetail
-		d.detailView.SetConnection(conn)
-	}
-}
-
-// enterConfirmMode switches to confirmation dialog mode.
-func (d *DashboardView) enterConfirmMode(action string) {
-	// Check read-only mode
-	if d.readOnly {
-		d.showToast("Read-only mode: kill actions disabled", true)
-		return
-	}
-
-	conn := d.table.SelectedConnection()
-	if conn == nil {
-		return
-	}
-
-	// Check for self-kill
-	d.confirmSelfKill = false
-	for _, pid := range d.ownPIDs {
-		if conn.PID == pid {
-			d.confirmSelfKill = true
-			break
-		}
-	}
-
-	d.mode = ModeConfirm
-	d.confirmAction = action
-	d.confirmPID = conn.PID
-}
-
-// showToast displays a toast message.
-func (d *DashboardView) showToast(message string, isError bool) {
-	d.toastMessage = message
-	d.toastError = isError
-	d.toastTime = time.Now()
-}
-
-// SetReadOnly sets read-only mode.
-func (d *DashboardView) SetReadOnly(readOnly bool) {
-	d.readOnly = readOnly
-}
-
-// SetOwnPIDs sets the PIDs of our own connections.
-func (d *DashboardView) SetOwnPIDs(pids []int) {
-	d.ownPIDs = pids
-}
-
-// IsInputMode returns true if the dashboard is in an input mode (filter, etc).
-func (d *DashboardView) IsInputMode() bool {
-	return d.mode == ModeFilter
+	return d, nil
 }
 
 // View renders the dashboard view.
 func (d *DashboardView) View() string {
 	if !d.connected {
 		return styles.InfoStyle.Render("Connecting to database...")
-	}
-
-	// Check for detail mode overlay
-	if d.mode == ModeDetail {
-		return d.renderWithOverlay(d.detailView.View())
-	}
-
-	// Check for confirm dialog overlay
-	if d.mode == ModeConfirm {
-		return d.renderWithOverlay(d.renderConfirmDialog())
 	}
 
 	return d.renderMain()
@@ -423,8 +78,8 @@ func (d *DashboardView) renderMain() string {
 	// Metrics panel
 	metricsPanel := d.renderMetricsPanel()
 
-	// Activity table
-	tableView := d.table.View()
+	// Placeholder for future dashboard content
+	placeholder := d.renderPlaceholder()
 
 	// Footer
 	footer := d.renderFooter()
@@ -433,7 +88,7 @@ func (d *DashboardView) renderMain() string {
 		lipgloss.Left,
 		statusBar,
 		metricsPanel,
-		tableView,
+		placeholder,
 		footer,
 	)
 }
@@ -466,126 +121,48 @@ func (d *DashboardView) renderMetricsPanel() string {
 	return d.metricsPanel.View()
 }
 
-// renderFooter renders the bottom footer with hints and pagination.
+// renderPlaceholder renders a placeholder for future dashboard content.
+func (d *DashboardView) renderPlaceholder() string {
+	placeholderHeight := d.height - 10 // Account for status bar, metrics, footer
+	if placeholderHeight < 3 {
+		placeholderHeight = 3
+	}
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Center,
+		"",
+		styles.MutedStyle.Render("Dashboard Overview"),
+		"",
+		styles.MutedStyle.Render("Future enhancements:"),
+		styles.MutedStyle.Render("• TPS graphs and sparklines"),
+		styles.MutedStyle.Render("• Cache hit ratio trends"),
+		styles.MutedStyle.Render("• Connection pool status"),
+		styles.MutedStyle.Render("• Alert summary panel"),
+		styles.MutedStyle.Render("• Quick stats overview"),
+		"",
+		styles.MutedStyle.Render("Press [2] for Activity monitoring"),
+	)
+
+	return lipgloss.NewStyle().
+		Width(d.width - 4).
+		Height(placeholderHeight).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render(content)
+}
+
+// renderFooter renders the bottom footer with hints.
 func (d *DashboardView) renderFooter() string {
-	var hints string
-
-	// Show toast message if recent (within 3 seconds)
-	if d.toastMessage != "" && time.Since(d.toastTime) < 3*time.Second {
-		toastStyle := styles.FooterHintStyle
-		if d.toastError {
-			toastStyle = toastStyle.Foreground(styles.ColorCriticalFg)
-		} else {
-			toastStyle = toastStyle.Foreground(styles.ColorActive)
-		}
-		hints = toastStyle.Render(d.toastMessage)
-	} else if d.mode == ModeFilter {
-		hints = fmt.Sprintf("Filter: %s_", d.filterInput)
-	} else {
-		// Build filter indicator
-		var filterIndicator string
-		if !d.filter.IsEmpty() {
-			filterIndicator = styles.FooterHintStyle.Foreground(styles.ColorActive).Render("[FILTERED] ")
-		}
-		if !d.filter.ShowAllDatabases {
-			filterIndicator += styles.FooterHintStyle.Foreground(styles.ColorActive).Render("[DB] ")
-		}
-		hints = filterIndicator + styles.FooterHintStyle.Render("[/]filter [r]efresh [a]ll-dbs [C]lear [d]etail [c]ancel [x]kill [q]uit")
-	}
-
-	count := styles.FooterCountStyle.Render(fmt.Sprintf("%d/%d", d.table.ConnectionCount(), d.totalCount))
-
-	gap := d.width - lipgloss.Width(hints) - lipgloss.Width(count) - 4
-	if gap < 1 {
-		gap = 1
-	}
-	spaces := lipgloss.NewStyle().Width(gap).Render("")
+	hints := styles.FooterHintStyle.Render("[1]Dashboard [2]Activity [3]Queries [4]Locks [5]Tables [6]Replication [7]SQL Editor")
 
 	return styles.FooterStyle.
 		Width(d.width - 2).
-		Render(hints + spaces + count)
-}
-
-// renderConfirmDialog renders the confirmation dialog.
-func (d *DashboardView) renderConfirmDialog() string {
-	var actionText string
-	if d.confirmAction == "cancel" {
-		actionText = "Cancel Query"
-	} else {
-		actionText = "Terminate Connection"
-	}
-
-	title := styles.DialogTitleStyle.Render(actionText)
-
-	conn := d.table.SelectedConnection()
-	var details string
-	if conn != nil {
-		details = fmt.Sprintf(
-			"PID: %d\nUser: %s\nQuery: %s",
-			conn.PID,
-			conn.User,
-			conn.TruncateQuery(40),
-		)
-	}
-
-	var warning string
-	if d.confirmSelfKill {
-		warning = styles.ErrorStyle.Render("⚠ WARNING: This is your own connection!")
-	}
-
-	prompt := "Are you sure? [y]es [n]o"
-
-	var content string
-	if warning != "" {
-		content = lipgloss.JoinVertical(
-			lipgloss.Left,
-			title,
-			"",
-			warning,
-			"",
-			details,
-			"",
-			prompt,
-		)
-	} else {
-		content = lipgloss.JoinVertical(
-			lipgloss.Left,
-			title,
-			"",
-			details,
-			"",
-			prompt,
-		)
-	}
-
-	return styles.DialogStyle.Render(content)
-}
-
-// renderWithOverlay renders the main view with an overlay on top.
-func (d *DashboardView) renderWithOverlay(overlay string) string {
-	// Simple overlay - in production would use proper compositing
-	return lipgloss.Place(
-		d.width, d.height,
-		lipgloss.Center, lipgloss.Center,
-		overlay,
-		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceForeground(lipgloss.Color("235")),
-	)
+		Render(hints)
 }
 
 // SetSize sets the dimensions of the dashboard view.
 func (d *DashboardView) SetSize(width, height int) {
 	d.width = width
 	d.height = height
-
-	// Allocate space: status bar (3) + metrics (2) + footer (3)
-	tableHeight := height - 8
-	if tableHeight < 5 {
-		tableHeight = 5
-	}
-
-	d.table.SetSize(width-2, tableHeight)
-	d.detailView.SetSize(width-10, height-10)
 	d.metricsPanel.SetWidth(width - 2)
 }
 
@@ -605,28 +182,39 @@ func (d *DashboardView) SetConnectionInfo(info string) {
 	d.connectionInfo = info
 }
 
-// SetConnections updates the activity data.
-func (d *DashboardView) SetConnections(connections []models.Connection, totalCount int) {
-	d.connections = connections
-	d.totalCount = totalCount
-	d.table.SetConnections(connections)
-	d.pagination.Update(totalCount)
-	d.lastUpdate = time.Now()
+// IsInputMode returns true if the dashboard is in an input mode.
+func (d *DashboardView) IsInputMode() bool {
+	return false
 }
 
-// GetFilter returns the current filter settings.
+// SetReadOnly sets read-only mode (no-op for dashboard).
+func (d *DashboardView) SetReadOnly(readOnly bool) {
+	// Dashboard has no destructive operations
+}
+
+// SetOwnPIDs sets the PIDs of our own connections (no-op for dashboard).
+func (d *DashboardView) SetOwnPIDs(pids []int) {
+	// Dashboard doesn't track PIDs
+}
+
+// GetFilter returns the current filter settings (empty for dashboard).
 func (d *DashboardView) GetFilter() models.ActivityFilter {
-	return d.filter
+	return models.ActivityFilter{}
 }
 
-// GetPagination returns the current pagination settings.
+// GetPagination returns nil for dashboard (no pagination).
 func (d *DashboardView) GetPagination() *models.Pagination {
-	return d.pagination
+	return nil
 }
 
-// IsRefreshing returns whether a refresh is in progress.
+// IsRefreshing returns false for dashboard.
 func (d *DashboardView) IsRefreshing() bool {
-	return d.refreshing
+	return false
+}
+
+// SetConnections is a no-op for the simplified dashboard.
+func (d *DashboardView) SetConnections(connections []models.Connection, totalCount int) {
+	// Dashboard no longer displays connections - use Activity view
 }
 
 // SetServerVersion sets the server version (for compatibility).

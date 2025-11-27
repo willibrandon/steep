@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/ui/highlight"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
@@ -117,8 +118,8 @@ func (d *DetailView) updateContent() {
 	b.WriteString("\n")
 
 	if d.connection.Query != "" {
-		// Format the query for better readability
-		query := d.connection.Query
+		// Format with pgFormatter and apply syntax highlighting
+		query := highlight.FormatAndHighlightSQL(d.connection.Query)
 		b.WriteString(query)
 	} else {
 		b.WriteString(lipgloss.NewStyle().
@@ -169,7 +170,7 @@ func (d *DetailView) View() string {
 		Foreground(styles.ColorMuted)
 
 	title := titleStyle.Render(fmt.Sprintf("Query Detail - PID %d", d.connection.PID))
-	footer := footerStyle.Render("[c]ancel query  [x]kill connection  [Esc]close")
+	footer := footerStyle.Render("[c]ancel query  [x]kill connection  [esc/q]back")
 
 	// Build the view
 	content := lipgloss.JoinVertical(

@@ -24,6 +24,7 @@ import (
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
 	"github.com/willibrandon/steep/internal/ui/views"
+	activityview "github.com/willibrandon/steep/internal/ui/views/activity"
 	locksview "github.com/willibrandon/steep/internal/ui/views/locks"
 	queriesview "github.com/willibrandon/steep/internal/ui/views/queries"
 	replicationview "github.com/willibrandon/steep/internal/ui/views/replication"
@@ -60,6 +61,7 @@ type Model struct {
 	currentView     views.ViewType
 	viewList        []views.ViewType
 	dashboard       *views.DashboardView
+	activityView    *activityview.ActivityView
 	queriesView     *queriesview.QueriesView
 	locksView       *locksview.LocksView
 	tablesView      *tablesview.TablesView
@@ -112,6 +114,10 @@ func New(readonly bool, configPath string) (*Model, error) {
 	dashboard.SetDatabase(cfg.Connection.Database)
 	dashboard.SetReadOnly(readonly)
 
+	// Initialize activity view
+	activityView := activityview.New()
+	activityView.SetReadOnly(readonly)
+
 	// Initialize queries view
 	queriesView := queriesview.NewQueriesView()
 
@@ -154,6 +160,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 		currentView:       views.ViewDashboard,
 		viewList:          viewList,
 		dashboard:         dashboard,
+		activityView:      activityView,
 		queriesView:       queriesView,
 		locksView:         locksView,
 		tablesView:        tablesView,
@@ -205,6 +212,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.queriesView.Update(msg)
 		case views.ViewDashboard:
 			m.dashboard.Update(msg)
+		case views.ViewActivity:
+			m.activityView.Update(msg)
 		case views.ViewLocks:
 			m.locksView.Update(msg)
 		case views.ViewTables:
@@ -230,6 +239,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help.SetSize(msg.Width, msg.Height)
 		m.statusBar.SetSize(msg.Width)
 		m.dashboard.SetSize(msg.Width, msg.Height-5) // Reserve space for header and status bar
+		m.activityView.SetSize(msg.Width, msg.Height-5)
 		m.queriesView.SetSize(msg.Width, msg.Height-5)
 		m.locksView.SetSize(msg.Width, msg.Height-5)
 		m.tablesView.SetSize(msg.Width, msg.Height-5)
@@ -251,6 +261,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.config.Connection.Port,
 			m.config.Connection.Database)
 		m.dashboard.SetConnectionInfo(connectionInfo)
+		m.activityView.SetConnected(true)
+		m.activityView.SetConnectionInfo(connectionInfo)
 		m.queriesView.SetConnected(true)
 		m.queriesView.SetConnectionInfo(connectionInfo)
 		m.locksView.SetConnected(true)
@@ -339,6 +351,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if len(pids) > 0 {
 				m.dashboard.SetOwnPIDs(pids)
+				m.activityView.SetOwnPIDs(pids)
 			}
 		}()
 
@@ -382,8 +395,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ui.ActivityDataMsg:
-		// Forward to dashboard
-		m.dashboard.Update(msg)
+		// Forward to activity view
+		m.activityView.Update(msg)
 		return m, nil
 
 	case ui.MetricsDataMsg:
@@ -437,8 +450,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ui.CancelQueryResultMsg:
-		// Forward to dashboard
-		m.dashboard.Update(msg)
+		// Forward to activity view
+		m.activityView.Update(msg)
 		return m, nil
 
 	case ui.TerminateConnectionMsg:
@@ -448,8 +461,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ui.TerminateConnectionResultMsg:
-		// Forward to dashboard
-		m.dashboard.Update(msg)
+		// Forward to activity view
+		m.activityView.Update(msg)
 		return m, nil
 
 	case ui.FilterChangedMsg:
@@ -867,6 +880,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			_, cmd = m.dashboard.Update(msg)
 			return m, cmd
 		}
+	case views.ViewActivity:
+		if m.connected {
+			var cmd tea.Cmd
+			_, cmd = m.activityView.Update(msg)
+			return m, cmd
+		}
 	case views.ViewQueries:
 		if m.connected {
 			var cmd tea.Cmd
@@ -934,6 +953,8 @@ func (m *Model) currentViewIsInputMode() bool {
 	switch m.currentView {
 	case views.ViewDashboard:
 		return m.dashboard.IsInputMode()
+	case views.ViewActivity:
+		return m.activityView.IsInputMode()
 	case views.ViewQueries:
 		return m.queriesView.IsInputMode()
 	case views.ViewLocks:
@@ -1007,7 +1028,7 @@ func (m Model) renderCurrentView() string {
 	case views.ViewDashboard:
 		return m.dashboard.View()
 	case views.ViewActivity:
-		return styles.InfoStyle.Render("Activity monitoring view - Coming soon!")
+		return m.activityView.View()
 	case views.ViewQueries:
 		return m.queriesView.View()
 	case views.ViewLocks:

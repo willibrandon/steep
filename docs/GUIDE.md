@@ -1463,7 +1463,7 @@ Prioritize P1 stories (editor, execution, results) then P2 (syntax highlighting,
 
 **Spec-Kit Command**:
 ```bash
-/speckit.specify Implement Configuration Viewer for browsing PostgreSQL server settings from pg_settings. Display parameters in sortable table with name, current value, unit, category, and description. Support search by parameter name and filter by category. Highlight modified parameters that differ from defaults. Show detailed parameter information including context, constraints (min/max), and default values. Provide read-only view to prevent accidental changes. Prioritize P1 story (viewing parameters) over P2 (search/filter) and P3 (context help). Auto-refresh every 60 seconds.
+/speckit.specify Implement Configuration Viewer for browsing PostgreSQL server settings from pg_settings. Display parameters in sortable table with name, current value, unit, category, and description. Support search by parameter name and filter by category. Highlight modified parameters that differ from defaults. Show detailed parameter information including context, constraints (min/max), and default values. Provide read-only view to prevent accidental changes. Prioritize P1 story (viewing parameters) and P2 (search/filter) and P3 (context help). Auto-refresh every 60 seconds.
 ```
 
 ---

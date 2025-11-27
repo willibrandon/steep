@@ -62,7 +62,7 @@ func (v *ReplicationView) renderStatusBar() string {
 	if !v.lastUpdate.IsZero() {
 		updateStr = v.lastUpdate.Format("15:04:05")
 	}
-	timestamp := styles.StatusTimeStyle.Render("Last refresh: " + updateStr)
+	timestamp := styles.StatusTimeStyle.Render(updateStr)
 
 	// Query timing (debug mode only)
 	var queryTiming string

@@ -190,8 +190,8 @@ type TablesView struct {
 	detailsLines        []string // Pre-computed details content lines
 	sortColumn          SortColumn
 	sortAscending       bool
-	indexSortColumn    IndexSortColumn
-	indexSortAscending bool
+	indexSortColumn     IndexSortColumn
+	indexSortAscending  bool
 	showSystemSchemas   bool
 
 	// Extension state
@@ -239,11 +239,11 @@ func NewTablesView() *TablesView {
 		indexSortColumn:    IndexSortByName,
 		indexSortAscending: false,
 		partitions:         make(map[uint32][]uint32),
-		tablesByOID:       make(map[uint32]*models.Table),
-		clipboard:         ui.NewClipboardWriter(),
-		spinner:           s,
-		showSystemSchemas: false, // Hidden by default per spec
-		loading:           true,  // Start in loading state
+		tablesByOID:        make(map[uint32]*models.Table),
+		clipboard:          ui.NewClipboardWriter(),
+		spinner:            s,
+		showSystemSchemas:  false, // Hidden by default per spec
+		loading:            true,  // Start in loading state
 	}
 }
 
@@ -1607,7 +1607,7 @@ func (v *TablesView) renderStatusBar() string {
 		staleIndicator = styles.ErrorStyle.Render(" [STALE]")
 	}
 
-	timestamp := styles.StatusTimeStyle.Render("Last refresh: " + v.lastUpdate.Format("15:04:05"))
+	timestamp := styles.StatusTimeStyle.Render(v.lastUpdate.Format("15:04:05"))
 
 	gap := v.width - lipgloss.Width(title) - lipgloss.Width(staleIndicator) - lipgloss.Width(timestamp) - 4
 	if gap < 1 {
