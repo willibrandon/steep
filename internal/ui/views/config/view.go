@@ -29,6 +29,8 @@ type ConfigMode int
 const (
 	ModeNormal ConfigMode = iota
 	ModeHelp
+	ModeSearch
+	ModeCategoryFilter
 )
 
 // SortColumn represents the available sort columns.
@@ -72,6 +74,13 @@ type ConfigView struct {
 	scrollOffset int
 	sortColumn   SortColumn
 	sortAsc      bool // true = ascending (default for name)
+
+	// Filter state
+	searchInput      string // Current search input
+	searchFilter     string // Active search filter (applied on Enter)
+	categoryFilter   string // Active category filter
+	categoryIdx      int    // Selected index in category list
+	filteredParams   []models.Parameter // Cached filtered parameters
 }
 
 // NewConfigView creates a new configuration view.
@@ -125,13 +134,15 @@ func (v *ConfigView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				v.moveSelection(1)
 			case tea.MouseButtonLeft:
 				if msg.Action == tea.MouseActionPress {
-					// WARNING: tableStartY=7 was determined empirically (2025-11).
+					// WARNING: tableStartY=8 was determined empirically (2025-11).
+					// Accounts for: app header(1) + status(1) + title(1) + table header(1) + separator(1) + blank lines
 					// If mouse clicks select wrong rows, adjust this offset.
-					tableStartY := 7
+					tableStartY := 8
 					clickedRow := msg.Y - tableStartY
 					if clickedRow >= 0 {
+						params := v.getDisplayParams()
 						newIdx := v.scrollOffset + clickedRow
-						if newIdx >= 0 && newIdx < len(v.data.Parameters) {
+						if newIdx >= 0 && newIdx < len(params) {
 							v.selectedIdx = newIdx
 						}
 					}
@@ -149,9 +160,14 @@ func (v *ConfigView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.err = nil
 			// Apply current sort order
 			v.sortParameters()
+			// Re-apply filters if active
+			if v.searchFilter != "" || v.categoryFilter != "" {
+				v.applyFilters()
+			}
 			// Ensure selection is valid
-			if v.selectedIdx >= len(v.data.Parameters) {
-				v.selectedIdx = max(0, len(v.data.Parameters)-1)
+			params := v.getDisplayParams()
+			if v.selectedIdx >= len(params) {
+				v.selectedIdx = max(0, len(params)-1)
 			}
 			v.ensureVisible()
 		}
@@ -176,10 +192,83 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	// Search mode
+	if v.mode == ModeSearch {
+		switch key {
+		case "esc":
+			v.mode = ModeNormal
+			v.searchInput = ""
+		case "enter":
+			v.searchFilter = v.searchInput
+			v.searchInput = ""
+			v.mode = ModeNormal
+			v.applyFilters()
+			v.selectedIdx = 0
+			v.scrollOffset = 0
+		case "backspace":
+			if len(v.searchInput) > 0 {
+				v.searchInput = v.searchInput[:len(v.searchInput)-1]
+			}
+		default:
+			// Only add printable characters
+			if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
+				v.searchInput += key
+			}
+		}
+		return nil
+	}
+
+	// Category filter mode
+	if v.mode == ModeCategoryFilter {
+		categories := v.getUniqueCategories()
+		switch key {
+		case "esc":
+			v.mode = ModeNormal
+		case "enter":
+			if v.categoryIdx >= 0 && v.categoryIdx < len(categories) {
+				if v.categoryIdx == 0 {
+					v.categoryFilter = "" // "All Categories" option
+				} else {
+					v.categoryFilter = categories[v.categoryIdx]
+				}
+				v.applyFilters()
+				v.selectedIdx = 0
+				v.scrollOffset = 0
+			}
+			v.mode = ModeNormal
+		case "j", "down":
+			if v.categoryIdx < len(categories)-1 {
+				v.categoryIdx++
+			}
+		case "k", "up":
+			if v.categoryIdx > 0 {
+				v.categoryIdx--
+			}
+		}
+		return nil
+	}
+
 	// Normal mode
 	switch key {
 	case "h":
 		v.mode = ModeHelp
+
+	// Search and filter
+	case "/":
+		v.mode = ModeSearch
+		v.searchInput = ""
+	case "c":
+		v.mode = ModeCategoryFilter
+		v.categoryIdx = 0
+	case "esc":
+		// Clear active filters
+		if v.searchFilter != "" || v.categoryFilter != "" {
+			v.searchFilter = ""
+			v.categoryFilter = ""
+			v.applyFilters()
+			v.selectedIdx = 0
+			v.scrollOffset = 0
+		}
 
 	// Navigation
 	case "j", "down":
@@ -190,8 +279,9 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		v.selectedIdx = 0
 		v.ensureVisible()
 	case "G", "end":
-		if len(v.data.Parameters) > 0 {
-			v.selectedIdx = len(v.data.Parameters) - 1
+		params := v.getDisplayParams()
+		if len(params) > 0 {
+			v.selectedIdx = len(params) - 1
 			v.ensureVisible()
 		}
 	case "ctrl+d", "pgdown":
@@ -211,17 +301,79 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 // moveSelection moves the selection by delta rows.
 func (v *ConfigView) moveSelection(delta int) {
-	if len(v.data.Parameters) == 0 {
+	params := v.getDisplayParams()
+	if len(params) == 0 {
 		return
 	}
 	v.selectedIdx += delta
 	if v.selectedIdx < 0 {
 		v.selectedIdx = 0
 	}
-	if v.selectedIdx >= len(v.data.Parameters) {
-		v.selectedIdx = len(v.data.Parameters) - 1
+	if v.selectedIdx >= len(params) {
+		v.selectedIdx = len(params) - 1
 	}
 	v.ensureVisible()
+}
+
+// getDisplayParams returns the parameters to display (filtered if filters active).
+func (v *ConfigView) getDisplayParams() []models.Parameter {
+	if v.searchFilter != "" || v.categoryFilter != "" {
+		return v.filteredParams
+	}
+	if v.data == nil {
+		return nil
+	}
+	return v.data.Parameters
+}
+
+// applyFilters applies current search and category filters.
+func (v *ConfigView) applyFilters() {
+	if v.data == nil {
+		v.filteredParams = nil
+		return
+	}
+
+	// Start with all parameters
+	result := v.data.Parameters
+
+	// Apply category filter first
+	if v.categoryFilter != "" {
+		result = v.data.FilterByCategory(v.categoryFilter)
+	}
+
+	// Apply search filter
+	if v.searchFilter != "" {
+		// Create a temporary ConfigData to use FilterBySearch
+		temp := &models.ConfigData{Parameters: result}
+		result = temp.FilterBySearch(v.searchFilter)
+	}
+
+	v.filteredParams = result
+}
+
+// getUniqueCategories returns unique top-level categories with "All Categories" first.
+func (v *ConfigView) getUniqueCategories() []string {
+	categories := []string{"All Categories"}
+	if v.data == nil {
+		return categories
+	}
+
+	// Use a map to track unique categories
+	seen := make(map[string]bool)
+	for _, p := range v.data.Parameters {
+		cat := p.TopLevelCategory()
+		if cat != "" && !seen[cat] {
+			seen[cat] = true
+			categories = append(categories, cat)
+		}
+	}
+
+	// Sort categories (except "All Categories" which stays first)
+	if len(categories) > 1 {
+		sort.Strings(categories[1:])
+	}
+
+	return categories
 }
 
 // ensureVisible adjusts scroll offset to keep selection visible.
@@ -241,8 +393,13 @@ func (v *ConfigView) ensureVisible() {
 
 // visibleRows returns the number of visible table rows.
 func (v *ConfigView) visibleRows() int {
-	// Height minus: status bar(1) + title(1) + header(1) + separator(1) + footer(1) + padding
-	return v.height - 6
+	// Height minus: app header(1) + status bar(1) + title(1) + table header(1) + separator(1) + footer(1)
+	rows := v.height - 7
+	// Account for search input line when in search mode
+	if v.mode == ModeSearch {
+		rows--
+	}
+	return max(1, rows)
 }
 
 // cycleSortColumn cycles to the next sort column.
@@ -291,16 +448,32 @@ func (v *ConfigView) View() string {
 		return v.renderHelp()
 	}
 
+	// Category filter overlay
+	if v.mode == ModeCategoryFilter {
+		return v.renderCategoryFilter()
+	}
+
 	var b strings.Builder
 
 	// Status bar
 	b.WriteString(v.renderStatusBar())
 	b.WriteString("\n")
 
-	// Title
+	// Title with filter status
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
-	b.WriteString(titleStyle.Render("Configuration"))
+	title := "Configuration"
+	if v.searchFilter != "" || v.categoryFilter != "" {
+		filterInfo := v.getFilterStatusText()
+		title += " " + styles.WarningStyle.Render(filterInfo)
+	}
+	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n")
+
+	// Search input (shown in search mode)
+	if v.mode == ModeSearch {
+		b.WriteString(v.renderSearchInput())
+		b.WriteString("\n")
+	}
 
 	// Table
 	b.WriteString(v.renderTable())
@@ -310,6 +483,52 @@ func (v *ConfigView) View() string {
 	b.WriteString(v.renderFooter())
 
 	return b.String()
+}
+
+// getFilterStatusText returns a text description of active filters.
+func (v *ConfigView) getFilterStatusText() string {
+	var parts []string
+	if v.searchFilter != "" {
+		parts = append(parts, fmt.Sprintf("[search: %s]", v.searchFilter))
+	}
+	if v.categoryFilter != "" {
+		parts = append(parts, fmt.Sprintf("[category: %s]", v.categoryFilter))
+	}
+	return strings.Join(parts, " ")
+}
+
+// renderSearchInput renders the search input prompt.
+func (v *ConfigView) renderSearchInput() string {
+	prompt := styles.AccentStyle.Render("Search: ")
+	input := v.searchInput + "_"
+	return prompt + input
+}
+
+// renderCategoryFilter renders the category filter overlay.
+func (v *ConfigView) renderCategoryFilter() string {
+	categories := v.getUniqueCategories()
+
+	var b strings.Builder
+	b.WriteString(styles.AccentStyle.Render("Select Category"))
+	b.WriteString("\n\n")
+
+	for i, cat := range categories {
+		if i == v.categoryIdx {
+			b.WriteString(styles.TableSelectedStyle.Render("> " + cat))
+		} else {
+			b.WriteString("  " + cat)
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(styles.MutedStyle.Render("[j/k]nav [enter]select [esc]cancel"))
+
+	return lipgloss.NewStyle().
+		Width(v.width).
+		Height(v.height).
+		Padding(2, 4).
+		Render(b.String())
 }
 
 // renderStatusBar renders the status bar at the top.
@@ -358,6 +577,22 @@ func (v *ConfigView) renderTable() string {
 		return styles.MutedStyle.Render("No configuration parameters found.")
 	}
 
+	// Get filtered parameters
+	params := v.getDisplayParams()
+
+	// Show "No results found" when filters match zero parameters
+	if len(params) == 0 {
+		msg := "No results found"
+		if v.searchFilter != "" {
+			msg += fmt.Sprintf(" for search: %q", v.searchFilter)
+		}
+		if v.categoryFilter != "" {
+			msg += fmt.Sprintf(" in category: %q", v.categoryFilter)
+		}
+		msg += "\n\nPress [esc] to clear filters"
+		return styles.MutedStyle.Render(msg)
+	}
+
 	var lines []string
 
 	// Column widths
@@ -381,15 +616,15 @@ func (v *ConfigView) renderTable() string {
 		return ""
 	}
 
-	header := fmt.Sprintf("%-*s │ %-*s │ %-*s │ %-*s │ %s",
+	header := fmt.Sprintf("%-*s │ %-*s │ %-*s │ %-*s │ %-*s",
 		nameWidth, "Name"+sortIndicator(SortByName),
 		valueWidth, "Value",
 		unitWidth, "Unit",
 		categoryWidth, "Category"+sortIndicator(SortByCategory),
-		"Description")
+		descWidth, "Description")
 	lines = append(lines, styles.TableHeaderStyle.Render(header))
 
-	// Separator
+	// Separator - must match header width exactly
 	sep := strings.Repeat("─", nameWidth) + "─┼─" +
 		strings.Repeat("─", valueWidth) + "─┼─" +
 		strings.Repeat("─", unitWidth) + "─┼─" +
@@ -400,15 +635,15 @@ func (v *ConfigView) renderTable() string {
 	// Rows
 	visible := v.visibleRows()
 	endIdx := v.scrollOffset + visible
-	if endIdx > len(v.data.Parameters) {
-		endIdx = len(v.data.Parameters)
+	if endIdx > len(params) {
+		endIdx = len(params)
 	}
 
 	// Yellow style for modified parameters
 	modifiedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // Yellow
 
 	for i := v.scrollOffset; i < endIdx; i++ {
-		p := v.data.Parameters[i]
+		p := params[i]
 
 		name := truncate(p.Name, nameWidth)
 		value := truncate(p.Setting, valueWidth)
@@ -416,12 +651,12 @@ func (v *ConfigView) renderTable() string {
 		category := truncate(p.TopLevelCategory(), categoryWidth)
 		desc := truncate(p.ShortDesc, descWidth)
 
-		row := fmt.Sprintf("%-*s │ %-*s │ %-*s │ %-*s │ %s",
+		row := fmt.Sprintf("%-*s │ %-*s │ %-*s │ %-*s │ %-*s",
 			nameWidth, name,
 			valueWidth, value,
 			unitWidth, unit,
 			categoryWidth, category,
-			desc)
+			descWidth, desc)
 
 		// Apply styles
 		if i == v.selectedIdx {
@@ -438,14 +673,31 @@ func (v *ConfigView) renderTable() string {
 
 // renderFooter renders the footer with key hints.
 func (v *ConfigView) renderFooter() string {
-	hints := styles.FooterHintStyle.Render("[j/k]nav [s/S]ort [h]elp")
+	// Build hints based on current filter state
+	var hintParts []string
+	hintParts = append(hintParts, "[j/k]nav", "[s/S]ort", "[/]search", "[c]ategory")
+	if v.searchFilter != "" || v.categoryFilter != "" {
+		hintParts = append(hintParts, "[esc]clear")
+	}
+	hintParts = append(hintParts, "[h]elp")
+	hints := styles.FooterHintStyle.Render(strings.Join(hintParts, " "))
 
 	arrow := "↓"
 	if v.sortAsc {
 		arrow = "↑"
 	}
 	sortInfo := fmt.Sprintf("Sort: %s %s", v.sortColumn.String(), arrow)
-	count := fmt.Sprintf("%d / %d", min(v.selectedIdx+1, len(v.data.Parameters)), len(v.data.Parameters))
+
+	// Use filtered params for count
+	params := v.getDisplayParams()
+	totalParams := 0
+	if v.data != nil {
+		totalParams = len(v.data.Parameters)
+	}
+	count := fmt.Sprintf("%d / %d", min(v.selectedIdx+1, len(params)), len(params))
+	if len(params) != totalParams {
+		count += fmt.Sprintf(" (of %d)", totalParams)
+	}
 	rightSide := styles.FooterCountStyle.Render(sortInfo + "  " + count)
 
 	gap := v.width - lipgloss.Width(hints) - lipgloss.Width(rightSide) - 4
@@ -471,6 +723,11 @@ NAVIGATION
 SORTING
   s              Cycle sort column (Name → Category)
   S              Toggle sort direction (asc/desc)
+
+SEARCH & FILTER
+  /              Enter search mode (filter by name/description)
+  c              Show category filter menu
+  Esc            Clear active filters
 
 OTHER
   h              Show this help

@@ -91,20 +91,20 @@ Based on plan.md structure:
 
 ### Tests for User Story 2
 
-- [ ] T027 [P] [US2] Unit test for ConfigData.FilterBySearch() in tests/unit/config_model_test.go
-- [ ] T028 [P] [US2] Unit test for ConfigData.FilterByCategory() in tests/unit/config_model_test.go
+- [x] T027 [P] [US2] Unit test for ConfigData.FilterBySearch() in tests/unit/config_model_test.go
+- [x] T028 [P] [US2] Unit test for ConfigData.FilterByCategory() in tests/unit/config_model_test.go
 
 ### Implementation for User Story 2
 
-- [ ] T029 [US2] Add ConfigMode enum (ModeNormal, ModeSearch, ModeCategoryFilter) to ConfigView in internal/ui/views/config/view.go
-- [ ] T030 [US2] Add searchInput, filterActive, categoryFilter fields to ConfigView struct in internal/ui/views/config/view.go
-- [ ] T031 [US2] Implement search mode: enter on `/`, capture input, filter on Enter, exit on Escape in internal/ui/views/config/view.go
-- [ ] T032 [US2] Implement renderSearchInput() showing search prompt and current input in internal/ui/views/config/view.go
-- [ ] T033 [US2] Implement category filter mode: show dropdown on `c` key with unique top-level categories in internal/ui/views/config/view.go
-- [ ] T034 [US2] Implement renderCategoryFilter() showing selectable category list in internal/ui/views/config/view.go
-- [ ] T035 [US2] Apply filters to displayed parameters using ConfigData.FilterBySearch() and FilterByCategory() in renderTable()
-- [ ] T036 [US2] Show "No results found" message when filters match zero parameters in renderTable()
-- [ ] T037 [US2] Add filter status indicator in header (showing active search/category filter) in View()
+- [x] T029 [US2] Add ConfigMode enum (ModeNormal, ModeSearch, ModeCategoryFilter) to ConfigView in internal/ui/views/config/view.go
+- [x] T030 [US2] Add searchInput, filterActive, categoryFilter fields to ConfigView struct in internal/ui/views/config/view.go
+- [x] T031 [US2] Implement search mode: enter on `/`, capture input, filter on Enter, exit on Escape in internal/ui/views/config/view.go
+- [x] T032 [US2] Implement renderSearchInput() showing search prompt and current input in internal/ui/views/config/view.go
+- [x] T033 [US2] Implement category filter mode: show dropdown on `c` key with unique top-level categories in internal/ui/views/config/view.go
+- [x] T034 [US2] Implement renderCategoryFilter() showing selectable category list in internal/ui/views/config/view.go
+- [x] T035 [US2] Apply filters to displayed parameters using ConfigData.FilterBySearch() and FilterByCategory() in renderTable()
+- [x] T036 [US2] Show "No results found" message when filters match zero parameters in renderTable()
+- [x] T037 [US2] Add filter status indicator in header (showing active search/category filter) in View()
 
 **Checkpoint**: User Story 2 complete - can search and filter parameters
 
