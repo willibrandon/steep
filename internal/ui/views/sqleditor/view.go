@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -501,7 +502,7 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				SortColumn:  -1, // No sort initially
 				SortAsc:     true,
 			}
-			v.selectedRow = 0
+			v.selectedRow = -1 // No row selected initially
 			v.scrollOffset = 0
 			v.colScrollOffset = 0
 
@@ -830,7 +831,7 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) {
 	// Calculate where the results table data starts
 	// Account for: connection bar, editor, results title, column info, header, separator
 	editorHeight := int(float64(v.height-5) * v.splitRatio)
-	resultsDataStartY := 10 + editorHeight
+	resultsDataStartY := 11 + editorHeight
 
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
@@ -927,25 +928,45 @@ func (v *SQLEditorView) executeQueryCmd() tea.Cmd {
 		timeout := v.queryTimeout
 
 		return func() tea.Msg {
+			start := time.Now()
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 
-			// Get total count first (with shorter timeout, allow failure)
+			// Run COUNT(*) and actual query IN PARALLEL for performance
+			// This makes Steep as fast as psql while still providing total row count
+			var wg sync.WaitGroup
 			var totalCount int64 = -1
-			countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS _cnt", baseSQL)
-			countCtx, countCancel := context.WithTimeout(ctx, 30*time.Second)
-			_ = executor.pool.QueryRow(countCtx, countSQL).Scan(&totalCount)
-			countCancel()
+			var result *ExecutionResult
+			var queryErr error
 
-			// Execute paginated query (page 1)
-			paginatedSQL := fmt.Sprintf("%s LIMIT %d OFFSET 0", baseSQL, DefaultPageSize)
-			result, err := executor.ExecuteQuery(ctx, paginatedSQL, timeout)
-			if err != nil {
-				return QueryCompletedMsg{Result: &ExecutionResult{Error: err}}
+			// COUNT query in parallel goroutine
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS _cnt", baseSQL)
+				countCtx, countCancel := context.WithTimeout(ctx, 30*time.Second)
+				defer countCancel()
+				_ = executor.pool.QueryRow(countCtx, countSQL).Scan(&totalCount)
+			}()
+
+			// Actual paginated query in parallel goroutine
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				paginatedSQL := fmt.Sprintf("%s LIMIT %d OFFSET 0", baseSQL, DefaultPageSize)
+				result, queryErr = executor.ExecuteQuery(ctx, paginatedSQL, timeout)
+			}()
+
+			// Wait for both to complete
+			wg.Wait()
+
+			if queryErr != nil {
+				return QueryCompletedMsg{Result: &ExecutionResult{Error: queryErr}}
 			}
 
-			// Encode pagination metadata in Message field
+			// Total time is now max(count_time, query_time) instead of sum
 			if result != nil {
+				result.Duration = time.Since(start)
 				result.Message = fmt.Sprintf("__PAGE__:%d:%d", 1, totalCount)
 			}
 
@@ -1009,6 +1030,13 @@ func (v *SQLEditorView) moveSelection(delta int) {
 
 	pageStart, pageEnd := v.pageRowBounds()
 
+	// If no row selected yet, select first row on any movement
+	if v.selectedRow < 0 {
+		v.selectedRow = pageStart
+		v.ensureVisible()
+		return
+	}
+
 	v.selectedRow += delta
 	if v.selectedRow < pageStart {
 		v.selectedRow = pageStart
@@ -1035,7 +1063,7 @@ func (v *SQLEditorView) visibleResultRows() int {
 
 // ensureVisible scrolls to make the selected row visible within current page.
 func (v *SQLEditorView) ensureVisible() {
-	if v.results == nil {
+	if v.results == nil || v.selectedRow < 0 {
 		return
 	}
 
@@ -1542,7 +1570,7 @@ func (v *SQLEditorView) handleSnippetBrowserInput(key string) tea.Cmd {
 
 // copyCell copies the current cell value to clipboard.
 func (v *SQLEditorView) copyCell() tea.Cmd {
-	if v.results == nil || len(v.results.Rows) == 0 {
+	if v.results == nil || len(v.results.Rows) == 0 || v.selectedRow < 0 {
 		return nil
 	}
 
@@ -1566,7 +1594,7 @@ func (v *SQLEditorView) copyCell() tea.Cmd {
 
 // copyRow copies the entire row to clipboard (tab-separated).
 func (v *SQLEditorView) copyRow() tea.Cmd {
-	if v.results == nil || len(v.results.Rows) == 0 {
+	if v.results == nil || len(v.results.Rows) == 0 || v.selectedRow < 0 {
 		return nil
 	}
 
@@ -1706,7 +1734,11 @@ func (v *SQLEditorView) renderResults() string {
 		content = v.renderError()
 	} else if v.results == nil || v.results.TotalRows == 0 {
 		if v.executedQuery != "" {
-			content = styles.MutedStyle.Render("Query returned 0 rows.")
+			if v.results != nil {
+				content = styles.MutedStyle.Render(fmt.Sprintf("Query returned 0 rows (%dms).", v.results.ExecutionMs))
+			} else {
+				content = styles.MutedStyle.Render("Query returned 0 rows.")
+			}
 		} else {
 			content = styles.MutedStyle.Render("No results. Execute a query with F5.")
 		}
