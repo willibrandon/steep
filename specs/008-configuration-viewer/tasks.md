@@ -39,12 +39,12 @@ Based on plan.md structure:
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Create Parameter struct with all 17 fields from pg_settings in internal/db/models/config.go
-- [ ] T005 Add Parameter helper methods (IsModified, RequiresRestart, RequiresReload, CanUserChange, TopLevelCategory) in internal/db/models/config.go
-- [ ] T006 Create ConfigData struct with Parameters slice, ModifiedCount, PendingRestartCount, Categories in internal/db/models/config.go
-- [ ] T007 Add NewConfigData() constructor and FilterByCategory(), FilterBySearch() methods in internal/db/models/config.go
-- [ ] T008 Create GetAllParameters query function in internal/db/queries/config.go with SQL from data-model.md
-- [ ] T009 Create ConfigDataMsg and RefreshConfigMsg message types in internal/ui/views/config/view.go
+- [x] T004 Create Parameter struct with all 17 fields from pg_settings in internal/db/models/config.go
+- [x] T005 Add Parameter helper methods (IsModified, RequiresRestart, RequiresReload, CanUserChange, TopLevelCategory) in internal/db/models/config.go
+- [x] T006 Create ConfigData struct with Parameters slice, ModifiedCount, PendingRestartCount, Categories in internal/db/models/config.go
+- [x] T007 Add NewConfigData() constructor and FilterByCategory(), FilterBySearch() methods in internal/db/models/config.go
+- [x] T008 Create GetAllParameters query function in internal/db/queries/config.go with SQL from data-model.md
+- [x] T009 Create ConfigDataMsg and RefreshConfigMsg message types in internal/ui/views/config/view.go
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
