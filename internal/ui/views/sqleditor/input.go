@@ -130,13 +130,16 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
 	}
 
 	// Calculate layout boundaries using v.editorHeight set by SetSize
-	// App header: lines 0-3 (title, tabs, etc.)
-	// Connection bar: line 4
-	// Editor section starts at line 5
-	editorContentStartY := 6                                       // After app header, connection bar, and editor title
-	editorContentEndY := editorContentStartY + v.editorHeight - 2  // -2 for title and status bar within editor
-	// Results layout: title(1) + [scroll info if >1 col](0-1) + header(1) + separator(1) + data
-	resultsDataStartY := 9 + v.editorHeight
+	// WARNING: editorContentStartY=5 was determined empirically (2025-11).
+	// If mouse clicks start landing on wrong lines again, this value likely
+	// needs adjustment due to layout changes in app.go or render.go.
+	// TODO: Consider a more robust approach - e.g., tracking cumulative heights
+	// from rendered components rather than hardcoding offsets.
+	editorContentStartY := 5                                       // First line of vimtea editor content
+	editorContentEndY := editorContentStartY + v.editorHeight - 2  // -2 for chrome and vimtea status bar
+	// Results section starts at app line (5 + editorHeight - 2) + offset
+	// Within results: title(1) + [scroll info if >1 col](0-1) + header(1) + separator(1) + data
+	resultsDataStartY := 8 + v.editorHeight
 	if v.results != nil && len(v.results.Columns) > 1 {
 		resultsDataStartY++ // account for "Cols X-Y of Z" scroll info line
 	}
