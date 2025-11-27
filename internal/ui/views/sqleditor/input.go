@@ -137,9 +137,10 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
 	// from rendered components rather than hardcoding offsets.
 	editorContentStartY := 5                                       // First line of vimtea editor content
 	editorContentEndY := editorContentStartY + v.editorHeight - 2  // -2 for chrome and vimtea status bar
-	// Results section starts at app line (5 + editorHeight - 2) + offset
+	// Results section starts after editor section
 	// Within results: title(1) + [scroll info if >1 col](0-1) + header(1) + separator(1) + data
-	resultsDataStartY := 8 + v.editorHeight
+	// WARNING: This value (9) was empirically determined separately from editorContentStartY
+	resultsDataStartY := 9 + v.editorHeight
 	if v.results != nil && len(v.results.Columns) > 1 {
 		resultsDataStartY++ // account for "Cols X-Y of Z" scroll info line
 	}
