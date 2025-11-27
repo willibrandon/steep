@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
@@ -100,6 +101,9 @@ type ConfigView struct {
 	toastMessage string    // Toast message to display
 	toastIsError bool      // Whether toast is an error message
 	toastTime    time.Time // When toast was shown
+
+	// Read-only mode
+	readOnly bool // If true, write operations are blocked
 }
 
 // NewConfigView creates a new configuration view.
@@ -131,6 +135,11 @@ func (v *ConfigView) SetConnected(connected bool) {
 // SetConnectionInfo sets the connection info string.
 func (v *ConfigView) SetConnectionInfo(info string) {
 	v.connectionInfo = info
+}
+
+// SetReadOnly sets the read-only mode.
+func (v *ConfigView) SetReadOnly(readOnly bool) {
+	v.readOnly = readOnly
 }
 
 // IsInputMode returns true when the view is in a mode that should consume keys.
@@ -200,6 +209,52 @@ func (v *ConfigView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.toastIsError = false
 		} else {
 			v.toastMessage = fmt.Sprintf("Export failed: %v", msg.Error)
+			v.toastIsError = true
+		}
+		v.toastTime = time.Now()
+
+	case ui.SetConfigResultMsg:
+		if msg.Success {
+			// Show context-aware success message
+			switch msg.Context {
+			case "postmaster":
+				v.toastMessage = fmt.Sprintf("Set %s = %s (restart required to apply)", msg.Parameter, msg.Value)
+			case "sighup":
+				v.toastMessage = fmt.Sprintf("Set %s = %s (use :reload to apply)", msg.Parameter, msg.Value)
+			default:
+				v.toastMessage = fmt.Sprintf("Set %s = %s", msg.Parameter, msg.Value)
+			}
+			v.toastIsError = false
+		} else {
+			v.toastMessage = fmt.Sprintf("Failed to set %s: %v", msg.Parameter, msg.Error)
+			v.toastIsError = true
+		}
+		v.toastTime = time.Now()
+
+	case ui.ResetConfigResultMsg:
+		if msg.Success {
+			// Show context-aware success message
+			switch msg.Context {
+			case "postmaster":
+				v.toastMessage = fmt.Sprintf("Reset %s to default (restart required to apply)", msg.Parameter)
+			case "sighup":
+				v.toastMessage = fmt.Sprintf("Reset %s to default (use :reload to apply)", msg.Parameter)
+			default:
+				v.toastMessage = fmt.Sprintf("Reset %s to default", msg.Parameter)
+			}
+			v.toastIsError = false
+		} else {
+			v.toastMessage = fmt.Sprintf("Failed to reset %s: %v", msg.Parameter, msg.Error)
+			v.toastIsError = true
+		}
+		v.toastTime = time.Now()
+
+	case ui.ReloadConfigResultMsg:
+		if msg.Success {
+			v.toastMessage = "Configuration reloaded successfully"
+			v.toastIsError = false
+		} else {
+			v.toastMessage = fmt.Sprintf("Failed to reload config: %v", msg.Error)
 			v.toastIsError = true
 		}
 		v.toastTime = time.Now()
@@ -381,6 +436,13 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		v.mode = ModeCommand
 		v.commandInput = ""
 		v.toastMessage = "" // Clear any existing toast
+
+	// Manual refresh
+	case "r":
+		v.refreshing = true
+		return func() tea.Msg {
+			return RefreshConfigMsg{}
+		}
 	}
 
 	return nil
@@ -388,7 +450,7 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 // executeCommand executes a command entered in command mode.
 func (v *ConfigView) executeCommand(cmd string) tea.Cmd {
-	// Try parsing as export command
+	// Try parsing as export command (read-only safe)
 	if exportCmd := parseExportCommand(cmd); exportCmd != nil {
 		// Export currently filtered parameters
 		params := v.getDisplayParams()
@@ -403,10 +465,92 @@ func (v *ConfigView) executeCommand(cmd string) tea.Cmd {
 		}
 	}
 
+	// Try parsing as set command (requires write access)
+	if setCmd := parseSetCommand(cmd); setCmd != nil {
+		if v.readOnly {
+			v.toastMessage = "Cannot modify config in read-only mode"
+			v.toastIsError = true
+			v.toastTime = time.Now()
+			return nil
+		}
+
+		// Look up parameter to get its context
+		context := v.getParameterContext(setCmd.Parameter)
+		if context == "" {
+			v.toastMessage = fmt.Sprintf("Unknown parameter: %s", setCmd.Parameter)
+			v.toastIsError = true
+			v.toastTime = time.Now()
+			return nil
+		}
+
+		return func() tea.Msg {
+			return ui.SetConfigMsg{
+				Parameter: setCmd.Parameter,
+				Value:     setCmd.Value,
+				Context:   context,
+			}
+		}
+	}
+
+	// Try parsing as reset command (requires write access)
+	if resetCmd := parseResetCommand(cmd); resetCmd != nil {
+		if v.readOnly {
+			v.toastMessage = "Cannot modify config in read-only mode"
+			v.toastIsError = true
+			v.toastTime = time.Now()
+			return nil
+		}
+
+		// Look up parameter to get its context
+		context := v.getParameterContext(resetCmd.Parameter)
+		if context == "" {
+			v.toastMessage = fmt.Sprintf("Unknown parameter: %s", resetCmd.Parameter)
+			v.toastIsError = true
+			v.toastTime = time.Now()
+			return nil
+		}
+
+		return func() tea.Msg {
+			return ui.ResetConfigMsg{
+				Parameter: resetCmd.Parameter,
+				Context:   context,
+			}
+		}
+	}
+
+	// Try parsing as reload command (requires write access)
+	if parseReloadCommand(cmd) {
+		if v.readOnly {
+			v.toastMessage = "Cannot reload config in read-only mode"
+			v.toastIsError = true
+			v.toastTime = time.Now()
+			return nil
+		}
+
+		return func() tea.Msg {
+			return ui.ReloadConfigMsg{}
+		}
+	}
+
 	// Unknown command
 	v.toastMessage = fmt.Sprintf("Unknown command: %s", cmd)
 	v.toastIsError = true
+	v.toastTime = time.Now()
 	return nil
+}
+
+// getParameterContext looks up a parameter by name and returns its context.
+// Returns empty string if parameter not found.
+func (v *ConfigView) getParameterContext(name string) string {
+	if v.data == nil {
+		return ""
+	}
+	for _, p := range v.data.Parameters {
+		if strings.EqualFold(p.Name, name) {
+			return p.Context
+		}
+	}
+	return ""
 }
 
 // moveSelection moves the selection by delta rows.
@@ -1047,7 +1191,7 @@ func (v *ConfigView) renderFooter() string {
 	} else {
 		// Build hints based on current filter state
 		var hintParts []string
-		hintParts = append(hintParts, "[j/k]nav", "[s/S]ort", "[d]etails", "[/]search", "[c]ategory", "[:]cmd")
+		hintParts = append(hintParts, "[j/k]nav", "[s/S]ort", "[d]etails", "[/]search", "[c]ategory", "[:]cmd", "[r]efresh")
 		if v.searchFilter != "" || v.categoryFilter != "" {
 			hintParts = append(hintParts, "[esc]clear")
 		}
@@ -1109,8 +1253,12 @@ DETAILS
 COMMANDS
   :              Enter command mode
   :export config <file>  Export parameters to file
+  :set <param> <value>   Change parameter (ALTER SYSTEM)
+  :reset <param>         Reset parameter to default
+  :reload                Reload configuration (pg_reload_conf)
 
 OTHER
+  r              Refresh configuration data
   h              Show this help
   q              Quit application
   1-8            Switch views

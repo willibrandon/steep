@@ -124,3 +124,90 @@ func escapeConfigValue(s string) string {
 	s = strings.ReplaceAll(s, "\\", "\\\\")
 	return s
 }
+
+// SetCommand represents a parsed set command.
+type SetCommand struct {
+	Parameter string
+	Value     string
+}
+
+// parseSetCommand parses ":set <parameter> <value>" syntax.
+// Returns nil if the command is not a valid set command.
+func parseSetCommand(input string) *SetCommand {
+	// Trim leading colon if present
+	input = strings.TrimPrefix(input, ":")
+	input = strings.TrimSpace(input)
+
+	// Check for "set " prefix
+	if !strings.HasPrefix(strings.ToLower(input), "set ") {
+		return nil
+	}
+
+	// Extract parameter and value
+	rest := strings.TrimSpace(input[4:]) // Skip "set "
+
+	// Split on first space or equals sign
+	var parameter, value string
+
+	// Handle "set param=value" or "set param = value" or "set param value"
+	if idx := strings.Index(rest, "="); idx != -1 {
+		parameter = strings.TrimSpace(rest[:idx])
+		value = strings.TrimSpace(rest[idx+1:])
+	} else {
+		parts := strings.SplitN(rest, " ", 2)
+		if len(parts) < 2 {
+			return nil
+		}
+		parameter = strings.TrimSpace(parts[0])
+		value = strings.TrimSpace(parts[1])
+	}
+
+	if parameter == "" || value == "" {
+		return nil
+	}
+
+	// Remove quotes from value if present
+	value = strings.Trim(value, "'\"")
+
+	return &SetCommand{
+		Parameter: parameter,
+		Value:     value,
+	}
+}
+
+// ResetCommand represents a parsed reset command.
+type ResetCommand struct {
+	Parameter string
+}
+
+// parseResetCommand parses ":reset <parameter>" syntax.
+// Returns nil if the command is not a valid reset command.
+func parseResetCommand(input string) *ResetCommand {
+	// Trim leading colon if present
+	input = strings.TrimPrefix(input, ":")
+	input = strings.TrimSpace(input)
+
+	// Check for "reset " prefix
+	if !strings.HasPrefix(strings.ToLower(input), "reset ") {
+		return nil
+	}
+
+	// Extract parameter
+	parameter := strings.TrimSpace(input[6:]) // Skip "reset "
+
+	if parameter == "" {
+		return nil
+	}
+
+	return &ResetCommand{Parameter: parameter}
+}
+
+// parseReloadCommand checks if the input is a reload command.
+// Returns true if the command is ":reload".
+func parseReloadCommand(input string) bool {
+	// Trim leading colon if present
+	input = strings.TrimPrefix(input, ":")
+	input = strings.TrimSpace(input)
+
+	return strings.ToLower(input) == "reload"
+}

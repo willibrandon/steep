@@ -250,3 +250,44 @@ type AlterSystemResultMsg struct {
 	Commands []string
 	Error    error
 }
+
+// Configuration write messages
+
+// SetConfigMsg requests changing a configuration parameter via ALTER SYSTEM.
+type SetConfigMsg struct {
+	Parameter string
+	Value     string
+	Context   string // Parameter context for warning messages
+}
+
+// SetConfigResultMsg contains the result of a configuration change.
+type SetConfigResultMsg struct {
+	Parameter string
+	Value     string
+	Context   string // Parameter context for appropriate messaging
+	Success   bool
+	Error     error
+}
+
+// ResetConfigMsg requests resetting a configuration parameter to default.
+type ResetConfigMsg struct {
+	Parameter string
+	Context   string
+}
+
+// ResetConfigResultMsg contains the result of a configuration reset.
+type ResetConfigResultMsg struct {
+	Parameter string
+	Context   string
+	Success   bool
+	Error     error
+}
+
+// ReloadConfigMsg requests reloading PostgreSQL configuration via pg_reload_conf().
+type ReloadConfigMsg struct{}
+
+// ReloadConfigResultMsg contains the result of a configuration reload.
+type ReloadConfigResultMsg struct {
+	Success bool
+	Error   error
+}

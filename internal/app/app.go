@@ -93,6 +93,7 @@ type Model struct {
 	replicationMonitor *monitors.ReplicationMonitor
 	replicationStore   *sqlite.ReplicationStore
 	configMonitor      *monitors.ConfigMonitor
+	configTickCounter  int // Counter for slower config refresh (every 60 ticks)
 
 	// Query performance monitoring
 	queryStatsDB    *sqlite.DB
@@ -146,6 +147,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 
 	// Initialize Configuration view
 	configView := configview.NewConfigView()
+	configView.SetReadOnly(readonly)
 
 	// Define available views
 	viewList := []views.ViewType{
@@ -427,6 +429,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nextTick := tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
 			return dataTickMsg{}
 		})
+		// Increment config tick counter
+		m.configTickCounter++
+
 		// Fetch all data together for synchronized updates
 		if m.connected && m.activityMonitor != nil && m.statsMonitor != nil {
 			cmds := []tea.Cmd{
@@ -449,6 +454,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Also fetch query stats if store is available
 			if m.queryStatsStore != nil {
 				cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queryMonitor, m.queriesView.GetSortColumn(), m.queriesView.GetSortAsc(), m.queriesView.GetFilter()))
+			}
+			// Fetch config data every 60 ticks (~60 seconds if refresh is 1s)
+			if m.configMonitor != nil && m.configTickCounter >= 60 {
+				m.configTickCounter = 0
+				cmds = append(cmds, fetchConfigData(m.configMonitor))
 			}
 			return m, tea.Batch(cmds...)
 		}
@@ -601,6 +611,58 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case configview.ExportConfigResultMsg:
 		// Forward to config view for toast display
 		m.configView.Update(msg)
+		return m, nil
+
+	case ui.SetConfigMsg:
+		// Execute ALTER SYSTEM SET
+		if m.dbPool != nil {
+			return m, setConfigParameter(m.dbPool, msg.Parameter, msg.Value, msg.Context)
+		}
+		return m, nil
+
+	case ui.SetConfigResultMsg:
+		// Forward to config view for toast display, then refresh config data
+		m.configView.Update(msg)
+		if msg.Success && m.configMonitor != nil {
+			return m, fetchConfigData(m.configMonitor)
+		}
+		return m, nil
+
+	case ui.ResetConfigMsg:
+		// Execute ALTER SYSTEM RESET
+		if m.dbPool != nil {
+			return m, resetConfigParameter(m.dbPool, msg.Parameter, msg.Context)
+		}
+		return m, nil
+
+	case ui.ResetConfigResultMsg:
+		// Forward to config view for toast display, then refresh config data
+		m.configView.Update(msg)
+		if msg.Success && m.configMonitor != nil {
+			return m, fetchConfigData(m.configMonitor)
+		}
+		return m, nil
+
+	case ui.ReloadConfigMsg:
+		// Execute pg_reload_conf()
+		if m.dbPool != nil {
+			return m, reloadConfig(m.dbPool)
+		}
+		return m, nil
+
+	case ui.ReloadConfigResultMsg:
+		// Forward to config view for toast display, then refresh config data
+		m.configView.Update(msg)
+		if msg.Success && m.configMonitor != nil {
+			return m, fetchConfigData(m.configMonitor)
+		}
+		return m, nil
+
+	case configview.RefreshConfigMsg:
+		// Manual refresh requested from config view
+		if m.configMonitor != nil {
+			return m, fetchConfigData(m.configMonitor)
+		}
 		return m, nil
 
 	case ui.ReplicationDataMsg:

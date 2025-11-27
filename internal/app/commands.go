@@ -399,3 +399,44 @@ func fetchConfigData(monitor *monitors.ConfigMonitor) tea.Cmd {
 		return monitor.FetchOnce(ctx)
 	}
 }
+
+// setConfigParameter creates a command to set a configuration parameter
+func setConfigParameter(pool *pgxpool.Pool, parameter, value, paramContext string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		err := queries.AlterSystemSet(ctx, pool, parameter, value)
+		return ui.SetConfigResultMsg{
+			Parameter: parameter,
+			Value:     value,
+			Context:   paramContext,
+			Success:   err == nil,
+			Error:     err,
+		}
+	}
+}
+
+// resetConfigParameter creates a command to reset a configuration parameter
+func resetConfigParameter(pool *pgxpool.Pool, parameter, paramContext string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		err := queries.AlterSystemReset(ctx, pool, parameter)
+		return ui.ResetConfigResultMsg{
+			Parameter: parameter,
+			Context:   paramContext,
+			Success:   err == nil,
+			Error:     err,
+		}
+	}
+}
+
+// reloadConfig creates a command to reload PostgreSQL configuration
+func reloadConfig(pool *pgxpool.Pool) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		success, err := queries.ReloadConfig(ctx, pool)
+		return ui.ReloadConfigResultMsg{
+			Success: success && err == nil,
+			Error:   err,
+		}
+	}
+}
