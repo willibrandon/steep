@@ -317,6 +317,8 @@ These reference implementations are available for studying UI/UX patterns before
 - SQLite (query history in ~/.config/steep/), YAML (snippets in ~/.config/steep/snippets.yaml) (007-sql-editor)
 - Go 1.25.4 (per go.mod) + bubbletea, bubbles (table, viewport), lipgloss, pgx/pgxpool (008-configuration-viewer)
 - PostgreSQL (pg_settings view - read-only) (008-configuration-viewer)
+- Go 1.25.4 (per go.mod) + bubbletea, bubbles (viewport), lipgloss, pgx/pgxpool (009-log-viewer)
+- PostgreSQL log files (file system read or pg_read_file()), position tracking via SQLite (009-log-viewer)
 
 ## Recent Changes
 - 007-sql-editor: Multi-line SQL editor with vim-style editing (vimtea), Chroma syntax highlighting
