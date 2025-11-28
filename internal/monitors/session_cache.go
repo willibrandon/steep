@@ -97,68 +97,6 @@ func (c *SessionCache) checkAndCapture(ctx context.Context) {
 	c.captureFullLockGraph(ctx)
 }
 
-// getWaitingPIDs returns PIDs that have non-granted locks.
-func (c *SessionCache) getWaitingPIDs(ctx context.Context) ([]int, error) {
-	rows, err := c.pool.Query(ctx, `
-		SELECT DISTINCT pid
-		FROM pg_locks
-		WHERE NOT granted
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var pids []int
-	for rows.Next() {
-		var pid int
-		if err := rows.Scan(&pid); err != nil {
-			continue
-		}
-		pids = append(pids, pid)
-	}
-
-	return pids, rows.Err()
-}
-
-// captureSessionState captures backend_start and xact_start for the given PIDs.
-func (c *SessionCache) captureSessionState(ctx context.Context, pids []int) {
-	if len(pids) == 0 {
-		return
-	}
-
-	rows, err := c.pool.Query(ctx, `
-		SELECT pid, backend_start, xact_start
-		FROM pg_stat_activity
-		WHERE pid = ANY($1)
-	`, pids)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	now := time.Now()
-	for rows.Next() {
-		var pid int
-		var backendStart time.Time
-		var xactStart *time.Time
-
-		if err := rows.Scan(&pid, &backendStart, &xactStart); err != nil {
-			continue
-		}
-
-		c.cache[pid] = &SessionState{
-			PID:          pid,
-			BackendStart: backendStart,
-			XactStart:    xactStart,
-			CapturedAt:   now,
-		}
-	}
-}
-
 // captureFullLockGraph captures both blocked and blocking PIDs in a single atomic query.
 func (c *SessionCache) captureFullLockGraph(ctx context.Context) {
 	rows, err := c.pool.Query(ctx, `

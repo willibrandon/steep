@@ -182,7 +182,7 @@ func (v *ActivityView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Handle mode-specific keys
 	switch v.mode {
 	case ModeFilter:
-		return v.handleFilterMode(key, msg)
+		return v.handleFilterMode(key)
 	case ModeDetail:
 		return v.handleDetailMode(key)
 	case ModeConfirm:
@@ -251,7 +251,7 @@ func (v *ActivityView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handleFilterMode processes keys in filter mode.
-func (v *ActivityView) handleFilterMode(key string, msg tea.KeyMsg) tea.Cmd {
+func (v *ActivityView) handleFilterMode(key string) tea.Cmd {
 	switch key {
 	case "esc":
 		v.mode = ModeNormal

@@ -7,7 +7,7 @@ A terminal-based PostgreSQL monitoring tool built with Go and [Bubbletea](https:
 - **Real-time Dashboard** - Monitor database metrics, connections, and server status
 - **Query Performance Monitoring** - Track slow queries, view EXPLAIN plans with tree visualization, search/filter by pattern
 - **SQL Editor** - Interactive SQL editor with vim-style editing, syntax highlighting, transaction support, history, and snippets
-- **Multiple Views** - Dashboard, Activity, Queries, Locks, Tables, SQL Editor, and Replication monitoring
+- **Multiple Views** - Dashboard, Activity, Queries, Locks, Tables, Replication, SQL Editor, and Configuration monitoring
 - **Keyboard Navigation** - Vim-style and intuitive keyboard shortcuts
 - **Automatic Reconnection** - Resilient connection handling with exponential backoff
 - **Password Management** - Secure password handling via environment variables or commands
@@ -189,6 +189,7 @@ connection:
 - `5` - Tables view
 - `6` - Replication view
 - `7` - SQL Editor view
+- `8` - Configuration view
 - `Tab` - Next view
 - `Shift+Tab` - Previous view
 
@@ -288,6 +289,44 @@ connection:
 | `:export csv FILE` | Export results to CSV |
 | `:export json FILE` | Export results to JSON |
 | `:clear` | Clear editor and results |
+
+#### Configuration
+- Browse all PostgreSQL configuration parameters from pg_settings
+- View parameter details: current value, default, type, context, description
+- Filter by category or search by name/description
+- Sort by name or category (ascending/descending)
+- Color-coded status: yellow for modified parameters, red for pending restart
+- Modify parameters with `:set` command (writes to postgresql.auto.conf)
+- Reset parameters to defaults with `:reset` command
+- Reload configuration with `:reload` (calls pg_reload_conf())
+- Export current configuration to file with `:export config`
+- Copy parameter name or value to clipboard
+- Responsive layout adapts to terminal width
+- Read-only mode support (blocks :set, :reset, :reload)
+- Press `h` for keybinding help
+
+**Configuration Key Bindings:**
+
+| Key | Action |
+|-----|--------|
+| `j/k` | Navigate up/down |
+| `g/G` | First/last parameter |
+| `d` or `Enter` | View parameter details |
+| `s/S` | Cycle sort column/toggle direction |
+| `/` | Search by name or description |
+| `c` | Filter by category |
+| `y/Y` | Copy parameter name/value |
+| `r` | Refresh configuration |
+| `Esc` | Clear filters |
+
+**Configuration Commands (type `:` in normal mode):**
+
+| Command | Description |
+|---------|-------------|
+| `:set PARAM VALUE` | Set parameter value (ALTER SYSTEM) |
+| `:reset PARAM` | Reset parameter to default |
+| `:reload` | Reload configuration (pg_reload_conf) |
+| `:export config FILE` | Export parameters to conf file |
 
 ### Status Bar
 
@@ -468,7 +507,9 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] Lock monitoring view
 - [x] Table statistics view
 - [x] SQL Editor with history and snippets
+- [x] Configuration viewer
 - [ ] Replication monitoring
+- [ ] Log viewer
 - [ ] Export metrics to Prometheus
 - [ ] Alert configuration
 - [ ] Light theme

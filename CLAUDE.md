@@ -321,6 +321,14 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL log files (file system read or pg_read_file()), position tracking via SQLite (009-log-viewer)
 
 ## Recent Changes
+- 008-configuration-viewer: Browse all PostgreSQL parameters from pg_settings with category filtering and search
+- 008-configuration-viewer: Parameter details overlay with type, context, constraints, default values, and descriptions
+- 008-configuration-viewer: Color-coded status indicators (yellow=modified, red=pending restart)
+- 008-configuration-viewer: :set command to modify parameters via ALTER SYSTEM (writes to postgresql.auto.conf)
+- 008-configuration-viewer: :reset command to restore defaults, :reload to apply changes via pg_reload_conf()
+- 008-configuration-viewer: :export config command to export parameters to PostgreSQL conf file format
+- 008-configuration-viewer: Sort by name or category, copy parameter name/value to clipboard
+- 008-configuration-viewer: Responsive layout, read-only mode support, 60-second auto-refresh
 - 007-sql-editor: Multi-line SQL editor with vim-style editing (vimtea), Chroma syntax highlighting
 - 007-sql-editor: Query execution with F5/Ctrl+Enter, paginated results (100 rows/page), column sorting
 - 007-sql-editor: Transaction support (BEGIN/COMMIT/ROLLBACK/SAVEPOINT) with state tracking

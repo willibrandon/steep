@@ -14,12 +14,6 @@ import (
 // Used to correctly calculate visible text length with syntax highlighting
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
-// renderTab renders a tab character with visual representation using spaces
-func renderTab(col int) string {
-	spaces := tabWidth - (col % tabWidth)
-	return strings.Repeat(" ", spaces)
-}
-
 // visualLength calculates the visual length of a string, counting tabs as tabWidth spaces
 func visualLength(s string, startCol int) int {
 	length := 0
@@ -912,23 +906,6 @@ func (m *editorModel) renderStatusLine() string {
 
 	// Compose the full status line
 	return modeText + nameText + m.statusStyle.Render(statusText+strings.Repeat(" ", padding)+cursorPos)
-}
-
-func (m *editorModel) getStatusText() string {
-	if m.mode == ModeCommand {
-		return ":" + m.commandBuffer
-	}
-
-	status := fmt.Sprintf(" %s", m.mode)
-	if len(m.keySequence) > 0 {
-		status += fmt.Sprintf(" | %s", strings.Join(m.keySequence, ""))
-	}
-
-	if m.statusMessage != "" {
-		status += fmt.Sprintf(" | %s", m.statusMessage)
-	}
-
-	return status
 }
 
 func (m *editorModel) isLineInYankHighlight(rowIdx int) bool {

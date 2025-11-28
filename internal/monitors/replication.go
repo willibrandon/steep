@@ -26,12 +26,12 @@ type ReplicationMonitor struct {
 	lagHistoryLock sync.RWMutex
 
 	// Configuration
-	ringBufferSize   int           // Max entries in memory per replica
-	persistInterval  int           // Persist every N samples
-	sampleCount      int           // Current sample count
-	retentionHours   int           // SQLite retention period
-	lastPruneTime    time.Time     // Last time we pruned old data
-	pruneInterval    time.Duration // How often to prune (default: 1 hour)
+	ringBufferSize  int           // Max entries in memory per replica
+	persistInterval int           // Persist every N samples
+	sampleCount     int           // Current sample count
+	retentionHours  int           // SQLite retention period
+	lastPruneTime   time.Time     // Last time we pruned old data
+	pruneInterval   time.Duration // How often to prune (default: 1 hour)
 }
 
 // lagRingBuffer is a fixed-size circular buffer for lag values.
@@ -81,15 +81,15 @@ func (b *lagRingBuffer) GetAll() []float64 {
 // If store is nil, lag history will only be kept in memory.
 func NewReplicationMonitor(pool *pgxpool.Pool, interval time.Duration, store *sqlite.ReplicationStore) *ReplicationMonitor {
 	return &ReplicationMonitor{
-		pool:             pool,
-		interval:         interval,
-		store:            store,
-		lagHistory:       make(map[string]*lagRingBuffer),
-		ringBufferSize:   60, // ~2 minutes at 2-second intervals
-		persistInterval:  30, // Persist every 30 samples (~1 minute)
-		retentionHours:   24, // Default 24-hour retention
-		pruneInterval:    time.Hour,
-		lastPruneTime:    time.Now(),
+		pool:            pool,
+		interval:        interval,
+		store:           store,
+		lagHistory:      make(map[string]*lagRingBuffer),
+		ringBufferSize:  60, // ~2 minutes at 2-second intervals
+		persistInterval: 30, // Persist every 30 samples (~1 minute)
+		retentionHours:  24, // Default 24-hour retention
+		pruneInterval:   time.Hour,
+		lastPruneTime:   time.Now(),
 	}
 }
 
@@ -251,7 +251,7 @@ func (m *ReplicationMonitor) persistLagEntries(ctx context.Context, data *models
 
 	// Save in background to not block monitor
 	go func() {
-		saveCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		saveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		m.store.SaveLagEntries(saveCtx, entries)
 	}()

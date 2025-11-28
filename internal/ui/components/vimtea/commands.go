@@ -268,21 +268,6 @@ func openLineAbove(model *editorModel) tea.Cmd {
 	return switchMode(model, ModeInsert)
 }
 
-func insertCharacter(model *editorModel, char string) (tea.Model, tea.Cmd) {
-	model.buffer.saveUndoState(model.cursor)
-
-	if model.cursor.Col > model.buffer.lineLength(model.cursor.Row) {
-		model.cursor.Col = model.buffer.lineLength(model.cursor.Row)
-	}
-
-	line := model.buffer.Line(model.cursor.Row)
-	newLine := line[:model.cursor.Col] + char + line[model.cursor.Col:]
-	model.buffer.setLine(model.cursor.Row, newLine)
-	model.cursor.Col++
-
-	return model, nil
-}
-
 // insertText handles inserting text that may contain multiple characters or lines (paste support)
 func insertText(model *editorModel, text string) (tea.Model, tea.Cmd) {
 	model.buffer.saveUndoState(model.cursor)
