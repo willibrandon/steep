@@ -2,11 +2,13 @@
 package logs
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -69,14 +71,14 @@ type LogsView struct {
 	loggingChecked bool
 
 	// Search state
-	searchInput  string // Current search input
-	matchIndices []int  // Indices of matching entries
-	currentMatch int    // Current match index for n/N navigation
+	searchInput  textinput.Model // Search input with cursor support
+	matchIndices []int           // Indices of matching entries
+	currentMatch int             // Current match index for n/N navigation
 
 	// Command state
-	commandInput string // Current command input
-	toastMessage string // Toast message to display
-	toastIsError bool   // Whether toast is an error
+	commandInput textinput.Model // Command input with cursor support
+	toastMessage string          // Toast message to display
+	toastIsError bool            // Whether toast is an error
 	toastTime    time.Time
 
 	// Read-only mode
@@ -85,6 +87,14 @@ type LogsView struct {
 
 // NewLogsView creates a new log viewer.
 func NewLogsView() *LogsView {
+	// Create search input
+	si := textinput.New()
+	si.CharLimit = 256
+
+	// Create command input
+	ci := textinput.New()
+	ci.CharLimit = 256
+
 	return &LogsView{
 		mode:          ModeNormal,
 		buffer:        NewLogBuffer(DefaultBufferCapacity),
@@ -94,6 +104,8 @@ func NewLogsView() *LogsView {
 		viewport:      viewport.New(80, 20),
 		contentHeight: 20,
 		targetLine:    -1,
+		searchInput:   si,
+		commandInput:  ci,
 	}
 }
 
@@ -294,16 +306,16 @@ func (v *LogsView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle mode-specific input
 	switch v.mode {
 	case ModeHelp:
-		if key == "esc" || key == "?" || key == "q" {
+		if key == "esc" || key == "?" || key == "h" || key == "q" {
 			v.mode = ModeNormal
 		}
 		return v, nil
 
 	case ModeSearch:
-		return v.handleSearchMode(key, msg)
+		return v.handleSearchMode(msg)
 
 	case ModeCommand:
-		return v.handleCommandMode(key, msg)
+		return v.handleCommandMode(msg)
 
 	case ModeConfirmEnableLogging:
 		return v.handleConfirmMode(key)
@@ -321,10 +333,12 @@ func (v *LogsView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "/":
 		v.mode = ModeSearch
-		v.searchInput = ""
+		v.searchInput.Reset()
+		v.searchInput.Focus()
 	case ":":
 		v.mode = ModeCommand
-		v.commandInput = ""
+		v.commandInput.Reset()
+		v.commandInput.Focus()
 	case "j", "down":
 		v.followMode = false
 		if v.filter.HasFilters() {
@@ -423,14 +437,16 @@ func (v *LogsView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleSearchMode handles input in search mode.
-func (v *LogsView) handleSearchMode(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc":
+func (v *LogsView) handleSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
 		v.mode = ModeNormal
-		v.searchInput = ""
-	case "enter":
+		v.searchInput.Reset()
+		return v, nil
+	case tea.KeyEnter:
 		v.mode = ModeNormal
-		if err := v.filter.SetSearch(v.searchInput); err != nil {
+		searchText := v.searchInput.Value()
+		if err := v.filter.SetSearch(searchText); err != nil {
 			v.showToast("Invalid regex: "+err.Error(), true)
 		} else {
 			v.updateMatchIndices()
@@ -442,38 +458,34 @@ func (v *LogsView) handleSearchMode(key string, msg tea.KeyMsg) (tea.Model, tea.
 				v.rebuildViewport()
 			}
 		}
-	case "backspace":
-		if len(v.searchInput) > 0 {
-			v.searchInput = v.searchInput[:len(v.searchInput)-1]
-		}
-	default:
-		if len(key) == 1 {
-			v.searchInput += key
-		}
+		return v, nil
 	}
-	return v, nil
+
+	// Delegate to textinput for all other keys (typing, paste, cursor movement)
+	var cmd tea.Cmd
+	v.searchInput, cmd = v.searchInput.Update(msg)
+	return v, cmd
 }
 
 // handleCommandMode handles input in command mode.
-func (v *LogsView) handleCommandMode(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc":
+func (v *LogsView) handleCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
 		v.mode = ModeNormal
-		v.commandInput = ""
-	case "enter":
+		v.commandInput.Reset()
+		return v, nil
+	case tea.KeyEnter:
 		v.mode = ModeNormal
-		v.executeCommand(v.commandInput)
-		v.commandInput = ""
-	case "backspace":
-		if len(v.commandInput) > 0 {
-			v.commandInput = v.commandInput[:len(v.commandInput)-1]
-		}
-	default:
-		if len(key) == 1 {
-			v.commandInput += key
-		}
+		cmdText := v.commandInput.Value()
+		v.commandInput.Reset()
+		v.executeCommand(cmdText)
+		return v, nil
 	}
-	return v, nil
+
+	// Delegate to textinput for all other keys (typing, paste, cursor movement)
+	var cmd tea.Cmd
+	v.commandInput, cmd = v.commandInput.Update(msg)
+	return v, cmd
 }
 
 // handleConfirmMode handles input in confirmation dialog mode.
@@ -582,8 +594,188 @@ func (v *LogsView) executeLevelCommand(args []string) {
 
 // executeGotoCommand handles :goto <timestamp> command.
 func (v *LogsView) executeGotoCommand(args []string) {
-	// TODO: Implement in Phase 6 (US4)
-	v.showToast("Goto command not yet implemented", true)
+	if len(args) == 0 {
+		v.showToast("Usage: :goto <timestamp> (e.g., 14:30, -1h, 2025-11-27 14:30)", true)
+		return
+	}
+
+	// Join args to handle timestamps with spaces (e.g., "2025-11-27 14:30")
+	timestampStr := strings.Join(args, " ")
+
+	// Parse the timestamp
+	parsed, err := ParseTimestampInput(timestampStr)
+	if err != nil {
+		v.showToast(err.Error(), true)
+		return
+	}
+
+	// First, check if the timestamp is within the current buffer
+	if v.buffer.Len() > 0 {
+		oldest, _ := v.buffer.Oldest()
+		newest, _ := v.buffer.Newest()
+
+		// Check if timestamp is within buffer range
+		if (parsed.Time.Equal(oldest.Timestamp) || parsed.Time.After(oldest.Timestamp)) &&
+			(parsed.Time.Equal(newest.Timestamp) || parsed.Time.Before(newest.Timestamp)) {
+			// Timestamp is in buffer - navigate within buffer
+			v.navigateToBufferTimestamp(parsed)
+			return
+		}
+	}
+
+	// Timestamp outside buffer - need to load from historical files
+	v.loadHistoricalLogs(parsed)
+}
+
+// navigateToBufferTimestamp navigates to a timestamp within the current buffer.
+func (v *LogsView) navigateToBufferTimestamp(parsed *ParsedTimestamp) {
+	idx := v.buffer.FindByTimestampWithDirection(parsed.Time, parsed.Direction)
+	if idx < 0 {
+		var msg string
+		switch parsed.Direction {
+		case SearchAfter:
+			msg = "No entries at or after that time"
+		case SearchBefore:
+			msg = "No entries at or before that time"
+		default:
+			msg = "No entries at that time"
+		}
+		v.showToast(msg, true)
+		return
+	}
+
+	// Get the entry to show actual time
+	entry, ok := v.buffer.Get(idx)
+	if !ok {
+		v.showToast("Error finding entry", true)
+		return
+	}
+
+	// Disable follow mode and navigate
+	v.followMode = false
+
+	// Calculate scroll offset (we want entry at roughly center of screen)
+	totalEntries := len(v.styledLines)
+	targetOffset := totalEntries - idx - v.contentHeight/2
+	if targetOffset < 0 {
+		targetOffset = 0
+	}
+	maxOffset := totalEntries - v.contentHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if targetOffset > maxOffset {
+		targetOffset = maxOffset
+	}
+	v.scrollOffset = targetOffset
+	v.needsRebuild = true
+	v.rebuildViewport()
+
+	// Show result
+	v.showToast(fmt.Sprintf("Jumped to %s", entry.Timestamp.Format("2006-01-02 15:04:05")), false)
+}
+
+// loadHistoricalLogs loads logs from historical files for a given timestamp.
+func (v *LogsView) loadHistoricalLogs(parsed *ParsedTimestamp) {
+	if v.source == nil || v.source.LogDir == "" {
+		v.showToast("Log directory not configured", true)
+		return
+	}
+
+	// Build loading message based on direction
+	var loadingMsg string
+	switch parsed.Direction {
+	case SearchAfter:
+		loadingMsg = fmt.Sprintf("Loading logs at/after %s...", parsed.Time.Format("2006-01-02 15:04:05"))
+	case SearchBefore:
+		loadingMsg = fmt.Sprintf("Loading logs at/before %s...", parsed.Time.Format("2006-01-02 15:04:05"))
+	default:
+		loadingMsg = fmt.Sprintf("Loading logs around %s...", parsed.Time.Format("2006-01-02 15:04:05"))
+	}
+	v.showToast(loadingMsg, false)
+
+	// Create historical loader
+	loader := NewHistoricalLoader(v.source)
+
+	// Discover available log files
+	files, err := loader.DiscoverLogFiles()
+	if err != nil {
+		v.showToast("Error scanning log files: "+err.Error(), true)
+		return
+	}
+
+	if len(files) == 0 {
+		v.showToast("No log files found in "+v.source.LogDir, true)
+		return
+	}
+
+	// Get timestamp ranges for files (to find the right file)
+	files = loader.GetTimestampRanges(v.getContext(), files)
+
+	// Find the file(s) that should contain the timestamp
+	candidates := loader.FindLogFileForTimestamp(parsed.Time, files)
+	if len(candidates) == 0 {
+		v.showToast("No log file found for that timestamp", true)
+		return
+	}
+
+	// Load entries from the best candidate file
+	result, err := loader.LoadHistoricalEntries(v.getContext(), candidates[0], parsed.Time, 500, parsed.Direction)
+	if err != nil {
+		v.showToast("Error loading logs: "+err.Error(), true)
+		return
+	}
+
+	if len(result.Entries) == 0 {
+		v.showToast("No entries found in "+result.FromFile, true)
+		return
+	}
+
+	// Clear current buffer and load historical entries
+	v.buffer.Clear()
+	v.styledLines = nil
+
+	for _, entry := range result.Entries {
+		logEntry := v.entryDataToLogEntry(entry)
+		v.buffer.Add(logEntry)
+		v.styledLines = append(v.styledLines, v.formatLogEntry(logEntry))
+	}
+
+	// Navigate to the target entry
+	v.followMode = false
+	if result.TargetIndex >= 0 {
+		// Calculate scroll offset to center the target
+		totalEntries := len(v.styledLines)
+		targetOffset := totalEntries - result.TargetIndex - v.contentHeight/2
+		if targetOffset < 0 {
+			targetOffset = 0
+		}
+		maxOffset := totalEntries - v.contentHeight
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		if targetOffset > maxOffset {
+			targetOffset = maxOffset
+		}
+		v.scrollOffset = targetOffset
+	} else {
+		v.scrollOffset = 0
+	}
+
+	v.needsRebuild = true
+	v.rebuildViewport()
+
+	// Show result message
+	if result.Message != "" {
+		v.showToast(result.Message, false)
+	} else {
+		v.showToast(fmt.Sprintf("Loaded %d entries from %s", len(result.Entries), result.FromFile), false)
+	}
+}
+
+// getContext returns a context for operations.
+func (v *LogsView) getContext() context.Context {
+	return context.Background()
 }
 
 // updateMatchIndices finds all entries matching the current search.
@@ -819,8 +1011,17 @@ func (v *LogsView) formatLogEntry(entry models.LogEntry) string {
 // formatLogEntryWithHighlight formats a log entry with optional search highlighting.
 // If isCurrentMatch is true, the entire line gets a distinct background.
 func (v *LogsView) formatLogEntryWithHighlight(entry models.LogEntry, highlight bool, isCurrentMatch bool) string {
-	// Timestamp
-	timestamp := styles.LogTimestampStyle.Render(entry.Timestamp.Format("15:04:05"))
+	// Timestamp - show date if not today
+	now := time.Now()
+	var tsFormat string
+	if entry.Timestamp.Year() != now.Year() ||
+		entry.Timestamp.Month() != now.Month() ||
+		entry.Timestamp.Day() != now.Day() {
+		tsFormat = "01-02 15:04:05" // Show month-day for historical entries
+	} else {
+		tsFormat = "15:04:05"
+	}
+	timestamp := styles.LogTimestampStyle.Render(entry.Timestamp.Format(tsFormat))
 
 	// Severity badge
 	severityBadge := styles.SeverityBadge(entry.Severity).Render(entry.Severity.String())
@@ -1157,9 +1358,9 @@ func (v *LogsView) renderFooter() string {
 		}
 		hints = toastStyle.Render(v.toastMessage)
 	} else if v.mode == ModeSearch {
-		hints = styles.AccentStyle.Render("/") + v.searchInput + "▏"
+		hints = styles.AccentStyle.Render("/") + v.searchInput.View()
 	} else if v.mode == ModeCommand {
-		hints = styles.AccentStyle.Render(":") + v.commandInput + "▏"
+		hints = styles.AccentStyle.Render(":") + v.commandInput.View()
 	} else {
 		// Normal mode hints
 		hints = styles.FooterHintStyle.Render("[f]ollow [/]search [g]top [G]bottom [h]elp")

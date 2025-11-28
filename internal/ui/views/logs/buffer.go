@@ -159,21 +159,68 @@ func (b *LogBuffer) IsFull() bool {
 // Returns the index of the entry at or just before the timestamp.
 // Returns -1 if the buffer is empty or timestamp is before all entries.
 func (b *LogBuffer) FindByTimestamp(ts time.Time) int {
+	return b.FindByTimestampWithDirection(ts, SearchClosest)
+}
+
+// FindByTimestampWithDirection finds an entry by timestamp with direction control.
+// - SearchClosest: finds the entry closest to the target time
+// - SearchAfter: finds the first entry at or after the target time
+// - SearchBefore: finds the last entry at or before the target time
+// Returns -1 if no matching entry is found.
+func (b *LogBuffer) FindByTimestampWithDirection(ts time.Time, direction SearchDirection) int {
 	if b.size == 0 {
 		return -1
 	}
 
 	entries := b.GetAll()
 
-	// Binary search for the timestamp
+	// Binary search for the first entry after timestamp
 	idx := sort.Search(len(entries), func(i int) bool {
 		return entries[i].Timestamp.After(ts)
 	})
 
-	if idx == 0 {
-		// Timestamp is before all entries
-		return 0
-	}
+	switch direction {
+	case SearchAfter:
+		// Find first entry at or after ts
+		// idx is the first entry strictly after ts
+		// Check if idx-1 is exactly at ts
+		if idx > 0 && !entries[idx-1].Timestamp.Before(ts) {
+			return idx - 1
+		}
+		if idx >= len(entries) {
+			return -1 // No entry at or after ts
+		}
+		return idx
 
-	return idx - 1
+	case SearchBefore:
+		// Find last entry at or before ts
+		if idx == 0 {
+			return -1 // No entry at or before ts
+		}
+		return idx - 1
+
+	default: // SearchClosest
+		if idx == 0 {
+			return 0
+		}
+		if idx >= len(entries) {
+			return len(entries) - 1
+		}
+
+		// Check which is closer: idx or idx-1
+		diffBefore := ts.Sub(entries[idx-1].Timestamp)
+		diffAfter := entries[idx].Timestamp.Sub(ts)
+
+		if diffBefore < 0 {
+			diffBefore = -diffBefore
+		}
+		if diffAfter < 0 {
+			diffAfter = -diffAfter
+		}
+
+		if diffBefore <= diffAfter {
+			return idx - 1
+		}
+		return idx
+	}
 }

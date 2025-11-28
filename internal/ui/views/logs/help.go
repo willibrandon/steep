@@ -53,18 +53,27 @@ func GetHelpSections() []HelpSection {
 			Title: "Commands",
 			Items: []HelpItem{
 				{Key: ":", Desc: "Enter command mode"},
-				{Key: ":level <lvl>", Desc: "Filter exact severity"},
-				{Key: ":level <lvl>+", Desc: "Filter level and above"},
+				{Key: ":level error", Desc: "Filter by severity"},
+				{Key: ":level error+", Desc: "Filter level and above"},
 				{Key: ":level clear", Desc: "Clear severity filter"},
-				{Key: ":goto <time>", Desc: "Jump to timestamp"},
+				{Key: ":goto 14:30", Desc: "Jump to closest entry"},
+				{Key: ":goto >14:30", Desc: "First entry at/after"},
+				{Key: ":goto <14:30", Desc: "Last entry at/before"},
+			},
+		},
+		{
+			Title: "Time Formats",
+			Items: []HelpItem{
+				{Key: "14:30", Desc: "Today"},
+				{Key: "2025-11-27 14:30", Desc: "Date+time"},
+				{Key: "-1h, -30m, -2d", Desc: "Relative"},
 			},
 		},
 		{
 			Title: "General",
 			Items: []HelpItem{
-				{Key: "?", Desc: "Toggle help"},
-				{Key: "Esc", Desc: "Clear filters/close"},
-				{Key: "q", Desc: "Return to previous view"},
+				{Key: "h", Desc: "Toggle help"},
+				{Key: "Esc", Desc: "Clear filters/close help"},
 			},
 		},
 	}
@@ -74,8 +83,18 @@ func GetHelpSections() []HelpSection {
 func RenderHelp(width, height int) string {
 	sections := GetHelpSections()
 
-	// Calculate dimensions
-	maxWidth := 50
+	// Calculate max key width across all sections
+	maxKeyWidth := 0
+	for _, section := range sections {
+		for _, item := range section.Items {
+			if len(item.Key) > maxKeyWidth {
+				maxKeyWidth = len(item.Key)
+			}
+		}
+	}
+
+	// Calculate dialog width based on content
+	maxWidth := 55
 	if width < maxWidth {
 		maxWidth = width - 4
 	}
@@ -88,7 +107,6 @@ func RenderHelp(width, height int) string {
 	sb.WriteString("\n\n")
 
 	// Render each section
-	keyStyle := styles.HelpKeyStyle.Width(14)
 	descStyle := styles.HelpDescStyle
 
 	for i, section := range sections {
@@ -99,7 +117,8 @@ func RenderHelp(width, height int) string {
 		// Items
 		for _, item := range section.Items {
 			sb.WriteString("  ")
-			sb.WriteString(keyStyle.Render(item.Key))
+			key := styles.HelpKeyStyle.Render(padRight(item.Key, maxKeyWidth+2))
+			sb.WriteString(key)
 			sb.WriteString(descStyle.Render(item.Desc))
 			sb.WriteString("\n")
 		}
@@ -112,7 +131,7 @@ func RenderHelp(width, height int) string {
 
 	// Footer
 	sb.WriteString("\n")
-	sb.WriteString(styles.MutedStyle.Render("Press ? or Esc to close"))
+	sb.WriteString(styles.MutedStyle.Render("Press h or Esc to close"))
 
 	// Wrap in dialog style
 	content := sb.String()
@@ -120,4 +139,12 @@ func RenderHelp(width, height int) string {
 
 	// Center on screen
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, dialog)
+}
+
+// padRight pads a string to the specified width with spaces.
+func padRight(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-len(s))
 }
