@@ -58,8 +58,10 @@ type LogsView struct {
 	needsRebuild  bool // Whether viewport content needs rebuilding
 
 	// Rendering state
-	filteredLineCount int // Count of lines after filtering (for status bar)
-	targetLine        int // Target line to scroll to (-1 = none, use normal scroll)
+	filteredLineCount int      // Count of lines after filtering (for status bar)
+	targetLine        int      // Target line to scroll to (-1 = none, use normal scroll)
+	cachedLines       []string // Pre-formatted lines (without selection) for performance
+	cacheSize         int      // Buffer size when cache was built
 
 	// Follow mode (auto-scroll to newest)
 	followMode bool
@@ -946,12 +948,25 @@ func (v *LogsView) rebuildViewport() {
 			linesToShow = append(linesToShow, line)
 		}
 	} else {
-		// No filter - format entries with selection highlighting on timestamp only
-		entries := v.buffer.GetAll()
-		for i, entry := range entries {
-			isSelected := i == v.selectedIdx
-			line := v.formatLogEntryWithHighlight(entry, false, false, isSelected)
-			linesToShow = append(linesToShow, line)
+		// No filter - use caching to avoid reformatting all entries on every keystroke
+		bufferSize := v.buffer.Len()
+		if v.cacheSize != bufferSize {
+			// Cache miss: buffer changed, rebuild cache WITHOUT selection
+			entries := v.buffer.GetAll()
+			v.cachedLines = make([]string, len(entries))
+			for i, entry := range entries {
+				v.cachedLines[i] = v.formatLogEntryWithHighlight(entry, false, false, false)
+			}
+			v.cacheSize = bufferSize
+		}
+		// Build output using cache, only format the selected entry
+		for i, cached := range v.cachedLines {
+			if i == v.selectedIdx {
+				entry, _ := v.buffer.Get(i)
+				linesToShow = append(linesToShow, v.formatLogEntryWithHighlight(entry, false, false, true))
+			} else {
+				linesToShow = append(linesToShow, cached)
+			}
 		}
 	}
 
@@ -1193,6 +1208,8 @@ func (v *LogsView) clearToast() {
 // invalidateCache forces a viewport rebuild (e.g., when filters change).
 func (v *LogsView) invalidateCache() {
 	v.needsRebuild = true
+	v.cachedLines = nil
+	v.cacheSize = 0
 }
 
 // View renders the view.
