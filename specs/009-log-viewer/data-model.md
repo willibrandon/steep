@@ -248,6 +248,59 @@ const (
 
 ---
 
+### LogFileInfo
+
+Metadata about a discovered log file for historical navigation.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Path` | `string` | Absolute path to log file |
+| `Name` | `string` | Filename (for display) |
+| `Size` | `int64` | File size in bytes |
+| `ModTime` | `time.Time` | Last modification time |
+| `Format` | `LogFormat` | Detected log format (CSV, JSON, Stderr) |
+| `FirstTimestamp` | `*time.Time` | Timestamp of first entry (if known) |
+| `LastTimestamp` | `*time.Time` | Timestamp of last entry (if known) |
+
+**Used for**: Enumerating available log files for `:goto` timestamp navigation
+
+---
+
+### LogPosition (SQLite Persisted)
+
+Tracks read positions in log files for efficient resumption. Stored in SQLite `log_positions` table.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `file_path` | `TEXT` | Primary key - absolute path to log file |
+| `position` | `INTEGER` | Byte offset of last read position |
+| `updated_at` | `DATETIME` | When position was last updated |
+
+**Existing APIs** (in `internal/storage/sqlite/`):
+- `GetLogPosition(ctx, filePath) (int64, error)` - Get saved position
+- `SaveLogPosition(ctx, filePath, position int64) error` - Save position
+- `GetLogPositions(ctx) (map[string]int64, error)` - Get all positions
+
+---
+
+### HistoricalLogRequest
+
+Request to load logs from a specific timestamp (potentially outside buffer).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Timestamp` | `time.Time` | Target timestamp to navigate to |
+| `TimeRange` | `time.Duration` | How much context to load around timestamp (default: 5 min) |
+| `Format` | `string` | Original user input format for error messages |
+
+**Supported timestamp formats** (FR-024):
+- ISO 8601: `2025-11-27T14:30:00`
+- Date-time: `2025-11-27 14:30`
+- Time-only: `14:30` (assumes today)
+- Relative: `-1h`, `-30m`, `-2d`
+
+---
+
 ## File Locations
 
 | Entity | File Path |
@@ -258,3 +311,6 @@ const (
 | `LogFilter` | `internal/ui/views/logs/filter.go` |
 | `LogSource` | `internal/monitors/log_source.go` |
 | `LogViewerState` | `internal/ui/views/logs/view.go` |
+| `LogFileInfo` | `internal/ui/views/logs/historical.go` |
+| `LogPosition` | `internal/storage/sqlite/schema.go` (existing) |
+| `HistoricalLogRequest` | `internal/ui/views/logs/commands.go` |

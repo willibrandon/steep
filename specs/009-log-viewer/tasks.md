@@ -120,21 +120,40 @@
 
 ## Phase 6: User Story 4 - Navigate by Timestamp (Priority: P3)
 
-**Goal**: Jump to specific timestamp with `:goto`, use `g`/`G` for oldest/newest
+**Goal**: Jump to specific timestamp with `:goto`, including access to historical log files outside the buffer
 
-**Independent Test**: Enter `:goto 2025-11-27 14:30`, verify view scrolls to that time
+**Independent Test**: Enter `:goto 2025-11-27 14:30` (for a time yesterday or last week), verify view loads and displays logs from that time period even if outside the current buffer
 
 ### Implementation for User Story 4
 
-- [ ] T042 [US4] Implement command parsing for `:goto <timestamp>` in `internal/ui/views/logs/commands.go`
-- [ ] T043 [US4] Implement timestamp parsing (support multiple formats) in `internal/ui/views/logs/commands.go`
-- [ ] T044 [US4] Implement binary search to find nearest log entry by timestamp in `internal/ui/views/logs/buffer.go`
-- [ ] T045 [US4] Implement scroll to timestamp position in viewport in `internal/ui/views/logs/view.go`
-- [ ] T046 [US4] Show message when no logs at requested timestamp in `internal/ui/views/logs/view.go`
-- [ ] T047 [US4] Ensure `g` goes to oldest and `G` goes to newest in `internal/ui/views/logs/keys.go`
-- [ ] T048 [US4] Update help text with `:goto` command in `internal/ui/views/logs/help.go`
+#### 6a. Log File Discovery & Indexing
 
-**Checkpoint**: User Story 4 complete - timestamp navigation works independently
+- [ ] T042 [US4] Create LogFileInfo struct and log file enumeration in `internal/ui/views/logs/historical.go`
+- [ ] T043 [US4] Implement log directory scanning to discover all log files in `internal/ui/views/logs/historical.go`
+- [ ] T044 [US4] Implement timestamp range detection for log files (read first/last entries) in `internal/ui/views/logs/historical.go`
+- [ ] T045 [US4] Implement FindLogFileForTimestamp to locate appropriate log file(s) in `internal/ui/views/logs/historical.go`
+
+#### 6b. Historical Log Loading
+
+- [ ] T046 [US4] Implement LoadHistoricalEntries to read entries around a timestamp from disk in `internal/ui/views/logs/historical.go`
+- [ ] T047 [US4] Integrate with log_positions SQLite table for position tracking in `internal/ui/views/logs/historical.go`
+- [ ] T048 [US4] Handle multiple log file formats (CSV, JSON, stderr) in historical loading in `internal/ui/views/logs/historical.go`
+
+#### 6c. Timestamp Parsing & Command
+
+- [ ] T049 [US4] Implement timestamp parsing with multiple formats (ISO 8601, date-time, time-only, relative) in `internal/ui/views/logs/commands.go`
+- [ ] T050 [US4] Implement command parsing for `:goto <timestamp>` in `internal/ui/views/logs/commands.go`
+
+#### 6d. Navigation & Display
+
+- [ ] T051 [US4] Implement binary search to find nearest log entry by timestamp in buffer in `internal/ui/views/logs/buffer.go`
+- [ ] T052 [US4] Implement historical navigation flow: check buffer first, then load from disk in `internal/ui/views/logs/view.go`
+- [ ] T053 [US4] Implement scroll to timestamp position and show context message in `internal/ui/views/logs/view.go`
+- [ ] T054 [US4] Show informative message when timestamp found in different location than requested in `internal/ui/views/logs/view.go`
+- [ ] T055 [US4] Ensure `g` goes to oldest in buffer and `G` returns to newest/follow mode in `internal/ui/views/logs/keys.go`
+- [ ] T056 [US4] Update help text with `:goto` command and timestamp formats in `internal/ui/views/logs/help.go`
+
+**Checkpoint**: User Story 4 complete - timestamp navigation works with historical log file access
 
 ---
 
@@ -142,12 +161,12 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T049 [P] Handle readonly mode - disable enable logging prompt in `internal/ui/views/logs/view.go`
-- [ ] T050 [P] Implement multi-line log entry display (stack traces, DETAIL) in `internal/ui/views/logs/render.go`
-- [ ] T051 [P] Add mouse scroll support (wheel up/down) in `internal/ui/views/logs/view.go`
-- [ ] T052 Complete help overlay with all keybindings and commands in `internal/ui/views/logs/help.go`
-- [ ] T053 Run quickstart.md validation - verify all documented commands work
-- [ ] T054 Performance validation - verify 10,000 entry scrolling is smooth
+- [ ] T057 [P] Handle readonly mode - disable enable logging prompt in `internal/ui/views/logs/view.go`
+- [ ] T058 [P] Implement multi-line log entry display (stack traces, DETAIL) in `internal/ui/views/logs/render.go`
+- [ ] T059 [P] Add mouse scroll support (wheel up/down) in `internal/ui/views/logs/view.go`
+- [ ] T060 Complete help overlay with all keybindings and commands in `internal/ui/views/logs/help.go`
+- [ ] T061 Run quickstart.md validation - verify all documented commands work
+- [ ] T062 Performance validation - verify 10,000 entry scrolling is smooth
 
 ---
 
@@ -183,8 +202,12 @@
 **Phase 3 (US1)**:
 - T016, T017 can run in parallel (CSV and JSON parsers)
 
+**Phase 6 (US4)**:
+- T042, T043, T044 can run in parallel after historical.go created (different functions)
+- T049 (timestamp parsing) can run in parallel with T042-T048 (different file)
+
 **Phase 7 (Polish)**:
-- T049, T050, T051 can run in parallel (different concerns)
+- T057, T058, T059 can run in parallel (different concerns)
 
 ---
 

@@ -69,18 +69,20 @@ As a DBA, I want to search logs by text pattern using regex to find specific eve
 
 ### User Story 4 - Navigate by Timestamp (Priority: P3)
 
-As a DBA, I want to navigate logs by timestamp to review historical events around a known incident time, so I can investigate issues that occurred at specific times.
+As a DBA, I want to navigate logs by timestamp to review historical events around a known incident time, so I can investigate issues that occurred at specific times - including events outside the current in-memory buffer.
 
 **Why this priority**: Timestamp navigation is valuable for post-incident analysis but is less critical than real-time monitoring and filtering. Most urgent troubleshooting uses the other capabilities first.
 
-**Independent Test**: Can be tested by entering a timestamp and verifying the view jumps to that time period. Delivers historical investigation capability.
+**Independent Test**: Can be tested by entering a timestamp from yesterday or last week and verifying the view loads and displays logs from that time period, even if those logs are not in the current buffer. Delivers historical investigation capability.
 
 **Acceptance Scenarios**:
 
-1. **Given** the log viewer is displaying logs, **When** the user enters `:goto 2025-11-27 14:30`, **Then** the view scrolls to logs around that timestamp
-2. **Given** the user enters a timestamp that has no logs, **When** the command executes, **Then** the view shows the nearest available logs with an informative message
-3. **Given** the log viewer is displaying logs, **When** the user uses `g` or `G`, **Then** the view jumps to the oldest or newest logs respectively
-4. **Given** the user wants to navigate incrementally, **When** using `j/k` or arrow keys, **Then** the view scrolls line by line through the log history
+1. **Given** the log viewer is displaying logs, **When** the user enters `:goto 2025-11-27 14:30`, **Then** the system finds the log file containing that timestamp and displays entries around that time
+2. **Given** the user enters a timestamp from a previous day (outside the buffer), **When** the command executes, **Then** the system reads the appropriate historical log file(s) from disk and displays entries around that timestamp
+3. **Given** the user enters a timestamp that has no logs, **When** the command executes, **Then** the view shows the nearest available logs with an informative message indicating the actual timestamp found
+4. **Given** the log viewer is displaying logs, **When** the user uses `g` or `G`, **Then** the view jumps to the oldest or newest logs in the current buffer respectively
+5. **Given** the user wants to navigate incrementally, **When** using `j/k` or arrow keys, **Then** the view scrolls line by line through the currently loaded log history
+6. **Given** the user has navigated to historical logs via `:goto`, **When** the user presses `G` to return to newest, **Then** the system returns to real-time follow mode with the current buffer
 
 ---
 
@@ -117,7 +119,11 @@ As a DBA, I want to navigate logs by timestamp to review historical events aroun
 - **FR-007**: System MUST filter logs by severity level using `:level <level>` command
 - **FR-008**: System MUST support text pattern search with regex using `/` key
 - **FR-009**: System MUST support navigate to next/previous search match with `n`/`N` keys
-- **FR-010**: System MUST support timestamp-based navigation using `:goto <timestamp>` command
+- **FR-010**: System MUST support timestamp-based navigation using `:goto <timestamp>` command, including access to historical log files outside the current buffer
+- **FR-021**: System MUST enumerate available log files in the log directory to support historical navigation
+- **FR-022**: System MUST locate the appropriate log file(s) for a given timestamp based on filename patterns or file content
+- **FR-023**: System MUST use the existing `log_positions` SQLite table to track file positions for efficient resumption
+- **FR-024**: System MUST support multiple timestamp formats: ISO 8601 (`2025-11-27T14:30:00`), date-time (`2025-11-27 14:30`), time-only (`14:30` for today), and relative (`-1h`, `-30m`)
 - **FR-011**: System MUST support keyboard navigation: `j/k` for line scroll, `g/G` for top/bottom
 - **FR-012**: System MUST be accessible via the `9` key from any view
 - **FR-013**: System MUST access logs via file system reads OR pg_read_file() function based on available permissions
@@ -166,3 +172,6 @@ The following existing components should be reused or extended:
 - **`internal/monitors/queries/log_collector.go`**: LogCollector with CSV/JSON log parsing, file position tracking, QueryEvent model
 - **`internal/ui/views/queries/view.go`**: `ModeConfirmEnableLogging` prompt pattern with dialog rendering and Y/N handling
 - **`internal/db/queries/config.go`**: `AlterSystemSet()`, `ReloadConfig()` for configuration changes
+- **`internal/storage/sqlite/schema.go`**: `log_positions` table with `file_path`, `position`, `updated_at` for tracking read positions in log files - use for historical log navigation
+- **`internal/monitors/csv_log_parser.go`**: CSV log format parser
+- **`internal/monitors/json_log_parser.go`**: JSON log format parser
