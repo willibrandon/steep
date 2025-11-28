@@ -27,6 +27,7 @@ import (
 	activityview "github.com/willibrandon/steep/internal/ui/views/activity"
 	configview "github.com/willibrandon/steep/internal/ui/views/config"
 	locksview "github.com/willibrandon/steep/internal/ui/views/locks"
+	logsview "github.com/willibrandon/steep/internal/ui/views/logs"
 	queriesview "github.com/willibrandon/steep/internal/ui/views/queries"
 	replicationview "github.com/willibrandon/steep/internal/ui/views/replication"
 	sqleditorview "github.com/willibrandon/steep/internal/ui/views/sqleditor"
@@ -69,6 +70,7 @@ type Model struct {
 	replicationView *replicationview.ReplicationView
 	sqlEditorView   *sqleditorview.SQLEditorView
 	configView      *configview.ConfigView
+	logsView        *logsview.LogsView
 
 	// Application state
 	helpVisible bool
@@ -152,6 +154,10 @@ func New(readonly bool, configPath string) (*Model, error) {
 	configView := configview.NewConfigView()
 	configView.SetReadOnly(readonly)
 
+	// Initialize Logs view
+	logsView := logsview.NewLogsView()
+	logsView.SetReadOnly(readonly)
+
 	// Define available views
 	viewList := []views.ViewType{
 		views.ViewDashboard,
@@ -162,6 +168,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 		views.ViewReplication,
 		views.ViewSQLEditor,
 		views.ViewConfig,
+		views.ViewLogs,
 	}
 
 	return &Model{
@@ -179,6 +186,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 		replicationView:   replicationView,
 		sqlEditorView:     sqlEditorView,
 		configView:        configView,
+		logsView:          logsView,
 		connected:         false,
 		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
 		reconnecting:      false,
@@ -252,6 +260,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sqlEditorView.Update(relativeMsg)
 		case views.ViewConfig:
 			m.configView.Update(relativeMsg)
+		case views.ViewLogs:
+			m.logsView.Update(relativeMsg)
 		}
 		return m, nil
 
@@ -276,6 +286,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.replicationView.SetSize(msg.Width, msg.Height-5)
 		m.sqlEditorView.SetSize(msg.Width, msg.Height-5)
 		m.configView.SetSize(msg.Width, msg.Height-5)
+		m.logsView.SetSize(msg.Width, msg.Height-5)
 		return m, nil
 
 	case DatabaseConnectedMsg:
@@ -308,6 +319,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sqlEditorView.SetPool(msg.Pool)
 		m.configView.SetConnected(true)
 		m.configView.SetConnectionInfo(connectionInfo)
+		m.logsView.SetConnected(true)
+		m.logsView.SetConnectionInfo(connectionInfo)
 
 		// Initialize monitors
 		refreshInterval := m.config.UI.RefreshInterval
@@ -971,6 +984,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "8":
 			m.currentView = views.ViewConfig
 			return m, nil
+		case "9":
+			m.currentView = views.ViewLogs
+			return m, nil
 		case "tab":
 			m.nextView()
 			return m, nil
@@ -1030,6 +1046,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			_, cmd = m.configView.Update(msg)
 			return m, cmd
 		}
+	case views.ViewLogs:
+		if m.connected {
+			var cmd tea.Cmd
+			_, cmd = m.logsView.Update(msg)
+			return m, cmd
+		}
 	}
 
 	return m, nil
@@ -1081,6 +1103,8 @@ func (m *Model) currentViewIsInputMode() bool {
 		return m.sqlEditorView.IsInputMode()
 	case views.ViewConfig:
 		return m.configView.IsInputMode()
+	case views.ViewLogs:
+		return m.logsView.IsInputMode()
 	default:
 		return false
 	}
@@ -1157,6 +1181,8 @@ func (m Model) renderCurrentView() string {
 		return m.sqlEditorView.View()
 	case views.ViewConfig:
 		return m.configView.View()
+	case views.ViewLogs:
+		return m.logsView.View()
 	default:
 		return styles.ErrorStyle.Render("Unknown view")
 	}

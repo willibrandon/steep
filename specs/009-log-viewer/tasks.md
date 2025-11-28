@@ -37,12 +37,12 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Create LogBuffer ring buffer (10,000 capacity) with Add, GetRange, GetAll, Clear, Len in `internal/ui/views/logs/buffer.go`
-- [ ] T006 Create LogFilter struct with Matches, SetLevel, SetSearch, Clear methods in `internal/ui/views/logs/filter.go`
-- [ ] T007 Extend existing log parsers to return LogEntry instead of QueryEvent (adapter pattern) in `internal/monitors/log_entry_parser.go`
-- [ ] T008 Create LogsView base struct implementing ViewModel interface in `internal/ui/views/logs/view.go`
-- [ ] T009 Register LogsView with `9` key in main app router in `internal/ui/app.go`
-- [ ] T010 Add help text skeleton in `internal/ui/views/logs/help.go`
+- [X] T005 Create LogBuffer ring buffer (10,000 capacity) with Add, GetRange, GetAll, Clear, Len in `internal/ui/views/logs/buffer.go`
+- [X] T006 Create LogFilter struct with Matches, SetLevel, SetSearch, Clear methods in `internal/ui/views/logs/filter.go`
+- [X] T007 Extend existing log parsers to return LogEntry instead of QueryEvent (adapter pattern) in `internal/monitors/log_entry_parser.go`
+- [X] T008 Create LogsView base struct implementing ViewModel interface in `internal/ui/views/logs/view.go`
+- [X] T009 Register LogsView with `9` key in main app router in `internal/ui/app.go`
+- [X] T010 Add help text skeleton in `internal/ui/views/logs/help.go`
 
 **Checkpoint**: Foundation ready - view accessible via `9` key, shows placeholder
 

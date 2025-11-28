@@ -47,16 +47,31 @@ func (v *SQLEditorView) View() string {
 	var sections []string
 
 	// Connection info at the top (below app title bar)
-	sections = append(sections, v.renderConnectionBar())
+	connectionBar := v.renderConnectionBar()
+	sections = append(sections, connectionBar)
 
 	// Title (styled like other views)
-	sections = append(sections, v.renderTitle())
+	title := v.renderTitle()
+	sections = append(sections, title)
+
+	// Calculate editorContentStartY: connection bar + title
+	v.editorContentStartY = lipgloss.Height(connectionBar) + lipgloss.Height(title)
 
 	// Editor section
-	sections = append(sections, v.renderEditor())
+	editorSection := v.renderEditor()
+	sections = append(sections, editorSection)
+
+	// Store actual rendered editor height for mouse coordinate translation
+	v.editorSectionHeight = lipgloss.Height(editorSection)
 
 	// Results section
-	sections = append(sections, v.renderResults())
+	resultsSection := v.renderResults()
+	sections = append(sections, resultsSection)
+
+	// Calculate resultsDataStartY: everything before results data rows
+	// This includes: connection bar + title + editor section + results title + header + separator
+	// Use actual rendered heights to ensure mouse coordinate translation matches display
+	v.resultsDataStartY = v.editorContentStartY + v.editorSectionHeight + v.resultsHeaderHeight
 
 	// Footer with key hints
 	sections = append(sections, v.renderFooter())
@@ -116,6 +131,20 @@ func (v *SQLEditorView) renderResults() string {
 	}
 
 	titleBar := styles.TitleStyle.Render(title)
+
+	// Calculate resultsHeaderHeight for mouse coordinate translation
+	// Title bar + content header (scroll info + header with border + separator)
+	titleBarHeight := lipgloss.Height(titleBar)
+	contentHeaderHeight := 0
+	if v.results != nil && v.results.TotalRows > 0 && len(v.results.Columns) > 0 {
+		// Results table has: optional scroll info + header row (with bottom border = 2 lines) + separator
+		// ResultsHeaderStyle has BorderBottom(true) which adds an extra line
+		contentHeaderHeight = 3 // header row (1) + header border (1) + separator (1)
+		if len(v.results.Columns) > 1 {
+			contentHeaderHeight++ // scroll info line ("Cols X-Y of Z")
+		}
+	}
+	v.resultsHeaderHeight = titleBarHeight + contentHeaderHeight
 
 	// Content
 	var content string

@@ -129,21 +129,11 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
 		return nil
 	}
 
-	// Calculate layout boundaries using v.editorHeight set by SetSize
-	// WARNING: editorContentStartY=5 was determined empirically (2025-11).
-	// If mouse clicks start landing on wrong lines again, this value likely
-	// needs adjustment due to layout changes in app.go or render.go.
-	// TODO: Consider a more robust approach - e.g., tracking cumulative heights
-	// from rendered components rather than hardcoding offsets.
-	editorContentStartY := 5                                       // First line of vimtea editor content
-	editorContentEndY := editorContentStartY + v.editorHeight - 2  // -2 for chrome and vimtea status bar
-	// Results section starts after editor section
-	// Within results: title(1) + [scroll info if >1 col](0-1) + header(1) + separator(1) + data
-	// WARNING: This value (9) was empirically determined separately from editorContentStartY
-	resultsDataStartY := 9 + v.editorHeight
-	if v.results != nil && len(v.results.Columns) > 1 {
-		resultsDataStartY++ // account for "Cols X-Y of Z" scroll info line
-	}
+	// Use calculated layout boundaries from View() (set via render.go)
+	// These are calculated dynamically based on actual rendered component heights
+	editorContentStartY := v.editorContentStartY
+	editorContentEndY := editorContentStartY + v.editorSectionHeight - 1 // -1 for 0-indexed last line
+	resultsDataStartY := v.resultsDataStartY
 
 	switch msg.Button {
 	case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
