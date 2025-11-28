@@ -53,7 +53,8 @@ func GetHelpSections() []HelpSection {
 			Title: "Commands",
 			Items: []HelpItem{
 				{Key: ":", Desc: "Enter command mode"},
-				{Key: ":level <lvl>", Desc: "Filter by severity"},
+				{Key: ":level <lvl>", Desc: "Filter exact severity"},
+				{Key: ":level <lvl>+", Desc: "Filter level and above"},
 				{Key: ":level clear", Desc: "Clear severity filter"},
 				{Key: ":goto <time>", Desc: "Jump to timestamp"},
 			},

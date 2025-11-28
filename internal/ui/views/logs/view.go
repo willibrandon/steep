@@ -55,8 +55,9 @@ type LogsView struct {
 	needsRebuild  bool // Whether viewport content needs rebuilding
 
 	// Windowed rendering - only format/display visible entries
-	scrollOffset int      // Lines from bottom (0 = at bottom/follow mode)
-	styledLines  []string // Pre-formatted lines (styled on arrival)
+	scrollOffset      int      // Lines from bottom (0 = at bottom/follow mode)
+	styledLines       []string // Pre-formatted lines (styled on arrival)
+	filteredLineCount int      // Count of lines after filtering (for status bar)
 
 	// Follow mode (auto-scroll to newest)
 	followMode bool
@@ -482,9 +483,57 @@ func (v *LogsView) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 // executeCommand parses and executes a command.
 func (v *LogsView) executeCommand(cmd string) {
-	// TODO: Implement command parsing in Phase 4 (US2)
-	// Commands: :level <level>, :level clear, :goto <timestamp>
-	v.showToast("Command not implemented: "+cmd, true)
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return
+	}
+
+	parts := strings.Fields(cmd)
+	command := strings.ToLower(parts[0])
+
+	switch command {
+	case "level":
+		v.executeLevelCommand(parts[1:])
+	case "goto":
+		v.executeGotoCommand(parts[1:])
+	default:
+		v.showToast("Unknown command: "+command, true)
+	}
+}
+
+// executeLevelCommand handles :level <level> command.
+func (v *LogsView) executeLevelCommand(args []string) {
+	if len(args) == 0 {
+		// Show current level
+		if levelStr := v.filter.LevelString(); levelStr != "" {
+			v.showToast("Current level filter: "+levelStr, false)
+		} else {
+			v.showToast("No level filter active (showing all)", false)
+		}
+		return
+	}
+
+	level := strings.ToLower(args[0])
+	if err := v.filter.SetLevel(level); err != nil {
+		v.showToast("Invalid level: "+level, true)
+		return
+	}
+
+	// Update viewport with filtered content
+	v.invalidateCache()
+	v.rebuildViewport()
+
+	if level == "all" || level == "clear" {
+		v.showToast("Level filter cleared", false)
+	} else {
+		v.showToast("Filtering by level: "+v.filter.LevelString(), false)
+	}
+}
+
+// executeGotoCommand handles :goto <timestamp> command.
+func (v *LogsView) executeGotoCommand(args []string) {
+	// TODO: Implement in Phase 6 (US4)
+	v.showToast("Goto command not yet implemented", true)
 }
 
 // updateMatchIndices finds all entries matching the current search.
@@ -562,6 +611,7 @@ func (v *LogsView) rebuildViewport() {
 	totalLines := len(v.styledLines)
 	if totalLines == 0 {
 		v.viewport.SetContent("")
+		v.filteredLineCount = 0
 		return
 	}
 
@@ -589,9 +639,20 @@ func (v *LogsView) rebuildViewport() {
 	}
 
 	totalFiltered := len(linesToShow)
+	v.filteredLineCount = totalFiltered
+
 	if totalFiltered == 0 {
-		v.viewport.SetContent("")
+		v.viewport.SetContent(styles.MutedStyle.Render("No entries match current filter"))
 		return
+	}
+
+	// Clamp scrollOffset to filtered count (important when filter reduces entries)
+	maxOffset := totalFiltered - v.contentHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if v.scrollOffset > maxOffset {
+		v.scrollOffset = maxOffset
 	}
 
 	// Calculate window bounds
@@ -800,12 +861,24 @@ func (v *LogsView) renderStatusBar() string {
 	// Follow indicator and position info
 	var followStr string
 	var countStr string
+
+	// Use filtered count when filters are active, otherwise total
 	totalLines := len(v.styledLines)
+	displayLines := totalLines
+	if v.filter.HasFilters() && v.filteredLineCount > 0 {
+		displayLines = v.filteredLineCount
+	}
 
 	if v.followMode {
 		followStr = styles.LogFollowIndicator.Render(" FOLLOW")
-		// In follow mode, just show entry count
-		if v.buffer.IsFull() {
+		// In follow mode, show entry count (filtered if applicable)
+		if v.filter.HasFilters() {
+			countStr = styles.MutedStyle.Render(
+				fmt.Sprintf(" | %s of %s entries",
+					formatCount(v.filteredLineCount),
+					formatCount(totalLines)),
+			)
+		} else if v.buffer.IsFull() {
 			countStr = styles.MutedStyle.Render(
 				" | " + formatCount(v.buffer.Len()) + " entries (max)",
 			)
@@ -817,28 +890,40 @@ func (v *LogsView) renderStatusBar() string {
 	} else {
 		followStr = styles.LogPausedIndicator.Render(" PAUSED")
 		// In paused mode, show position within the log
-		if totalLines > 0 {
+		if displayLines > 0 {
 			// Calculate visible range (1-indexed for display)
-			bottomLine := totalLines - v.scrollOffset
+			bottomLine := displayLines - v.scrollOffset
 			topLine := bottomLine - v.contentHeight + 1
 			if topLine < 1 {
 				topLine = 1
 			}
-			if bottomLine > totalLines {
-				bottomLine = totalLines
+			if bottomLine > displayLines {
+				bottomLine = displayLines
 			}
 			// Calculate percentage (100% = at bottom/newest)
 			pct := 100
-			if totalLines > v.contentHeight {
-				pct = (bottomLine * 100) / totalLines
+			if displayLines > v.contentHeight {
+				pct = (bottomLine * 100) / displayLines
 			}
-			countStr = styles.MutedStyle.Render(
-				fmt.Sprintf(" | %s-%s of %s (%d%%)",
-					formatCount(topLine),
-					formatCount(bottomLine),
-					formatCount(totalLines),
-					pct),
-			)
+			if v.filter.HasFilters() {
+				// Show filtered/total when filter active
+				countStr = styles.MutedStyle.Render(
+					fmt.Sprintf(" | %s-%s of %s (%d%%) [%s total]",
+						formatCount(topLine),
+						formatCount(bottomLine),
+						formatCount(displayLines),
+						pct,
+						formatCount(totalLines)),
+				)
+			} else {
+				countStr = styles.MutedStyle.Render(
+					fmt.Sprintf(" | %s-%s of %s (%d%%)",
+						formatCount(topLine),
+						formatCount(bottomLine),
+						formatCount(displayLines),
+						pct),
+				)
+			}
 		} else {
 			countStr = styles.MutedStyle.Render(" | 0 entries")
 		}
@@ -846,8 +931,8 @@ func (v *LogsView) renderStatusBar() string {
 
 	// Filter indicators
 	filterStr := ""
-	if v.filter.Severity != nil {
-		filterStr += styles.AccentStyle.Render(" [level:" + v.filter.LevelString() + "]")
+	if levelStr := v.filter.LevelString(); levelStr != "" {
+		filterStr += styles.AccentStyle.Render(" [level:" + levelStr + "]")
 	}
 	if v.filter.SearchText != "" {
 		filterStr += styles.AccentStyle.Render(" [search:/" + v.filter.SearchText + "/]")

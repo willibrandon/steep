@@ -85,13 +85,13 @@
 
 ### Implementation for User Story 2
 
-- [ ] T027 [US2] Implement ModeCommand for `:` command input in `internal/ui/views/logs/view.go`
-- [ ] T028 [US2] Implement command parsing for `:level <level>` in `internal/ui/views/logs/commands.go`
-- [ ] T029 [US2] Implement `:level clear` and `:level all` to reset filter in `internal/ui/views/logs/commands.go`
-- [ ] T030 [US2] Apply LogFilter.Severity to viewport content generation in `internal/ui/views/logs/render.go`
-- [ ] T031 [US2] Show active filter in status bar `[level:error]` in `internal/ui/views/logs/render.go`
-- [ ] T032 [US2] Ensure filtered entries update in follow mode in `internal/ui/views/logs/view.go`
-- [ ] T033 [US2] Update help text with `:level` command in `internal/ui/views/logs/help.go`
+- [X] T027 [US2] Implement ModeCommand for `:` command input in `internal/ui/views/logs/view.go`
+- [X] T028 [US2] Implement command parsing for `:level <level>` in `internal/ui/views/logs/view.go`
+- [X] T029 [US2] Implement `:level clear` and `:level all` to reset filter in `internal/ui/views/logs/view.go`
+- [X] T030 [US2] Apply LogFilter.Severity to viewport content generation in `internal/ui/views/logs/view.go`
+- [X] T031 [US2] Show active filter in status bar `[level:error]` in `internal/ui/views/logs/view.go`
+- [X] T032 [US2] Ensure filtered entries update in follow mode in `internal/ui/views/logs/view.go`
+- [X] T033 [US2] Update help text with `:level` command in `internal/ui/views/logs/help.go`
 
 **Checkpoint**: User Story 2 complete - severity filtering works independently
 

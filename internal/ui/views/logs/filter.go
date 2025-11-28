@@ -53,28 +53,42 @@ func (f *LogFilter) Matches(entry models.LogEntry) bool {
 
 // SetLevel sets the severity filter from a string.
 // Valid values: "error", "warning", "warn", "info", "debug", "all", "clear"
+// Add "+" suffix for minimum level (e.g., "warn+" shows warnings AND errors)
 func (f *LogFilter) SetLevel(level string) error {
 	level = strings.ToLower(strings.TrimSpace(level))
 
+	// Check for "+" suffix (minimum level mode)
+	minMode := strings.HasSuffix(level, "+")
+	if minMode {
+		level = strings.TrimSuffix(level, "+")
+	}
+
+	var sev models.LogSeverity
 	switch level {
 	case "error", "fatal", "panic":
-		sev := models.SeverityError
-		f.Severity = &sev
+		sev = models.SeverityError
 	case "warning", "warn":
-		sev := models.SeverityWarning
-		f.Severity = &sev
+		sev = models.SeverityWarning
 	case "info", "log", "notice":
-		sev := models.SeverityInfo
-		f.Severity = &sev
+		sev = models.SeverityInfo
 	case "debug":
-		sev := models.SeverityDebug
-		f.Severity = &sev
+		sev = models.SeverityDebug
 	case "all", "clear", "":
 		f.Severity = nil
+		f.MinSeverity = models.SeverityDebug
+		return nil
 	default:
-		// Try to parse as severity
-		sev := models.ParseSeverity(strings.ToUpper(level))
+		sev = models.ParseSeverity(strings.ToUpper(level))
+	}
+
+	if minMode {
+		// Minimum level mode: show this level and above
+		f.Severity = nil
+		f.MinSeverity = sev
+	} else {
+		// Exact match mode: show only this level
 		f.Severity = &sev
+		f.MinSeverity = models.SeverityDebug
 	}
 
 	return nil
@@ -120,15 +134,18 @@ func (f *LogFilter) Clear() {
 
 // HasFilters returns true if any filters are active.
 func (f *LogFilter) HasFilters() bool {
-	return f.Severity != nil || f.SearchPattern != nil
+	return f.Severity != nil || f.MinSeverity > models.SeverityDebug || f.SearchPattern != nil
 }
 
 // LevelString returns the current level filter as a string.
 func (f *LogFilter) LevelString() string {
-	if f.Severity == nil {
-		return ""
+	if f.Severity != nil {
+		return f.Severity.String()
 	}
-	return f.Severity.String()
+	if f.MinSeverity > models.SeverityDebug {
+		return f.MinSeverity.String() + "+"
+	}
+	return ""
 }
 
 // FilterEntries filters a slice of entries and returns only matching ones.
