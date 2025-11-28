@@ -105,14 +105,14 @@
 
 ### Implementation for User Story 3
 
-- [ ] T034 [US3] Implement ModeSearch for `/` search input in `internal/ui/views/logs/view.go`
-- [ ] T035 [US3] Implement regex compilation with error handling in `internal/ui/views/logs/filter.go`
-- [ ] T036 [US3] Implement match highlighting in viewport content in `internal/ui/views/logs/render.go`
-- [ ] T037 [US3] Implement `n` key to navigate to next match in `internal/ui/views/logs/keys.go`
-- [ ] T038 [US3] Implement `N` key to navigate to previous match in `internal/ui/views/logs/keys.go`
-- [ ] T039 [US3] Implement `Escape` to clear search in `internal/ui/views/logs/keys.go`
-- [ ] T040 [US3] Show active search in status bar `[search:/pattern/]` in `internal/ui/views/logs/render.go`
-- [ ] T041 [US3] Update help text with search keybindings in `internal/ui/views/logs/help.go`
+- [X] T034 [US3] Implement ModeSearch for `/` search input in `internal/ui/views/logs/view.go`
+- [X] T035 [US3] Implement regex compilation with error handling in `internal/ui/views/logs/filter.go`
+- [X] T036 [US3] Implement match highlighting in viewport content in `internal/ui/views/logs/view.go`
+- [X] T037 [US3] Implement `n` key to navigate to next match in `internal/ui/views/logs/view.go`
+- [X] T038 [US3] Implement `N` key to navigate to previous match in `internal/ui/views/logs/view.go`
+- [X] T039 [US3] Implement `Escape` to clear search in `internal/ui/views/logs/view.go`
+- [X] T040 [US3] Show active search in status bar `[search:/pattern/]` in `internal/ui/views/logs/view.go`
+- [X] T041 [US3] Update help text with search keybindings in `internal/ui/views/logs/help.go`
 
 **Checkpoint**: User Story 3 complete - search with regex works independently
 

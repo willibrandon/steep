@@ -64,6 +64,10 @@ var (
 	LogSearchHighlight = lipgloss.NewStyle().
 				Background(lipgloss.Color("3")).
 				Foreground(lipgloss.Color("0"))
+	// LogCurrentMatchStyle is for the currently selected match indicator.
+	LogCurrentMatchStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("10")). // Bright green
+				Bold(true)
 	// LogFollowIndicator is for the FOLLOW mode indicator.
 	LogFollowIndicator = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("10")).

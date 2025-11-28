@@ -58,6 +58,7 @@ type LogsView struct {
 	scrollOffset      int      // Lines from bottom (0 = at bottom/follow mode)
 	styledLines       []string // Pre-formatted lines (styled on arrival)
 	filteredLineCount int      // Count of lines after filtering (for status bar)
+	targetLine        int      // Target line to scroll to (-1 = none, use normal scroll)
 
 	// Follow mode (auto-scroll to newest)
 	followMode bool
@@ -92,6 +93,7 @@ func NewLogsView() *LogsView {
 		followMode:    true,
 		viewport:      viewport.New(80, 20),
 		contentHeight: 20,
+		targetLine:    -1,
 	}
 }
 
@@ -324,57 +326,83 @@ func (v *LogsView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		v.mode = ModeCommand
 		v.commandInput = ""
 	case "j", "down":
-		// Scroll toward newer (decrease offset from bottom)
 		v.followMode = false
-		if v.scrollOffset > 0 {
-			v.scrollOffset--
-			v.needsRebuild = true
+		if v.filter.HasFilters() {
+			// Use viewport's native scrolling when filters active
+			v.viewport.LineDown(1)
+		} else {
+			// Scroll toward newer (decrease offset from bottom)
+			if v.scrollOffset > 0 {
+				v.scrollOffset--
+				v.needsRebuild = true
+			}
 		}
 	case "k", "up":
-		// Scroll toward older (increase offset from bottom)
 		v.followMode = false
-		maxOffset := len(v.styledLines) - v.contentHeight
-		if maxOffset < 0 {
-			maxOffset = 0
-		}
-		if v.scrollOffset < maxOffset {
-			v.scrollOffset++
-			v.needsRebuild = true
+		if v.filter.HasFilters() {
+			// Use viewport's native scrolling when filters active
+			v.viewport.LineUp(1)
+		} else {
+			// Scroll toward older (increase offset from bottom)
+			maxOffset := len(v.styledLines) - v.contentHeight
+			if maxOffset < 0 {
+				maxOffset = 0
+			}
+			if v.scrollOffset < maxOffset {
+				v.scrollOffset++
+				v.needsRebuild = true
+			}
 		}
 	case "g":
 		// Go to oldest (top)
 		v.followMode = false
-		maxOffset := len(v.styledLines) - v.contentHeight
-		if maxOffset < 0 {
-			maxOffset = 0
+		if v.filter.HasFilters() {
+			v.viewport.GotoTop()
+		} else {
+			maxOffset := len(v.styledLines) - v.contentHeight
+			if maxOffset < 0 {
+				maxOffset = 0
+			}
+			v.scrollOffset = maxOffset
+			v.needsRebuild = true
 		}
-		v.scrollOffset = maxOffset
-		v.needsRebuild = true
 	case "G":
 		// Go to newest (bottom) and enable follow
 		v.followMode = true
-		v.scrollOffset = 0
-		v.needsRebuild = true
+		if v.filter.HasFilters() {
+			v.viewport.GotoBottom()
+		} else {
+			v.scrollOffset = 0
+			v.needsRebuild = true
+		}
 	case "ctrl+d":
 		// Half page down (toward newer)
 		v.followMode = false
-		v.scrollOffset -= v.contentHeight / 2
-		if v.scrollOffset < 0 {
-			v.scrollOffset = 0
+		if v.filter.HasFilters() {
+			v.viewport.HalfViewDown()
+		} else {
+			v.scrollOffset -= v.contentHeight / 2
+			if v.scrollOffset < 0 {
+				v.scrollOffset = 0
+			}
+			v.needsRebuild = true
 		}
-		v.needsRebuild = true
 	case "ctrl+u":
 		// Half page up (toward older)
 		v.followMode = false
-		maxOffset := len(v.styledLines) - v.contentHeight
-		if maxOffset < 0 {
-			maxOffset = 0
+		if v.filter.HasFilters() {
+			v.viewport.HalfViewUp()
+		} else {
+			maxOffset := len(v.styledLines) - v.contentHeight
+			if maxOffset < 0 {
+				maxOffset = 0
+			}
+			v.scrollOffset += v.contentHeight / 2
+			if v.scrollOffset > maxOffset {
+				v.scrollOffset = maxOffset
+			}
+			v.needsRebuild = true
 		}
-		v.scrollOffset += v.contentHeight / 2
-		if v.scrollOffset > maxOffset {
-			v.scrollOffset = maxOffset
-		}
-		v.needsRebuild = true
 	case "n":
 		v.nextMatch()
 	case "N":
@@ -383,7 +411,10 @@ func (v *LogsView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		v.clearToast()
 		if v.filter.HasFilters() {
 			v.filter.Clear()
+			v.matchIndices = nil
+			v.currentMatch = -1
 			v.invalidateCache()
+			v.rebuildViewport()
 		}
 	}
 
@@ -404,6 +435,12 @@ func (v *LogsView) handleSearchMode(key string, msg tea.KeyMsg) (tea.Model, tea.
 		} else {
 			v.updateMatchIndices()
 			v.invalidateCache()
+			// Show indicator on first match immediately
+			if len(v.matchIndices) > 0 {
+				v.scrollToMatch()
+			} else {
+				v.rebuildViewport()
+			}
 		}
 	case "backspace":
 		if len(v.searchInput) > 0 {
@@ -456,6 +493,19 @@ func (v *LogsView) handleConfirmMode(key string) (tea.Model, tea.Cmd) {
 
 // handleMouse handles mouse input.
 func (v *LogsView) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// When search/filter is active, use viewport's native scrolling
+	if v.filter.HasFilters() {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			v.followMode = false
+			v.viewport.LineUp(3)
+		case tea.MouseButtonWheelDown:
+			v.viewport.LineDown(3)
+		}
+		return v, nil
+	}
+
+	// Normal windowed scrolling when no filters
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
 		// Scroll toward older (increase offset)
@@ -537,6 +587,7 @@ func (v *LogsView) executeGotoCommand(args []string) {
 }
 
 // updateMatchIndices finds all entries matching the current search.
+// When filters are active, indices are into the filtered view.
 func (v *LogsView) updateMatchIndices() {
 	v.matchIndices = nil
 	v.currentMatch = -1
@@ -545,59 +596,81 @@ func (v *LogsView) updateMatchIndices() {
 		return
 	}
 
+	// Get filtered entries (same as what's displayed)
 	entries := v.buffer.GetAll()
-	for i, entry := range entries {
-		if v.filter.Matches(entry) {
-			v.matchIndices = append(v.matchIndices, i)
-		}
+	if v.filter.HasFilters() {
+		entries = v.filter.FilterEntries(entries)
+	}
+
+	// All filtered entries match when search is active
+	for i := range entries {
+		v.matchIndices = append(v.matchIndices, i)
 	}
 
 	if len(v.matchIndices) > 0 {
 		v.currentMatch = 0
+		v.showToast(fmt.Sprintf("%d matches found", len(v.matchIndices)), false)
+	} else {
+		v.showToast("No matches found", true)
 	}
 }
 
 // nextMatch navigates to the next search match.
 func (v *LogsView) nextMatch() {
+	// Ensure match indices are populated if search is active
+	if v.filter.SearchPattern != nil && len(v.matchIndices) == 0 {
+		v.updateMatchIndices()
+	}
+
 	if len(v.matchIndices) == 0 {
+		v.showToast("No matches", true)
 		return
 	}
-	v.currentMatch = (v.currentMatch + 1) % len(v.matchIndices)
+
+	// Don't wrap - stop at last match
+	if v.currentMatch >= len(v.matchIndices)-1 {
+		v.showToast(fmt.Sprintf("Last match (%d of %d)", len(v.matchIndices), len(v.matchIndices)), false)
+		return
+	}
+
+	v.currentMatch++
 	v.scrollToMatch()
+	v.showToast(fmt.Sprintf("Match %d of %d", v.currentMatch+1, len(v.matchIndices)), false)
 }
 
 // prevMatch navigates to the previous search match.
 func (v *LogsView) prevMatch() {
+	// Ensure match indices are populated if search is active
+	if v.filter.SearchPattern != nil && len(v.matchIndices) == 0 {
+		v.updateMatchIndices()
+	}
+
 	if len(v.matchIndices) == 0 {
+		v.showToast("No matches", true)
 		return
 	}
-	v.currentMatch--
-	if v.currentMatch < 0 {
-		v.currentMatch = len(v.matchIndices) - 1
+
+	// Don't wrap - stop at first match
+	if v.currentMatch <= 0 {
+		v.showToast(fmt.Sprintf("First match (1 of %d)", len(v.matchIndices)), false)
+		return
 	}
+
+	v.currentMatch--
 	v.scrollToMatch()
+	v.showToast(fmt.Sprintf("Match %d of %d", v.currentMatch+1, len(v.matchIndices)), false)
 }
 
 // scrollToMatch scrolls the viewport to show the current match.
 func (v *LogsView) scrollToMatch() {
-	if v.currentMatch >= 0 && v.currentMatch < len(v.matchIndices) {
-		v.followMode = false
-		lineNum := v.matchIndices[v.currentMatch]
-		// Convert line number to offset from bottom
-		totalLines := len(v.styledLines)
-		v.scrollOffset = totalLines - lineNum - v.contentHeight/2
-		if v.scrollOffset < 0 {
-			v.scrollOffset = 0
-		}
-		maxOffset := totalLines - v.contentHeight
-		if maxOffset < 0 {
-			maxOffset = 0
-		}
-		if v.scrollOffset > maxOffset {
-			v.scrollOffset = maxOffset
-		}
-		v.needsRebuild = true
+	if v.currentMatch < 0 || v.currentMatch >= len(v.matchIndices) {
+		return
 	}
+
+	v.followMode = false
+	v.targetLine = v.currentMatch
+	v.needsRebuild = true
+	v.rebuildViewport()
 }
 
 // rebuildViewport rebuilds the viewport content using windowing.
@@ -625,13 +698,18 @@ func (v *LogsView) rebuildViewport() {
 	// Get the lines to display based on scroll position
 	var linesToShow []string
 
+	// Check if we need search highlighting
+	hasSearch := v.filter.SearchPattern != nil
+
 	if v.filter.HasFilters() {
 		// When filtering, we need to filter from raw entries
 		// This is slower but necessary for search/level filters
 		entries := v.buffer.GetAll()
 		filtered := v.filter.FilterEntries(entries)
-		for _, entry := range filtered {
-			linesToShow = append(linesToShow, v.formatLogEntry(entry))
+		for i, entry := range filtered {
+			// Check if this is the current match (matchIndices[j] == j for all j)
+			isCurrentMatch := hasSearch && v.currentMatch >= 0 && i == v.currentMatch
+			linesToShow = append(linesToShow, v.formatLogEntryWithHighlight(entry, hasSearch, isCurrentMatch))
 		}
 	} else {
 		// No filter - use pre-styled lines directly
@@ -646,6 +724,56 @@ func (v *LogsView) rebuildViewport() {
 		return
 	}
 
+	// When filters are active, load all filtered content and use viewport's native scrolling
+	// This is simpler and works better for search navigation
+	if v.filter.HasFilters() {
+		v.viewport.SetContent(strings.Join(linesToShow, "\n"))
+
+		// Handle target line navigation (for n/N match jumping)
+		if v.targetLine >= 0 && v.targetLine < totalFiltered {
+			// Calculate actual line number by counting newlines in entries before target
+			// Each entry can span multiple lines (DETAIL, HINT add extra lines)
+			actualLine := 0
+			for i := 0; i < v.targetLine && i < len(linesToShow); i++ {
+				actualLine += strings.Count(linesToShow[i], "\n") + 1
+			}
+
+			// Calculate total actual lines
+			totalActualLines := 0
+			for _, line := range linesToShow {
+				totalActualLines += strings.Count(line, "\n") + 1
+			}
+
+			// Check if target is already visible - if so, don't scroll
+			currentYOffset := v.viewport.YOffset
+			visibleEnd := currentYOffset + v.contentHeight
+
+			if actualLine >= currentYOffset && actualLine < visibleEnd-1 {
+				// Already visible, just reset targetLine
+				v.targetLine = -1
+				return
+			}
+
+			// Need to scroll - center the match in viewport
+			yOffset := actualLine - v.contentHeight/2
+			if yOffset < 0 {
+				yOffset = 0
+			}
+			maxYOffset := totalActualLines - v.contentHeight
+			if maxYOffset < 0 {
+				maxYOffset = 0
+			}
+			if yOffset > maxYOffset {
+				yOffset = maxYOffset
+			}
+			v.viewport.SetYOffset(yOffset)
+			v.targetLine = -1 // Reset after use
+		}
+		// Don't change viewport position if just rebuilding (let native scroll work)
+		return
+	}
+
+	// Normal windowed rendering for non-filtered view
 	// Clamp scrollOffset to filtered count (important when filter reduces entries)
 	maxOffset := totalFiltered - v.contentHeight
 	if maxOffset < 0 {
@@ -685,6 +813,12 @@ func (v *LogsView) rebuildViewport() {
 
 // formatLogEntry formats a log entry for display.
 func (v *LogsView) formatLogEntry(entry models.LogEntry) string {
+	return v.formatLogEntryWithHighlight(entry, false, false)
+}
+
+// formatLogEntryWithHighlight formats a log entry with optional search highlighting.
+// If isCurrentMatch is true, the entire line gets a distinct background.
+func (v *LogsView) formatLogEntryWithHighlight(entry models.LogEntry, highlight bool, isCurrentMatch bool) string {
 	// Timestamp
 	timestamp := styles.LogTimestampStyle.Render(entry.Timestamp.Format("15:04:05"))
 
@@ -707,24 +841,77 @@ func (v *LogsView) formatLogEntry(entry models.LogEntry) string {
 		}
 	}
 
-	// Message with severity color
+	// Message with severity color and optional search highlighting
 	msgStyle := styles.SeverityStyle(entry.Severity)
-	message := msgStyle.Render(entry.Message)
+	message := entry.Message
+	if highlight && v.filter.SearchPattern != nil {
+		message = v.highlightMatches(message)
+	} else {
+		message = msgStyle.Render(message)
+	}
 
-	// Combine parts
-	line := timestamp + " " + severityBadge + " " + pidStr + contextStr + message
+	// Combine parts - add current match indicator if this is the selected match
+	var prefix string
+	if isCurrentMatch {
+		prefix = styles.LogCurrentMatchStyle.Render("▶ ")
+	} else if highlight {
+		prefix = "  " // Align with indicator
+	}
+	line := prefix + timestamp + " " + severityBadge + " " + pidStr + contextStr + message
 
 	// Add DETAIL if present
 	if entry.Detail != "" {
-		line += "\n  " + styles.MutedStyle.Render("DETAIL: "+entry.Detail)
+		detail := entry.Detail
+		if highlight && v.filter.SearchPattern != nil {
+			detail = v.highlightMatches(detail)
+		} else {
+			detail = styles.MutedStyle.Render("DETAIL: " + detail)
+		}
+		if highlight && v.filter.SearchPattern != nil {
+			line += "\n    " + styles.MutedStyle.Render("DETAIL: ") + detail
+		} else {
+			line += "\n    " + detail
+		}
 	}
 
 	// Add HINT if present
 	if entry.Hint != "" {
-		line += "\n  " + styles.AccentStyle.Render("HINT: "+entry.Hint)
+		line += "\n    " + styles.AccentStyle.Render("HINT: "+entry.Hint)
 	}
 
 	return line
+}
+
+// highlightMatches highlights search matches in text.
+func (v *LogsView) highlightMatches(text string) string {
+	if v.filter.SearchPattern == nil {
+		return text
+	}
+
+	matches := v.filter.SearchPattern.FindAllStringIndex(text, -1)
+	if len(matches) == 0 {
+		return text
+	}
+
+	// Build result with highlighted matches
+	var result strings.Builder
+	lastEnd := 0
+	for _, match := range matches {
+		start, end := match[0], match[1]
+		// Add text before match
+		if start > lastEnd {
+			result.WriteString(text[lastEnd:start])
+		}
+		// Add highlighted match
+		result.WriteString(styles.LogSearchHighlight.Render(text[start:end]))
+		lastEnd = end
+	}
+	// Add remaining text after last match
+	if lastEnd < len(text) {
+		result.WriteString(text[lastEnd:])
+	}
+
+	return result.String()
 }
 
 // showToast displays a toast message.
