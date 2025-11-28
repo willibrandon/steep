@@ -1187,7 +1187,8 @@ func (m Model) View() string {
 	// Status bar at bottom
 	view += "\n" + m.renderStatusBar()
 
-	return view
+	// Fill entire terminal to prevent artifacts on resize
+	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, view)
 }
 
 // renderCurrentView renders the currently selected view
