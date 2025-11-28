@@ -1037,38 +1037,40 @@ func (v *LogsView) rebuildViewport() {
 		return
 	}
 
+	// Calculate total lines and max valid offset
+	totalLines := 0
+	for _, line := range linesToShow {
+		totalLines += strings.Count(line, "\n") + 1
+	}
+	maxOffset := totalLines - v.contentHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+
+	// Always clamp YOffset to valid range (prevents whitespace at bottom)
+	if v.viewport.YOffset > maxOffset {
+		v.viewport.SetYOffset(maxOffset)
+	}
+
 	// Calculate line offset for the selected entry (account for multiline entries)
 	if v.selectedIdx >= 0 && v.selectedIdx < len(linesToShow) {
-		// Count actual lines before the selected entry
 		lineOffset := 0
 		for i := 0; i < v.selectedIdx; i++ {
 			lineOffset += strings.Count(linesToShow[i], "\n") + 1
-		}
-
-		// Position viewport to show selected entry
-		// Try to keep selection roughly centered when possible
-		targetOffset := lineOffset - v.contentHeight/2
-		if targetOffset < 0 {
-			targetOffset = 0
-		}
-
-		// Calculate max offset
-		totalLines := 0
-		for _, line := range linesToShow {
-			totalLines += strings.Count(line, "\n") + 1
-		}
-		maxOffset := totalLines - v.contentHeight
-		if maxOffset < 0 {
-			maxOffset = 0
-		}
-		if targetOffset > maxOffset {
-			targetOffset = maxOffset
 		}
 
 		// Only scroll if selection is not visible
 		currentTop := v.viewport.YOffset
 		currentBottom := currentTop + v.contentHeight
 		if lineOffset < currentTop || lineOffset >= currentBottom {
+			// Center selection in viewport
+			targetOffset := lineOffset - v.contentHeight/2
+			if targetOffset < 0 {
+				targetOffset = 0
+			}
+			if targetOffset > maxOffset {
+				targetOffset = maxOffset
+			}
 			v.viewport.SetYOffset(targetOffset)
 		}
 	}
