@@ -244,12 +244,17 @@ func (v *LogsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				v.buffer.Add(logEntry)
 			}
 			v.lastUpdate = time.Now()
-			// In follow mode, keep selection at newest entry
-			if v.followMode {
-				v.selectedIdx = v.buffer.Len() - 1
-			}
 			v.needsRebuild = true
-			v.rebuildViewport() // Rebuild in Update, not View
+			v.rebuildViewport()
+			// In follow mode, keep selection at newest entry (use filtered count if filter active)
+			if v.followMode {
+				count := v.getEntryCount()
+				if count > 0 {
+					v.selectedIdx = count - 1
+				}
+				v.needsRebuild = true
+				v.rebuildViewport()
+			}
 		}
 		return v, v.scheduleNextTick()
 	}
@@ -520,6 +525,17 @@ func (v *LogsView) executeLevelCommand(args []string) {
 
 	// Update viewport with filtered content
 	v.invalidateCache()
+	v.needsRebuild = true
+	v.rebuildViewport()
+
+	// Select last filtered entry and rebuild to show selection
+	count := v.getEntryCount()
+	if count > 0 {
+		v.selectedIdx = count - 1
+	} else {
+		v.selectedIdx = 0
+	}
+	v.needsRebuild = true
 	v.rebuildViewport()
 
 	if level == "all" || level == "clear" {
@@ -594,7 +610,7 @@ func (v *LogsView) navigateToBufferTimestamp(parsed *ParsedTimestamp) {
 	v.ensureSelectionVisible()
 
 	// Show result
-	v.showToast(fmt.Sprintf("Jumped to %s", entry.Timestamp.Format("2006-01-02 15:04:05")), false)
+	v.showToast(fmt.Sprintf("Jumped to %s", entry.Timestamp.Format("2006-01-02 15:04:05.000")), false)
 }
 
 // loadHistoricalLogs loads logs from historical files for a given timestamp.
@@ -774,7 +790,12 @@ func (v *LogsView) scrollToMatch() {
 // getEntryCount returns the total number of entries (filtered or all).
 func (v *LogsView) getEntryCount() int {
 	if v.filter.HasFilters() {
-		return len(v.matchIndices)
+		// When search is active, use matchIndices
+		if v.filter.SearchPattern != nil {
+			return len(v.matchIndices)
+		}
+		// For level-only filter, use filteredLineCount (set by rebuildViewport)
+		return v.filteredLineCount
 	}
 	return v.buffer.Len()
 }
@@ -823,12 +844,21 @@ func (v *LogsView) ensureSelectionVisible() {
 // getSelectedEntry returns the currently selected log entry.
 func (v *LogsView) getSelectedEntry() (models.LogEntry, bool) {
 	if v.filter.HasFilters() {
-		// With filters, selectedIdx is index into matchIndices
-		if v.selectedIdx < 0 || v.selectedIdx >= len(v.matchIndices) {
+		// With search, selectedIdx is index into matchIndices
+		if v.filter.SearchPattern != nil {
+			if v.selectedIdx < 0 || v.selectedIdx >= len(v.matchIndices) {
+				return models.LogEntry{}, false
+			}
+			bufferIdx := v.matchIndices[v.selectedIdx]
+			return v.buffer.Get(bufferIdx)
+		}
+		// With level-only filter, get filtered entries directly
+		entries := v.buffer.GetAll()
+		filtered := v.filter.FilterEntries(entries)
+		if v.selectedIdx < 0 || v.selectedIdx >= len(filtered) {
 			return models.LogEntry{}, false
 		}
-		bufferIdx := v.matchIndices[v.selectedIdx]
-		return v.buffer.Get(bufferIdx)
+		return filtered[v.selectedIdx], true
 	}
 
 	// Without filters, selectedIdx is direct buffer index
@@ -838,7 +868,7 @@ func (v *LogsView) getSelectedEntry() (models.LogEntry, bool) {
 // formatEntryForClipboard formats a log entry for clipboard (plain text).
 func (v *LogsView) formatEntryForClipboard(entry models.LogEntry) string {
 	var sb strings.Builder
-	sb.WriteString(entry.Timestamp.Format("2006-01-02 15:04:05"))
+	sb.WriteString(entry.Timestamp.Format("2006-01-02 15:04:05.000"))
 	sb.WriteString(" ")
 	sb.WriteString(entry.Severity.String())
 	sb.WriteString(" ")
@@ -1029,8 +1059,43 @@ func (v *LogsView) rebuildViewport() {
 			}
 			v.viewport.SetYOffset(yOffset)
 			v.targetLine = -1 // Reset after use
+			return
 		}
-		// Don't change viewport position if just rebuilding (let native scroll work)
+
+		// In follow mode, stay at bottom
+		if v.followMode {
+			v.viewport.GotoBottom()
+			return
+		}
+
+		// Ensure selection is visible
+		if v.selectedIdx >= 0 && v.selectedIdx < len(linesToShow) {
+			lineOffset := 0
+			for i := 0; i < v.selectedIdx; i++ {
+				lineOffset += strings.Count(linesToShow[i], "\n") + 1
+			}
+			totalLines := 0
+			for _, line := range linesToShow {
+				totalLines += strings.Count(line, "\n") + 1
+			}
+			maxOffset := totalLines - v.contentHeight
+			if maxOffset < 0 {
+				maxOffset = 0
+			}
+
+			currentTop := v.viewport.YOffset
+			currentBottom := currentTop + v.contentHeight
+			if lineOffset < currentTop || lineOffset >= currentBottom {
+				targetOffset := lineOffset - v.contentHeight/2
+				if targetOffset < 0 {
+					targetOffset = 0
+				}
+				if targetOffset > maxOffset {
+					targetOffset = maxOffset
+				}
+				v.viewport.SetYOffset(targetOffset)
+			}
+		}
 		return
 	}
 
@@ -1092,15 +1157,15 @@ func (v *LogsView) formatLogEntry(entry models.LogEntry) string {
 // If isCurrentMatch is true, the entry gets a match indicator.
 // If isSelected is true, only the timestamp gets selection highlighting (subtle cursor).
 func (v *LogsView) formatLogEntryWithHighlight(entry models.LogEntry, highlight bool, isCurrentMatch bool, isSelected bool) string {
-	// Timestamp - show date if not today
+	// Timestamp - show date if not today, always show milliseconds
 	now := time.Now()
 	var tsFormat string
 	if entry.Timestamp.Year() != now.Year() ||
 		entry.Timestamp.Month() != now.Month() ||
 		entry.Timestamp.Day() != now.Day() {
-		tsFormat = "01-02 15:04:05" // Show month-day for historical entries
+		tsFormat = "01-02 15:04:05.000" // Show month-day for historical entries
 	} else {
-		tsFormat = "15:04:05"
+		tsFormat = "15:04:05.000"
 	}
 	// Apply selection style only to timestamp for subtle cursor indication
 	var timestamp string

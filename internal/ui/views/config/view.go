@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -87,17 +88,17 @@ type ConfigView struct {
 	sortAsc      bool // true = ascending (default for name)
 
 	// Filter state
-	searchInput      string // Current search input
-	searchFilter     string // Active search filter (applied on Enter)
-	categoryFilter   string // Active category filter
-	categoryIdx      int    // Selected index in category list
-	filteredParams   []models.Parameter // Cached filtered parameters
+	searchInput    textinput.Model    // Search input with cursor/paste support
+	searchFilter   string             // Active search filter (applied on Enter)
+	categoryFilter string             // Active category filter
+	categoryIdx    int                // Selected index in category list
+	filteredParams []models.Parameter // Cached filtered parameters
 
 	// Detail view state
 	detailScrollOffset int // Scroll offset for detail view
 
 	// Command mode state
-	commandInput string    // Current command input
+	commandInput textinput.Model // Command input with cursor/paste support
 	toastMessage string    // Toast message to display
 	toastIsError bool      // Whether toast is an error message
 	toastTime    time.Time // When toast was shown
@@ -111,12 +112,22 @@ type ConfigView struct {
 
 // NewConfigView creates a new configuration view.
 func NewConfigView() *ConfigView {
+	// Create search input
+	si := textinput.New()
+	si.CharLimit = 256
+
+	// Create command input
+	ci := textinput.New()
+	ci.CharLimit = 256
+
 	return &ConfigView{
-		mode:       ModeNormal,
-		data:       models.NewConfigData(),
-		sortColumn: SortByName,
-		sortAsc:    true,
-		clipboard:  ui.NewClipboardWriter(),
+		mode:         ModeNormal,
+		data:         models.NewConfigData(),
+		sortColumn:   SortByName,
+		sortAsc:      true,
+		clipboard:    ui.NewClipboardWriter(),
+		searchInput:  si,
+		commandInput: ci,
 	}
 }
 
@@ -282,26 +293,22 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 	// Search mode
 	if v.mode == ModeSearch {
-		switch key {
-		case "esc":
+		switch msg.Type {
+		case tea.KeyEsc:
 			v.mode = ModeNormal
-			v.searchInput = ""
-		case "enter":
-			v.searchFilter = v.searchInput
-			v.searchInput = ""
+			v.searchInput.Reset()
+		case tea.KeyEnter:
+			v.searchFilter = v.searchInput.Value()
+			v.searchInput.Reset()
 			v.mode = ModeNormal
 			v.applyFilters()
 			v.selectedIdx = 0
 			v.scrollOffset = 0
-		case "backspace":
-			if len(v.searchInput) > 0 {
-				v.searchInput = v.searchInput[:len(v.searchInput)-1]
-			}
 		default:
-			// Only add printable characters
-			if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
-				v.searchInput += key
-			}
+			// Delegate to textinput for typing, paste, cursor movement
+			var cmd tea.Cmd
+			v.searchInput, cmd = v.searchInput.Update(msg)
+			return cmd
 		}
 		return nil
 	}
@@ -358,24 +365,20 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 	// Command mode
 	if v.mode == ModeCommand {
-		switch key {
-		case "esc":
+		switch msg.Type {
+		case tea.KeyEsc:
 			v.mode = ModeNormal
-			v.commandInput = ""
-		case "enter":
-			cmd := v.commandInput
-			v.commandInput = ""
+			v.commandInput.Reset()
+		case tea.KeyEnter:
+			cmd := v.commandInput.Value()
+			v.commandInput.Reset()
 			v.mode = ModeNormal
 			return v.executeCommand(cmd)
-		case "backspace":
-			if len(v.commandInput) > 0 {
-				v.commandInput = v.commandInput[:len(v.commandInput)-1]
-			}
 		default:
-			// Only add printable characters
-			if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
-				v.commandInput += key
-			}
+			// Delegate to textinput for typing, paste, cursor movement
+			var cmd tea.Cmd
+			v.commandInput, cmd = v.commandInput.Update(msg)
+			return cmd
 		}
 		return nil
 	}
@@ -388,7 +391,8 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Search and filter
 	case "/":
 		v.mode = ModeSearch
-		v.searchInput = ""
+		v.searchInput.Reset()
+		v.searchInput.Focus()
 	case "c":
 		v.mode = ModeCategoryFilter
 		v.categoryIdx = 0
@@ -438,7 +442,8 @@ func (v *ConfigView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Command mode
 	case ":":
 		v.mode = ModeCommand
-		v.commandInput = ""
+		v.commandInput.Reset()
+		v.commandInput.Focus()
 		v.toastMessage = "" // Clear any existing toast
 
 	// Manual refresh
@@ -770,18 +775,6 @@ func (v *ConfigView) View() string {
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n")
 
-	// Search input (shown in search mode)
-	if v.mode == ModeSearch {
-		b.WriteString(v.renderSearchInput())
-		b.WriteString("\n")
-	}
-
-	// Command input (shown in command mode)
-	if v.mode == ModeCommand {
-		b.WriteString(v.renderCommandInput())
-		b.WriteString("\n")
-	}
-
 	// Table
 	b.WriteString(v.renderTable())
 
@@ -807,15 +800,13 @@ func (v *ConfigView) getFilterStatusText() string {
 // renderSearchInput renders the search input prompt.
 func (v *ConfigView) renderSearchInput() string {
 	prompt := styles.AccentStyle.Render("Search: ")
-	input := v.searchInput + "_"
-	return prompt + input
+	return prompt + v.searchInput.View()
 }
 
 // renderCommandInput renders the command input prompt.
 func (v *ConfigView) renderCommandInput() string {
 	prompt := styles.AccentStyle.Render(":")
-	input := v.commandInput + "_"
-	return prompt + input
+	return prompt + v.commandInput.View()
 }
 
 // renderCategoryFilter renders the category filter overlay.
@@ -1264,8 +1255,13 @@ func (v *ConfigView) renderTable() string {
 func (v *ConfigView) renderFooter() string {
 	var hints string
 
-	// Show toast message if recent (within 3 seconds)
-	if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
+	// Show search/command input when in those modes
+	if v.mode == ModeSearch {
+		hints = v.renderSearchInput()
+	} else if v.mode == ModeCommand {
+		hints = v.renderCommandInput()
+	} else if v.toastMessage != "" && time.Since(v.toastTime) < 3*time.Second {
+		// Show toast message if recent (within 3 seconds)
 		toastStyle := styles.FooterHintStyle
 		if v.toastIsError {
 			toastStyle = toastStyle.Foreground(styles.ColorCriticalFg)

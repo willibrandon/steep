@@ -83,6 +83,12 @@ func GetHelpSections() []HelpSection {
 				{Key: "Esc", Desc: "Clear filters/close help"},
 			},
 		},
+		{
+			Title: "Tips",
+			Items: []HelpItem{
+				{Key: "Millis", Desc: "Use %m in log_line_prefix"},
+			},
+		},
 	}
 }
 

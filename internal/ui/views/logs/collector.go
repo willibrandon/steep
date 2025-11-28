@@ -180,16 +180,18 @@ func (c *LogCollector) parseStderrLogs(r io.Reader, startPos int64) ([]LogEntryD
 	pos := startPos
 
 	// PostgreSQL stderr log patterns - matches various log_line_prefix formats
-	// Pattern 1: 2025-11-27 12:34:56 PST [12345] [app] [user@host] LOG: message
-	// Pattern 2: 2025-11-27 12:34:56 PST [12345] user@db LOG: message
-	// Pattern 3: 2025-11-27 12:34:56 PST [12345] LOG: message
+	// Pattern 1: 2025-11-27 12:34:56.123 PST [12345] [app] [user@host]LOG: message (no space before severity)
+	// Pattern 2: 2025-11-27 12:34:56.123 PST [12345] user@db LOG: message
+	// Pattern 3: 2025-11-27 12:34:56.123 PST [12345] LOG: message
+	// Timezone can be: PST, +00, -08, America/Los_Angeles, etc.
+	// Note: \s* before severity to handle missing space when log_line_prefix doesn't end with space
 	logPatterns := []*regexp.Regexp{
-		// Format with [app] [user@host]: 2025-11-27 12:34:56 PST [12345] [steep] [brandon@::1] LOG: msg
-		regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\w+)\s+\[(\d+)\]\s+\[([^\]]*)\]\s+\[([^\]]*)\]\s+(\w+):\s*(.*)$`),
-		// Format with user@db: 2025-11-27 12:34:56 PST [12345] postgres@db LOG: msg
-		regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\w+)\s+\[(\d+)\]\s+(\w+)@(\w+)\s+(\w+):\s*(.*)$`),
-		// Simple format: 2025-11-27 12:34:56 PST [12345] LOG: msg
-		regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\w+)\s+\[(\d+)\]\s+(\w+):\s*(.*)$`),
+		// Format with [app] [user@host]: 2025-11-27 12:34:56.123 PST [12345] [steep] [brandon@::1]LOG: msg
+		regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\S+)\s+\[(\d+)\]\s+\[([^\]]*)\]\s+\[([^\]]*)\]\s*(\w+):\s*(.*)$`),
+		// Format with user@db: 2025-11-27 12:34:56.123 PST [12345] postgres@db LOG: msg
+		regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\S+)\s+\[(\d+)\]\s+(\w+)@(\w+)\s*(\w+):\s*(.*)$`),
+		// Simple format: 2025-11-27 12:34:56.123 PST [12345] LOG: msg
+		regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\S+)\s+\[(\d+)\]\s*(\w+):\s*(.*)$`),
 	}
 
 	var currentEntry *LogEntryData
