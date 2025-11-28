@@ -26,12 +26,19 @@ func GetHelpSections() []HelpSection {
 		{
 			Title: "Navigation",
 			Items: []HelpItem{
-				{Key: "j/↓", Desc: "Scroll down"},
-				{Key: "k/↑", Desc: "Scroll up"},
-				{Key: "g", Desc: "Go to oldest"},
-				{Key: "G", Desc: "Go to newest"},
-				{Key: "Ctrl+d", Desc: "Page down"},
-				{Key: "Ctrl+u", Desc: "Page up"},
+				{Key: "j/↓", Desc: "Select next entry"},
+				{Key: "k/↑", Desc: "Select previous entry"},
+				{Key: "g", Desc: "Select oldest"},
+				{Key: "G", Desc: "Select newest"},
+				{Key: "Ctrl+d", Desc: "Half page down"},
+				{Key: "Ctrl+u", Desc: "Half page up"},
+			},
+		},
+		{
+			Title: "Copy",
+			Items: []HelpItem{
+				{Key: "y", Desc: "Copy selected entry"},
+				{Key: "Y", Desc: "Copy all (filtered) entries"},
 			},
 		},
 		{

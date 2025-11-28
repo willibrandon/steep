@@ -16,6 +16,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/monitors"
+	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
@@ -56,11 +57,9 @@ type LogsView struct {
 	contentHeight int  // Height available for log content
 	needsRebuild  bool // Whether viewport content needs rebuilding
 
-	// Windowed rendering - only format/display visible entries
-	scrollOffset      int      // Lines from bottom (0 = at bottom/follow mode)
-	styledLines       []string // Pre-formatted lines (styled on arrival)
-	filteredLineCount int      // Count of lines after filtering (for status bar)
-	targetLine        int      // Target line to scroll to (-1 = none, use normal scroll)
+	// Rendering state
+	filteredLineCount int // Count of lines after filtering (for status bar)
+	targetLine        int // Target line to scroll to (-1 = none, use normal scroll)
 
 	// Follow mode (auto-scroll to newest)
 	followMode bool
@@ -83,6 +82,12 @@ type LogsView struct {
 
 	// Read-only mode
 	readOnly bool
+
+	// Row selection
+	selectedIdx int // Currently selected entry index (0 = oldest in view)
+
+	// Clipboard
+	clipboard *ui.ClipboardWriter
 }
 
 // NewLogsView creates a new log viewer.
@@ -106,6 +111,7 @@ func NewLogsView() *LogsView {
 		targetLine:    -1,
 		searchInput:   si,
 		commandInput:  ci,
+		clipboard:     ui.NewClipboardWriter(),
 	}
 }
 
@@ -228,19 +234,16 @@ func (v *LogsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Error != nil {
 			v.showToast("Error reading logs: "+msg.Error.Error(), true)
 		} else if len(msg.Entries) > 0 {
-			// Pre-style lines on arrival (not during render)
+			// Add entries to buffer
 			for _, entry := range msg.Entries {
 				logEntry := v.entryDataToLogEntry(entry)
 				v.buffer.Add(logEntry)
-				// Style once, store forever
-				v.styledLines = append(v.styledLines, v.formatLogEntry(logEntry))
-			}
-			// Trim styled lines if buffer wrapped (keep in sync with ring buffer)
-			if len(v.styledLines) > v.buffer.Cap() {
-				excess := len(v.styledLines) - v.buffer.Cap()
-				v.styledLines = v.styledLines[excess:]
 			}
 			v.lastUpdate = time.Now()
+			// In follow mode, keep selection at newest entry
+			if v.followMode {
+				v.selectedIdx = v.buffer.Len() - 1
+			}
 			v.needsRebuild = true
 			v.rebuildViewport() // Rebuild in Update, not View
 		}
@@ -328,7 +331,10 @@ func (v *LogsView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "f":
 		v.followMode = !v.followMode
 		if v.followMode {
-			v.scrollOffset = 0 // Return to bottom
+			// In follow mode, select newest entry
+			if v.buffer.Len() > 0 {
+				v.selectedIdx = v.buffer.Len() - 1
+			}
 			v.needsRebuild = true
 		}
 	case "/":
@@ -341,86 +347,39 @@ func (v *LogsView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		v.commandInput.Focus()
 	case "j", "down":
 		v.followMode = false
-		if v.filter.HasFilters() {
-			// Use viewport's native scrolling when filters active
-			v.viewport.LineDown(1)
-		} else {
-			// Scroll toward newer (decrease offset from bottom)
-			if v.scrollOffset > 0 {
-				v.scrollOffset--
-				v.needsRebuild = true
-			}
-		}
+		v.moveSelection(1)
 	case "k", "up":
 		v.followMode = false
-		if v.filter.HasFilters() {
-			// Use viewport's native scrolling when filters active
-			v.viewport.LineUp(1)
-		} else {
-			// Scroll toward older (increase offset from bottom)
-			maxOffset := len(v.styledLines) - v.contentHeight
-			if maxOffset < 0 {
-				maxOffset = 0
-			}
-			if v.scrollOffset < maxOffset {
-				v.scrollOffset++
-				v.needsRebuild = true
-			}
-		}
+		v.moveSelection(-1)
 	case "g":
 		// Go to oldest (top)
 		v.followMode = false
-		if v.filter.HasFilters() {
-			v.viewport.GotoTop()
-		} else {
-			maxOffset := len(v.styledLines) - v.contentHeight
-			if maxOffset < 0 {
-				maxOffset = 0
-			}
-			v.scrollOffset = maxOffset
-			v.needsRebuild = true
-		}
+		v.selectedIdx = 0
+		v.ensureSelectionVisible()
 	case "G":
 		// Go to newest (bottom) and enable follow
 		v.followMode = true
-		if v.filter.HasFilters() {
-			v.viewport.GotoBottom()
-		} else {
-			v.scrollOffset = 0
-			v.needsRebuild = true
+		totalEntries := v.getEntryCount()
+		if totalEntries > 0 {
+			v.selectedIdx = totalEntries - 1
 		}
+		v.ensureSelectionVisible()
 	case "ctrl+d":
 		// Half page down (toward newer)
 		v.followMode = false
-		if v.filter.HasFilters() {
-			v.viewport.HalfViewDown()
-		} else {
-			v.scrollOffset -= v.contentHeight / 2
-			if v.scrollOffset < 0 {
-				v.scrollOffset = 0
-			}
-			v.needsRebuild = true
-		}
+		v.moveSelection(v.contentHeight / 2)
 	case "ctrl+u":
 		// Half page up (toward older)
 		v.followMode = false
-		if v.filter.HasFilters() {
-			v.viewport.HalfViewUp()
-		} else {
-			maxOffset := len(v.styledLines) - v.contentHeight
-			if maxOffset < 0 {
-				maxOffset = 0
-			}
-			v.scrollOffset += v.contentHeight / 2
-			if v.scrollOffset > maxOffset {
-				v.scrollOffset = maxOffset
-			}
-			v.needsRebuild = true
-		}
+		v.moveSelection(-v.contentHeight / 2)
 	case "n":
 		v.nextMatch()
 	case "N":
 		v.prevMatch()
+	case "y":
+		v.yankSelectedEntry()
+	case "Y":
+		v.yankAllFiltered()
 	case "esc":
 		v.clearToast()
 		if v.filter.HasFilters() {
@@ -505,41 +464,15 @@ func (v *LogsView) handleConfirmMode(key string) (tea.Model, tea.Cmd) {
 
 // handleMouse handles mouse input.
 func (v *LogsView) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	// When search/filter is active, use viewport's native scrolling
-	if v.filter.HasFilters() {
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			v.followMode = false
-			v.viewport.LineUp(3)
-		case tea.MouseButtonWheelDown:
-			v.viewport.LineDown(3)
-		}
-		return v, nil
-	}
-
-	// Normal windowed scrolling when no filters
+	// Use viewport's native scrolling for mouse wheel
+	// Mouse scroll does NOT move selection - just scrolls the view
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
-		// Scroll toward older (increase offset)
 		v.followMode = false
-		maxOffset := len(v.styledLines) - v.contentHeight
-		if maxOffset < 0 {
-			maxOffset = 0
-		}
-		v.scrollOffset += 3
-		if v.scrollOffset > maxOffset {
-			v.scrollOffset = maxOffset
-		}
-		v.needsRebuild = true
+		v.viewport.LineUp(3)
 	case tea.MouseButtonWheelDown:
-		// Scroll toward newer (decrease offset)
-		v.scrollOffset -= 3
-		if v.scrollOffset < 0 {
-			v.scrollOffset = 0
-		}
-		v.needsRebuild = true
+		v.viewport.LineDown(3)
 	}
-	v.rebuildViewport() // Rebuild in Update, not View
 	return v, nil
 }
 
@@ -651,25 +584,10 @@ func (v *LogsView) navigateToBufferTimestamp(parsed *ParsedTimestamp) {
 		return
 	}
 
-	// Disable follow mode and navigate
+	// Disable follow mode and navigate to the entry
 	v.followMode = false
-
-	// Calculate scroll offset (we want entry at roughly center of screen)
-	totalEntries := len(v.styledLines)
-	targetOffset := totalEntries - idx - v.contentHeight/2
-	if targetOffset < 0 {
-		targetOffset = 0
-	}
-	maxOffset := totalEntries - v.contentHeight
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if targetOffset > maxOffset {
-		targetOffset = maxOffset
-	}
-	v.scrollOffset = targetOffset
-	v.needsRebuild = true
-	v.rebuildViewport()
+	v.selectedIdx = idx
+	v.ensureSelectionVisible()
 
 	// Show result
 	v.showToast(fmt.Sprintf("Jumped to %s", entry.Timestamp.Format("2006-01-02 15:04:05")), false)
@@ -733,37 +651,21 @@ func (v *LogsView) loadHistoricalLogs(parsed *ParsedTimestamp) {
 
 	// Clear current buffer and load historical entries
 	v.buffer.Clear()
-	v.styledLines = nil
 
 	for _, entry := range result.Entries {
 		logEntry := v.entryDataToLogEntry(entry)
 		v.buffer.Add(logEntry)
-		v.styledLines = append(v.styledLines, v.formatLogEntry(logEntry))
 	}
 
 	// Navigate to the target entry
 	v.followMode = false
 	if result.TargetIndex >= 0 {
-		// Calculate scroll offset to center the target
-		totalEntries := len(v.styledLines)
-		targetOffset := totalEntries - result.TargetIndex - v.contentHeight/2
-		if targetOffset < 0 {
-			targetOffset = 0
-		}
-		maxOffset := totalEntries - v.contentHeight
-		if maxOffset < 0 {
-			maxOffset = 0
-		}
-		if targetOffset > maxOffset {
-			targetOffset = maxOffset
-		}
-		v.scrollOffset = targetOffset
+		v.selectedIdx = result.TargetIndex
 	} else {
-		v.scrollOffset = 0
+		v.selectedIdx = 0
 	}
 
-	v.needsRebuild = true
-	v.rebuildViewport()
+	v.ensureSelectionVisible()
 
 	// Show result message
 	if result.Message != "" {
@@ -865,26 +767,164 @@ func (v *LogsView) scrollToMatch() {
 	v.rebuildViewport()
 }
 
-// rebuildViewport rebuilds the viewport content using windowing.
-// Only renders visible lines (+ small buffer) instead of all 10K lines.
+// getEntryCount returns the total number of entries (filtered or all).
+func (v *LogsView) getEntryCount() int {
+	if v.filter.HasFilters() {
+		return len(v.matchIndices)
+	}
+	return v.buffer.Len()
+}
+
+// moveSelection moves the selection by delta entries.
+func (v *LogsView) moveSelection(delta int) {
+	totalEntries := v.getEntryCount()
+	if totalEntries == 0 {
+		return
+	}
+
+	// Move selection
+	v.selectedIdx += delta
+
+	// Clamp to valid range
+	if v.selectedIdx < 0 {
+		v.selectedIdx = 0
+	}
+	if v.selectedIdx >= totalEntries {
+		v.selectedIdx = totalEntries - 1
+	}
+
+	v.ensureSelectionVisible()
+}
+
+// ensureSelectionVisible adjusts scroll to keep selected row visible.
+func (v *LogsView) ensureSelectionVisible() {
+	totalEntries := v.getEntryCount()
+	if totalEntries == 0 {
+		return
+	}
+
+	// Clamp selection to valid range
+	if v.selectedIdx < 0 {
+		v.selectedIdx = 0
+	}
+	if v.selectedIdx >= totalEntries {
+		v.selectedIdx = totalEntries - 1
+	}
+
+	// Trigger rebuild which handles viewport positioning
+	v.needsRebuild = true
+	v.rebuildViewport()
+}
+
+// getSelectedEntry returns the currently selected log entry.
+func (v *LogsView) getSelectedEntry() (models.LogEntry, bool) {
+	if v.filter.HasFilters() {
+		// With filters, selectedIdx is index into matchIndices
+		if v.selectedIdx < 0 || v.selectedIdx >= len(v.matchIndices) {
+			return models.LogEntry{}, false
+		}
+		bufferIdx := v.matchIndices[v.selectedIdx]
+		return v.buffer.Get(bufferIdx)
+	}
+
+	// Without filters, selectedIdx is direct buffer index
+	return v.buffer.Get(v.selectedIdx)
+}
+
+// formatEntryForClipboard formats a log entry for clipboard (plain text).
+func (v *LogsView) formatEntryForClipboard(entry models.LogEntry) string {
+	var sb strings.Builder
+	sb.WriteString(entry.Timestamp.Format("2006-01-02 15:04:05"))
+	sb.WriteString(" ")
+	sb.WriteString(entry.Severity.String())
+	sb.WriteString(" ")
+	if entry.PID > 0 {
+		sb.WriteString(fmt.Sprintf("[%d] ", entry.PID))
+	}
+	if entry.User != "" && entry.Database != "" {
+		sb.WriteString(fmt.Sprintf("%s@%s ", entry.User, entry.Database))
+	} else if entry.Database != "" {
+		sb.WriteString(entry.Database + " ")
+	}
+	sb.WriteString(entry.Message)
+	if entry.Detail != "" {
+		sb.WriteString("\n  DETAIL: " + entry.Detail)
+	}
+	if entry.Hint != "" {
+		sb.WriteString("\n  HINT: " + entry.Hint)
+	}
+	return sb.String()
+}
+
+// yankSelectedEntry copies the selected entry to clipboard.
+func (v *LogsView) yankSelectedEntry() {
+	entry, ok := v.getSelectedEntry()
+	if !ok {
+		v.showToast("No entry selected", true)
+		return
+	}
+
+	if !v.clipboard.IsAvailable() {
+		v.showToast("Clipboard not available", true)
+		return
+	}
+
+	text := v.formatEntryForClipboard(entry)
+	if err := v.clipboard.Write(text); err != nil {
+		v.showToast("Failed to copy: "+err.Error(), true)
+		return
+	}
+
+	v.showToast("Entry copied to clipboard", false)
+}
+
+// yankAllFiltered copies all filtered entries (or all if no filter) to clipboard.
+func (v *LogsView) yankAllFiltered() {
+	if !v.clipboard.IsAvailable() {
+		v.showToast("Clipboard not available", true)
+		return
+	}
+
+	var entries []models.LogEntry
+	if v.filter.HasFilters() {
+		allEntries := v.buffer.GetAll()
+		entries = v.filter.FilterEntries(allEntries)
+	} else {
+		entries = v.buffer.GetAll()
+	}
+
+	if len(entries) == 0 {
+		v.showToast("No entries to copy", true)
+		return
+	}
+
+	var sb strings.Builder
+	for i, entry := range entries {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(v.formatEntryForClipboard(entry))
+	}
+
+	if err := v.clipboard.Write(sb.String()); err != nil {
+		v.showToast("Failed to copy: "+err.Error(), true)
+		return
+	}
+
+	v.showToast(fmt.Sprintf("Copied %d entries to clipboard", len(entries)), false)
+}
+
+// rebuildViewport rebuilds the viewport content.
 func (v *LogsView) rebuildViewport() {
 	if !v.needsRebuild {
 		return
 	}
 	v.needsRebuild = false
 
-	totalLines := len(v.styledLines)
-	if totalLines == 0 {
+	if v.buffer.Len() == 0 {
 		v.viewport.SetContent("")
 		v.filteredLineCount = 0
 		return
-	}
-
-	// Window size: visible height * 2 for some scroll buffer
-	// This is what we actually feed to the viewport
-	windowSize := v.contentHeight * 2
-	if windowSize < 50 {
-		windowSize = 50
 	}
 
 	// Get the lines to display based on scroll position
@@ -901,11 +941,18 @@ func (v *LogsView) rebuildViewport() {
 		for i, entry := range filtered {
 			// Check if this is the current match (matchIndices[j] == j for all j)
 			isCurrentMatch := hasSearch && v.currentMatch >= 0 && i == v.currentMatch
-			linesToShow = append(linesToShow, v.formatLogEntryWithHighlight(entry, hasSearch, isCurrentMatch))
+			isSelected := i == v.selectedIdx
+			line := v.formatLogEntryWithHighlight(entry, hasSearch, isCurrentMatch, isSelected)
+			linesToShow = append(linesToShow, line)
 		}
 	} else {
-		// No filter - use pre-styled lines directly
-		linesToShow = v.styledLines
+		// No filter - format entries with selection highlighting on timestamp only
+		entries := v.buffer.GetAll()
+		for i, entry := range entries {
+			isSelected := i == v.selectedIdx
+			line := v.formatLogEntryWithHighlight(entry, false, false, isSelected)
+			linesToShow = append(linesToShow, line)
+		}
 	}
 
 	totalFiltered := len(linesToShow)
@@ -965,52 +1012,62 @@ func (v *LogsView) rebuildViewport() {
 		return
 	}
 
-	// Normal windowed rendering for non-filtered view
-	// Clamp scrollOffset to filtered count (important when filter reduces entries)
-	maxOffset := totalFiltered - v.contentHeight
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if v.scrollOffset > maxOffset {
-		v.scrollOffset = maxOffset
-	}
+	// For non-filtered view, set all content and use viewport scrolling
+	// This is simpler and handles multiline entries correctly
+	v.viewport.SetContent(strings.Join(linesToShow, "\n"))
 
-	// Calculate window bounds
-	// scrollOffset = 0 means we're at the bottom (newest)
-	// scrollOffset = N means we're N lines up from bottom
-	endIdx := totalFiltered - v.scrollOffset
-	if endIdx > totalFiltered {
-		endIdx = totalFiltered
-	}
-	if endIdx < 0 {
-		endIdx = 0
+	// In follow mode, always stay at the bottom (no centering)
+	if v.followMode {
+		v.viewport.GotoBottom()
+		return
 	}
 
-	startIdx := endIdx - windowSize
-	if startIdx < 0 {
-		startIdx = 0
+	// Calculate line offset for the selected entry (account for multiline entries)
+	if v.selectedIdx >= 0 && v.selectedIdx < len(linesToShow) {
+		// Count actual lines before the selected entry
+		lineOffset := 0
+		for i := 0; i < v.selectedIdx; i++ {
+			lineOffset += strings.Count(linesToShow[i], "\n") + 1
+		}
+
+		// Position viewport to show selected entry
+		// Try to keep selection roughly centered when possible
+		targetOffset := lineOffset - v.contentHeight/2
+		if targetOffset < 0 {
+			targetOffset = 0
+		}
+
+		// Calculate max offset
+		totalLines := 0
+		for _, line := range linesToShow {
+			totalLines += strings.Count(line, "\n") + 1
+		}
+		maxOffset := totalLines - v.contentHeight
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		if targetOffset > maxOffset {
+			targetOffset = maxOffset
+		}
+
+		// Only scroll if selection is not visible
+		currentTop := v.viewport.YOffset
+		currentBottom := currentTop + v.contentHeight
+		if lineOffset < currentTop || lineOffset >= currentBottom {
+			v.viewport.SetYOffset(targetOffset)
+		}
 	}
-
-	// Slice the window
-	window := linesToShow[startIdx:endIdx]
-
-	// Feed only the windowed content to viewport
-	v.viewport.SetContent(strings.Join(window, "\n"))
-
-	// Always position viewport at bottom of window.
-	// Our window is constructed with buffer lines BEFORE the current view,
-	// so the "current" visible content is always at the end of the window.
-	v.viewport.GotoBottom()
 }
 
 // formatLogEntry formats a log entry for display.
 func (v *LogsView) formatLogEntry(entry models.LogEntry) string {
-	return v.formatLogEntryWithHighlight(entry, false, false)
+	return v.formatLogEntryWithHighlight(entry, false, false, false)
 }
 
 // formatLogEntryWithHighlight formats a log entry with optional search highlighting.
-// If isCurrentMatch is true, the entire line gets a distinct background.
-func (v *LogsView) formatLogEntryWithHighlight(entry models.LogEntry, highlight bool, isCurrentMatch bool) string {
+// If isCurrentMatch is true, the entry gets a match indicator.
+// If isSelected is true, only the timestamp gets selection highlighting (subtle cursor).
+func (v *LogsView) formatLogEntryWithHighlight(entry models.LogEntry, highlight bool, isCurrentMatch bool, isSelected bool) string {
 	// Timestamp - show date if not today
 	now := time.Now()
 	var tsFormat string
@@ -1021,7 +1078,13 @@ func (v *LogsView) formatLogEntryWithHighlight(entry models.LogEntry, highlight 
 	} else {
 		tsFormat = "15:04:05"
 	}
-	timestamp := styles.LogTimestampStyle.Render(entry.Timestamp.Format(tsFormat))
+	// Apply selection style only to timestamp for subtle cursor indication
+	var timestamp string
+	if isSelected {
+		timestamp = styles.TableSelectedStyle.Render(entry.Timestamp.Format(tsFormat))
+	} else {
+		timestamp = styles.LogTimestampStyle.Render(entry.Timestamp.Format(tsFormat))
+	}
 
 	// Severity badge
 	severityBadge := styles.SeverityBadge(entry.Severity).Render(entry.Severity.String())
@@ -1251,10 +1314,10 @@ func (v *LogsView) renderStatusBar() string {
 	var countStr string
 
 	// Use filtered count when filters are active, otherwise total
-	totalLines := len(v.styledLines)
-	displayLines := totalLines
+	totalEntries := v.buffer.Len()
+	displayEntries := totalEntries
 	if v.filter.HasFilters() && v.filteredLineCount > 0 {
-		displayLines = v.filteredLineCount
+		displayEntries = v.filteredLineCount
 	}
 
 	if v.followMode {
@@ -1264,7 +1327,7 @@ func (v *LogsView) renderStatusBar() string {
 			countStr = styles.MutedStyle.Render(
 				fmt.Sprintf(" | %s of %s entries",
 					formatCount(v.filteredLineCount),
-					formatCount(totalLines)),
+					formatCount(totalEntries)),
 			)
 		} else if v.buffer.IsFull() {
 			countStr = styles.MutedStyle.Render(
@@ -1277,39 +1340,23 @@ func (v *LogsView) renderStatusBar() string {
 		}
 	} else {
 		followStr = styles.LogPausedIndicator.Render(" PAUSED")
-		// In paused mode, show position within the log
-		if displayLines > 0 {
-			// Calculate visible range (1-indexed for display)
-			bottomLine := displayLines - v.scrollOffset
-			topLine := bottomLine - v.contentHeight + 1
-			if topLine < 1 {
-				topLine = 1
-			}
-			if bottomLine > displayLines {
-				bottomLine = displayLines
-			}
-			// Calculate percentage (100% = at bottom/newest)
-			pct := 100
-			if displayLines > v.contentHeight {
-				pct = (bottomLine * 100) / displayLines
-			}
+		// In paused mode, show selected entry position and entry count
+		if displayEntries > 0 {
+			// Show selection position (1-indexed for display)
+			selectedPos := v.selectedIdx + 1
 			if v.filter.HasFilters() {
 				// Show filtered/total when filter active
 				countStr = styles.MutedStyle.Render(
-					fmt.Sprintf(" | %s-%s of %s (%d%%) [%s total]",
-						formatCount(topLine),
-						formatCount(bottomLine),
-						formatCount(displayLines),
-						pct,
-						formatCount(totalLines)),
+					fmt.Sprintf(" | %s of %s entries [%s total]",
+						formatCount(selectedPos),
+						formatCount(displayEntries),
+						formatCount(totalEntries)),
 				)
 			} else {
 				countStr = styles.MutedStyle.Render(
-					fmt.Sprintf(" | %s-%s of %s (%d%%)",
-						formatCount(topLine),
-						formatCount(bottomLine),
-						formatCount(displayLines),
-						pct),
+					fmt.Sprintf(" | %s of %s entries",
+						formatCount(selectedPos),
+						formatCount(displayEntries)),
 				)
 			}
 		} else {
@@ -1363,7 +1410,7 @@ func (v *LogsView) renderFooter() string {
 		hints = styles.AccentStyle.Render(":") + v.commandInput.View()
 	} else {
 		// Normal mode hints
-		hints = styles.FooterHintStyle.Render("[f]ollow [/]search [g]top [G]bottom [h]elp")
+		hints = styles.FooterHintStyle.Render("[f]ollow [/]search [j/k]nav [y]ank [g]top [G]bottom [h]elp")
 	}
 
 	return styles.FooterStyle.
