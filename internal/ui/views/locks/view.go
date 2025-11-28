@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/alecthomas/chroma/v2/quick"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
@@ -92,8 +92,9 @@ const (
 
 // LocksView displays lock information and blocking relationships.
 type LocksView struct {
-	width  int
-	height int
+	width            int
+	height           int
+	viewHeaderHeight int // Calculated height of view header elements for mouse coordinate translation
 
 	// State
 	mode           LocksMode
@@ -279,7 +280,8 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		switch v.mode {
 		case ModeNormal:
-			if v.activeTab == TabActiveLocks {
+			switch v.activeTab {
+			case TabActiveLocks:
 				switch msg.Button {
 				case tea.MouseButtonWheelUp:
 					v.moveSelection(-1)
@@ -287,8 +289,9 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					v.moveSelection(1)
 				case tea.MouseButtonLeft:
 					if msg.Action == tea.MouseActionPress {
-						// Table starts after: status(1) + title(1) + tabs(1) + header(1)
-						clickedRow := msg.Y - 5
+						// msg.Y is relative to view top (app translates global to relative)
+						// Subtract view's header height to get data row index
+						clickedRow := msg.Y - v.viewHeaderHeight
 						if clickedRow >= 0 {
 							newIdx := v.scrollOffset + clickedRow
 							if newIdx >= 0 && newIdx < len(v.data.Locks) {
@@ -297,7 +300,7 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				}
-			} else if v.activeTab == TabDeadlockHistory {
+			case TabDeadlockHistory:
 				switch msg.Button {
 				case tea.MouseButtonWheelUp:
 					v.moveDeadlockSelection(-1)
@@ -305,8 +308,8 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					v.moveDeadlockSelection(1)
 				case tea.MouseButtonLeft:
 					if msg.Action == tea.MouseActionPress {
-						// Empirically determined offset for deadlock history table
-						clickedRow := msg.Y - 9
+						// Deadlock tab has additional header rows (2 extra for deadlock-specific header)
+						clickedRow := msg.Y - v.viewHeaderHeight - 2
 						if clickedRow >= 0 {
 							newIdx := v.deadlockScrollOffset + clickedRow
 							if newIdx >= 0 && newIdx < len(v.deadlocks) {
@@ -482,15 +485,17 @@ func (v *LocksView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 	// Sort
 	case "s":
-		if v.activeTab == TabActiveLocks {
+		switch v.activeTab {
+		case TabActiveLocks:
 			v.cycleSort()
-		} else if v.activeTab == TabDeadlockHistory {
+		case TabDeadlockHistory:
 			v.cycleDeadlockSort()
 		}
 	case "S":
-		if v.activeTab == TabActiveLocks {
+		switch v.activeTab {
+		case TabActiveLocks:
 			v.toggleSortDirection()
-		} else if v.activeTab == TabDeadlockHistory {
+		case TabDeadlockHistory:
 			v.toggleDeadlockSortDirection()
 		}
 
@@ -1076,10 +1081,19 @@ func (v *LocksView) View() string {
 		table := v.renderTable()
 		content = lipgloss.JoinVertical(lipgloss.Left, header, table)
 		footer = v.renderFooter()
+
+		// Calculate view header height for mouse coordinate translation
+		// This is the number of rows from view top to first data row
+		v.viewHeaderHeight = lipgloss.Height(statusBar) + lipgloss.Height(title) +
+			lipgloss.Height(tabBar) + lipgloss.Height(header)
 	} else {
 		// Deadlock history
 		content = v.renderDeadlockHistory()
 		footer = v.renderDeadlockFooter()
+
+		// Calculate view header height for deadlock tab (same base + deadlock header)
+		v.viewHeaderHeight = lipgloss.Height(statusBar) + lipgloss.Height(title) +
+			lipgloss.Height(tabBar)
 	}
 
 	return lipgloss.JoinVertical(

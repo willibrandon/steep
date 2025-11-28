@@ -61,8 +61,9 @@ func (s SortColumn) String() string {
 
 // ReplicationView displays replication monitoring information.
 type ReplicationView struct {
-	width  int
-	height int
+	width            int
+	height           int
+	viewHeaderHeight int // Calculated height of view header elements for mouse coordinate translation
 
 	// State
 	mode           ReplicationMode
@@ -413,17 +414,25 @@ func (v *ReplicationView) View() string {
 	var b strings.Builder
 
 	// Status bar (boxed, like Tables view)
-	b.WriteString(v.renderStatusBar())
+	statusBar := v.renderStatusBar()
+	b.WriteString(statusBar)
 	b.WriteString("\n")
 
 	// Title
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
-	b.WriteString(titleStyle.Render("Replication"))
+	title := titleStyle.Render("Replication")
+	b.WriteString(title)
 	b.WriteString("\n")
 
 	// Tab bar
-	b.WriteString(TabBar(v.activeTab, v.width))
+	tabBar := TabBar(v.activeTab, v.width)
+	b.WriteString(tabBar)
 	b.WriteString("\n")
+
+	// Calculate view header height for mouse coordinate translation
+	// This is the number of rows from view top to first data row
+	// Includes: status bar + title + newline + tab bar + newline + data header row (1 line in content)
+	v.viewHeaderHeight = lipgloss.Height(statusBar) + lipgloss.Height(title) + lipgloss.Height(tabBar) + 1
 
 	// Content
 	b.WriteString(content)

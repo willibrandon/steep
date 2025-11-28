@@ -166,10 +166,10 @@ func (v *ConfigView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				v.moveSelection(1)
 			case tea.MouseButtonLeft:
 				if msg.Action == tea.MouseActionPress {
-					// WARNING: tableStartY=8 was determined empirically (2025-11).
-					// Accounts for: app header(1) + status(1) + title(1) + table header(1) + separator(1) + blank lines
+					// WARNING: tableStartY=7 was determined empirically (2025-11).
+					// Accounts for: status bar(3) + title(1) + table header(1) + separator(2) = 7 lines
 					// If mouse clicks select wrong rows, adjust this offset.
-					tableStartY := 8
+					tableStartY := 7
 					clickedRow := msg.Y - tableStartY
 					if clickedRow >= 0 {
 						params := v.getDisplayParams()

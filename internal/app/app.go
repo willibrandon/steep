@@ -76,6 +76,9 @@ type Model struct {
 	ready       bool
 	tooSmall    bool
 
+	// Layout tracking for relative mouse coordinates
+	appHeaderHeight int // Height of app header, calculated during render
+
 	// Reconnection state
 	reconnectionState *db.ReconnectionState
 	reconnecting      bool
@@ -216,24 +219,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.MouseMsg:
-		// Forward mouse events to the active view
+		// Translate to relative coordinates for the view
+		// App header height is calculated from the actual rendered header
+		// View content starts immediately after the header line, so we only subtract
+		// the header's line count (not +1 for newline - the newline separates header from view)
+		header := m.renderHeader()
+		headerHeight := lipgloss.Height(header)
+
+		// Create translated mouse message with Y relative to view's top
+		relativeMsg := tea.MouseMsg{
+			X:      msg.X,
+			Y:      msg.Y - headerHeight,
+			Button: msg.Button,
+			Action: msg.Action,
+		}
+
+		// Forward translated mouse events to the active view
 		switch m.currentView {
 		case views.ViewQueries:
-			m.queriesView.Update(msg)
+			m.queriesView.Update(relativeMsg)
 		case views.ViewDashboard:
-			m.dashboard.Update(msg)
+			m.dashboard.Update(relativeMsg)
 		case views.ViewActivity:
-			m.activityView.Update(msg)
+			m.activityView.Update(relativeMsg)
 		case views.ViewLocks:
-			m.locksView.Update(msg)
+			m.locksView.Update(relativeMsg)
 		case views.ViewTables:
-			m.tablesView.Update(msg)
+			m.tablesView.Update(relativeMsg)
 		case views.ViewReplication:
-			m.replicationView.Update(msg)
+			m.replicationView.Update(relativeMsg)
 		case views.ViewSQLEditor:
-			m.sqlEditorView.Update(msg)
+			m.sqlEditorView.Update(relativeMsg)
 		case views.ViewConfig:
-			m.configView.Update(msg)
+			m.configView.Update(relativeMsg)
 		}
 		return m, nil
 

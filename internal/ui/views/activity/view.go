@@ -66,6 +66,10 @@ type ActivityView struct {
 
 	// Our own PIDs (to warn about self-kill)
 	ownPIDs []int
+
+	// Layout tracking for relative mouse coordinates
+	// Height of view elements above data rows (statusBar + title + table header)
+	viewHeaderHeight int
 }
 
 // New creates a new activity view.
@@ -104,8 +108,9 @@ func (v *ActivityView) Update(msg tea.Msg) (views.ViewModel, tea.Cmd) {
 				v.table.MoveDown()
 			case tea.MouseButtonLeft:
 				if msg.Action == tea.MouseActionPress {
-					// Offset: app header(4) + status bar(1) + title(1) + table header(2) = 8, plus table border
-					row := msg.Y - 9
+					// msg.Y is relative to view top (app translates global to relative)
+					// Subtract view's own header height to get data row index
+					row := msg.Y - v.viewHeaderHeight
 					if row >= 0 && row < len(v.connections) {
 						v.table.GotoTop()
 						for i := 0; i < row; i++ {
@@ -418,6 +423,14 @@ func (v *ActivityView) renderMain() string {
 
 	// Footer
 	footer := v.renderFooter()
+
+	// Calculate view header height for mouse coordinate translation
+	// This is the height of everything above the data rows within this view
+	statusBarHeight := lipgloss.Height(statusBar)
+	titleHeight := lipgloss.Height(title)
+	// ActivityTable component has fixed header: top border (1) + header row (1) + separator (1) = 3 lines
+	tableComponentHeaderHeight := 3
+	v.viewHeaderHeight = statusBarHeight + titleHeight + tableComponentHeaderHeight
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,

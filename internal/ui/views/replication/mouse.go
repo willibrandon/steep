@@ -25,9 +25,9 @@ func (v *ReplicationView) handleMouseMsg(msg tea.MouseMsg) {
 			}
 		case tea.MouseButtonLeft:
 			if msg.Action == tea.MouseActionPress {
-				// Calculate clicked row based on tab and layout
-				// Layout: status bar (3 lines with border) + newline + title + newline + tabs + newline + header = 8 lines
-				clickedRow := msg.Y - 8
+				// msg.Y is relative to view top (app translates global to relative)
+				// Subtract view's header height (calculated in View()) to get data row
+				clickedRow := msg.Y - v.viewHeaderHeight
 				if clickedRow >= 0 {
 					switch v.activeTab {
 					case TabOverview:
@@ -53,13 +53,10 @@ func (v *ReplicationView) handleMouseMsg(msg tea.MouseMsg) {
 			v.topologyNavigateDown()
 		case tea.MouseButtonLeft:
 			if msg.Action == tea.MouseActionPress {
-				// Topology layout (after title "Replication" and tab bar):
-				// Line 0: empty (newline)
-				// Line 1: "Replication Topology" header
-				// Line 2: empty
-				// Line 3: "● PRIMARY"
+				// Topology layout has additional header (viewHeaderHeight + 1 for topology title area)
+				// Line 0-3: topology header area
 				// Line 4+: tree nodes (each node is 1 line, expanded adds 4 more lines)
-				clickedRow := msg.Y - 7 // Adjust for title + tabs + topology header
+				clickedRow := msg.Y - v.viewHeaderHeight - 1
 
 				if clickedRow >= 4 && len(v.data.Replicas) > 0 {
 					// Calculate which replica was clicked

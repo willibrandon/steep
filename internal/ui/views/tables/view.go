@@ -163,8 +163,9 @@ type (
 
 // TablesView displays schema and table statistics.
 type TablesView struct {
-	width  int
-	height int
+	width            int
+	height           int
+	viewHeaderHeight int // Calculated height of view header elements for mouse coordinate translation
 
 	// Data
 	schemas    []models.Schema
@@ -512,8 +513,8 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			indexes := v.getSelectedTableIndexes()
 			showIndexPanel := len(indexes) > 0
 
-			// Table panel starts at Y=8 (after app header, status, title, header)
-			tableStartY := 8
+			// Table panel starts at viewHeaderHeight (calculated in View())
+			tableStartY := v.viewHeaderHeight
 			var indexStartY int
 			var tablePanelRows int
 
@@ -1576,6 +1577,10 @@ func (v *TablesView) renderMainView() string {
 
 	// Column headers
 	header := v.renderHeader()
+
+	// Calculate view header height for mouse coordinate translation
+	// This is the number of rows from view top to first data row
+	v.viewHeaderHeight = lipgloss.Height(statusBar) + lipgloss.Height(title) + lipgloss.Height(header)
 
 	// Check if we should show the index panel (when a table is selected)
 	indexes := v.getSelectedTableIndexes()
