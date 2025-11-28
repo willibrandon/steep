@@ -29,12 +29,12 @@ Press `9` from any view to open the Log Viewer.
 
 | Key | Action |
 |-----|--------|
-| `j` / `↓` | Scroll down one line |
-| `k` / `↑` | Scroll up one line |
+| `j` / `↓` | Select next entry |
+| `k` / `↑` | Select previous entry |
 | `g` | Jump to oldest log (top) |
 | `G` | Jump to newest log (bottom) |
-| `Ctrl+d` | Page down |
-| `Ctrl+u` | Page up |
+| `Ctrl+d` | Half page down |
+| `Ctrl+u` | Half page up |
 
 ### Follow Mode
 
@@ -82,16 +82,27 @@ Search supports regex patterns:
 
 | Command | Effect |
 |---------|--------|
+| `:goto 14:30` | Jump to today's logs at time (closest match) |
 | `:goto 2025-11-27 14:30` | Jump to logs around timestamp |
-| `:goto 14:30` | Jump to today's logs at time |
+| `:goto >14:30` | Jump to first entry at or after time |
+| `:goto <14:30` | Jump to last entry at or before time |
+| `:goto -1h` | Jump to 1 hour ago |
+| `:goto -30m` | Jump to 30 minutes ago |
+| `:goto -2d` | Jump to 2 days ago |
+
+### Copy to Clipboard
+
+| Key | Action |
+|-----|--------|
+| `y` | Copy selected entry to clipboard |
+| `Y` | Copy all (filtered) entries to clipboard |
 
 ### Other Commands
 
 | Key | Action |
 |-----|--------|
-| `?` | Show help overlay |
-| `Escape` | Close help / clear input |
-| `q` | Return to previous view |
+| `h` | Toggle help overlay |
+| `Escape` | Close help / clear filters |
 
 ## Log Entry Format
 
@@ -121,9 +132,9 @@ Example:
 
 The status bar shows:
 - **Follow mode**: `FOLLOW` or `PAUSED`
+- **Position**: e.g., `42 of 1,234 entries` (selected position / total)
 - **Active filter**: e.g., `[level:error]` or `[search:/timeout/]`
-- **Entry count**: `1,234 / 10,000` (filtered / total)
-- **Last update**: `Updated: 14:30:15`
+- **Last update**: timestamp of most recent data
 
 ## Troubleshooting
 

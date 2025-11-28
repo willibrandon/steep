@@ -161,12 +161,12 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T057 [P] Handle readonly mode - disable enable logging prompt in `internal/ui/views/logs/view.go`
-- [ ] T058 [P] Implement multi-line log entry display (stack traces, DETAIL) in `internal/ui/views/logs/render.go`
-- [ ] T059 [P] Add mouse scroll support (wheel up/down) in `internal/ui/views/logs/view.go`
-- [ ] T060 Complete help overlay with all keybindings and commands in `internal/ui/views/logs/help.go`
-- [ ] T061 Run quickstart.md validation - verify all documented commands work
-- [ ] T062 Performance validation - verify 10,000 entry scrolling is smooth
+- [X] T057 [P] Handle readonly mode - disable enable logging prompt in `internal/ui/views/logs/view.go`
+- [X] T058 [P] Implement multi-line log entry display (stack traces, DETAIL) in `internal/ui/views/logs/view.go`
+- [X] T059 [P] Add mouse scroll support (wheel up/down) in `internal/ui/views/logs/view.go`
+- [X] T060 Complete help overlay with all keybindings and commands in `internal/ui/views/logs/help.go`
+- [X] T061 Run quickstart.md validation - verify all documented commands work
+- [X] T062 Performance validation - verify 10,000 entry scrolling is smooth (benchmarked: 63μs add, 1μs range read)
 
 ---
 
