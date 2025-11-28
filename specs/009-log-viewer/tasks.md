@@ -24,10 +24,10 @@
 
 **Purpose**: Create directory structure and base files for log viewer
 
-- [ ] T001 Create logs view directory structure at `internal/ui/views/logs/`
-- [ ] T002 [P] Create LogEntry model and LogSeverity enum in `internal/db/models/log_entry.go`
-- [ ] T003 [P] Create LogSource model with LogFormat and AccessMethod enums in `internal/monitors/log_source.go`
-- [ ] T004 [P] Define severity color styles in `internal/ui/styles/logs.go` (Red ERROR, Yellow WARNING, White INFO, Gray DEBUG)
+- [X] T001 Create logs view directory structure at `internal/ui/views/logs/`
+- [X] T002 [P] Create LogEntry model and LogSeverity enum in `internal/db/models/log_entry.go`
+- [X] T003 [P] Create LogSource model with LogFormat and AccessMethod enums in `internal/monitors/log_source.go`
+- [X] T004 [P] Define severity color styles in `internal/ui/styles/logs.go` (Red ERROR, Yellow WARNING, White INFO, Gray DEBUG)
 
 ---
 
