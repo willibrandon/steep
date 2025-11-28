@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,6 +17,7 @@ import (
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
 	locksview "github.com/willibrandon/steep/internal/ui/views/locks"
+	logsview "github.com/willibrandon/steep/internal/ui/views/logs"
 	queriesview "github.com/willibrandon/steep/internal/ui/views/queries"
 )
 
@@ -218,6 +220,81 @@ func enableLogging(monitor *querymonitor.Monitor) tea.Cmd {
 		return queriesview.EnableLoggingResultMsg{
 			Success: err == nil,
 			Error:   err,
+		}
+	}
+}
+
+// checkLogsLoggingStatus creates a command to check PostgreSQL logging status for logs view
+func checkLogsLoggingStatus(pool *pgxpool.Pool) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+
+		// Check logging_collector - this determines if PostgreSQL writes to log files
+		var loggingCollector string
+		err := pool.QueryRow(ctx, "SHOW logging_collector").Scan(&loggingCollector)
+		if err != nil {
+			return logsview.LoggingStatusMsg{
+				Error: err,
+			}
+		}
+
+		enabled := loggingCollector == "on"
+
+		// Get log directory and filename
+		var dataDir, logDir, logFilename string
+		if err := pool.QueryRow(ctx, "SHOW data_directory").Scan(&dataDir); err != nil {
+			return logsview.LoggingStatusMsg{Error: err}
+		}
+		if err := pool.QueryRow(ctx, "SHOW log_directory").Scan(&logDir); err != nil {
+			return logsview.LoggingStatusMsg{Error: err}
+		}
+		if err := pool.QueryRow(ctx, "SHOW log_filename").Scan(&logFilename); err != nil {
+			return logsview.LoggingStatusMsg{Error: err}
+		}
+
+		// Resolve absolute log directory path
+		if logDir != "" && logDir[0] != '/' {
+			logDir = dataDir + "/" + logDir
+		}
+
+		// Convert log_filename pattern to glob pattern
+		logPattern := logFilename
+		placeholders := []string{"%Y", "%m", "%d", "%H", "%M", "%S", "%a", "%b", "%j", "%W", "%y", "%I", "%p", "%e", "%c", "%n"}
+		for _, ph := range placeholders {
+			logPattern = strings.ReplaceAll(logPattern, ph, "*")
+		}
+		for strings.Contains(logPattern, "**") {
+			logPattern = strings.ReplaceAll(logPattern, "**", "*")
+		}
+
+		// Detect format from log pattern
+		format := monitors.DetectFormatFromFilename(logPattern)
+		return logsview.LoggingStatusMsg{
+			Enabled:    enabled,
+			LogDir:     logDir,
+			LogPattern: logPattern,
+			LogFormat:  format,
+		}
+	}
+}
+
+// enableLogsLogging creates a command to enable logging_collector for logs view
+func enableLogsLogging(pool *pgxpool.Pool) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+
+		// Enable logging_collector via ALTER SYSTEM
+		_, err := pool.Exec(ctx, "ALTER SYSTEM SET logging_collector = on")
+		if err != nil {
+			return logsview.EnableLoggingResultMsg{
+				Success: false,
+				Error:   fmt.Errorf("failed to enable logging_collector: %w", err),
+			}
+		}
+
+		return logsview.EnableLoggingResultMsg{
+			Success: true,
+			Error:   nil,
 		}
 	}
 }

@@ -15,9 +15,10 @@ const (
 // LogBuffer is a fixed-size ring buffer for log entries.
 type LogBuffer struct {
 	entries []models.LogEntry
-	head    int // Next write index
-	size    int // Current number of entries
-	cap     int // Maximum capacity
+	head    int    // Next write index
+	size    int    // Current number of entries
+	cap     int    // Maximum capacity
+	seq     uint64 // Sequence number, increments on wrap
 }
 
 // NewLogBuffer creates a new log buffer with the given capacity.
@@ -38,7 +39,16 @@ func (b *LogBuffer) Add(entry models.LogEntry) {
 	b.head = (b.head + 1) % b.cap
 	if b.size < b.cap {
 		b.size++
+	} else {
+		// Buffer wrapped, increment sequence
+		b.seq++
 	}
+}
+
+// Seq returns the current sequence number.
+// This increments each time the buffer wraps and overwrites old entries.
+func (b *LogBuffer) Seq() uint64 {
+	return b.seq
 }
 
 // AddAll adds multiple log entries to the buffer.

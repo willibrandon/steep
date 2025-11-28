@@ -56,22 +56,22 @@
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Implement CheckLoggingStatus call on view Init in `internal/ui/views/logs/view.go`
-- [ ] T012 [US1] Implement ModeConfirmEnableLogging dialog (reuse pattern from queries view) in `internal/ui/views/logs/view.go`
-- [ ] T013 [US1] Implement log file discovery using LogSource configuration in `internal/ui/views/logs/view.go`
-- [ ] T014 [US1] Implement log file reading with position tracking in `internal/ui/views/logs/collector.go`
-- [ ] T015 [US1] Implement stderr format parsing (regex-based) in `internal/ui/views/logs/collector.go`
-- [ ] T016 [P] [US1] Implement CSV format parsing (reuse csv_log_parser column indices) in `internal/ui/views/logs/collector.go`
-- [ ] T017 [P] [US1] Implement JSON format parsing (reuse JSONLogEntry struct) in `internal/ui/views/logs/collector.go`
-- [ ] T018 [US1] Implement format auto-detection based on file extension and content in `internal/ui/views/logs/collector.go`
-- [ ] T019 [US1] Implement 1-second refresh ticker for follow mode in `internal/ui/views/logs/view.go`
-- [ ] T020 [US1] Implement follow mode toggle with `f` key in `internal/ui/views/logs/keys.go`
-- [ ] T021 [US1] Implement viewport rendering with severity color-coding in `internal/ui/views/logs/render.go`
-- [ ] T022 [US1] Implement status bar showing follow mode, entry count, last update in `internal/ui/views/logs/render.go`
-- [ ] T023 [US1] Implement basic navigation (j/k, g/G, Ctrl+d/u) in `internal/ui/views/logs/keys.go`
-- [ ] T024 [US1] Implement error display with configuration guidance when logs inaccessible in `internal/ui/views/logs/render.go`
-- [ ] T025 [US1] Handle log rotation detection (file size < last position) in `internal/ui/views/logs/collector.go`
-- [ ] T026 [US1] Update help text with P1 keybindings in `internal/ui/views/logs/help.go`
+- [X] T011 [US1] Implement CheckLoggingStatus call on view Init in `internal/ui/views/logs/view.go`
+- [X] T012 [US1] Implement ModeConfirmEnableLogging dialog (reuse pattern from queries view) in `internal/ui/views/logs/view.go`
+- [X] T013 [US1] Implement log file discovery using LogSource configuration in `internal/ui/views/logs/view.go`
+- [X] T014 [US1] Implement log file reading with position tracking in `internal/ui/views/logs/collector.go`
+- [X] T015 [US1] Implement stderr format parsing (regex-based) in `internal/ui/views/logs/collector.go`
+- [X] T016 [P] [US1] Implement CSV format parsing (reuse csv_log_parser column indices) in `internal/ui/views/logs/collector.go`
+- [X] T017 [P] [US1] Implement JSON format parsing (reuse JSONLogEntry struct) in `internal/ui/views/logs/collector.go`
+- [X] T018 [US1] Implement format auto-detection based on file extension and content in `internal/ui/views/logs/collector.go`
+- [X] T019 [US1] Implement 1-second refresh ticker for follow mode in `internal/ui/views/logs/view.go`
+- [X] T020 [US1] Implement follow mode toggle with `f` key in `internal/ui/views/logs/keys.go`
+- [X] T021 [US1] Implement viewport rendering with severity color-coding in `internal/ui/views/logs/render.go`
+- [X] T022 [US1] Implement status bar showing follow mode, entry count, last update in `internal/ui/views/logs/render.go`
+- [X] T023 [US1] Implement basic navigation (j/k, g/G, Ctrl+d/u) in `internal/ui/views/logs/keys.go`
+- [X] T024 [US1] Implement error display with configuration guidance when logs inaccessible in `internal/ui/views/logs/render.go`
+- [X] T025 [US1] Handle log rotation detection (file size < last position) in `internal/ui/views/logs/collector.go`
+- [X] T026 [US1] Update help text with P1 keybindings in `internal/ui/views/logs/help.go`
 
 **Checkpoint**: User Story 1 complete - real-time log viewing functional with follow mode
 

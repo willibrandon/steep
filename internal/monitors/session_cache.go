@@ -38,9 +38,17 @@ func NewSessionCache(pool *pgxpool.Pool) *SessionCache {
 }
 
 // Start begins polling for lock waits and caching session state.
+// This method is idempotent - calling it multiple times has no effect if already running.
 func (c *SessionCache) Start(ctx context.Context) {
-	ctx, c.cancel = context.WithCancel(ctx)
+	c.mu.Lock()
+	if c.running {
+		c.mu.Unlock()
+		return // Already running
+	}
 	c.running = true
+	c.mu.Unlock()
+
+	ctx, c.cancel = context.WithCancel(ctx)
 
 	go c.pollLoop(ctx)
 	go c.cleanupLoop(ctx)
@@ -48,10 +56,18 @@ func (c *SessionCache) Start(ctx context.Context) {
 
 // Stop stops the cache polling.
 func (c *SessionCache) Stop() {
-	if c.cancel != nil {
-		c.cancel()
+	c.mu.Lock()
+	if !c.running {
+		c.mu.Unlock()
+		return // Not running
 	}
 	c.running = false
+	cancel := c.cancel
+	c.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // GetSessionState returns cached session state for a PID.

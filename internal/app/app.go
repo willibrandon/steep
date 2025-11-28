@@ -321,6 +321,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.configView.SetConnectionInfo(connectionInfo)
 		m.logsView.SetConnected(true)
 		m.logsView.SetConnectionInfo(connectionInfo)
+		m.logsView.SetPool(msg.Pool)
 
 		// Initialize monitors
 		refreshInterval := m.config.UI.RefreshInterval
@@ -374,6 +375,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err == nil && !status.Enabled {
 				m.queriesView.SetLoggingDisabled()
 			}
+
 		}
 
 		// Fallback: create replication monitor without persistence if DB failed
@@ -419,6 +421,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.queryStatsStore != nil {
 			cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queryMonitor, m.queriesView.GetSortColumn(), m.queriesView.GetSortAsc(), m.queriesView.GetFilter()))
 		}
+		// Check logging status for logs view
+		cmds = append(cmds, checkLogsLoggingStatus(msg.Pool))
 		return m, tea.Batch(cmds...)
 
 	case ConnectionFailedMsg:
@@ -892,6 +896,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, queriesCmd := m.queriesView.Update(msg)
 		_, tablesCmd := m.tablesView.Update(msg)
 		return m, tea.Batch(locksCmd, queriesCmd, tablesCmd)
+
+	// Logs view messages
+	case logsview.CheckLoggingStatusMsg:
+		// Check logging status for logs view
+		if m.dbPool != nil {
+			return m, checkLogsLoggingStatus(m.dbPool)
+		}
+		return m, nil
+
+	case logsview.LoggingStatusMsg:
+		// Forward to logs view and return the command (starts log collection)
+		_, cmd := m.logsView.Update(msg)
+		return m, cmd
+
+	case logsview.EnableLoggingMsg:
+		// Enable logging_collector for logs view
+		if m.dbPool != nil {
+			return m, enableLogsLogging(m.dbPool)
+		}
+		return m, nil
+
+	case logsview.EnableLoggingResultMsg:
+		// Forward to logs view and return the command
+		_, cmd := m.logsView.Update(msg)
+		return m, cmd
+
+	case logsview.LogTickMsg:
+		// Forward log tick to logs view
+		_, cmd := m.logsView.Update(msg)
+		return m, cmd
+
+	case logsview.LogEntriesMsg:
+		// Forward log entries to logs view
+		_, cmd := m.logsView.Update(msg)
+		return m, cmd
 
 	case ReconnectAttemptMsg:
 		// Update reconnection status display

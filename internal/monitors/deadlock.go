@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +18,7 @@ type DeadlockMonitor struct {
 	pool         *pgxpool.Pool
 	store        *sqlite.DeadlockStore
 	parser       LogParser
+	parserMu     sync.Mutex // Protects parser field
 	sessionCache *SessionCache
 	interval     time.Duration
 	enabled      bool
@@ -121,6 +123,10 @@ func (m *DeadlockMonitor) ParseOnceWithProgress(ctx context.Context, progress Pr
 	if !m.enabled {
 		return 0, nil
 	}
+
+	// Lock to protect parser access during the entire operation
+	m.parserMu.Lock()
+	defer m.parserMu.Unlock()
 
 	// Re-detect log format in case it changed (e.g., user enabled logging)
 	config, err := queries.GetLoggingConfig(ctx, m.pool)
@@ -231,6 +237,8 @@ func (m *DeadlockMonitor) CleanupOldEvents(ctx context.Context, retention time.D
 
 // ResetPositions clears in-memory log positions after a reset.
 func (m *DeadlockMonitor) ResetPositions() {
+	m.parserMu.Lock()
+	defer m.parserMu.Unlock()
 	if m.parser != nil {
 		m.parser.ResetPositions()
 	}
