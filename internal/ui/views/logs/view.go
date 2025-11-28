@@ -61,7 +61,9 @@ type LogsView struct {
 	filteredLineCount int      // Count of lines after filtering (for status bar)
 	targetLine        int      // Target line to scroll to (-1 = none, use normal scroll)
 	cachedLines       []string // Pre-formatted lines (without selection) for performance
+	cachedEntries     []models.LogEntry // Cached entries to ensure consistency with cachedLines
 	cacheSize         int      // Buffer size when cache was built
+	cacheSeq          uint64   // Buffer sequence when cache was built (detects wraps)
 
 	// Follow mode (auto-scroll to newest)
 	followMode bool
@@ -950,20 +952,25 @@ func (v *LogsView) rebuildViewport() {
 	} else {
 		// No filter - use caching to avoid reformatting all entries on every keystroke
 		bufferSize := v.buffer.Len()
-		if v.cacheSize != bufferSize {
-			// Cache miss: buffer changed, rebuild cache WITHOUT selection
-			entries := v.buffer.GetAll()
-			v.cachedLines = make([]string, len(entries))
-			for i, entry := range entries {
+		bufferSeq := v.buffer.Seq()
+
+		// Cache miss if size changed OR buffer wrapped (seq changed)
+		if v.cacheSize != bufferSize || v.cacheSeq != bufferSeq {
+			// Rebuild cache - store entries to ensure consistency
+			v.cachedEntries = v.buffer.GetAll()
+			v.cachedLines = make([]string, len(v.cachedEntries))
+			for i, entry := range v.cachedEntries {
 				v.cachedLines[i] = v.formatLogEntryWithHighlight(entry, false, false, false)
 			}
 			v.cacheSize = bufferSize
+			v.cacheSeq = bufferSeq
 		}
+
 		// Build output using cache, only format the selected entry
+		// Use cachedEntries to ensure we format the same entry that was cached
 		for i, cached := range v.cachedLines {
-			if i == v.selectedIdx {
-				entry, _ := v.buffer.Get(i)
-				linesToShow = append(linesToShow, v.formatLogEntryWithHighlight(entry, false, false, true))
+			if i == v.selectedIdx && i < len(v.cachedEntries) {
+				linesToShow = append(linesToShow, v.formatLogEntryWithHighlight(v.cachedEntries[i], false, false, true))
 			} else {
 				linesToShow = append(linesToShow, cached)
 			}
@@ -1211,7 +1218,9 @@ func (v *LogsView) clearToast() {
 func (v *LogsView) invalidateCache() {
 	v.needsRebuild = true
 	v.cachedLines = nil
+	v.cachedEntries = nil
 	v.cacheSize = 0
+	v.cacheSeq = 0
 }
 
 // View renders the view.
