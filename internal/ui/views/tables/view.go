@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mattn/go-runewidth"
 
@@ -207,13 +208,16 @@ type TablesView struct {
 	focusPanel          FocusPanel
 	selectedIndex       int // Selected index in index list when FocusIndexes
 	indexScrollOffset   int
-	detailsScrollOffset int      // Scroll offset for details panel
-	detailsLines        []string // Pre-computed details content lines
+	detailsScrollOffset  int      // Vertical scroll offset for details panel
+	detailsHScrollOffset int      // Horizontal scroll offset for details panel
+	detailsLines         []string // Pre-computed details content lines
+	detailsMaxLineWidth  int      // Max line width in details (for horizontal scroll)
 	sortColumn          SortColumn
 	sortAscending       bool
 	indexSortColumn     IndexSortColumn
 	indexSortAscending  bool
 	showSystemSchemas   bool
+	splitRatio          float64 // 0.0-1.0, portion for tables panel (vs index panel)
 
 	// Extension state
 	pgstattupleAvailable bool
@@ -267,6 +271,7 @@ func NewTablesView() *TablesView {
 		sortColumn:         SortByName,
 		indexSortColumn:    IndexSortByName,
 		indexSortAscending: false,
+		splitRatio:         0.67, // 67% tables, 33% indexes
 		partitions:         make(map[uint32][]uint32),
 		tablesByOID:        make(map[uint32]*models.Table),
 		clipboard:          ui.NewClipboardWriter(),
@@ -709,9 +714,21 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ModeDetails:
 			switch msg.Button {
 			case tea.MouseButtonWheelUp:
-				v.scrollDetailsUp(3)
+				if msg.Shift {
+					v.scrollDetailsLeft(10) // Horizontal scroll with shift+wheel
+				} else {
+					v.scrollDetailsUp(3)
+				}
 			case tea.MouseButtonWheelDown:
-				v.scrollDetailsDown(3)
+				if msg.Shift {
+					v.scrollDetailsRight(10) // Horizontal scroll with shift+wheel
+				} else {
+					v.scrollDetailsDown(3)
+				}
+			case tea.MouseButtonWheelLeft:
+				v.scrollDetailsLeft(10)
+			case tea.MouseButtonWheelRight:
+				v.scrollDetailsRight(10)
 			case tea.MouseButtonLeft:
 				// Could handle clicks on specific elements
 			}
@@ -802,6 +819,7 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			v.details = nil
 			v.detailsLines = nil
 			v.detailsScrollOffset = 0
+			v.detailsHScrollOffset = 0
 		case "y":
 			// Show copy menu
 			if v.details != nil {
@@ -811,12 +829,21 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			v.scrollDetailsDown(1)
 		case "k", "up":
 			v.scrollDetailsUp(1)
+		case "h", "left":
+			v.scrollDetailsLeft(10)
+		case "l", "right":
+			v.scrollDetailsRight(10)
+		case "0":
+			v.detailsHScrollOffset = 0
+		case "$":
+			v.scrollDetailsToRight()
 		case "ctrl+d", "pgdown":
 			v.scrollDetailsDown(v.detailsContentHeight())
 		case "ctrl+u", "pgup":
 			v.scrollDetailsUp(v.detailsContentHeight())
 		case "g", "home":
 			v.detailsScrollOffset = 0
+			v.detailsHScrollOffset = 0
 		case "G", "end":
 			v.scrollDetailsToBottom()
 		}
@@ -992,6 +1019,13 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Operations menu - shows all maintenance operations
 	case "x":
 		return v.openOperationsMenu()
+
+	// Resize split (only when index panel is visible)
+	// - shrinks index panel, + grows index panel
+	case "-":
+		v.resizeSplitUp() // More space for tables, less for indexes
+	case "+", "=":
+		v.resizeSplitDown() // Less space for tables, more for indexes
 	}
 
 	return nil
@@ -1216,14 +1250,12 @@ func (v *TablesView) sortIndexes(indexes []models.Index) []models.Index {
 
 	sort.Slice(sorted, func(i, j int) bool {
 		// Type-based grouping only when sorting by Name
+		// Always primary → unique → regular, regardless of sort direction
 		if v.indexSortColumn == IndexSortByName {
 			rankI := indexTypeRank(&sorted[i])
 			rankJ := indexTypeRank(&sorted[j])
 			if rankI != rankJ {
-				if v.indexSortAscending {
-					return rankI < rankJ // primary → unique → regular
-				}
-				return rankI > rankJ // regular → unique → primary
+				return rankI < rankJ // primary → unique → regular (always)
 			}
 		}
 
@@ -1282,19 +1314,41 @@ func (v *TablesView) ensureIndexVisible() {
 	}
 }
 
+// splitContentHeight returns the total available height for tables + indexes panels.
+func (v *TablesView) splitContentHeight() int {
+	// Fixed elements: status(3) + title(1) + header(2 w/border) + indexTitle(1) + indexHeader(2 w/border) + footer(3) = 12
+	return max(6, v.height-12) // Min 6 to allow 3 for each panel
+}
+
 // indexPanelHeight returns the height of the index panel (content rows only).
 func (v *TablesView) indexPanelHeight() int {
-	// Index panel gets ~1/3 of available content height, minimum 3 rows
-	// Base overhead: status(3) + title(1) + header(2 w/border) + footer(3) = 9
-	return max(3, (v.height-9)/3)
+	// Index panel gets (1-splitRatio) of available content height, minimum 3 rows
+	availableHeight := v.splitContentHeight()
+	indexHeight := int(float64(availableHeight) * (1 - v.splitRatio))
+	return max(3, indexHeight)
 }
 
 // tablePanelHeight returns the height of the table panel when index panel is shown.
 func (v *TablesView) tablePanelHeight() int {
-	// Table panel gets remaining height after index panel
-	// Fixed elements: status(3) + title(1) + header(2 w/border) + indexTitle(1) + indexHeader(2 w/border) + footer(3) = 12
-	// Plus indexPanelHeight() for index content rows
-	return max(1, v.height-12-v.indexPanelHeight())
+	// Table panel gets remaining space after index panel (avoids rounding issues)
+	availableHeight := v.splitContentHeight()
+	return max(3, availableHeight-v.indexPanelHeight())
+}
+
+// resizeSplitUp increases the tables panel size (decreases index panel).
+func (v *TablesView) resizeSplitUp() {
+	v.splitRatio += 0.1
+	if v.splitRatio > 0.85 {
+		v.splitRatio = 0.85
+	}
+}
+
+// resizeSplitDown decreases the tables panel size (increases index panel).
+func (v *TablesView) resizeSplitDown() {
+	v.splitRatio -= 0.1
+	if v.splitRatio < 0.3 {
+		v.splitRatio = 0.3
+	}
 }
 
 // toggleFocusPanel switches focus between tables and indexes.
@@ -1942,11 +1996,12 @@ func (v *TablesView) renderHeader() string {
 	nameWidth := 40
 	sizeWidth := 10
 	rowsWidth := 12
-	bloatWidth := 10
-	cacheWidth := 10
+	bloatWidth := 8
+	cacheWidth := 8
+	vacuumWidth := 10
 
 	// Adjust name width based on terminal
-	remaining := v.width - sizeWidth - rowsWidth - bloatWidth - cacheWidth - 8
+	remaining := v.width - sizeWidth - rowsWidth - bloatWidth - cacheWidth - vacuumWidth - 10
 	if remaining > 20 {
 		nameWidth = remaining
 	}
@@ -1961,8 +2016,9 @@ func (v *TablesView) renderHeader() string {
 	nameHeader := "Schema/Table"
 	sizeHeader := "Size"
 	rowsHeader := "Rows"
-	bloatHeader := "Bloat %"
-	cacheHeader := "Cache %"
+	bloatHeader := "Bloat"
+	cacheHeader := "Cache"
+	vacuumHeader := "Vacuum"
 
 	switch v.sortColumn {
 	case SortByName:
@@ -1983,6 +2039,7 @@ func (v *TablesView) renderHeader() string {
 		padRight(rowsHeader, rowsWidth),
 		padRight(bloatHeader, bloatWidth),
 		padRight(cacheHeader, cacheWidth),
+		padRight(vacuumHeader, vacuumWidth),
 	}
 
 	headerLine := strings.Join(headers, " ")
@@ -2210,17 +2267,19 @@ func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 	nameWidth := 40
 	sizeWidth := 10
 	rowsWidth := 12
-	bloatWidth := 10
-	cacheWidth := 10
+	bloatWidth := 8
+	cacheWidth := 8
+	vacuumWidth := 10
 
 	// Adjust name width based on terminal
-	remaining := v.width - sizeWidth - rowsWidth - bloatWidth - cacheWidth - 8
+	remaining := v.width - sizeWidth - rowsWidth - bloatWidth - cacheWidth - vacuumWidth - 10
 	if remaining > 20 {
 		nameWidth = remaining
 	}
 
-	var name, size, rowCount, bloat, cacheHit string
+	var name, size, rowCount, bloat, cacheHit, vacuum string
 	var bloatPct float64
+	var vacuumIndicator queries.VacuumIndicator
 
 	if item.IsSchema {
 		// Schema row
@@ -2233,6 +2292,7 @@ func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 		rowCount = ""
 		bloat = ""
 		cacheHit = ""
+		vacuum = ""
 	} else if item.IsTable || item.IsPartition {
 		// Table or partition row
 		var prefix string
@@ -2258,11 +2318,14 @@ func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 		rowCount = formatNumber(item.Table.RowCount)
 		bloatPct = item.Table.BloatPct
 		if item.Table.BloatEstimated {
-			bloat = fmt.Sprintf("~%.1f%%", bloatPct)
+			bloat = fmt.Sprintf("~%.0f%%", bloatPct)
 		} else {
-			bloat = fmt.Sprintf("%.1f%%", bloatPct)
+			bloat = fmt.Sprintf("%.0f%%", bloatPct)
 		}
-		cacheHit = fmt.Sprintf("%.1f%%", item.Table.CacheHitRatio)
+		cacheHit = fmt.Sprintf("%.0f%%", item.Table.CacheHitRatio)
+		// Format vacuum timestamp
+		vacuum = queries.FormatVacuumTimestamp(queries.MaxVacuumTime(item.Table.LastVacuum, item.Table.LastAutovacuum))
+		vacuumIndicator = queries.GetVacuumStatusIndicator(item.Table.LastVacuum, item.Table.LastAutovacuum, queries.DefaultStaleVacuumConfig())
 	}
 
 	// Truncate name if too long
@@ -2280,23 +2343,38 @@ func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 		}
 	}
 
-	row := fmt.Sprintf("%s %s %s %s %s",
+	// Format vacuum with color coding for table rows
+	vacuumStr := padRight(vacuum, vacuumWidth)
+	if (item.IsTable || item.IsPartition) && !isSelected {
+		switch vacuumIndicator {
+		case queries.VacuumIndicatorCritical:
+			// Critical: red (never vacuumed or overdue)
+			vacuumStr = lipgloss.NewStyle().Foreground(styles.ColorError).Render(padRight(vacuum, vacuumWidth))
+		case queries.VacuumIndicatorWarning:
+			// Warning: yellow (approaching threshold)
+			vacuumStr = lipgloss.NewStyle().Foreground(styles.ColorIdleTxn).Render(padRight(vacuum, vacuumWidth))
+		}
+	}
+
+	row := fmt.Sprintf("%s %s %s %s %s %s",
 		padRight(displayName, nameWidth),
 		padRight(size, sizeWidth),
 		padRight(rowCount, rowsWidth),
 		bloatStr,
 		padRight(cacheHit, cacheWidth),
+		vacuumStr,
 	)
 
 	// Apply styling
 	if isSelected {
 		// Reformat without color for selected row
-		row = fmt.Sprintf("%s %s %s %s %s",
+		row = fmt.Sprintf("%s %s %s %s %s %s",
 			padRight(displayName, nameWidth),
 			padRight(size, sizeWidth),
 			padRight(rowCount, rowsWidth),
 			padRight(bloat, bloatWidth),
 			padRight(cacheHit, cacheWidth),
+			padRight(vacuum, vacuumWidth),
 		)
 		return styles.TableSelectedStyle.Width(v.width - 2).Render(row)
 	}
@@ -2333,8 +2411,14 @@ func (v *TablesView) renderFooter() string {
 		}
 		hints = toastStyle.Render(v.toastMessage)
 	} else {
+		// Check if index panel is visible (to show resize hint)
+		indexes := v.getSelectedTableIndexes()
+		showIndexPanel := len(indexes) > 0
+
 		if v.focusPanel == FocusIndexes {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [i]tables [y]copy [s/S]ort [R]efresh [h]elp")
+			hints = styles.FooterHintStyle.Render("[j/k]nav [i]tables [y]copy [s/S]ort [-/+]resize [R]efresh [h]elp")
+		} else if showIndexPanel {
+			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [-/+]resize [x]ops [h]elp")
 		} else {
 			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [P]sys [x]ops [h]elp")
 		}
@@ -2597,25 +2681,78 @@ func (v *TablesView) buildDetailsLines() []string {
 	if t.BloatEstimated {
 		bloatStr = "~" + bloatStr
 	}
-	lines = append(lines, fmt.Sprintf("  Total Size: %-10s  Rows: %d", models.FormatBytes(t.TotalSize), t.RowCount))
-	lines = append(lines, fmt.Sprintf("  Heap:       %-10s  Dead: %d", models.FormatBytes(t.TableSize), t.DeadRows))
-	lines = append(lines, fmt.Sprintf("  Indexes:    %-10s  Bloat: %s", models.FormatBytes(t.IndexesSize), bloatStr))
-	lines = append(lines, fmt.Sprintf("  TOAST:      %-10s  Cache: %.1f%%", models.FormatBytes(t.ToastSize), t.CacheHitRatio))
-	lines = append(lines, fmt.Sprintf("  Seq Scans:  %-10d  Index Scans: %d", t.SeqScans, t.IndexScans))
+	lines = append(lines, fmt.Sprintf("  Total Size:      %-12s  Rows:               %d", models.FormatBytes(t.TotalSize), t.RowCount))
+	lines = append(lines, fmt.Sprintf("  Heap:            %-12s  Dead:               %d", models.FormatBytes(t.TableSize), t.DeadRows))
+	lines = append(lines, fmt.Sprintf("  Indexes:         %-12s  Bloat:              %s", models.FormatBytes(t.IndexesSize), bloatStr))
+	lines = append(lines, fmt.Sprintf("  TOAST:           %-12s  Cache:              %.1f%%", models.FormatBytes(t.ToastSize), t.CacheHitRatio))
+	lines = append(lines, fmt.Sprintf("  Seq Scans:       %-12d  Index Scans:        %d", t.SeqScans, t.IndexScans))
+	lines = append(lines, "")
+
+	// Maintenance section - vacuum/analyze status with color coding
+	lines = append(lines, styles.HeaderStyle.Render("Maintenance"))
+	config := queries.DefaultStaleVacuumConfig()
+
+	// Color code vacuum timestamp
+	lastVacuum := queries.FormatVacuumTimestamp(t.LastVacuum)
+	vacuumIndicator := queries.GetVacuumStatusIndicator(t.LastVacuum, nil, config)
+	switch vacuumIndicator {
+	case queries.VacuumIndicatorCritical:
+		lastVacuum = lipgloss.NewStyle().Foreground(styles.ColorError).Render(lastVacuum)
+	case queries.VacuumIndicatorWarning:
+		lastVacuum = lipgloss.NewStyle().Foreground(styles.ColorIdleTxn).Render(lastVacuum)
+	}
+
+	// Color code autovacuum timestamp
+	lastAutovacuum := queries.FormatVacuumTimestamp(t.LastAutovacuum)
+	autovacuumIndicator := queries.GetVacuumStatusIndicator(nil, t.LastAutovacuum, config)
+	switch autovacuumIndicator {
+	case queries.VacuumIndicatorCritical:
+		lastAutovacuum = lipgloss.NewStyle().Foreground(styles.ColorError).Render(lastAutovacuum)
+	case queries.VacuumIndicatorWarning:
+		lastAutovacuum = lipgloss.NewStyle().Foreground(styles.ColorIdleTxn).Render(lastAutovacuum)
+	}
+
+	// Color code analyze timestamp (use same thresholds)
+	lastAnalyze := queries.FormatVacuumTimestamp(t.LastAnalyze)
+	analyzeIndicator := queries.GetVacuumStatusIndicator(t.LastAnalyze, nil, config)
+	switch analyzeIndicator {
+	case queries.VacuumIndicatorCritical:
+		lastAnalyze = lipgloss.NewStyle().Foreground(styles.ColorError).Render(lastAnalyze)
+	case queries.VacuumIndicatorWarning:
+		lastAnalyze = lipgloss.NewStyle().Foreground(styles.ColorIdleTxn).Render(lastAnalyze)
+	}
+
+	// Color code autoanalyze timestamp
+	lastAutoanalyze := queries.FormatVacuumTimestamp(t.LastAutoanalyze)
+	autoanalyzeIndicator := queries.GetVacuumStatusIndicator(nil, t.LastAutoanalyze, config)
+	switch autoanalyzeIndicator {
+	case queries.VacuumIndicatorCritical:
+		lastAutoanalyze = lipgloss.NewStyle().Foreground(styles.ColorError).Render(lastAutoanalyze)
+	case queries.VacuumIndicatorWarning:
+		lastAutoanalyze = lipgloss.NewStyle().Foreground(styles.ColorIdleTxn).Render(lastAutoanalyze)
+	}
+
+	autovacuumStatus := "Enabled"
+	if !t.AutovacuumEnabled {
+		autovacuumStatus = styles.WarningStyle.Render("Disabled")
+	}
+	lines = append(lines, fmt.Sprintf("  Last Vacuum:     %-12s  Last Autovacuum:    %s", lastVacuum, lastAutovacuum))
+	lines = append(lines, fmt.Sprintf("  Last Analyze:    %-12s  Last Autoanalyze:   %s", lastAnalyze, lastAutoanalyze))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("  Vacuum Count:    %-12d  Autovacuum Count:   %d", t.VacuumCount, t.AutovacuumCount))
+	lines = append(lines, fmt.Sprintf("  Autovacuum:      %s", autovacuumStatus))
 	lines = append(lines, "")
 
 	// Columns section - optimized for readability
 	if len(v.details.Columns) > 0 {
 		lines = append(lines, styles.HeaderStyle.Render(fmt.Sprintf("Columns (%d)", len(v.details.Columns))))
 
-		// Dynamic widths: balance Type and Default columns
-		// Name(20) + Type + Null(4) + Default
+		// Dynamic widths for columns
+		// Name(20) + Type + Null(4) + Default (full value, scrollable)
 		nameWidth := 20
 		nullWidth := 4
-		// Split remaining space: Type gets 55%, Default gets 45%
 		remaining := contentWidth - nameWidth - nullWidth - 8
 		typeWidth := max(20, remaining*55/100)
-		defaultWidth := max(15, remaining-typeWidth)
 
 		header := fmt.Sprintf("  %-*s %-*s %-*s %s", nameWidth, "Name", typeWidth, "Type", nullWidth, "Null", "Default")
 		lines = append(lines, styles.TableHeaderStyle.Width(contentWidth).Render(header))
@@ -2636,9 +2773,6 @@ func (v *TablesView) buildDetailsLines() []string {
 			defaultVal := ""
 			if col.DefaultValue != nil {
 				defaultVal = *col.DefaultValue
-				if len(defaultVal) > defaultWidth {
-					defaultVal = defaultVal[:defaultWidth-3] + "..."
-				}
 			}
 
 			lines = append(lines, fmt.Sprintf("  %-*s %-*s %-*s %s",
@@ -2713,6 +2847,16 @@ func (v *TablesView) buildDetailsLines() []string {
 		}
 	}
 
+	// Track max line width for horizontal scrolling (ANSI-aware)
+	maxWidth := 0
+	for _, line := range lines {
+		w := ansi.StringWidth(line)
+		if w > maxWidth {
+			maxWidth = w
+		}
+	}
+	v.detailsMaxLineWidth = maxWidth
+
 	return lines
 }
 
@@ -2731,8 +2875,9 @@ func (v *TablesView) hasUnusedIndexes() bool {
 
 // detailsContentHeight returns the visible content height for details panel.
 func (v *TablesView) detailsContentHeight() int {
-	// Full screen minus: status bar(3 with border) + title(2 with margin) + footer(2 with margin) + buffer + 1 spacing
-	return max(5, v.height-12)
+	// Full screen minus: status bar(3) + title(2) + footer with border(3) = 8
+	// Subtract additional 2 for alignment with other views
+	return max(5, v.height-10)
 }
 
 // scrollDetailsUp scrolls the details panel up by n lines.
@@ -2750,6 +2895,26 @@ func (v *TablesView) scrollDetailsDown(n int) {
 func (v *TablesView) scrollDetailsToBottom() {
 	maxOffset := max(0, len(v.detailsLines)-v.detailsContentHeight())
 	v.detailsScrollOffset = maxOffset
+}
+
+// scrollDetailsLeft scrolls the details panel left by n columns.
+func (v *TablesView) scrollDetailsLeft(n int) {
+	v.detailsHScrollOffset = max(0, v.detailsHScrollOffset-n)
+}
+
+// scrollDetailsRight scrolls the details panel right by n columns.
+func (v *TablesView) scrollDetailsRight(n int) {
+	// Content area is v.width - 2, so max offset is maxLineWidth - (width - 2)
+	contentWidth := v.width - 2
+	maxOffset := max(0, v.detailsMaxLineWidth-contentWidth)
+	v.detailsHScrollOffset = min(v.detailsHScrollOffset+n, maxOffset)
+}
+
+// scrollDetailsToRight scrolls to the right edge of details.
+func (v *TablesView) scrollDetailsToRight() {
+	contentWidth := v.width - 2
+	maxOffset := max(0, v.detailsMaxLineWidth-contentWidth)
+	v.detailsHScrollOffset = maxOffset
 }
 
 // renderDetails renders the table details as a full-screen view.
@@ -2770,8 +2935,9 @@ func (v *TablesView) renderDetails() string {
 		MarginBottom(1)
 	title := titleStyle.Render(fmt.Sprintf("Table Details: %s.%s", t.SchemaName, t.Name))
 
-	// Content with scrolling
+	// Content with vertical and horizontal scrolling
 	contentHeight := v.detailsContentHeight()
+	contentWidth := v.width - 2
 	lines := v.detailsLines
 	if len(lines) == 0 {
 		lines = []string{"No details available"}
@@ -2780,22 +2946,46 @@ func (v *TablesView) renderDetails() string {
 	endIdx := min(v.detailsScrollOffset+contentHeight, len(lines))
 	visibleLines := lines[v.detailsScrollOffset:endIdx]
 
-	// Pad to fill height
-	for len(visibleLines) < contentHeight {
-		visibleLines = append(visibleLines, "")
+	// Apply horizontal scroll to each line (ANSI-aware)
+	scrolledLines := make([]string, len(visibleLines))
+	for i, line := range visibleLines {
+		lineWidth := ansi.StringWidth(line)
+		if v.detailsHScrollOffset >= lineWidth {
+			scrolledLines[i] = ""
+		} else {
+			// Skip first N characters based on horizontal scroll (ANSI-aware)
+			scrolledLines[i] = ansi.TruncateLeft(line, v.detailsHScrollOffset, "")
+		}
 	}
-	content := strings.Join(visibleLines, "\n")
 
-	// Footer with scroll indicator
+	// Pad to fill height
+	for len(scrolledLines) < contentHeight {
+		scrolledLines = append(scrolledLines, "")
+	}
+	content := strings.Join(scrolledLines, "\n")
+
+	// Footer with scroll indicators (boxed like other views)
 	scrollInfo := ""
 	if len(lines) > contentHeight {
-		scrollInfo = fmt.Sprintf(" (%d/%d)", v.detailsScrollOffset+1, len(lines))
+		scrollInfo = fmt.Sprintf(" %d/%d", v.detailsScrollOffset+1, len(lines))
+	}
+	hScrollInfo := ""
+	if v.detailsHScrollOffset > 0 || v.detailsMaxLineWidth > contentWidth {
+		hScrollInfo = fmt.Sprintf(" col:%d", v.detailsHScrollOffset+1)
 	}
 
-	footerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		MarginTop(1)
-	footer := footerStyle.Render(fmt.Sprintf("[j/k]scroll [g/G]top/bottom [y]copy [Esc/q]back%s", scrollInfo))
+	hints := styles.FooterHintStyle.Render(fmt.Sprintf("[j/k]↕ [h/l]↔ [g/G]top/btm [y]copy [Esc]back%s%s", scrollInfo, hScrollInfo))
+
+	// Calculate gap to fill footer width
+	gap := v.width - lipgloss.Width(hints) - 4
+	if gap < 1 {
+		gap = 1
+	}
+	spaces := lipgloss.NewStyle().Width(gap).Render("")
+
+	footer := styles.FooterStyle.
+		Width(v.width - 2).
+		Render(hints + spaces)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,

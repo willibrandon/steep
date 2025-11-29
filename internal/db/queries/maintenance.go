@@ -300,3 +300,95 @@ func GetRunningMaintenanceOperations(ctx context.Context, pool *pgxpool.Pool) ([
 
 	return ops, nil
 }
+
+// VacuumIndicator represents the visual status of vacuum freshness.
+type VacuumIndicator int
+
+const (
+	// VacuumIndicatorOK indicates vacuum is recent (green).
+	VacuumIndicatorOK VacuumIndicator = iota
+	// VacuumIndicatorWarning indicates vacuum is approaching stale threshold (yellow).
+	VacuumIndicatorWarning
+	// VacuumIndicatorCritical indicates vacuum is overdue or never performed (red).
+	VacuumIndicatorCritical
+)
+
+// StaleVacuumConfig defines thresholds for vacuum status indicators.
+type StaleVacuumConfig struct {
+	// StaleThreshold is the duration after which vacuum is considered stale.
+	// Default: 7 days.
+	StaleThreshold time.Duration
+	// WarningThreshold is the duration for showing warning (yellow) indicator.
+	// Default: 3 days.
+	WarningThreshold time.Duration
+}
+
+// DefaultStaleVacuumConfig returns the default configuration for stale vacuum detection.
+func DefaultStaleVacuumConfig() StaleVacuumConfig {
+	return StaleVacuumConfig{
+		StaleThreshold:   7 * 24 * time.Hour,
+		WarningThreshold: 3 * 24 * time.Hour,
+	}
+}
+
+// FormatVacuumTimestamp formats a vacuum timestamp for display.
+// Returns "never" for nil, relative time for recent, date for old.
+func FormatVacuumTimestamp(t *time.Time) string {
+	if t == nil {
+		return "never"
+	}
+
+	age := time.Since(*t)
+	switch {
+	case age < time.Hour:
+		return fmt.Sprintf("%dm ago", int(age.Minutes()))
+	case age < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(age.Hours()))
+	case age < 7*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(age.Hours()/24))
+	default:
+		return t.Format("Jan 02")
+	}
+}
+
+// GetVacuumStatusIndicator returns the visual indicator status based on last vacuum times.
+func GetVacuumStatusIndicator(lastVacuum, lastAutovacuum *time.Time, config StaleVacuumConfig) VacuumIndicator {
+	// Get the most recent maintenance time
+	lastMaintenance := maxTime(lastVacuum, lastAutovacuum)
+	if lastMaintenance == nil {
+		return VacuumIndicatorCritical // Never vacuumed
+	}
+
+	age := time.Since(*lastMaintenance)
+	switch {
+	case age > config.StaleThreshold:
+		return VacuumIndicatorCritical // Red: overdue
+	case age > config.WarningThreshold:
+		return VacuumIndicatorWarning // Yellow: approaching threshold
+	default:
+		return VacuumIndicatorOK // Green/normal: recent
+	}
+}
+
+// MaxVacuumTime returns the more recent of two vacuum time pointers, or nil if both are nil.
+// Exported for use by UI components.
+func MaxVacuumTime(a, b *time.Time) *time.Time {
+	return maxTime(a, b)
+}
+
+// maxTime returns the more recent of two time pointers, or nil if both are nil.
+func maxTime(a, b *time.Time) *time.Time {
+	if a == nil && b == nil {
+		return nil
+	}
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	if a.After(*b) {
+		return a
+	}
+	return b
+}

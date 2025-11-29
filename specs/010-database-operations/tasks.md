@@ -131,17 +131,17 @@
 
 ### Tests for User Story 4
 
-- [ ] T038 [P] [US4] Add TestGetTablesWithVacuumStatus test to `tests/integration/maintenance_test.go`
-- [ ] T039 [P] [US4] Create `tests/unit/vacuum_status_test.go` with TestGetVacuumStatusIndicator, TestFormatVacuumTimestamp tests
+- [x] T038 [P] [US4] Add TestGetTablesWithVacuumStatus test to `tests/integration/maintenance_test.go`
+- [x] T039 [P] [US4] Create `tests/unit/vacuum_status_test.go` with TestGetVacuumStatusIndicator, TestFormatVacuumTimestamp tests
 
 ### Implementation for User Story 4
 
-- [ ] T040 [US4] Implement FormatVacuumTimestamp function in `internal/db/queries/maintenance.go` per contracts/vacuum_status.go.md (relative time: "5m ago", "2h ago", "3d ago")
-- [ ] T041 [US4] Implement GetVacuumStatusIndicator function with 7-day stale threshold in `internal/db/queries/maintenance.go` per contracts/vacuum_status.go.md
-- [ ] T042 [US4] Add "Last Vacuum" column to Tables view header in `internal/ui/views/tables/view.go` renderHeader()
-- [ ] T043 [US4] Add "Last Autovacuum" column to Tables view header in `internal/ui/views/tables/view.go` renderHeader()
-- [ ] T044 [US4] Render vacuum timestamps with color-coded staleness (green=OK, yellow=warning, red=critical) in `internal/ui/views/tables/view.go` renderTreeRow()
-- [ ] T045 [US4] Add autovacuum enabled/disabled indicator to table details panel in `internal/ui/views/tables/view.go`
+- [x] T040 [US4] Implement FormatVacuumTimestamp function in `internal/db/queries/maintenance.go` per contracts/vacuum_status.go.md (relative time: "5m ago", "2h ago", "3d ago")
+- [x] T041 [US4] Implement GetVacuumStatusIndicator function with 7-day stale threshold in `internal/db/queries/maintenance.go` per contracts/vacuum_status.go.md
+- [x] T042 [US4] Add "Vacuum" column to Tables view showing most recent of LastVacuum/LastAutovacuum in `internal/ui/views/tables/view.go` renderHeader()
+- [x] T043 [US4] (Combined with T042) Full breakdown shown in table details panel Maintenance section
+- [x] T044 [US4] Render vacuum timestamps with color-coded staleness (green=OK, yellow=warning, red=critical) in `internal/ui/views/tables/view.go` renderTreeRow()
+- [x] T045 [US4] Add autovacuum enabled/disabled indicator to table details panel in `internal/ui/views/tables/view.go`
 
 **Checkpoint**: Tables view now shows maintenance health status for all tables
 

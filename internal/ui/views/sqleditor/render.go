@@ -483,7 +483,7 @@ func (v *SQLEditorView) renderFooter() string {
 	// Key hints based on focus
 	var hints string
 	if v.focus == FocusEditor {
-		hints = "F5: Execute │ \\: Results │ +/-: Resize │ H: Help"
+		hints = "F5: Execute │ \\: Results │ -/+: Resize │ H: Help"
 	} else {
 		hints = "\\: Editor │ hjkl: Nav │ y/Y: Copy │ s/S: Sort │ n/p: Page │ H: Help"
 	}
@@ -523,7 +523,7 @@ RESULTS MODE (allows view switching and quit)
   y/Y          Copy cell / copy row
 
 RESIZE EDITOR/RESULTS SPLIT
-  +/-          Resize panes
+  -/+          Resize panes
   Ctrl+↑/↓     Resize panes (alternative)
 
 COMMANDS (type ':' in normal mode)

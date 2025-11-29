@@ -239,3 +239,52 @@ func TestGetRunningMaintenanceOperations(t *testing.T) {
 		t.Errorf("Expected 0 running operations, got %d", len(ops))
 	}
 }
+
+// TestGetTablesWithVacuumStatus verifies tables are returned with vacuum status fields.
+func TestGetTablesWithVacuumStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	pool := setupPostgres(t, ctx)
+	createTestTable(t, ctx, pool)
+
+	// Run VACUUM and ANALYZE to populate timestamps
+	err := queries.ExecuteVacuum(ctx, pool, "public", "test_maintenance")
+	if err != nil {
+		t.Fatalf("ExecuteVacuum failed: %v", err)
+	}
+	err = queries.ExecuteAnalyze(ctx, pool, "public", "test_maintenance")
+	if err != nil {
+		t.Fatalf("ExecuteAnalyze failed: %v", err)
+	}
+
+	// Get tables with stats
+	tables, err := queries.GetTablesWithStats(ctx, pool)
+	if err != nil {
+		t.Fatalf("GetTablesWithStats failed: %v", err)
+	}
+
+	// Find our test table
+	var found bool
+	for _, table := range tables {
+		if table.SchemaName == "public" && table.Name == "test_maintenance" {
+			found = true
+			// Verify vacuum status fields are populated
+			if table.LastVacuum == nil {
+				t.Error("Expected LastVacuum to be set after VACUUM")
+			}
+			if table.LastAnalyze == nil {
+				t.Error("Expected LastAnalyze to be set after ANALYZE")
+			}
+			if table.VacuumCount < 1 {
+				t.Errorf("Expected VacuumCount >= 1, got %d", table.VacuumCount)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("test_maintenance table not found in results")
+	}
+}
