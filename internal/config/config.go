@@ -16,6 +16,7 @@ type Config struct {
 	Queries     QueriesConfig     `mapstructure:"queries"`
 	Replication ReplicationConfig `mapstructure:"replication"`
 	Debug       bool              `mapstructure:"debug"`
+	LogFile     string            `mapstructure:"log_file"`
 }
 
 // ConnectionConfig holds database connection parameters
@@ -120,7 +121,8 @@ func createDefaultConfig() (*Config, error) {
 		Replication: ReplicationConfig{
 			LagHistoryRetention: viper.GetDuration("replication.lag_history_retention"),
 		},
-		Debug: viper.GetBool("debug"),
+		Debug:   viper.GetBool("debug"),
+		LogFile: viper.GetString("log_file"),
 	}
 
 	return config, nil
@@ -246,4 +248,7 @@ func applyDefaults() {
 
 	// Debug default
 	viper.SetDefault("debug", false)
+
+	// Log file default (empty = ~/.config/steep/steep.log)
+	viper.SetDefault("log_file", "")
 }

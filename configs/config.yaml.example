@@ -60,7 +60,11 @@ ui:
   date_format: "2006-01-02 15:04:05"
 
 # Debug mode (default: false)
-# Can be overridden by STEEP_DEBUG=1 environment variable
-# When enabled, outputs Info level logs to stderr
-# When disabled, only Error and Warning logs are output
+# Can be overridden by STEEP_DEBUG=1 environment variable or -debug flag
+# When enabled, logs at Debug level
 debug: false
+
+# Log file path (default: ~/.config/steep/steep.log)
+# Can be overridden by STEEP_LOG_FILE environment variable
+# Set to empty string to use default location
+log_file: ""

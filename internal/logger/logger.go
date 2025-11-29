@@ -5,13 +5,17 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var (
 	// Log is the global structured logger
 	Log *slog.Logger
-	// logFile is the log file handle
-	logFile *os.File
+	// logWriter is the rotating log writer
+	logWriter *lumberjack.Logger
+	// LogPath is the path to the current log file
+	LogPath string
 )
 
 // LogLevel represents the logging level
@@ -24,8 +28,9 @@ const (
 	LevelError
 )
 
-// InitLogger initializes the global logger with the specified level
-func InitLogger(level LogLevel) {
+// InitLogger initializes the global logger with the specified level and optional path.
+// If logPath is empty, defaults to ~/.config/steep/steep.log
+func InitLogger(level LogLevel, logPath string) {
 	var slogLevel slog.Level
 
 	switch level {
@@ -45,19 +50,31 @@ func InitLogger(level LogLevel) {
 		Level: slogLevel,
 	}
 
-	// Write logs to file instead of stderr to avoid interfering with TUI
-	var writer io.Writer
-	logDir := os.TempDir()
-	logPath := filepath.Join(logDir, "steep.log")
-
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		// Fallback to discard if we can't open log file
-		writer = io.Discard
-	} else {
-		writer = file
-		logFile = file
+	// Determine log path
+	if logPath == "" {
+		// Default to ~/.config/steep/steep.log
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			homeDir = os.TempDir()
+		}
+		logDir := filepath.Join(homeDir, ".config", "steep")
+		// Ensure directory exists
+		_ = os.MkdirAll(logDir, 0755)
+		logPath = filepath.Join(logDir, "steep.log")
 	}
+
+	LogPath = logPath
+
+	// Use lumberjack for log rotation
+	var writer io.Writer
+	logWriter = &lumberjack.Logger{
+		Filename:   logPath,
+		MaxSize:    10, // MB
+		MaxBackups: 3,
+		MaxAge:     7, // days
+		Compress:   true,
+	}
+	writer = logWriter
 
 	handler := slog.NewJSONHandler(writer, opts)
 	Log = slog.New(handler)
@@ -66,8 +83,8 @@ func InitLogger(level LogLevel) {
 
 // Close closes the log file
 func Close() {
-	if logFile != nil {
-		logFile.Close()
+	if logWriter != nil {
+		logWriter.Close()
 	}
 }
 

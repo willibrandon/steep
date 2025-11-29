@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/willibrandon/steep/internal/app"
+	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/logger"
 	"golang.org/x/term"
 )
@@ -50,14 +51,21 @@ func main() {
 		showAnimatedBanner()
 	}
 
-	// Initialize logger
-	if *debugFlag {
-		logger.InitLogger(logger.LevelDebug)
+	// Load config early to get log file path
+	cfg, err := config.LoadConfigFromPath(*configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v\n", err)
+	}
+
+	// Initialize logger with configured path
+	logLevel := logger.LevelInfo
+	if *debugFlag || cfg.Debug {
+		logLevel = logger.LevelDebug
+	}
+	logger.InitLogger(logLevel, cfg.LogFile)
+	if logLevel == logger.LevelDebug {
 		logger.Info("Debug logging enabled")
-		// Print log location to stderr so user knows where to find logs
-		fmt.Fprintf(os.Stderr, "Debug mode: Logs are written to %s/steep.log\n", os.TempDir())
-	} else {
-		logger.InitLogger(logger.LevelInfo)
+		fmt.Fprintf(os.Stderr, "Debug mode: Logs written to %s\n", logger.LogPath)
 	}
 	defer logger.Close()
 

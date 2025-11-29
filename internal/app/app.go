@@ -97,8 +97,9 @@ type Model struct {
 	deadlockStore      *sqlite.DeadlockStore
 	replicationMonitor *monitors.ReplicationMonitor
 	replicationStore   *sqlite.ReplicationStore
-	configMonitor      *monitors.ConfigMonitor
-	configTickCounter  int // Counter for slower config refresh (every 60 ticks)
+	configMonitor       *monitors.ConfigMonitor
+	configTickCounter   int // Counter for slower config refresh (every 60 ticks)
+	deadlockTickCounter int // Counter for slower deadlock refresh (every 30 ticks)
 
 	// Query performance monitoring
 	queryStatsDB    *sqlite.DB
@@ -464,8 +465,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nextTick := tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
 			return dataTickMsg{}
 		})
-		// Increment config tick counter
+		// Increment tick counters
 		m.configTickCounter++
+		m.deadlockTickCounter++
 
 		// Fetch all data together for synchronized updates
 		if m.connected && m.activityMonitor != nil && m.statsMonitor != nil {
@@ -482,8 +484,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.replicationMonitor != nil {
 				cmds = append(cmds, fetchReplicationData(m.replicationMonitor))
 			}
-			// Fetch deadlock history if monitor is available
-			if m.deadlockMonitor != nil {
+			// Fetch deadlock history every 30 ticks (~30 seconds if refresh is 1s)
+			if m.deadlockMonitor != nil && m.deadlockTickCounter >= 30 {
+				m.deadlockTickCounter = 0
 				cmds = append(cmds, fetchDeadlockHistory(m.deadlockMonitor, m.program))
 			}
 			// Also fetch query stats if store is available

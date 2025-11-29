@@ -121,6 +121,7 @@ type LocksView struct {
 	deadlockCurrentFile  int
 	deadlockTotalFiles   int
 	deadlockSpinner      spinner.Model
+	deadlockLastUpdate   time.Time
 
 	// Deadlock detail view state
 	deadlockDetail       *sqlite.DeadlockEvent
@@ -220,6 +221,7 @@ func (v *LocksView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ui.DeadlockHistoryMsg:
 		v.deadlockEnabled = msg.Enabled
 		v.deadlockLoading = false // Stop loading spinner
+		v.deadlockLastUpdate = time.Now()
 		if msg.Error == nil {
 			v.deadlocks = msg.Deadlocks
 			// Apply current sort order
@@ -1256,12 +1258,23 @@ func (v *LocksView) renderWithOverlay(overlay string) string {
 func (v *LocksView) renderStatusBar() string {
 	title := styles.StatusTitleStyle.Render(v.connectionInfo)
 
+	// Use appropriate timestamp and stale threshold based on active tab
+	var updateTime time.Time
+	var staleThreshold time.Duration
+	if v.activeTab == TabDeadlockHistory {
+		updateTime = v.deadlockLastUpdate
+		staleThreshold = 35 * time.Second // Deadlocks refresh every 30s
+	} else {
+		updateTime = v.lastUpdate
+		staleThreshold = 5 * time.Second // Active locks refresh every 1s
+	}
+
 	var staleIndicator string
-	if !v.lastUpdate.IsZero() && time.Since(v.lastUpdate) > 5*time.Second {
+	if !updateTime.IsZero() && time.Since(updateTime) > staleThreshold {
 		staleIndicator = styles.ErrorStyle.Render(" [STALE]")
 	}
 
-	timestamp := styles.StatusTimeStyle.Render(v.lastUpdate.Format("2006-01-02 15:04:05"))
+	timestamp := styles.StatusTimeStyle.Render(updateTime.Format("2006-01-02 15:04:05"))
 
 	gap := v.width - lipgloss.Width(title) - lipgloss.Width(staleIndicator) - lipgloss.Width(timestamp) - 4
 	if gap < 1 {
