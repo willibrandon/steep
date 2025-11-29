@@ -59,6 +59,14 @@ ui:
   #   - "15:04:05"             (HH:MM:SS only)
   date_format: "2006-01-02 15:04:05"
 
+# Log viewer configuration
+logs:
+  # How to read PostgreSQL log files: auto, filesystem, pg_read_file (default: auto)
+  # - auto: Try filesystem first, fall back to pg_read_file
+  # - filesystem: Read logs directly from disk (requires local access)
+  # - pg_read_file: Read logs via SQL (works over network, requires superuser or pg_read_server_files role)
+  access_method: auto
+
 # Debug mode (default: false)
 # Can be overridden by STEEP_DEBUG=1 environment variable or -debug flag
 # When enabled, logs at Debug level

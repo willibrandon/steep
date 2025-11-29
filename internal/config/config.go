@@ -15,8 +15,18 @@ type Config struct {
 	UI          UIConfig          `mapstructure:"ui"`
 	Queries     QueriesConfig     `mapstructure:"queries"`
 	Replication ReplicationConfig `mapstructure:"replication"`
+	Logs        LogsConfig        `mapstructure:"logs"`
 	Debug       bool              `mapstructure:"debug"`
 	LogFile     string            `mapstructure:"log_file"`
+}
+
+// LogsConfig holds log viewer configuration
+type LogsConfig struct {
+	// AccessMethod controls how logs are read: "auto", "filesystem", or "pg_read_file"
+	// - "auto": Try filesystem first, fall back to pg_read_file (default)
+	// - "filesystem": Read logs directly from disk (requires local access)
+	// - "pg_read_file": Read logs via SQL (works over network, requires superuser)
+	AccessMethod string `mapstructure:"access_method"`
 }
 
 // ConnectionConfig holds database connection parameters
@@ -121,6 +131,9 @@ func createDefaultConfig() (*Config, error) {
 		Replication: ReplicationConfig{
 			LagHistoryRetention: viper.GetDuration("replication.lag_history_retention"),
 		},
+		Logs: LogsConfig{
+			AccessMethod: viper.GetString("logs.access_method"),
+		},
 		Debug:   viper.GetBool("debug"),
 		LogFile: viper.GetString("log_file"),
 	}
@@ -215,6 +228,19 @@ func ValidateConfig(cfg *Config) error {
 		return fmt.Errorf("replication.lag_history_retention must be between 1h and 168h (7d), got %v", cfg.Replication.LagHistoryRetention)
 	}
 
+	// Validate logs config
+	validAccessMethods := []string{"auto", "filesystem", "pg_read_file"}
+	validAccessMethod := false
+	for _, method := range validAccessMethods {
+		if cfg.Logs.AccessMethod == method {
+			validAccessMethod = true
+			break
+		}
+	}
+	if !validAccessMethod {
+		return fmt.Errorf("logs.access_method must be one of: %v, got %s", validAccessMethods, cfg.Logs.AccessMethod)
+	}
+
 	return nil
 }
 
@@ -245,6 +271,9 @@ func applyDefaults() {
 
 	// Replication defaults
 	viper.SetDefault("replication.lag_history_retention", "24h")
+
+	// Logs defaults
+	viper.SetDefault("logs.access_method", "auto")
 
 	// Debug default
 	viper.SetDefault("debug", false)

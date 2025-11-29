@@ -321,6 +321,13 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL log files (file system read or pg_read_file()), position tracking via SQLite (009-log-viewer)
 
 ## Recent Changes
+- 009-log-viewer: Real-time PostgreSQL log streaming with follow mode and severity filtering
+- 009-log-viewer: Support for stderr, CSV, and JSON log formats with auto-detection from log_destination
+- 009-log-viewer: Remote log viewing via pg_read_file() for containerized/remote PostgreSQL instances
+- 009-log-viewer: logs.access_method config option (auto, filesystem, pg_read_file)
+- 009-log-viewer: Historical log navigation with :goto command (supports relative times like -1h)
+- 009-log-viewer: Search with regex pattern matching and n/N navigation between matches
+- 009-log-viewer: Multi-line log entry parsing with proper DETAIL/HINT/CONTEXT handling
 - 008-configuration-viewer: Browse all PostgreSQL parameters from pg_settings with category filtering and search
 - 008-configuration-viewer: Parameter details overlay with type, context, constraints, default values, and descriptions
 - 008-configuration-viewer: Color-coded status indicators (yellow=modified, red=pending restart)

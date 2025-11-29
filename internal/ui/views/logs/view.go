@@ -70,6 +70,8 @@ type LogsView struct {
 
 	// Log collection
 	collector      *LogCollector
+	pgCollector    *PgCollector
+	accessMethod   monitors.AccessMethod
 	loggingEnabled bool
 	loggingChecked bool
 
@@ -151,6 +153,7 @@ type LoggingStatusMsg struct {
 	LogDir        string
 	LogPattern    string
 	LogFormat     monitors.LogFormat
+	AccessMethod  monitors.AccessMethod
 	Error         error
 }
 
@@ -206,7 +209,9 @@ func (v *LogsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.source.LogDir = msg.LogDir
 			v.source.LogPattern = msg.LogPattern
 			v.source.Format = msg.LogFormat
+			v.source.AccessMethod = msg.AccessMethod
 			v.source.Enabled = true
+			v.accessMethod = msg.AccessMethod
 			// Start collecting logs
 			return v, v.startLogCollection()
 		}
@@ -229,7 +234,7 @@ func (v *LogsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case LogTickMsg:
 		// Periodic log refresh
-		if v.followMode && v.collector != nil {
+		if v.followMode && (v.collector != nil || v.pgCollector != nil) {
 			return v, v.fetchNewLogs()
 		}
 		return v, v.scheduleNextTick()
@@ -263,9 +268,15 @@ func (v *LogsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // startLogCollection starts the log collector.
 func (v *LogsView) startLogCollection() tea.Cmd {
-	// Initialize collector if needed
-	if v.collector == nil {
-		v.collector = NewLogCollector(v.source)
+	// Initialize the appropriate collector based on access method
+	if v.accessMethod == monitors.AccessPgReadFile {
+		if v.pgCollector == nil && v.pool != nil {
+			v.pgCollector = NewPgCollector(v.source, v.pool)
+		}
+	} else {
+		if v.collector == nil {
+			v.collector = NewLogCollector(v.source)
+		}
 	}
 	return tea.Batch(
 		v.fetchNewLogs(),
@@ -283,6 +294,21 @@ func (v *LogsView) scheduleNextTick() tea.Cmd {
 
 // fetchNewLogs fetches new log entries.
 func (v *LogsView) fetchNewLogs() tea.Cmd {
+	// Use the appropriate collector based on access method
+	if v.accessMethod == monitors.AccessPgReadFile {
+		if v.pgCollector == nil {
+			return nil
+		}
+		return func() tea.Msg {
+			entries, err := v.pgCollector.Collect()
+			if err != nil {
+				return LogEntriesMsg{Error: err}
+			}
+			return LogEntriesMsg{Entries: entries}
+		}
+	}
+
+	// Default: use filesystem collector
 	if v.collector == nil {
 		return nil
 	}
@@ -632,33 +658,60 @@ func (v *LogsView) loadHistoricalLogs(parsed *ParsedTimestamp) {
 	}
 	v.showToast(loadingMsg, false)
 
-	// Create historical loader
-	loader := NewHistoricalLoader(v.source)
+	ctx := v.getContext()
+	var files []LogFileInfo
+	var candidates []LogFileInfo
+	var result *HistoricalLogResult
+	var err error
 
-	// Discover available log files
-	files, err := loader.DiscoverLogFiles()
-	if err != nil {
-		v.showToast("Error scanning log files: "+err.Error(), true)
-		return
+	// Use appropriate loader based on access method
+	if v.accessMethod == monitors.AccessPgReadFile && v.pool != nil {
+		pgLoader := NewPgHistoricalLoader(v.pool, v.source)
+
+		files, err = pgLoader.DiscoverLogFiles(ctx)
+		if err != nil {
+			v.showToast("Error scanning log files: "+err.Error(), true)
+			return
+		}
+
+		if len(files) == 0 {
+			v.showToast("No log files found in "+v.source.LogDir, true)
+			return
+		}
+
+		files = pgLoader.GetTimestampRanges(ctx, files)
+		candidates = pgLoader.FindLogFileForTimestamp(parsed.Time, files)
+		if len(candidates) == 0 {
+			v.showToast("No log file found for that timestamp", true)
+			return
+		}
+
+		result, err = pgLoader.LoadHistoricalEntries(ctx, candidates[0], parsed.Time, 500, parsed.Direction)
+	} else {
+		// Filesystem-based loader
+		loader := NewHistoricalLoader(v.source)
+
+		files, err = loader.DiscoverLogFiles()
+		if err != nil {
+			v.showToast("Error scanning log files: "+err.Error(), true)
+			return
+		}
+
+		if len(files) == 0 {
+			v.showToast("No log files found in "+v.source.LogDir, true)
+			return
+		}
+
+		files = loader.GetTimestampRanges(ctx, files)
+		candidates = loader.FindLogFileForTimestamp(parsed.Time, files)
+		if len(candidates) == 0 {
+			v.showToast("No log file found for that timestamp", true)
+			return
+		}
+
+		result, err = loader.LoadHistoricalEntries(ctx, candidates[0], parsed.Time, 500, parsed.Direction)
 	}
 
-	if len(files) == 0 {
-		v.showToast("No log files found in "+v.source.LogDir, true)
-		return
-	}
-
-	// Get timestamp ranges for files (to find the right file)
-	files = loader.GetTimestampRanges(v.getContext(), files)
-
-	// Find the file(s) that should contain the timestamp
-	candidates := loader.FindLogFileForTimestamp(parsed.Time, files)
-	if len(candidates) == 0 {
-		v.showToast("No log file found for that timestamp", true)
-		return
-	}
-
-	// Load entries from the best candidate file
-	result, err := loader.LoadHistoricalEntries(v.getContext(), candidates[0], parsed.Time, 500, parsed.Direction)
 	if err != nil {
 		v.showToast("Error loading logs: "+err.Error(), true)
 		return

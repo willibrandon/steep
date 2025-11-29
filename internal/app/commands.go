@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -225,7 +226,7 @@ func enableLogging(monitor *querymonitor.Monitor) tea.Cmd {
 }
 
 // checkLogsLoggingStatus creates a command to check PostgreSQL logging status for logs view
-func checkLogsLoggingStatus(pool *pgxpool.Pool) tea.Cmd {
+func checkLogsLoggingStatus(pool *pgxpool.Pool, logsConfig config.LogsConfig) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
@@ -240,8 +241,8 @@ func checkLogsLoggingStatus(pool *pgxpool.Pool) tea.Cmd {
 
 		enabled := loggingCollector == "on"
 
-		// Get log directory and filename
-		var dataDir, logDir, logFilename string
+		// Get log directory, filename, and destination
+		var dataDir, logDir, logFilename, logDestination string
 		if err := pool.QueryRow(ctx, "SHOW data_directory").Scan(&dataDir); err != nil {
 			return logsview.LoggingStatusMsg{Error: err}
 		}
@@ -251,31 +252,127 @@ func checkLogsLoggingStatus(pool *pgxpool.Pool) tea.Cmd {
 		if err := pool.QueryRow(ctx, "SHOW log_filename").Scan(&logFilename); err != nil {
 			return logsview.LoggingStatusMsg{Error: err}
 		}
+		if err := pool.QueryRow(ctx, "SHOW log_destination").Scan(&logDestination); err != nil {
+			return logsview.LoggingStatusMsg{Error: err}
+		}
 
 		// Resolve absolute log directory path
 		if logDir != "" && logDir[0] != '/' {
 			logDir = dataDir + "/" + logDir
 		}
 
-		// Convert log_filename pattern to glob pattern
-		logPattern := logFilename
-		placeholders := []string{"%Y", "%m", "%d", "%H", "%M", "%S", "%a", "%b", "%j", "%W", "%y", "%I", "%p", "%e", "%c", "%n"}
-		for _, ph := range placeholders {
-			logPattern = strings.ReplaceAll(logPattern, ph, "*")
-		}
-		for strings.Contains(logPattern, "**") {
-			logPattern = strings.ReplaceAll(logPattern, "**", "*")
-		}
+		// Detect best format from log_destination (prefer JSON > CSV > stderr for parsing)
+		format := detectBestLogFormat(logDestination)
 
-		// Detect format from log pattern
-		format := monitors.DetectFormatFromFilename(logPattern)
+		// Convert log_filename pattern to glob pattern with appropriate extension
+		logPattern := buildLogPattern(logFilename, format)
+
+		// Determine access method based on config
+		accessMethod := determineLogAccessMethod(ctx, pool, logDir, logsConfig.AccessMethod)
+
 		return logsview.LoggingStatusMsg{
-			Enabled:    enabled,
-			LogDir:     logDir,
-			LogPattern: logPattern,
-			LogFormat:  format,
+			Enabled:      enabled,
+			LogDir:       logDir,
+			LogPattern:   logPattern,
+			LogFormat:    format,
+			AccessMethod: accessMethod,
 		}
 	}
+}
+
+// determineLogAccessMethod determines the best method to read logs.
+func determineLogAccessMethod(ctx context.Context, pool *pgxpool.Pool, logDir string, configMethod string) monitors.AccessMethod {
+	switch configMethod {
+	case "filesystem":
+		return monitors.AccessFileSystem
+	case "pg_read_file":
+		return monitors.AccessPgReadFile
+	case "auto":
+		fallthrough
+	default:
+		// Try filesystem first
+		if canAccessFilesystem(logDir) {
+			return monitors.AccessFileSystem
+		}
+		// Fall back to pg_read_file
+		if err := logsview.CanUsePgReadFile(ctx, pool, logDir); err == nil {
+			logger.Info("using pg_read_file for log access (filesystem not available)")
+			return monitors.AccessPgReadFile
+		}
+		// Default to filesystem (will show error when collecting)
+		return monitors.AccessFileSystem
+	}
+}
+
+// canAccessFilesystem checks if the log directory is accessible via filesystem.
+func canAccessFilesystem(logDir string) bool {
+	if logDir == "" {
+		return false
+	}
+	// Try to stat the directory
+	_, err := statDir(logDir)
+	return err == nil
+}
+
+// statDir is a helper to check if a directory exists (allows for testing)
+func statDir(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	return info.IsDir(), nil
+}
+
+// detectBestLogFormat detects the best log format from log_destination setting.
+// Prefers JSON > CSV > stderr for machine parsing.
+func detectBestLogFormat(logDestination string) monitors.LogFormat {
+	dest := strings.ToLower(logDestination)
+	// Prefer jsonlog for best machine parsing
+	if strings.Contains(dest, "jsonlog") {
+		return monitors.LogFormatJSON
+	}
+	// CSV is next best
+	if strings.Contains(dest, "csvlog") {
+		return monitors.LogFormatCSV
+	}
+	// Default to stderr format
+	return monitors.LogFormatStderr
+}
+
+// buildLogPattern builds a glob pattern from log_filename with appropriate extension.
+func buildLogPattern(logFilename string, format monitors.LogFormat) string {
+	// Convert strftime placeholders to glob wildcards
+	pattern := logFilename
+	placeholders := []string{"%Y", "%m", "%d", "%H", "%M", "%S", "%a", "%b", "%j", "%W", "%y", "%I", "%p", "%e", "%c", "%n"}
+	for _, ph := range placeholders {
+		pattern = strings.ReplaceAll(pattern, ph, "*")
+	}
+	for strings.Contains(pattern, "**") {
+		pattern = strings.ReplaceAll(pattern, "**", "*")
+	}
+
+	// Replace extension based on format
+	// PostgreSQL generates files with same base name but different extensions
+	switch format {
+	case monitors.LogFormatJSON:
+		// Replace .log extension with .json
+		if strings.HasSuffix(pattern, ".log") {
+			pattern = pattern[:len(pattern)-4] + ".json"
+		} else if !strings.HasSuffix(pattern, ".json") {
+			pattern = pattern + ".json"
+		}
+	case monitors.LogFormatCSV:
+		// Replace .log extension with .csv
+		if strings.HasSuffix(pattern, ".log") {
+			pattern = pattern[:len(pattern)-4] + ".csv"
+		} else if !strings.HasSuffix(pattern, ".csv") {
+			pattern = pattern + ".csv"
+		}
+	default:
+		// Keep as-is for stderr format (usually .log)
+	}
+
+	return pattern
 }
 
 // enableLogsLogging creates a command to enable logging_collector for logs view

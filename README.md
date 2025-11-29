@@ -190,6 +190,7 @@ connection:
 - `6` - Replication view
 - `7` - SQL Editor view
 - `8` - Configuration view
+- `9` - Log Viewer
 - `Tab` - Next view
 - `Shift+Tab` - Previous view
 
@@ -327,6 +328,63 @@ connection:
 | `:reset PARAM` | Reset parameter to default |
 | `:reload` | Reload configuration (pg_reload_conf) |
 | `:export config FILE` | Export parameters to conf file |
+
+#### Log Viewer
+- Real-time PostgreSQL log streaming with follow mode
+- Support for stderr, CSV, and JSON log formats
+- Remote log viewing via pg_read_file() for containerized/remote PostgreSQL
+- Severity filtering and color-coded log levels
+- Search with regex pattern matching and n/N navigation
+- Historical log navigation with `:goto` command
+- Multi-line log entry support with proper message parsing
+- Copy log entries to clipboard
+- Press `h` for keybinding help
+
+**Log Viewer Key Bindings:**
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↓/↑` | Navigate up/down |
+| `g/G` | Select oldest/newest entry |
+| `Ctrl+d/Ctrl+u` | Half page down/up |
+| `f` | Toggle follow mode (auto-scroll) |
+| `/` | Start search |
+| `n/N` | Next/previous search match |
+| `y` | Copy selected entry |
+| `Y` | Copy all (filtered) entries |
+| `h` | Toggle help |
+| `Esc` | Clear search/filters, close help |
+
+**Log Viewer Commands:**
+
+| Command | Description |
+|---------|-------------|
+| `:level LEVEL` | Filter by severity (e.g., error, warning) |
+| `:level LEVEL+` | Filter by level and above (e.g., error+) |
+| `:level clear` | Clear severity filter |
+| `:goto TIME` | Jump to closest entry at time |
+| `:goto >TIME` | First entry at or after time |
+| `:goto <TIME` | Last entry at or before time |
+
+**Time Formats for :goto:**
+
+| Format | Example |
+|--------|---------|
+| Time only | `14:30` (today) |
+| Date + time | `2025-11-27 14:30` |
+| Relative | `-1h`, `-30m`, `-2d` |
+
+**Log Access Methods:**
+
+Configure in `config.yaml`:
+```yaml
+logs:
+  access_method: auto  # auto, filesystem, or pg_read_file
+```
+
+- `auto` (default): Try filesystem first, fall back to pg_read_file
+- `filesystem`: Direct disk access (requires local log directory)
+- `pg_read_file`: Read via SQL (works with remote/containerized PostgreSQL, requires superuser or pg_read_server_files role)
 
 ### Status Bar
 
@@ -509,7 +567,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] SQL Editor with history and snippets
 - [x] Configuration viewer
 - [ ] Replication monitoring
-- [ ] Log viewer
+- [x] Log viewer
 - [ ] Export metrics to Prometheus
 - [ ] Alert configuration
 - [ ] Light theme

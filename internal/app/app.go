@@ -428,7 +428,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queryMonitor, m.queriesView.GetSortColumn(), m.queriesView.GetSortAsc(), m.queriesView.GetFilter()))
 		}
 		// Check logging status for logs view
-		cmds = append(cmds, checkLogsLoggingStatus(msg.Pool))
+		cmds = append(cmds, checkLogsLoggingStatus(msg.Pool, m.config.Logs))
 		return m, tea.Batch(cmds...)
 
 	case ConnectionFailedMsg:
@@ -909,7 +909,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logsview.CheckLoggingStatusMsg:
 		// Check logging status for logs view
 		if m.dbPool != nil {
-			return m, checkLogsLoggingStatus(m.dbPool)
+			return m, checkLogsLoggingStatus(m.dbPool, m.config.Logs)
 		}
 		return m, nil
 

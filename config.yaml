@@ -31,4 +31,12 @@ ui:
   date_format: "2006-01-02 15:04:05"
   query_timeout: 2m  # SQL Editor query timeout (default: 30s)
 
+# Log viewer configuration
+logs:
+  # How to read PostgreSQL log files: auto, filesystem, pg_read_file (default: auto)
+  # - auto: Try filesystem first, fall back to pg_read_file
+  # - filesystem: Read logs directly from disk (requires local access)
+  # - pg_read_file: Read logs via SQL (works over network, requires superuser)
+  access_method: auto
+
 debug: true
