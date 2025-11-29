@@ -90,13 +90,13 @@
 
 ### Tests for User Story 2
 
-- [ ] T029 [P] [US2] Add TestExecuteAnalyze test to `tests/integration/maintenance_test.go`
+- [x] T029 [P] [US2] Add TestExecuteAnalyze test to `tests/integration/maintenance_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T030 [US2] Implement ExecuteAnalyze function in `internal/db/queries/maintenance.go` per contracts/maintenance.go.md
-- [ ] T031 [US2] Add ANALYZE option to OperationsMenu in `internal/ui/views/tables/operations.go` (should already be in DefaultOperationsMenu)
-- [ ] T032 [US2] Handle ANALYZE execution in StartOperation with spinner (no progress tracking available) in `internal/ui/views/tables/view.go`
+- [x] T030 [US2] Implement ExecuteAnalyze function in `internal/db/queries/tables.go` per contracts/maintenance.go.md
+- [x] T031 [US2] Add ANALYZE option to OperationsMenu in `internal/ui/views/tables/operations.go` (should already be in DefaultOperationsMenu)
+- [x] T032 [US2] Handle ANALYZE execution in StartOperation with spinner (no progress tracking available) in `internal/ui/views/tables/view.go`
 
 **Checkpoint**: User Stories 1 AND 2 should both work independently - VACUUM and ANALYZE operations functional
 
