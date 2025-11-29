@@ -45,7 +45,8 @@ func (v *ReplicationView) moveSubSelection(delta int) {
 }
 
 func (v *ReplicationView) ensureVisible() {
-	tableHeight := v.height - 7
+	// Reserve: status(3) + title(1) + tabs(1) + footer(3) = 8
+	tableHeight := v.height - 8
 	if v.selectedIdx < v.scrollOffset {
 		v.scrollOffset = v.selectedIdx
 	} else if v.selectedIdx >= v.scrollOffset+tableHeight {
@@ -54,7 +55,8 @@ func (v *ReplicationView) ensureVisible() {
 }
 
 func (v *ReplicationView) ensureSlotVisible() {
-	tableHeight := v.height - 7
+	// Reserve: status(3) + title(1) + tabs(1) + footer(3) = 8
+	tableHeight := v.height - 8
 	if v.slotSelectedIdx < v.slotScrollOffset {
 		v.slotScrollOffset = v.slotSelectedIdx
 	} else if v.slotSelectedIdx >= v.slotScrollOffset+tableHeight {
@@ -67,7 +69,8 @@ func (v *ReplicationView) detailScrollUp(lines int) {
 }
 
 func (v *ReplicationView) detailScrollDown(lines int) {
-	maxScroll := max(0, len(v.detailLines)-(v.height-5))
+	// Reserve: status(3) + title(1) + tabs(1) + footer(3) = 8
+	maxScroll := max(0, len(v.detailLines)-(v.height-8))
 	v.detailScrollOffset = min(maxScroll, v.detailScrollOffset+lines)
 }
 

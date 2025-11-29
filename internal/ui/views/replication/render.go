@@ -218,7 +218,8 @@ func (v *ReplicationView) renderReplicaTable() string {
 	var b strings.Builder
 
 	// Calculate available height for table
-	tableHeight := v.height - 7 // status(3 with border) + title + tabs + header + footer(3 with border)
+	// Reserve: status(3) + title(1) + tabs(1) + footer(3) = 8
+	tableHeight := v.height - 8
 	if tableHeight < 3 {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("241")).
 			Render("Terminal too small. Resize to at least 80x24.")
@@ -260,10 +261,14 @@ func (v *ReplicationView) renderReplicaTable() string {
 		b.WriteString("\n")
 	}
 
-	// Footer
-	b.WriteString(v.renderFooter())
+	// Wrap content in height container to push footer to bottom
+	// Reserve: status(3) + title(1) + tabs(1) + footer(3) = 8
+	contentHeight := v.height - 8
+	content := lipgloss.NewStyle().
+		Height(contentHeight).
+		Render(b.String())
 
-	return b.String()
+	return content + "\n" + v.renderFooter()
 }
 
 // renderReplicaRow renders a single replica row.

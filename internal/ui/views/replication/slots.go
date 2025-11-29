@@ -43,7 +43,8 @@ func (v *ReplicationView) renderSlots() string {
 	b.WriteString("\n")
 
 	// Table height
-	tableHeight := v.height - 7
+	// Reserve: status(3) + title(1) + tabs(1) + footer(3) = 8
+	tableHeight := v.height - 8
 
 	// Data rows
 	visibleRows := min(tableHeight, len(v.data.Slots)-v.slotScrollOffset)
@@ -57,10 +58,14 @@ func (v *ReplicationView) renderSlots() string {
 		b.WriteString("\n")
 	}
 
-	// Footer
-	b.WriteString(v.renderFooter())
+	// Wrap content in height container to push footer to bottom
+	// Reserve: status(3) + title(1) + tabs(1) + footer(3) = 8
+	contentHeight := v.height - 8
+	content := lipgloss.NewStyle().
+		Height(contentHeight).
+		Render(b.String())
 
-	return b.String()
+	return content + "\n" + v.renderFooter()
 }
 
 // renderSlotRow renders a single slot row.

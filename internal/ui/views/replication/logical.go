@@ -64,7 +64,8 @@ func (v *ReplicationView) renderLogical() string {
 	var b strings.Builder
 
 	// Split view: publications on top, subscriptions on bottom
-	halfHeight := (v.height - 7) / 2
+	// Reserve: status(3) + title(1) + tabs(1) + footer(3) = 8
+	halfHeight := (v.height - 8) / 2
 
 	// Publications section
 	pubHeader := "Publications"
@@ -153,10 +154,14 @@ func (v *ReplicationView) renderLogical() string {
 		}
 	}
 
-	// Footer
-	b.WriteString(v.renderFooter())
+	// Wrap content in height container to push footer to bottom
+	// Reserve: status(3) + title(1) + tabs(1) + footer(3) = 8
+	contentHeight := v.height - 8
+	content := lipgloss.NewStyle().
+		Height(contentHeight).
+		Render(b.String())
 
-	return b.String()
+	return content + "\n" + v.renderFooter()
 }
 
 // renderPubRow renders a publication row with styling.
