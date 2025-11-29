@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/monitors"
 )
 
@@ -195,6 +196,9 @@ func (c *LogCollector) parseStderrLogs(r io.Reader, startPos int64) ([]LogEntryD
 	}
 
 	var currentEntry *LogEntryData
+	var unparsedCount int
+	var firstUnparsed string
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		lineLen := int64(len(line)) + 1 // +1 for newline
@@ -268,6 +272,12 @@ func (c *LogCollector) parseStderrLogs(r io.Reader, startPos int64) ([]LogEntryD
 				// Append to message (skip empty lines)
 				currentEntry.Message += "\n" + line
 			}
+		} else if strings.TrimSpace(line) != "" {
+			// Line doesn't match any pattern and no current entry - truly unparsed
+			unparsedCount++
+			if firstUnparsed == "" {
+				firstUnparsed = truncateLine(line, 100)
+			}
 		}
 
 		pos += lineLen
@@ -278,7 +288,22 @@ func (c *LogCollector) parseStderrLogs(r io.Reader, startPos int64) ([]LogEntryD
 		entries = append(entries, *currentEntry)
 	}
 
+	// Log summary of unparsed lines
+	if unparsedCount > 0 {
+		logger.Warn("failed to parse postgres log lines",
+			"unparsed_count", unparsedCount,
+			"first_line", firstUnparsed)
+	}
+
 	return entries, pos, scanner.Err()
+}
+
+// truncateLine truncates a line to maxLen characters.
+func truncateLine(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // parseCSVLogs parses PostgreSQL CSV log format.
@@ -288,6 +313,9 @@ func (c *LogCollector) parseCSVLogs(r io.Reader, startPos int64) ([]LogEntryData
 	csvReader.FieldsPerRecord = -1 // Variable fields
 	csvReader.LazyQuotes = true
 
+	var malformedCount int
+	var shortRecordCount int
+
 	pos := startPos
 	for {
 		record, err := csvReader.Read()
@@ -295,7 +323,7 @@ func (c *LogCollector) parseCSVLogs(r io.Reader, startPos int64) ([]LogEntryData
 			break
 		}
 		if err != nil {
-			// Skip malformed lines
+			malformedCount++
 			continue
 		}
 
@@ -305,6 +333,7 @@ func (c *LogCollector) parseCSVLogs(r io.Reader, startPos int64) ([]LogEntryData
 		// 9: virtual_transaction_id, 10: transaction_id, 11: error_severity,
 		// 12: sql_state_code, 13: message, 14: detail, 15: hint, ...
 		if len(record) < 14 {
+			shortRecordCount++
 			continue
 		}
 
@@ -330,6 +359,13 @@ func (c *LogCollector) parseCSVLogs(r io.Reader, startPos int64) ([]LogEntryData
 		entries = append(entries, entry)
 	}
 
+	// Log parsing errors
+	if malformedCount > 0 || shortRecordCount > 0 {
+		logger.Warn("CSV log parse errors",
+			"malformed", malformedCount,
+			"short_records", shortRecordCount)
+	}
+
 	// Approximate new position
 	pos += int64(len(entries) * 200) // Rough estimate
 	return entries, pos, nil
@@ -340,6 +376,9 @@ func (c *LogCollector) parseJSONLogs(r io.Reader, startPos int64) ([]LogEntryDat
 	var entries []LogEntryData
 	scanner := bufio.NewScanner(r)
 	pos := startPos
+
+	var jsonErrors int
+	var firstError string
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -358,6 +397,10 @@ func (c *LogCollector) parseJSONLogs(r io.Reader, startPos int64) ([]LogEntryDat
 		}
 
 		if err := json.Unmarshal([]byte(line), &jsonEntry); err != nil {
+			jsonErrors++
+			if firstError == "" {
+				firstError = truncateLine(line, 100)
+			}
 			pos += lineLen
 			continue
 		}
@@ -378,6 +421,13 @@ func (c *LogCollector) parseJSONLogs(r io.Reader, startPos int64) ([]LogEntryDat
 		entries = append(entries, entry)
 
 		pos += lineLen
+	}
+
+	// Log JSON parse errors
+	if jsonErrors > 0 {
+		logger.Warn("JSON log parse errors",
+			"count", jsonErrors,
+			"first_line", firstError)
 	}
 
 	return entries, pos, scanner.Err()

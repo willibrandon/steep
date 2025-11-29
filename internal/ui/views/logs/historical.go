@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/monitors"
 )
 
@@ -502,6 +503,8 @@ func (h *HistoricalLoader) loadStderrEntries(f *os.File, maxEntries int) ([]LogE
 	scanner.Buffer(buf, 1024*1024)
 
 	var currentEntry *LogEntryData
+	var unparsedCount int
+	var firstUnparsed string
 	noLimit := maxEntries < 0
 
 	for scanner.Scan() {
@@ -523,6 +526,12 @@ func (h *HistoricalLoader) loadStderrEntries(f *os.File, maxEntries int) ([]LogE
 			} else if strings.TrimSpace(line) != "" {
 				currentEntry.Message += "\n" + line
 			}
+		} else if strings.TrimSpace(line) != "" {
+			// Truly unparsed line
+			unparsedCount++
+			if firstUnparsed == "" {
+				firstUnparsed = truncateLine(line, 100)
+			}
 		}
 
 		// Limit entries (unless noLimit)
@@ -533,6 +542,13 @@ func (h *HistoricalLoader) loadStderrEntries(f *os.File, maxEntries int) ([]LogE
 
 	if currentEntry != nil && (noLimit || len(entries) < maxEntries) {
 		entries = append(entries, *currentEntry)
+	}
+
+	// Log unparsed lines
+	if unparsedCount > 0 {
+		logger.Warn("historical: failed to parse log lines",
+			"unparsed_count", unparsedCount,
+			"first_line", firstUnparsed)
 	}
 
 	return entries, scanner.Err()
@@ -547,6 +563,8 @@ func (h *HistoricalLoader) loadJSONEntries(f *os.File, maxEntries int) ([]LogEnt
 	buf := make([]byte, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
+	var jsonErrors int
+	var firstError string
 	noLimit := maxEntries < 0
 
 	for scanner.Scan() {
@@ -569,6 +587,10 @@ func (h *HistoricalLoader) loadJSONEntries(f *os.File, maxEntries int) ([]LogEnt
 		}
 
 		if err := json.Unmarshal([]byte(line), &jsonEntry); err != nil {
+			jsonErrors++
+			if firstError == "" {
+				firstError = truncateLine(line, 100)
+			}
 			continue
 		}
 
@@ -588,6 +610,13 @@ func (h *HistoricalLoader) loadJSONEntries(f *os.File, maxEntries int) ([]LogEnt
 		entries = append(entries, entry)
 	}
 
+	// Log JSON parse errors
+	if jsonErrors > 0 {
+		logger.Warn("historical: JSON parse errors",
+			"count", jsonErrors,
+			"first_line", firstError)
+	}
+
 	return entries, scanner.Err()
 }
 
@@ -601,6 +630,9 @@ func (h *HistoricalLoader) loadCSVEntries(f *os.File, maxEntries int) ([]LogEntr
 
 	noLimit := maxEntries < 0
 
+	var malformedCount int
+	var shortRecordCount int
+
 	for {
 		if !noLimit && len(entries) >= maxEntries {
 			break
@@ -611,10 +643,12 @@ func (h *HistoricalLoader) loadCSVEntries(f *os.File, maxEntries int) ([]LogEntr
 			break
 		}
 		if err != nil {
+			malformedCount++
 			continue
 		}
 
 		if len(record) < 14 {
+			shortRecordCount++
 			continue
 		}
 
@@ -638,6 +672,13 @@ func (h *HistoricalLoader) loadCSVEntries(f *os.File, maxEntries int) ([]LogEntr
 		}
 
 		entries = append(entries, entry)
+	}
+
+	// Log CSV parse errors
+	if malformedCount > 0 || shortRecordCount > 0 {
+		logger.Warn("historical: CSV log parse errors",
+			"malformed", malformedCount,
+			"short_records", shortRecordCount)
 	}
 
 	return entries, nil

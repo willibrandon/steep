@@ -56,8 +56,9 @@ type Model struct {
 	keys ui.KeyMap
 
 	// UI components
-	help      *components.HelpText
-	statusBar *components.StatusBar
+	help       *components.HelpText
+	statusBar  *components.StatusBar
+	debugPanel *components.DebugPanel
 
 	// Views
 	currentView     views.ViewType
@@ -177,6 +178,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 		keys:              ui.DefaultKeyMap(),
 		help:              components.NewHelp(),
 		statusBar:         statusBar,
+		debugPanel:        components.NewDebugPanel(),
 		currentView:       views.ViewDashboard,
 		viewList:          viewList,
 		dashboard:         dashboard,
@@ -279,6 +281,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.help.SetSize(msg.Width, msg.Height)
 		m.statusBar.SetSize(msg.Width)
+		m.debugPanel.SetSize(msg.Width, msg.Height)
 		m.dashboard.SetSize(msg.Width, msg.Height-5) // Reserve space for header and status bar
 		m.activityView.SetSize(msg.Width, msg.Height-5)
 		m.queriesView.SetSize(msg.Width, msg.Height-5)
@@ -999,6 +1002,19 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle debug panel - if visible, it captures all keys
+	if m.debugPanel.IsVisible() {
+		var cmd tea.Cmd
+		m.debugPanel, cmd = m.debugPanel.Update(msg)
+		return m, cmd
+	}
+
+	// Toggle debug panel with D (only when not in input mode and debug mode enabled)
+	if (msg.String() == "D" || msg.String() == "d") && !inInputMode && logger.IsDebugEnabled() {
+		m.debugPanel.Toggle()
+		return m, nil
+	}
+
 	// Check for view jumping (1-8) - but not when in input mode (editing fields)
 	if !inInputMode {
 		switch msg.String() {
@@ -1191,7 +1207,14 @@ func (m Model) View() string {
 	view += "\n" + m.renderStatusBar()
 
 	// Fill entire terminal to prevent artifacts on resize
-	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, view)
+	result := lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, view)
+
+	// Overlay debug panel if visible
+	if m.debugPanel.IsVisible() {
+		result = m.debugPanel.View()
+	}
+
+	return result
 }
 
 // renderCurrentView renders the currently selected view

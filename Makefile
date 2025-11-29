@@ -54,7 +54,7 @@ clean: ## Clean build artifacts
 
 run: build ## Build and run the application
 	@echo "Running $(BINARY_NAME)..."
-	@$(BUILD_DIR)/$(BINARY_NAME) --banner
+	@$(BUILD_DIR)/$(BINARY_NAME) --banner --debug
 
 run-dev: build ## Run with local config.yaml and debug (for Docker replication testing)
 	@echo "Running $(BINARY_NAME) with local config and debug..."

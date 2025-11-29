@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
@@ -97,12 +98,35 @@ func (s *StatusBar) View() string {
 		metricsSection = fmt.Sprintf(" | Conns: %d", s.activeConnections)
 	}
 
+	// Debug indicator (warning/error counts) - only shown in debug mode
+	var debugSection string
+	if logger.IsDebugEnabled() {
+		warnCount, errCount := logger.GetCounts()
+		if warnCount > 0 || errCount > 0 {
+			var parts []string
+			if warnCount > 0 {
+				parts = append(parts, styles.WarningStyle.Render(fmt.Sprintf("⚠ %d", warnCount)))
+			}
+			if errCount > 0 {
+				parts = append(parts, styles.ErrorStyle.Render(fmt.Sprintf("✕ %d", errCount)))
+			}
+			debugSection = " | "
+			for i, p := range parts {
+				if i > 0 {
+					debugSection += " "
+				}
+				debugSection += p
+			}
+		}
+	}
+
 	// Build status line
-	statusLine := fmt.Sprintf("%s | %s | %s%s",
+	statusLine := fmt.Sprintf("%s | %s | %s%s%s",
 		statusIndicator,
 		dbName,
 		timestamp,
 		metricsSection,
+		debugSection,
 	)
 
 	// Apply styling
