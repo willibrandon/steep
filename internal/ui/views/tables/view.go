@@ -1134,15 +1134,16 @@ func (v *TablesView) ensureIndexVisible() {
 // indexPanelHeight returns the height of the index panel (content rows only).
 func (v *TablesView) indexPanelHeight() int {
 	// Index panel gets ~1/3 of available content height, minimum 3 rows
-	// Available = height - status(3) - title(1) - header(1) - footer(3) - 1 spacing = height - 9
+	// Base overhead: status(3) + title(1) + header(2 w/border) + footer(3) = 9
 	return max(3, (v.height-9)/3)
 }
 
 // tablePanelHeight returns the height of the table panel when index panel is shown.
 func (v *TablesView) tablePanelHeight() int {
 	// Table panel gets remaining height after index panel
-	// Total fixed: status(3) + title(1) + header(1) + indexTitle(1) + indexHeader(1) + footer(3) + 1 spacing = 11
-	return max(1, v.height-11-v.indexPanelHeight())
+	// Fixed elements: status(3) + title(1) + header(2 w/border) + indexTitle(1) + indexHeader(2 w/border) + footer(3) = 12
+	// Plus indexPanelHeight() for index content rows
+	return max(1, v.height-12-v.indexPanelHeight())
 }
 
 // toggleFocusPanel switches focus between tables and indexes.
@@ -1439,7 +1440,7 @@ func (v *TablesView) ensureVisible() {
 
 // tableHeight returns the number of visible table rows.
 func (v *TablesView) tableHeight() int {
-	// height - status(3 with border) - title(1) - header(1) - footer(3 with border) - 1 spacing
+	// Fixed elements: status(3 w/border) + title(1) + header(2 w/border) + footer(3 w/border) = 9
 	return max(1, v.height-9)
 }
 

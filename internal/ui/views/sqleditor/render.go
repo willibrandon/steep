@@ -10,10 +10,16 @@ import (
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
+// fixedOverhead returns the height consumed by fixed UI elements.
+// Connection bar (2 lines) + title (1 line) + footer (2 lines) = 5.
+func (v *SQLEditorView) fixedOverhead() int {
+	return 5
+}
+
 // resultsHeight returns the height available for results.
 func (v *SQLEditorView) resultsHeight() int {
-	editorHeight := int(float64(v.height-5) * v.splitRatio)
-	return v.height - editorHeight - 5 // -5 for connection bar, footer, and padding
+	// Use the same editorHeight calculated in SetSize for consistency
+	return v.height - v.editorHeight - v.fixedOverhead()
 }
 
 // showToast displays a toast message.

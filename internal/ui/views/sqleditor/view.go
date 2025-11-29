@@ -144,7 +144,7 @@ func NewSQLEditorView(syntaxTheme string) *SQLEditorView {
 		focus:        FocusEditor,
 		editor:       editor,
 		keys:         DefaultKeyMap(),
-		splitRatio:   0.4, // 40% editor, 60% results
+		splitRatio:   0.6, // 60% editor, 40% results
 		queryTimeout: DefaultQueryTimeout,
 		clipboard:    ui.NewClipboardWriter(),
 		results: &ResultSet{
@@ -248,10 +248,12 @@ func (v *SQLEditorView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
 
-	// Calculate editor and results heights
-	v.editorHeight = max(
-		// -4 for status bar and padding
-		int(float64(height-4)*v.splitRatio), 7)
+	// Fixed overhead: connection bar (2 lines) + title (1 line) + footer (2 lines) = 5
+	const fixedOverhead = 5
+	availableHeight := height - fixedOverhead
+
+	// Calculate editor height based on split ratio
+	v.editorHeight = max(int(float64(availableHeight)*v.splitRatio), 7)
 
 	// Set vimtea editor dimensions (subtract 1 for our title bar)
 	// vimtea internally reserves 2 lines for its own status bar when enabled
