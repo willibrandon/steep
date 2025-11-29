@@ -319,6 +319,7 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL (pg_settings view - read-only) (008-configuration-viewer)
 - Go 1.25.4 (per go.mod) + bubbletea, bubbles (viewport), lipgloss, pgx/pgxpool (009-log-viewer)
 - PostgreSQL log files (file system read or pg_read_file()), position tracking via SQLite (009-log-viewer)
+- PostgreSQL (source database via pg_stat_progress_vacuum, pg_stat_all_tables, pg_roles, pg_catalog) (010-database-operations)
 
 ## Recent Changes
 - 009-log-viewer: Extended :level command with timestamp support (:level error -1h, :level warn+ >14:30)
