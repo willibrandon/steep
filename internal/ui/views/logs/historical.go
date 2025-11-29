@@ -10,11 +10,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/willibrandon/steep/internal/logger"
@@ -41,13 +39,13 @@ type HistoricalLogRequest struct {
 
 // HistoricalLogResult contains the result of a historical log request.
 type HistoricalLogResult struct {
-	Entries        []LogEntryData // Loaded log entries
-	ActualTime     time.Time      // Actual timestamp found (may differ from requested)
-	FromFile       string         // Which file the entries came from
-	TargetIndex    int            // Index of entry closest to requested timestamp
-	Message        string         // Informational message about the result
-	OutsideBuffer  bool           // True if data came from historical file, not buffer
-	Error          error
+	Entries       []LogEntryData // Loaded log entries
+	ActualTime    time.Time      // Actual timestamp found (may differ from requested)
+	FromFile      string         // Which file the entries came from
+	TargetIndex   int            // Index of entry closest to requested timestamp
+	Message       string         // Informational message about the result
+	OutsideBuffer bool           // True if data came from historical file, not buffer
+	Error         error
 }
 
 // HistoricalLoader handles loading historical log entries from disk.
@@ -684,82 +682,7 @@ func (h *HistoricalLoader) loadCSVEntries(f *os.File, maxEntries int) ([]LogEntr
 	return entries, nil
 }
 
-// parseStderrLine attempts to parse a stderr log line into a LogEntryData.
-func parseStderrLine(line string) *LogEntryData {
-	// Try each pattern
-	for i, re := range stderrPatterns {
-		m := re.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-
-		switch i {
-		case 0: // [app] [user@host] format
-			ts, _ := parseTimestamp(m[1])
-			pid, _ := strconv.Atoi(m[3])
-			user := ""
-			if idx := strings.Index(m[5], "@"); idx > 0 {
-				user = m[5][:idx]
-			}
-			return &LogEntryData{
-				Timestamp:   ts,
-				Severity:    normalizeSeverity(m[6]),
-				PID:         pid,
-				User:        user,
-				Application: m[4],
-				Message:     m[7],
-				RawLine:     line,
-			}
-		case 1: // user@db format
-			ts, _ := parseTimestamp(m[1])
-			pid, _ := strconv.Atoi(m[3])
-			return &LogEntryData{
-				Timestamp: ts,
-				Severity:  normalizeSeverity(m[6]),
-				PID:       pid,
-				User:      m[4],
-				Database:  m[5],
-				Message:   m[7],
-				RawLine:   line,
-			}
-		case 2: // simple format
-			ts, _ := parseTimestamp(m[1])
-			pid, _ := strconv.Atoi(m[3])
-			return &LogEntryData{
-				Timestamp: ts,
-				Severity:  normalizeSeverity(m[4]),
-				PID:       pid,
-				Message:   m[5],
-				RawLine:   line,
-			}
-		}
-	}
-
-	return nil
-}
-
-// stderrPatterns are compiled regex patterns for stderr log parsing.
-var stderrPatterns []*regexp.Regexp
-
-var stderrPatternsOnce sync.Once
-
-func init() {
-	stderrPatternsOnce.Do(func() {
-		stderrPatterns = []*regexp.Regexp{
-			// Format with [app] [user@host]
-			regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\w+)\s+\[(\d+)\]\s+\[([^\]]*)\]\s+\[([^\]]*)\]\s+(\w+):\s*(.*)$`),
-			// Format with user@db
-			regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\w+)\s+\[(\d+)\]\s+(\w+)@(\w+)\s+(\w+):\s*(.*)$`),
-			// Simple format
-			regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\w+)\s+\[(\d+)\]\s+(\w+):\s*(.*)$`),
-		}
-	})
-}
-
-// findClosestEntryIndex finds the index of the entry closest to the target time.
-func findClosestEntryIndex(entries []LogEntryData, target time.Time) int {
-	return findEntryIndex(entries, target, SearchClosest)
-}
+// parseStderrLine is now defined in collector.go with a robust severity-anchored approach
 
 // findEntryIndex finds an entry index based on the search direction.
 // - SearchClosest: finds the entry closest to the target time

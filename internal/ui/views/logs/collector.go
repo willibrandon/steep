@@ -174,26 +174,24 @@ func (c *LogCollector) readNewEntries(file string) ([]LogEntryData, error) {
 	return entries, nil
 }
 
+// severityPattern matches PostgreSQL severity markers.
+// PostgreSQL always outputs: <log_line_prefix><SEVERITY>:  <message>
+// The severity is followed by a colon and two spaces.
+var severityPattern = regexp.MustCompile(`(DEBUG|LOG|INFO|NOTICE|WARNING|ERROR|FATAL|PANIC):\s{1,2}`)
+
+// timestampPattern extracts timestamps from the prefix.
+var timestampPattern = regexp.MustCompile(`(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)`)
+
+// pidPattern extracts process ID from the prefix.
+var pidPattern = regexp.MustCompile(`\[(\d+)\]`)
+
 // parseStderrLogs parses plain text PostgreSQL logs.
+// This parser anchors on the severity marker (LOG:, ERROR:, etc.) which is
+// always present regardless of log_line_prefix configuration.
 func (c *LogCollector) parseStderrLogs(r io.Reader, startPos int64) ([]LogEntryData, int64, error) {
 	var entries []LogEntryData
 	scanner := bufio.NewScanner(r)
 	pos := startPos
-
-	// PostgreSQL stderr log patterns - matches various log_line_prefix formats
-	// Pattern 1: 2025-11-27 12:34:56.123 PST [12345] [app] [user@host]LOG: message (no space before severity)
-	// Pattern 2: 2025-11-27 12:34:56.123 PST [12345] user@db LOG: message
-	// Pattern 3: 2025-11-27 12:34:56.123 PST [12345] LOG: message
-	// Timezone can be: PST, +00, -08, America/Los_Angeles, etc.
-	// Note: \s* before severity to handle missing space when log_line_prefix doesn't end with space
-	logPatterns := []*regexp.Regexp{
-		// Format with [app] [user@host]: 2025-11-27 12:34:56.123 PST [12345] [steep] [brandon@::1]LOG: msg
-		regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\S+)\s+\[(\d+)\]\s+\[([^\]]*)\]\s+\[([^\]]*)\]\s*(\w+):\s*(.*)$`),
-		// Format with user@db: 2025-11-27 12:34:56.123 PST [12345] postgres@db LOG: msg
-		regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\S+)\s+\[(\d+)\]\s+(\w+)@(\w+)\s*(\w+):\s*(.*)$`),
-		// Simple format: 2025-11-27 12:34:56.123 PST [12345] LOG: msg
-		regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\S+)\s+\[(\d+)\]\s*(\w+):\s*(.*)$`),
-	}
 
 	var currentEntry *LogEntryData
 	var unparsedCount int
@@ -203,56 +201,8 @@ func (c *LogCollector) parseStderrLogs(r io.Reader, startPos int64) ([]LogEntryD
 		line := scanner.Text()
 		lineLen := int64(len(line)) + 1 // +1 for newline
 
-		var entry *LogEntryData
-
-		// Try each pattern
-		for i, pattern := range logPatterns {
-			matches := pattern.FindStringSubmatch(line)
-			if matches == nil {
-				continue
-			}
-
-			timestamp, _ := parseTimestamp(matches[1])
-			pid, _ := strconv.Atoi(matches[3])
-
-			switch i {
-			case 0: // [app] [user@host] format
-				// matches[4] = app, matches[5] = user@host, matches[6] = severity, matches[7] = message
-				userHost := matches[5]
-				user := ""
-				if atIdx := strings.Index(userHost, "@"); atIdx > 0 {
-					user = userHost[:atIdx]
-				}
-				entry = &LogEntryData{
-					Timestamp:   timestamp,
-					Severity:    normalizeSeverity(matches[6]),
-					PID:         pid,
-					User:        user,
-					Application: matches[4],
-					Message:     matches[7],
-					RawLine:     line,
-				}
-			case 1: // user@db format
-				entry = &LogEntryData{
-					Timestamp: timestamp,
-					Severity:  normalizeSeverity(matches[6]),
-					PID:       pid,
-					User:      matches[4],
-					Database:  matches[5],
-					Message:   matches[7],
-					RawLine:   line,
-				}
-			case 2: // simple format
-				entry = &LogEntryData{
-					Timestamp: timestamp,
-					Severity:  normalizeSeverity(matches[4]),
-					PID:       pid,
-					Message:   matches[5],
-					RawLine:   line,
-				}
-			}
-			break
-		}
+		// Try to parse as a new log entry by finding the severity marker
+		entry := parseStderrLine(line)
 
 		if entry != nil {
 			// Save previous entry
@@ -261,14 +211,19 @@ func (c *LogCollector) parseStderrLogs(r io.Reader, startPos int64) ([]LogEntryD
 			}
 			currentEntry = entry
 		} else if currentEntry != nil {
-			// Continuation line (DETAIL, HINT, or multi-line message)
-			if strings.HasPrefix(line, "DETAIL:") {
-				currentEntry.Detail = strings.TrimPrefix(line, "DETAIL:")
-				currentEntry.Detail = strings.TrimSpace(currentEntry.Detail)
-			} else if strings.HasPrefix(line, "HINT:") {
-				currentEntry.Hint = strings.TrimPrefix(line, "HINT:")
-				currentEntry.Hint = strings.TrimSpace(currentEntry.Hint)
-			} else if strings.TrimSpace(line) != "" {
+			// Continuation line (DETAIL, HINT, CONTEXT, STATEMENT, or multi-line message)
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "DETAIL:") {
+				currentEntry.Detail = strings.TrimSpace(strings.TrimPrefix(trimmed, "DETAIL:"))
+			} else if strings.HasPrefix(trimmed, "HINT:") {
+				currentEntry.Hint = strings.TrimSpace(strings.TrimPrefix(trimmed, "HINT:"))
+			} else if strings.HasPrefix(trimmed, "CONTEXT:") {
+				// Append context to message
+				currentEntry.Message += "\nCONTEXT: " + strings.TrimSpace(strings.TrimPrefix(trimmed, "CONTEXT:"))
+			} else if strings.HasPrefix(trimmed, "STATEMENT:") {
+				// Append statement to message
+				currentEntry.Message += "\nSTATEMENT: " + strings.TrimSpace(strings.TrimPrefix(trimmed, "STATEMENT:"))
+			} else if trimmed != "" {
 				// Append to message (skip empty lines)
 				currentEntry.Message += "\n" + line
 			}
@@ -296,6 +251,108 @@ func (c *LogCollector) parseStderrLogs(r io.Reader, startPos int64) ([]LogEntryD
 	}
 
 	return entries, pos, scanner.Err()
+}
+
+// parseStderrLine parses a single stderr log line by anchoring on the severity marker.
+func parseStderrLine(line string) *LogEntryData {
+	// Find the severity marker (LOG:, ERROR:, etc.)
+	loc := severityPattern.FindStringIndex(line)
+	if loc == nil {
+		return nil
+	}
+
+	// Split into prefix and message
+	prefix := line[:loc[0]]
+	matchedText := line[loc[0]:loc[1]]
+	// Find colon position to extract just the severity word
+	colonIdx := strings.Index(matchedText, ":")
+	severity := matchedText[:colonIdx]
+	message := ""
+	if loc[1] < len(line) {
+		message = line[loc[1]:]
+	}
+
+	// Extract metadata from prefix
+	entry := &LogEntryData{
+		Severity: normalizeSeverity(severity),
+		Message:  message,
+		RawLine:  line,
+	}
+
+	// Extract timestamp
+	if ts := timestampPattern.FindString(prefix); ts != "" {
+		entry.Timestamp, _ = parseTimestamp(ts)
+	}
+
+	// Extract PID - find the first [number] pattern
+	if pidMatch := pidPattern.FindStringSubmatch(prefix); pidMatch != nil {
+		entry.PID, _ = strconv.Atoi(pidMatch[1])
+	}
+
+	// Extract user, database, application from bracketed sections
+	// Look for patterns like [app], [user@host], [user@db]
+	extractBracketedMetadata(prefix, entry)
+
+	return entry
+}
+
+// extractBracketedMetadata extracts user, database, and application from prefix.
+func extractBracketedMetadata(prefix string, entry *LogEntryData) {
+	// Find all bracketed sections after the PID
+	// Skip the first [number] which is the PID
+	pidLoc := pidPattern.FindStringIndex(prefix)
+	if pidLoc == nil {
+		return
+	}
+
+	remaining := prefix[pidLoc[1]:]
+
+	// Parse bracketed sections - handle nested brackets like [brandon@[local]]
+	var brackets []string
+	i := 0
+	for i < len(remaining) {
+		if remaining[i] == '[' {
+			// Find matching close bracket, handling nesting
+			depth := 1
+			start := i + 1
+			j := start
+			for j < len(remaining) && depth > 0 {
+				switch remaining[j] {
+				case '[':
+					depth++
+				case ']':
+					depth--
+				}
+				j++
+			}
+			if depth == 0 {
+				brackets = append(brackets, remaining[start:j-1])
+			}
+			i = j
+		} else {
+			i++
+		}
+	}
+
+	// Interpret bracketed values based on content
+	for _, b := range brackets {
+		// Skip if it looks like a PID (pure number)
+		if _, err := strconv.Atoi(b); err == nil {
+			continue
+		}
+
+		// Check for user@host or user@db pattern
+		if atIdx := strings.Index(b, "@"); atIdx > 0 {
+			entry.User = b[:atIdx]
+			// Don't set database/host - could be either
+			continue
+		}
+
+		// Otherwise treat as application name if not already set
+		if entry.Application == "" && b != "" {
+			entry.Application = b
+		}
+	}
 }
 
 // truncateLine truncates a line to maxLen characters.
@@ -341,12 +398,12 @@ func (c *LogCollector) parseCSVLogs(r io.Reader, startPos int64) ([]LogEntryData
 		pid, _ := strconv.Atoi(record[3])
 
 		entry := LogEntryData{
-			Timestamp:   timestamp,
-			User:        record[1],
-			Database:    record[2],
-			PID:         pid,
-			Severity:    normalizeSeverity(record[11]),
-			Message:     record[13],
+			Timestamp: timestamp,
+			User:      record[1],
+			Database:  record[2],
+			PID:       pid,
+			Severity:  normalizeSeverity(record[11]),
+			Message:   record[13],
 		}
 
 		if len(record) > 14 {
