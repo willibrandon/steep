@@ -96,6 +96,9 @@ type LogsView struct {
 	// History manager for command and search history
 	historyManager *HistoryManager
 
+	// Help viewport for scrollable help
+	helpViewport viewport.Model
+
 	// Clipboard
 	clipboard *ui.ClipboardWriter
 }
@@ -357,8 +360,12 @@ func (v *LogsView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ModeHelp:
 		if key == "esc" || key == "?" || key == "h" || key == "q" {
 			v.mode = ModeNormal
+			return v, nil
 		}
-		return v, nil
+		// Forward scroll keys to help viewport
+		var cmd tea.Cmd
+		v.helpViewport, cmd = v.helpViewport.Update(msg)
+		return v, cmd
 
 	case ModeSearch:
 		return v.handleSearchMode(msg)
@@ -374,6 +381,7 @@ func (v *LogsView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "?", "h":
 		v.mode = ModeHelp
+		v.initHelpViewport()
 	case "f":
 		v.followMode = !v.followMode
 		if v.followMode {
@@ -564,6 +572,17 @@ func (v *LogsView) handleConfirmMode(key string) (tea.Model, tea.Cmd) {
 
 // handleMouse handles mouse input.
 func (v *LogsView) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Handle help mode separately - forward to help viewport
+	if v.mode == ModeHelp {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			v.helpViewport.LineUp(3)
+		case tea.MouseButtonWheelDown:
+			v.helpViewport.LineDown(3)
+		}
+		return v, nil
+	}
+
 	// Use viewport's native scrolling for mouse wheel
 	// Mouse scroll does NOT move selection - just scrolls the view
 	switch msg.Button {
@@ -1777,10 +1796,57 @@ func (v *LogsView) renderFooter() string {
 		Render(hints)
 }
 
-// renderHelp renders the help overlay.
+// initHelpViewport initializes the help viewport with help content.
+func (v *LogsView) initHelpViewport() {
+	content, maxWidth := GetHelpContent()
+
+	// Calculate viewport height - leave room for dialog border and some padding
+	// Max height is screen height minus some padding for the dialog border
+	maxViewportHeight := v.height - 6
+	if maxViewportHeight < 10 {
+		maxViewportHeight = 10
+	}
+
+	// Count content lines
+	contentLines := strings.Count(content, "\n") + 1
+	viewportHeight := contentLines
+	if viewportHeight > maxViewportHeight {
+		viewportHeight = maxViewportHeight
+	}
+
+	// Initialize viewport
+	v.helpViewport = viewport.New(maxWidth, viewportHeight)
+	v.helpViewport.SetContent(content)
+	// Start at top
+	v.helpViewport.GotoTop()
+}
+
+// renderHelp renders the help overlay with scrollable content.
 func (v *LogsView) renderHelp() string {
-	// Delegate to help.go
-	return RenderHelp(v.width, v.height)
+	_, maxWidth := GetHelpContent()
+
+	// Get viewport content
+	viewportContent := v.helpViewport.View()
+
+	// Add scroll indicator if content is scrollable
+	var scrollIndicator string
+	if v.helpViewport.TotalLineCount() > v.helpViewport.Height {
+		scrollPct := int(v.helpViewport.ScrollPercent() * 100)
+		scrollIndicator = styles.MutedStyle.Render(fmt.Sprintf(" (%d%%)", scrollPct))
+	}
+
+	// Build the dialog content with optional scroll indicator in title
+	var sb strings.Builder
+	titleStyle := styles.HelpTitleStyle.Width(maxWidth).Align(lipgloss.Center)
+	sb.WriteString(titleStyle.Render("Log Viewer Help" + scrollIndicator))
+	sb.WriteString("\n\n")
+	sb.WriteString(viewportContent)
+
+	// Wrap in dialog style
+	dialog := styles.HelpDialogStyle.Width(maxWidth + 4).Render(sb.String())
+
+	// Center on screen
+	return lipgloss.Place(v.width, v.height, lipgloss.Center, lipgloss.Center, dialog)
 }
 
 // formatCount formats an integer with commas.

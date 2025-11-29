@@ -101,8 +101,27 @@ func GetHelpSections() []HelpSection {
 	}
 }
 
-// RenderHelp renders the help overlay.
+// RenderHelp renders the help overlay (non-scrollable version for reference).
 func RenderHelp(width, height int) string {
+	content, maxWidth := GetHelpContent()
+
+	// Build with title
+	var sb strings.Builder
+	titleStyle := styles.HelpTitleStyle.Width(maxWidth).Align(lipgloss.Center)
+	sb.WriteString(titleStyle.Render("Log Viewer Help"))
+	sb.WriteString("\n\n")
+	sb.WriteString(content)
+
+	// Wrap in dialog style
+	dialog := styles.HelpDialogStyle.Width(maxWidth + 4).Render(sb.String())
+
+	// Center on screen
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, dialog)
+}
+
+// GetHelpContent returns the help content (without title) and max width for use in a viewport.
+// The title is rendered separately to allow scroll indicators.
+func GetHelpContent() (string, int) {
 	sections := GetHelpSections()
 
 	// Calculate max key width across all sections
@@ -117,18 +136,10 @@ func RenderHelp(width, height int) string {
 
 	// Calculate dialog width based on content
 	maxWidth := 55
-	if width < maxWidth {
-		maxWidth = width - 4
-	}
 
 	var sb strings.Builder
 
-	// Title
-	titleStyle := styles.HelpTitleStyle.Width(maxWidth).Align(lipgloss.Center)
-	sb.WriteString(titleStyle.Render("Log Viewer Help"))
-	sb.WriteString("\n\n")
-
-	// Render each section
+	// Render each section (no title - added by caller)
 	descStyle := styles.HelpDescStyle
 
 	for i, section := range sections {
@@ -153,14 +164,9 @@ func RenderHelp(width, height int) string {
 
 	// Footer
 	sb.WriteString("\n")
-	sb.WriteString(styles.MutedStyle.Render("Press h or Esc to close"))
+	sb.WriteString(styles.MutedStyle.Render("Press h or Esc to close • j/k or ↑/↓ to scroll"))
 
-	// Wrap in dialog style
-	content := sb.String()
-	dialog := styles.HelpDialogStyle.Width(maxWidth + 4).Render(content)
-
-	// Center on screen
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, dialog)
+	return sb.String(), maxWidth
 }
 
 // padRight pads a string to the specified width with spaces.
