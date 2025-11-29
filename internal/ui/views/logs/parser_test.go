@@ -4,6 +4,69 @@ import (
 	"testing"
 )
 
+func TestNormalizeMessage(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "single line no trailing space",
+			input:    "simple message",
+			expected: "simple message",
+		},
+		{
+			name:     "single line with trailing space",
+			input:    "message with trailing   ",
+			expected: "message with trailing",
+		},
+		{
+			name:     "single line with trailing tab",
+			input:    "message with tab\t",
+			expected: "message with tab",
+		},
+		{
+			name:     "multi-line no trailing whitespace",
+			input:    "line1\nline2\nline3",
+			expected: "line1\nline2\nline3",
+		},
+		{
+			name:     "multi-line with trailing spaces",
+			input:    "line1   \nline2  \nline3",
+			expected: "line1\nline2\nline3",
+		},
+		{
+			name:     "multi-line with trailing empty lines",
+			input:    "line1\nline2\n   \n",
+			expected: "line1\nline2",
+		},
+		{
+			name:     "SQL statement with trailing whitespace",
+			input:    "STATEMENT: SELECT *\n        FROM foo   \n        WHERE bar  \n",
+			expected: "STATEMENT: SELECT *\n        FROM foo\n        WHERE bar",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "only whitespace",
+			input:    "   \n\t\n  ",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeMessage(tt.input)
+			if result != tt.expected {
+				t.Errorf("normalizeMessage(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestParseStderrLine(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -321,6 +321,7 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL log files (file system read or pg_read_file()), position tracking via SQLite (009-log-viewer)
 
 ## Recent Changes
+- 009-log-viewer: Extended :level command with timestamp support (:level error -1h, :level warn+ >14:30)
 - 009-log-viewer: Command and search history with SQLite persistence, shell-style deduplication, ↑/↓ navigation
 - 009-log-viewer: Real-time PostgreSQL log streaming with follow mode and severity filtering
 - 009-log-viewer: Support for stderr, CSV, and JSON log formats with auto-detection from log_destination

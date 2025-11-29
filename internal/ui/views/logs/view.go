@@ -596,7 +596,11 @@ func (v *LogsView) executeCommand(cmd string) {
 	}
 }
 
-// executeLevelCommand handles :level <level> command.
+// executeLevelCommand handles :level <level> [timestamp] command.
+// Supports optional timestamp with same syntax as :goto:
+//   :level error 14:30     - errors closest to 14:30
+//   :level warn+ >14:30    - warnings+ at/after 14:30
+//   :level error+ -1h      - errors+ from the last hour
 func (v *LogsView) executeLevelCommand(args []string) {
 	if len(args) == 0 {
 		// Show current level
@@ -614,7 +618,41 @@ func (v *LogsView) executeLevelCommand(args []string) {
 		return
 	}
 
-	// Update viewport with filtered content
+	// Check if timestamp was provided (remaining args after level)
+	if len(args) > 1 {
+		// Join remaining args to handle timestamps with spaces (e.g., "2025-11-27 14:30")
+		timestampStr := strings.Join(args[1:], " ")
+
+		// Parse the timestamp using same logic as :goto
+		parsed, err := ParseTimestampInput(timestampStr)
+		if err != nil {
+			v.showToast(err.Error(), true)
+			return
+		}
+
+		// Update viewport with filtered content first
+		v.invalidateCache()
+		v.needsRebuild = true
+
+		// Check if timestamp is within current buffer (considering filter)
+		if v.buffer.Len() > 0 {
+			oldest, _ := v.buffer.Oldest()
+			newest, _ := v.buffer.Newest()
+
+			if (parsed.Time.Equal(oldest.Timestamp) || parsed.Time.After(oldest.Timestamp)) &&
+				(parsed.Time.Equal(newest.Timestamp) || parsed.Time.Before(newest.Timestamp)) {
+				// Timestamp in buffer - navigate to matching filtered entry
+				v.navigateToFilteredTimestamp(parsed)
+				return
+			}
+		}
+
+		// Timestamp outside buffer - load historical logs
+		v.loadHistoricalLogs(parsed)
+		return
+	}
+
+	// No timestamp - just filter the current buffer
 	v.invalidateCache()
 	v.needsRebuild = true
 	v.rebuildViewport()
@@ -702,6 +740,98 @@ func (v *LogsView) navigateToBufferTimestamp(parsed *ParsedTimestamp) {
 
 	// Show result
 	v.showToast(fmt.Sprintf("Jumped to %s", entry.Timestamp.Format("2006-01-02 15:04:05.000")), false)
+}
+
+// navigateToFilteredTimestamp navigates to a timestamp considering the current filter.
+// This is used by :level with timestamp to find entries matching both severity and time.
+func (v *LogsView) navigateToFilteredTimestamp(parsed *ParsedTimestamp) {
+	// Build list of filtered entry indices
+	var filteredIndices []int
+	for i := 0; i < v.buffer.Len(); i++ {
+		entry, ok := v.buffer.Get(i)
+		if !ok {
+			continue
+		}
+		if v.filter.Matches(entry) {
+			filteredIndices = append(filteredIndices, i)
+		}
+	}
+
+	if len(filteredIndices) == 0 {
+		levelStr := v.filter.LevelString()
+		v.showToast(fmt.Sprintf("No %s entries found", levelStr), true)
+		return
+	}
+
+	// Find the best matching entry based on direction
+	var bestIdx int = -1
+	var bestEntry *models.LogEntry
+
+	switch parsed.Direction {
+	case SearchAfter:
+		// Find first entry at or after timestamp
+		for _, idx := range filteredIndices {
+			entry, _ := v.buffer.Get(idx)
+			if entry.Timestamp.Equal(parsed.Time) || entry.Timestamp.After(parsed.Time) {
+				bestIdx = idx
+				bestEntry = &entry
+				break
+			}
+		}
+	case SearchBefore:
+		// Find last entry at or before timestamp
+		for i := len(filteredIndices) - 1; i >= 0; i-- {
+			idx := filteredIndices[i]
+			entry, _ := v.buffer.Get(idx)
+			if entry.Timestamp.Equal(parsed.Time) || entry.Timestamp.Before(parsed.Time) {
+				bestIdx = idx
+				bestEntry = &entry
+				break
+			}
+		}
+	default:
+		// Find closest entry to timestamp
+		var minDiff int64 = -1
+		for _, idx := range filteredIndices {
+			entry, _ := v.buffer.Get(idx)
+			diff := parsed.Time.Sub(entry.Timestamp)
+			if diff < 0 {
+				diff = -diff
+			}
+			diffNs := int64(diff)
+			if minDiff < 0 || diffNs < minDiff {
+				minDiff = diffNs
+				bestIdx = idx
+				entryCopy := entry
+				bestEntry = &entryCopy
+			}
+		}
+	}
+
+	if bestIdx < 0 || bestEntry == nil {
+		var msg string
+		levelStr := v.filter.LevelString()
+		switch parsed.Direction {
+		case SearchAfter:
+			msg = fmt.Sprintf("No %s entries at or after that time", levelStr)
+		case SearchBefore:
+			msg = fmt.Sprintf("No %s entries at or before that time", levelStr)
+		default:
+			msg = fmt.Sprintf("No %s entries near that time", levelStr)
+		}
+		v.showToast(msg, true)
+		return
+	}
+
+	// Disable follow mode and navigate
+	v.followMode = false
+	v.selectedIdx = bestIdx
+	v.rebuildViewport()
+	v.ensureSelectionVisible()
+
+	// Show result with level info
+	levelStr := v.filter.LevelString()
+	v.showToast(fmt.Sprintf("Jumped to %s at %s", levelStr, bestEntry.Timestamp.Format("2006-01-02 15:04:05.000")), false)
 }
 
 // loadHistoricalLogs loads logs from historical files for a given timestamp.
@@ -998,12 +1128,12 @@ func (v *LogsView) formatEntryForClipboard(entry models.LogEntry) string {
 	} else if entry.Database != "" {
 		sb.WriteString(entry.Database + " ")
 	}
-	sb.WriteString(entry.Message)
+	sb.WriteString(normalizeMessage(entry.Message))
 	if entry.Detail != "" {
-		sb.WriteString("\n  DETAIL: " + entry.Detail)
+		sb.WriteString("\n  DETAIL: " + normalizeMessage(entry.Detail))
 	}
 	if entry.Hint != "" {
-		sb.WriteString("\n  HINT: " + entry.Hint)
+		sb.WriteString("\n  HINT: " + normalizeMessage(entry.Hint))
 	}
 	return sb.String()
 }
@@ -1266,6 +1396,23 @@ func (v *LogsView) rebuildViewport() {
 	}
 }
 
+// normalizeMessage trims trailing whitespace from each line in a multi-line message.
+// This prevents blank lines appearing after continuation lines in log entries.
+func normalizeMessage(msg string) string {
+	if !strings.Contains(msg, "\n") {
+		return strings.TrimRight(msg, " \t\r")
+	}
+	lines := strings.Split(msg, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " \t\r")
+	}
+	// Remove any trailing empty lines
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n")
+}
+
 // formatLogEntry formats a log entry for display.
 func (v *LogsView) formatLogEntry(entry models.LogEntry) string {
 	return v.formatLogEntryWithHighlight(entry, false, false, false)
@@ -1313,8 +1460,9 @@ func (v *LogsView) formatLogEntryWithHighlight(entry models.LogEntry, highlight 
 	}
 
 	// Message with severity color and optional search highlighting
+	// Normalize message to remove trailing whitespace from each line
 	msgStyle := styles.SeverityStyle(entry.Severity)
-	message := entry.Message
+	message := normalizeMessage(entry.Message)
 	if highlight && v.filter.SearchPattern != nil {
 		message = v.highlightMatches(message)
 	} else {
@@ -1332,7 +1480,7 @@ func (v *LogsView) formatLogEntryWithHighlight(entry models.LogEntry, highlight 
 
 	// Add DETAIL if present
 	if entry.Detail != "" {
-		detail := entry.Detail
+		detail := normalizeMessage(entry.Detail)
 		if highlight && v.filter.SearchPattern != nil {
 			detail = v.highlightMatches(detail)
 		} else {
@@ -1347,7 +1495,7 @@ func (v *LogsView) formatLogEntryWithHighlight(entry models.LogEntry, highlight 
 
 	// Add HINT if present
 	if entry.Hint != "" {
-		line += "\n    " + styles.AccentStyle.Render("HINT: "+entry.Hint)
+		line += "\n    " + styles.AccentStyle.Render("HINT: "+normalizeMessage(entry.Hint))
 	}
 
 	return line

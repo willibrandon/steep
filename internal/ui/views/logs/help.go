@@ -62,6 +62,8 @@ func GetHelpSections() []HelpSection {
 				{Key: ":", Desc: "Enter command mode"},
 				{Key: ":level error", Desc: "Filter by severity"},
 				{Key: ":level error+", Desc: "Filter level and above"},
+				{Key: ":level error -1h", Desc: "Errors from last hour"},
+				{Key: ":level warn+ >14:30", Desc: "Warn+ at/after 14:30"},
 				{Key: ":level clear", Desc: "Clear severity filter"},
 				{Key: ":goto 14:30", Desc: "Jump to closest entry"},
 				{Key: ":goto >14:30", Desc: "First entry at/after"},

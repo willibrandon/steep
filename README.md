@@ -364,12 +364,15 @@ connection:
 |---------|-------------|
 | `:level LEVEL` | Filter by severity (e.g., error, warning) |
 | `:level LEVEL+` | Filter by level and above (e.g., error+) |
+| `:level LEVEL TIME` | Filter + jump to time (e.g., `:level error -1h`) |
+| `:level LEVEL >TIME` | Filter + first at/after time |
+| `:level LEVEL <TIME` | Filter + last at/before time |
 | `:level clear` | Clear severity filter |
 | `:goto TIME` | Jump to closest entry at time |
 | `:goto >TIME` | First entry at or after time |
 | `:goto <TIME` | Last entry at or before time |
 
-**Time Formats for :goto:**
+**Time Formats (for :level and :goto):**
 
 | Format | Example |
 |--------|---------|
