@@ -1,0 +1,280 @@
+// Package queries provides database query functions for PostgreSQL monitoring.
+package queries
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/willibrandon/steep/internal/db/models"
+)
+
+// Error types for maintenance operations
+var (
+	// ErrReadOnlyMode indicates an operation was attempted in read-only mode
+	ErrReadOnlyMode = errors.New("operation blocked: application is in read-only mode")
+	// ErrOperationInProgress indicates another maintenance operation is already running
+	ErrOperationInProgress = errors.New("another maintenance operation is in progress")
+	// ErrCancellationFailed indicates pg_cancel_backend returned false
+	ErrCancellationFailed = errors.New("failed to cancel operation: process may have already completed")
+	// ErrConnectionLost indicates the database connection was lost during operation
+	ErrConnectionLost = errors.New("database connection lost during operation")
+)
+
+// VacuumOptions configures VACUUM behavior.
+type VacuumOptions struct {
+	Full    bool // Use VACUUM FULL (exclusive lock, returns space to OS)
+	Analyze bool // Also run ANALYZE after VACUUM
+	Verbose bool // Emit detailed logging
+}
+
+// RunningOperation represents a maintenance operation currently executing.
+type RunningOperation struct {
+	PID         int
+	Database    string
+	Schema      string
+	Table       string
+	Operation   string // "VACUUM", "VACUUM FULL", "ANALYZE", etc.
+	Phase       string
+	ProgressPct float64
+	StartedAt   time.Time
+}
+
+// MaintenanceExecutor provides methods for executing and monitoring
+// database maintenance operations.
+type MaintenanceExecutor interface {
+	// ExecuteVacuum runs VACUUM on a table.
+	// Supports options: full, analyze, verbose.
+	ExecuteVacuum(ctx context.Context, schema, table string, opts VacuumOptions) error
+
+	// ExecuteAnalyze runs ANALYZE on a table.
+	ExecuteAnalyze(ctx context.Context, schema, table string) error
+
+	// ExecuteReindex runs REINDEX on a table or index.
+	ExecuteReindex(ctx context.Context, schema, name string, isIndex bool) error
+
+	// CancelOperation cancels a running maintenance operation by PID.
+	// Returns true if cancellation signal was sent successfully.
+	CancelOperation(ctx context.Context, pid int) (bool, error)
+
+	// GetVacuumProgress returns current progress for a VACUUM operation.
+	// Returns nil if no VACUUM is in progress for the given table.
+	GetVacuumProgress(ctx context.Context, schema, table string) (*models.OperationProgress, error)
+
+	// GetVacuumFullProgress returns current progress for a VACUUM FULL operation.
+	// Uses pg_stat_progress_cluster since VACUUM FULL rewrites the table.
+	GetVacuumFullProgress(ctx context.Context, schema, table string) (*models.OperationProgress, error)
+
+	// GetRunningOperations returns all maintenance operations currently running
+	// in the connected database.
+	GetRunningOperations(ctx context.Context) ([]RunningOperation, error)
+}
+
+// ExecuteVacuumWithOptions runs VACUUM with the specified options.
+// Uses quote_ident for safe identifier quoting.
+func ExecuteVacuumWithOptions(ctx context.Context, pool *pgxpool.Pool, schemaName, tableName string, opts VacuumOptions) error {
+	var sql string
+	switch {
+	case opts.Full && opts.Analyze:
+		sql = fmt.Sprintf("VACUUM (FULL, ANALYZE) %s.%s",
+			quoteIdentifier(schemaName),
+			quoteIdentifier(tableName))
+	case opts.Full:
+		sql = fmt.Sprintf("VACUUM FULL %s.%s",
+			quoteIdentifier(schemaName),
+			quoteIdentifier(tableName))
+	case opts.Analyze:
+		sql = fmt.Sprintf("VACUUM ANALYZE %s.%s",
+			quoteIdentifier(schemaName),
+			quoteIdentifier(tableName))
+	default:
+		sql = fmt.Sprintf("VACUUM %s.%s",
+			quoteIdentifier(schemaName),
+			quoteIdentifier(tableName))
+	}
+
+	_, err := pool.Exec(ctx, sql)
+	if err != nil {
+		return fmt.Errorf("vacuum %s.%s: %w", schemaName, tableName, err)
+	}
+	return nil
+}
+
+// ExecuteReindexIndex runs REINDEX on a specific index.
+func ExecuteReindexIndex(ctx context.Context, pool *pgxpool.Pool, schemaName, indexName string) error {
+	query := fmt.Sprintf("REINDEX INDEX %s.%s",
+		quoteIdentifier(schemaName),
+		quoteIdentifier(indexName))
+
+	_, err := pool.Exec(ctx, query)
+	if err != nil {
+		return fmt.Errorf("reindex index %s.%s: %w", schemaName, indexName, err)
+	}
+	return nil
+}
+
+// CancelBackend cancels a running operation by PID using pg_cancel_backend.
+// Returns true if the cancellation signal was sent successfully.
+func CancelBackend(ctx context.Context, pool *pgxpool.Pool, pid int) (bool, error) {
+	var cancelled bool
+	err := pool.QueryRow(ctx, "SELECT pg_cancel_backend($1)", pid).Scan(&cancelled)
+	if err != nil {
+		return false, fmt.Errorf("cancel backend pid %d: %w", pid, err)
+	}
+	return cancelled, nil
+}
+
+// GetVacuumProgress returns current progress for a VACUUM operation.
+// Returns nil if no VACUUM is in progress for the given table.
+func GetVacuumProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, tableName string) (*models.OperationProgress, error) {
+	query := `
+		SELECT
+			pid,
+			phase,
+			heap_blks_total,
+			heap_blks_scanned,
+			heap_blks_vacuumed,
+			index_vacuum_count,
+			COALESCE(indexes_total, 0) as indexes_total,
+			COALESCE(indexes_processed, 0) as indexes_processed,
+			ROUND(100.0 * heap_blks_scanned / NULLIF(heap_blks_total, 0), 2) AS progress_pct
+		FROM pg_stat_progress_vacuum
+		WHERE relid = $1::regclass
+	`
+
+	tableRef := schemaName + "." + tableName
+	var progress models.OperationProgress
+	var pid int
+	var progressPct float64
+
+	err := pool.QueryRow(ctx, query, tableRef).Scan(
+		&pid,
+		&progress.Phase,
+		&progress.HeapBlksTotal,
+		&progress.HeapBlksScanned,
+		&progress.HeapBlksVacuumed,
+		&progress.IndexVacuumCount,
+		&progress.IndexesTotal,
+		&progress.IndexesProcessed,
+		&progressPct,
+	)
+	if err != nil {
+		// No progress found - operation not running or completed
+		if err.Error() == "no rows in result set" {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get vacuum progress for %s: %w", tableRef, err)
+	}
+
+	progress.PercentComplete = progressPct
+	progress.LastUpdated = time.Now()
+	return &progress, nil
+}
+
+// GetVacuumFullProgress returns current progress for a VACUUM FULL operation.
+// Uses pg_stat_progress_cluster since VACUUM FULL rewrites the table.
+func GetVacuumFullProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, tableName string) (*models.OperationProgress, error) {
+	query := `
+		SELECT
+			pid,
+			phase,
+			heap_blks_total,
+			heap_blks_scanned,
+			ROUND(100.0 * heap_blks_scanned / NULLIF(heap_blks_total, 0), 2) AS progress_pct
+		FROM pg_stat_progress_cluster
+		WHERE relid = $1::regclass
+		  AND command = 'VACUUM FULL'
+	`
+
+	tableRef := schemaName + "." + tableName
+	var progress models.OperationProgress
+	var pid int
+	var progressPct float64
+
+	err := pool.QueryRow(ctx, query, tableRef).Scan(
+		&pid,
+		&progress.Phase,
+		&progress.HeapBlksTotal,
+		&progress.HeapBlksScanned,
+		&progressPct,
+	)
+	if err != nil {
+		// No progress found - operation not running or completed
+		if err.Error() == "no rows in result set" {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get vacuum full progress for %s: %w", tableRef, err)
+	}
+
+	progress.PercentComplete = progressPct
+	progress.LastUpdated = time.Now()
+	return &progress, nil
+}
+
+// GetRunningMaintenanceOperations returns all maintenance operations currently running.
+func GetRunningMaintenanceOperations(ctx context.Context, pool *pgxpool.Pool) ([]RunningOperation, error) {
+	query := `
+		SELECT
+			a.pid,
+			a.datname,
+			n.nspname AS schema_name,
+			c.relname AS table_name,
+			CASE
+				WHEN pv.pid IS NOT NULL THEN 'VACUUM'
+				WHEN pc.pid IS NOT NULL THEN
+					CASE pc.command
+						WHEN 'VACUUM FULL' THEN 'VACUUM FULL'
+						ELSE pc.command
+					END
+				ELSE 'ANALYZE'
+			END AS operation,
+			COALESCE(pv.phase, pc.phase, 'running') AS phase,
+			COALESCE(
+				ROUND(100.0 * pv.heap_blks_scanned / NULLIF(pv.heap_blks_total, 0), 2),
+				ROUND(100.0 * pc.heap_blks_scanned / NULLIF(pc.heap_blks_total, 0), 2),
+				0
+			) AS progress_pct,
+			a.backend_start
+		FROM pg_stat_activity a
+		LEFT JOIN pg_stat_progress_vacuum pv ON pv.pid = a.pid
+		LEFT JOIN pg_stat_progress_cluster pc ON pc.pid = a.pid
+		LEFT JOIN pg_class c ON c.oid = COALESCE(pv.relid, pc.relid)
+		LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE a.query ~* '^(VACUUM|ANALYZE|REINDEX)'
+		  AND a.state = 'active'
+	`
+
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query running maintenance operations: %w", err)
+	}
+	defer rows.Close()
+
+	var ops []RunningOperation
+	for rows.Next() {
+		var op RunningOperation
+		err := rows.Scan(
+			&op.PID,
+			&op.Database,
+			&op.Schema,
+			&op.Table,
+			&op.Operation,
+			&op.Phase,
+			&op.ProgressPct,
+			&op.StartedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan running operation row: %w", err)
+		}
+		ops = append(ops, op)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate running operations: %w", err)
+	}
+
+	return ops, nil
+}

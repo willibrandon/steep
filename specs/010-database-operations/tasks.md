@@ -37,13 +37,13 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Extend `internal/db/models/table.go` with vacuum status fields: LastVacuum, LastAutovacuum, LastAnalyze, LastAutoanalyze, VacuumCount, AutovacuumCount, AutovacuumEnabled per data-model.md
-- [ ] T006 Extend `internal/db/queries/tables.go` GetTablesWithStats query to include vacuum status columns from pg_stat_all_tables per contracts/vacuum_status.go.md
-- [ ] T007 Create `internal/db/queries/maintenance.go` with MaintenanceExecutor interface stub and VacuumOptions, RunningOperation types per contracts/maintenance.go.md
-- [ ] T008 [P] Create `internal/ui/views/tables/operations.go` with OperationsMenu, OperationMenuItem types and DefaultOperationsMenu constructor per contracts/ui_operations.go.md
-- [ ] T009 [P] Add TablesMode constants for ModeOperationsMenu, ModeOperationProgress, ModeConfirmCancel, ModeConfirmVacuum, ModeConfirmAnalyze, ModeConfirmReindex in `internal/ui/views/tables/view.go`
-- [ ] T010 Add operationsMenu, currentOperation, operationHistory fields to TablesView struct in `internal/ui/views/tables/view.go`
-- [ ] T011 Implement read-only mode check helper function in `internal/ui/views/tables/operations.go` that disables destructive operations when --readonly flag is set
+- [x] T005 Extend `internal/db/models/table.go` with vacuum status fields: LastVacuum, LastAutovacuum, LastAnalyze, LastAutoanalyze, VacuumCount, AutovacuumCount, AutovacuumEnabled per data-model.md
+- [x] T006 Extend `internal/db/queries/tables.go` GetTablesWithStats query to include vacuum status columns from pg_stat_all_tables per contracts/vacuum_status.go.md
+- [x] T007 Create `internal/db/queries/maintenance.go` with MaintenanceExecutor interface stub and VacuumOptions, RunningOperation types per contracts/maintenance.go.md
+- [x] T008 [P] Create `internal/ui/views/tables/operations.go` with OperationsMenu, OperationMenuItem types and DefaultOperationsMenu constructor per contracts/ui_operations.go.md
+- [x] T009 [P] Add TablesMode constants for ModeOperationsMenu, ModeOperationProgress, ModeConfirmCancel, ModeConfirmVacuum, ModeConfirmAnalyze, ModeConfirmReindex in `internal/ui/views/tables/view.go`
+- [x] T010 Add operationsMenu, currentOperation, operationHistory fields to TablesView struct in `internal/ui/views/tables/view.go`
+- [x] T011 Implement read-only mode check helper function in `internal/ui/views/tables/operations.go` that disables destructive operations when --readonly flag is set
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 

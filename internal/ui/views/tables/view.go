@@ -34,6 +34,10 @@ const (
 	ModeConfirmAnalyze
 	ModeConfirmReindex
 	ModeHelp
+	// New modes for operations menu
+	ModeOperationsMenu    // Show operation selection menu
+	ModeOperationProgress // Show progress for running operation
+	ModeConfirmCancel     // Confirm operation cancellation
 )
 
 // FocusPanel indicates which panel has keyboard focus.
@@ -203,6 +207,11 @@ type TablesView struct {
 	// Maintenance target
 	maintenanceTarget *models.Table // Table selected for maintenance operation
 
+	// Operations menu state
+	operationsMenu   *OperationsMenu             // Active operations menu (nil if not showing)
+	currentOperation *models.MaintenanceOperation // Currently running operation (nil if none)
+	operationHistory *models.OperationHistory     // Session-scoped operation history
+
 	// App state
 	readonlyMode   bool
 	connected      bool
@@ -245,6 +254,7 @@ func NewTablesView() *TablesView {
 		spinner:            s,
 		showSystemSchemas:  false, // Hidden by default per spec
 		loading:            true,  // Start in loading state
+		operationHistory:   models.NewOperationHistory(100), // Session-scoped, max 100 entries
 	}
 }
 

@@ -70,6 +70,7 @@ func GetSchemas(ctx context.Context, pool *pgxpool.Pool) ([]models.Schema, error
 
 // GetTablesWithStats retrieves all tables with size and statistics.
 // Includes partition relationships but not detailed column/constraint info.
+// Also includes vacuum/analyze status from pg_stat_all_tables.
 func GetTablesWithStats(ctx context.Context, pool *pgxpool.Pool) ([]models.Table, error) {
 	query := `
 		SELECT
@@ -89,7 +90,19 @@ func GetTablesWithStats(ctx context.Context, pool *pgxpool.Pool) ([]models.Table
 				0) as cache_hit_ratio,
 			COALESCE(s.seq_scan, 0) as seq_scans,
 			COALESCE(s.idx_scan, 0) as index_scans,
-			t.relkind = 'p' as is_partitioned
+			t.relkind = 'p' as is_partitioned,
+			s.last_vacuum,
+			s.last_autovacuum,
+			s.last_analyze,
+			s.last_autoanalyze,
+			COALESCE(s.vacuum_count, 0) as vacuum_count,
+			COALESCE(s.autovacuum_count, 0) as autovacuum_count,
+			COALESCE(
+				(SELECT (string_to_array(unnest, '='))[2]::boolean
+				 FROM unnest(t.reloptions)
+				 WHERE unnest LIKE 'autovacuum_enabled=%'),
+				true
+			) AS autovacuum_enabled
 		FROM pg_class t
 		JOIN pg_namespace nsp ON nsp.oid = t.relnamespace
 		LEFT JOIN pg_stat_all_tables s ON s.relid = t.oid
@@ -122,6 +135,13 @@ func GetTablesWithStats(ctx context.Context, pool *pgxpool.Pool) ([]models.Table
 			&table.SeqScans,
 			&table.IndexScans,
 			&table.IsPartitioned,
+			&table.LastVacuum,
+			&table.LastAutovacuum,
+			&table.LastAnalyze,
+			&table.LastAutoanalyze,
+			&table.VacuumCount,
+			&table.AutovacuumCount,
+			&table.AutovacuumEnabled,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan table row: %w", err)

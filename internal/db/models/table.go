@@ -1,7 +1,10 @@
 // Package models contains data structures for database entities.
 package models
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // Schema represents a PostgreSQL schema (namespace) with metadata.
 type Schema struct {
@@ -63,6 +66,22 @@ type Table struct {
 	Indexes []Index
 	// Expanded indicates whether partitions are expanded in tree view (UI state)
 	Expanded bool
+
+	// Vacuum status fields (from pg_stat_all_tables)
+	// LastVacuum is the last manual VACUUM timestamp
+	LastVacuum *time.Time
+	// LastAutovacuum is the last autovacuum timestamp
+	LastAutovacuum *time.Time
+	// LastAnalyze is the last manual ANALYZE timestamp
+	LastAnalyze *time.Time
+	// LastAutoanalyze is the last autoanalyze timestamp
+	LastAutoanalyze *time.Time
+	// VacuumCount is the total manual vacuum count
+	VacuumCount int64
+	// AutovacuumCount is the total autovacuum count
+	AutovacuumCount int64
+	// AutovacuumEnabled indicates whether autovacuum is enabled for this table
+	AutovacuumEnabled bool
 }
 
 // Index represents a PostgreSQL index with usage statistics.
