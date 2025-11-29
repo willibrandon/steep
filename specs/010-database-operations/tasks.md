@@ -24,10 +24,10 @@
 
 **Purpose**: Create new files and extend existing models with vacuum status
 
-- [ ] T001 Create branch `010-database-operations` if not exists and checkout
-- [ ] T002 [P] Create `internal/db/models/operation.go` with MaintenanceOperation, OperationProgress, OperationResult, OperationHistory types per data-model.md
-- [ ] T003 [P] Create `internal/db/models/role.go` with Role, RoleMembership, Permission types per data-model.md
-- [ ] T004 [P] Create `internal/db/models/enums.go` with OperationType, OperationStatus, PermissionObjectType, PrivilegeType enums per data-model.md
+- [x] T001 Create branch `010-database-operations` if not exists and checkout
+- [x] T002 [P] Create `internal/db/models/operation.go` with MaintenanceOperation, OperationProgress, OperationResult, OperationHistory types per data-model.md
+- [x] T003 [P] Create `internal/db/models/role.go` with Role, RoleMembership, Permission types per data-model.md
+- [x] T004 [P] Create `internal/db/models/enums.go` with OperationType, OperationStatus, PermissionObjectType, PrivilegeType enums per data-model.md
 
 ---
 
