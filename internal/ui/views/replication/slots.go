@@ -16,7 +16,7 @@ func (v *ReplicationView) renderSlots() string {
 		msg := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")).
 			Render("No replication slots configured.")
-		return lipgloss.Place(v.width, v.height-4, lipgloss.Center, lipgloss.Center, msg)
+		return lipgloss.Place(v.width, v.height-5, lipgloss.Center, lipgloss.Center, msg)
 	}
 
 	var b strings.Builder
@@ -43,7 +43,7 @@ func (v *ReplicationView) renderSlots() string {
 	b.WriteString("\n")
 
 	// Table height
-	tableHeight := v.height - 6
+	tableHeight := v.height - 7
 
 	// Data rows
 	visibleRows := min(tableHeight, len(v.data.Slots)-v.slotScrollOffset)

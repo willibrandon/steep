@@ -1134,15 +1134,15 @@ func (v *TablesView) ensureIndexVisible() {
 // indexPanelHeight returns the height of the index panel (content rows only).
 func (v *TablesView) indexPanelHeight() int {
 	// Index panel gets ~1/3 of available content height, minimum 3 rows
-	// Available = height - status(3) - title(1) - header(1) - footer(3) = height - 8
-	return max(3, (v.height-8)/3)
+	// Available = height - status(3) - title(1) - header(1) - footer(3) - 1 spacing = height - 9
+	return max(3, (v.height-9)/3)
 }
 
 // tablePanelHeight returns the height of the table panel when index panel is shown.
 func (v *TablesView) tablePanelHeight() int {
 	// Table panel gets remaining height after index panel
-	// Total fixed: status(3) + title(1) + header(1) + indexTitle(1) + indexHeader(1) + footer(3) = 10
-	return max(1, v.height-10-v.indexPanelHeight())
+	// Total fixed: status(3) + title(1) + header(1) + indexTitle(1) + indexHeader(1) + footer(3) + 1 spacing = 11
+	return max(1, v.height-11-v.indexPanelHeight())
 }
 
 // toggleFocusPanel switches focus between tables and indexes.
@@ -1439,8 +1439,8 @@ func (v *TablesView) ensureVisible() {
 
 // tableHeight returns the number of visible table rows.
 func (v *TablesView) tableHeight() int {
-	// height - status(3 with border) - title(1) - header(1) - footer(3 with border)
-	return max(1, v.height-8)
+	// height - status(3 with border) - title(1) - header(1) - footer(3 with border) - 1 spacing
+	return max(1, v.height-9)
 }
 
 // toggleExpand toggles expand/collapse for the selected item.
@@ -2317,8 +2317,8 @@ func (v *TablesView) hasUnusedIndexes() bool {
 
 // detailsContentHeight returns the visible content height for details panel.
 func (v *TablesView) detailsContentHeight() int {
-	// Full screen minus: status bar(3 with border) + title(2 with margin) + footer(2 with margin) + buffer
-	return max(5, v.height-11)
+	// Full screen minus: status bar(3 with border) + title(2 with margin) + footer(2 with margin) + buffer + 1 spacing
+	return max(5, v.height-12)
 }
 
 // scrollDetailsUp scrolls the details panel up by n lines.

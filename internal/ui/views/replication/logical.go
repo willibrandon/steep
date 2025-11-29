@@ -38,7 +38,7 @@ func (v *ReplicationView) renderLogical() string {
 			"",
 			lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(details),
 		)
-		return lipgloss.Place(v.width, v.height-4, lipgloss.Center, lipgloss.Center, msg)
+		return lipgloss.Place(v.width, v.height-5, lipgloss.Center, lipgloss.Center, msg)
 	}
 
 	// wal_level is 'logical' but no pubs/subs exist
@@ -58,13 +58,13 @@ func (v *ReplicationView) renderLogical() string {
 			"",
 			lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(details),
 		)
-		return lipgloss.Place(v.width, v.height-4, lipgloss.Center, lipgloss.Center, msg)
+		return lipgloss.Place(v.width, v.height-5, lipgloss.Center, lipgloss.Center, msg)
 	}
 
 	var b strings.Builder
 
 	// Split view: publications on top, subscriptions on bottom
-	halfHeight := (v.height - 6) / 2
+	halfHeight := (v.height - 7) / 2
 
 	// Publications section
 	pubHeader := "Publications"

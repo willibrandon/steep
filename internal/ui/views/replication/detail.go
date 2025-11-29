@@ -33,7 +33,7 @@ func (v *ReplicationView) renderDetail() string {
 	if len(v.detailLines) <= 1 {
 		content = styles.InfoStyle.Render("No details available")
 	} else {
-		maxLines := v.height - 6 // Reserve space for title and footer
+		maxLines := v.height - 7 // Reserve space for title, footer, and borders
 		contentLines := v.detailLines[startIdx:]
 
 		endIdx := min(v.detailScrollOffset+maxLines, len(contentLines))
@@ -57,7 +57,7 @@ func (v *ReplicationView) renderDetail() string {
 
 	scrollInfo := ""
 	contentLen := len(v.detailLines) - 1 // Exclude title
-	maxLines := v.height - 6
+	maxLines := v.height - 7
 	if contentLen > maxLines {
 		scrollInfo = fmt.Sprintf(" (%d/%d)", v.detailScrollOffset+1, contentLen)
 	}

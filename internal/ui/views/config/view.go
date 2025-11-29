@@ -690,8 +690,8 @@ func (v *ConfigView) ensureVisible() {
 
 // visibleRows returns the number of visible table rows.
 func (v *ConfigView) visibleRows() int {
-	// Height minus: app header(1) + status bar(1) + title(1) + table header(1) + separator(1) + footer(1)
-	rows := v.height - 7
+	// Height minus: status bar(3 with border) + title(1) + table header(1) + separator(1) + footer(3 with border) + 1 spacing
+	rows := v.height - 10
 	// Account for search input line when in search mode
 	if v.mode == ModeSearch {
 		rows--
@@ -946,7 +946,7 @@ func (v *ConfigView) renderDetailView() string {
 	lines = append(lines, styles.MutedStyle.Render("[esc/q]back [j/k]scroll"))
 
 	// Apply scroll offset
-	contentHeight := v.height - 6 // padding
+	contentHeight := v.height - 9 // padding + borders
 	totalLines := len(lines)
 
 	// Limit scroll offset

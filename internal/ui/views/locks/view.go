@@ -862,8 +862,8 @@ func (v *LocksView) ensureVisible() {
 
 // tableHeight returns the number of visible table rows.
 func (v *LocksView) tableHeight() int {
-	// height - app header(1) - status(1) - title(1) - tabs(1) - header(1) - footer(1)
-	return max(1, v.height-7)
+	// height - status(3 with border) - title(1) - tabs(1) - header(1) - footer(3 with border) - 1 spacing
+	return max(1, v.height-10)
 }
 
 // renderTitle renders the view title.
@@ -1563,8 +1563,8 @@ func (v *LocksView) renderDeadlockFooter() string {
 
 // deadlockTableHeight returns the number of visible deadlock table rows.
 func (v *LocksView) deadlockTableHeight() int {
-	// height - status(1) - title(1) - tabs(1) - header(1) - footer(1) - padding
-	return max(1, v.height-7)
+	// height - status(3 with border) - title(1) - tabs(1) - header(1) - footer(3 with border) - 1 spacing
+	return max(1, v.height-10)
 }
 
 // moveDeadlockSelection moves the deadlock selection by delta rows.

@@ -40,7 +40,9 @@ func (p *MetricsPanel) SetWidth(width int) {
 
 // View renders the metrics panel.
 func (p *MetricsPanel) View() string {
-	panelWidth := (p.width - 12) / 4
+	// Each panel has border (2 chars) + padding (2 chars) = 4 chars overhead
+	// With 4 panels: 4 * 4 = 16 chars total overhead
+	panelWidth := (p.width - 16) / 4
 	if panelWidth < 12 {
 		panelWidth = 12
 	}

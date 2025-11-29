@@ -54,10 +54,14 @@ func (v *ReplicationView) renderSetup() string {
 			Render("Note: Setup wizards are disabled in read-only mode"))
 	}
 
-	b.WriteString("\n")
-	b.WriteString(v.renderFooter())
+	// Calculate content height to push footer to bottom
+	// Reserve: status(3) + title(1) + tabs(1) + footer(3) = 8
+	contentHeight := v.height - 8
+	content := lipgloss.NewStyle().
+		Height(contentHeight).
+		Render(b.String())
 
-	return b.String()
+	return content + "\n" + v.renderFooter()
 }
 
 // renderConfigCheck renders the configuration checker panel.

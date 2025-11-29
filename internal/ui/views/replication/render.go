@@ -138,7 +138,7 @@ func (v *ReplicationView) renderError() string {
 	}
 
 	return lipgloss.Place(
-		v.width, v.height-4,
+		v.width, v.height-5,
 		lipgloss.Center, lipgloss.Center,
 		b.String(),
 	)
@@ -155,7 +155,7 @@ func (v *ReplicationView) renderNoReplicas() string {
 			"  3. Use physical replication wizard (1)")
 
 	return lipgloss.Place(
-		v.width, v.height-4,
+		v.width, v.height-5,
 		lipgloss.Center, lipgloss.Center,
 		msg,
 	)
@@ -218,7 +218,7 @@ func (v *ReplicationView) renderReplicaTable() string {
 	var b strings.Builder
 
 	// Calculate available height for table
-	tableHeight := v.height - 6 // status + title + tabs + header + footer
+	tableHeight := v.height - 7 // status(3 with border) + title + tabs + header + footer(3 with border)
 	if tableHeight < 3 {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("241")).
 			Render("Terminal too small. Resize to at least 80x24.")

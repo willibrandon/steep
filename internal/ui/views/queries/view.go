@@ -600,11 +600,11 @@ func (v *QueriesView) ensureVisible() {
 
 // tableHeight returns the number of visible table rows.
 func (v *QueriesView) tableHeight() int {
-	// Reserve space for: statusBar(1) + title(1) + header(1) + tabBar(1) + footer(1) + spacing(2)
+	// Reserve space for: statusBar(3 with border) + title(1) + header(1) + tabBar(1) + footer(3 with border) + 1 spacing
 	// When scanning, title takes 2 lines (title + progress indicator)
-	reservedLines := 7
+	reservedLines := 10
 	if v.scanning {
-		reservedLines = 8 // Extra line for progress indicator
+		reservedLines = 11 // Extra line for progress indicator
 	}
 	return max(1, v.height-reservedLines)
 }

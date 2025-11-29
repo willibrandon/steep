@@ -79,7 +79,7 @@ func (v *ReplicationView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		case "g", "home":
 			v.detailScrollOffset = 0
 		case "G", "end":
-			maxScroll := max(0, len(v.detailLines)-(v.height-4))
+			maxScroll := max(0, len(v.detailLines)-(v.height-5))
 			v.detailScrollOffset = maxScroll
 		case "ctrl+d", "pgdown":
 			v.detailScrollDown(10)

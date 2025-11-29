@@ -70,19 +70,21 @@ func (d *DashboardView) View() string {
 	return d.renderMain()
 }
 
+// Minimum height for placeholder content area
+const minPlaceholderHeight = 3
+
 // renderMain renders the main dashboard view.
 func (d *DashboardView) renderMain() string {
-	// Status bar
 	statusBar := d.renderStatusBar()
-
-	// Metrics panel
 	metricsPanel := d.renderMetricsPanel()
-
-	// Placeholder for future dashboard content
-	placeholder := d.renderPlaceholder()
-
-	// Footer
 	footer := d.renderFooter()
+
+	// Calculate placeholder height from rendered section heights.
+	// JoinVertical combines components at their full heights, so we use raw lipgloss.Height().
+	chrome := lipgloss.Height(statusBar) + lipgloss.Height(metricsPanel) + lipgloss.Height(footer)
+	placeholderHeight := max(minPlaceholderHeight, d.height-chrome)
+
+	placeholder := d.renderPlaceholderWithHeight(placeholderHeight)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -121,13 +123,8 @@ func (d *DashboardView) renderMetricsPanel() string {
 	return d.metricsPanel.View()
 }
 
-// renderPlaceholder renders a placeholder for future dashboard content.
-func (d *DashboardView) renderPlaceholder() string {
-	placeholderHeight := d.height - 10 // Account for status bar, metrics, footer
-	if placeholderHeight < 3 {
-		placeholderHeight = 3
-	}
-
+// renderPlaceholderWithHeight renders a placeholder for future dashboard content with specified height.
+func (d *DashboardView) renderPlaceholderWithHeight(height int) string {
 	content := lipgloss.JoinVertical(
 		lipgloss.Center,
 		"",
@@ -145,14 +142,14 @@ func (d *DashboardView) renderPlaceholder() string {
 
 	return lipgloss.NewStyle().
 		Width(d.width - 4).
-		Height(placeholderHeight).
+		Height(height).
 		Align(lipgloss.Center, lipgloss.Center).
 		Render(content)
 }
 
 // renderFooter renders the bottom footer with hints.
 func (d *DashboardView) renderFooter() string {
-	hints := styles.FooterHintStyle.Render("[1]Dashboard [2]Activity [3]Queries [4]Locks [5]Tables [6]Replication [7]SQL Editor [8]Configuration")
+	hints := styles.FooterHintStyle.Render("[1]Dashboard [2]Activity [3]Queries [4]Locks [5]Tables [6]Replication [7]SQL Editor [8]Config [9]Logs")
 
 	return styles.FooterStyle.
 		Width(d.width - 2).

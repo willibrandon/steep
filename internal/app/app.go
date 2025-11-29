@@ -282,15 +282,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help.SetSize(msg.Width, msg.Height)
 		m.statusBar.SetSize(msg.Width)
 		m.debugPanel.SetSize(msg.Width, msg.Height)
-		m.dashboard.SetSize(msg.Width, msg.Height-5) // Reserve space for header and status bar
-		m.activityView.SetSize(msg.Width, msg.Height-5)
-		m.queriesView.SetSize(msg.Width, msg.Height-5)
-		m.locksView.SetSize(msg.Width, msg.Height-5)
-		m.tablesView.SetSize(msg.Width, msg.Height-5)
-		m.replicationView.SetSize(msg.Width, msg.Height-5)
-		m.sqlEditorView.SetSize(msg.Width, msg.Height-5)
-		m.configView.SetSize(msg.Width, msg.Height-5)
-		m.logsView.SetSize(msg.Width, msg.Height-5)
+		// Reserve 2 lines for app header (1) and status bar (1)
+		viewHeight := msg.Height - 2
+		m.dashboard.SetSize(msg.Width, viewHeight)
+		m.activityView.SetSize(msg.Width, viewHeight)
+		m.queriesView.SetSize(msg.Width, viewHeight)
+		m.locksView.SetSize(msg.Width, viewHeight)
+		m.tablesView.SetSize(msg.Width, viewHeight)
+		m.replicationView.SetSize(msg.Width, viewHeight)
+		m.sqlEditorView.SetSize(msg.Width, viewHeight)
+		m.configView.SetSize(msg.Width, viewHeight)
+		m.logsView.SetSize(msg.Width, viewHeight)
 		return m, nil
 
 	case DatabaseConnectedMsg:
