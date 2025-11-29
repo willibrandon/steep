@@ -63,6 +63,32 @@ func (v *SQLEditorView) visibleResultRows() int {
 	return visible
 }
 
+// scrollViewport scrolls the viewport by delta rows without changing selection.
+// Used for mouse wheel scrolling where the user wants to peek at other rows.
+func (v *SQLEditorView) scrollViewport(delta int) {
+	if v.results == nil {
+		return
+	}
+
+	pageStart, pageEnd := v.pageRowBounds()
+	visibleRows := v.visibleResultRows()
+	pageRowCount := pageEnd - pageStart
+
+	v.scrollOffset += delta
+
+	// Clamp scrollOffset
+	if v.scrollOffset < 0 {
+		v.scrollOffset = 0
+	}
+	maxScroll := pageRowCount - visibleRows
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if v.scrollOffset > maxScroll {
+		v.scrollOffset = maxScroll
+	}
+}
+
 // ensureVisible scrolls to make the selected row visible within current page.
 func (v *SQLEditorView) ensureVisible() {
 	if v.results == nil || v.selectedRow < 0 {

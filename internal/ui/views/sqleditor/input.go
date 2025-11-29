@@ -159,11 +159,11 @@ func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
 					v.scrollColumnsRight()
 				}
 			} else {
-				// Normal scroll = vertical (move selection)
+				// Normal scroll = vertical (scroll viewport, keep selection)
 				if msg.Button == tea.MouseButtonWheelUp {
-					v.moveSelection(-1)
+					v.scrollViewport(-1)
 				} else {
-					v.moveSelection(1)
+					v.scrollViewport(1)
 				}
 			}
 		}
