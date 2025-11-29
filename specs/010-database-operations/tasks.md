@@ -110,14 +110,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T033 [P] [US3] Add TestExecuteReindex test to `tests/integration/maintenance_test.go`
+- [x] T033 [P] [US3] Add TestExecuteReindex test to `tests/integration/maintenance_test.go`
 
 ### Implementation for User Story 3
 
-- [ ] T034 [US3] Implement ExecuteReindex function in `internal/db/queries/maintenance.go` with REINDEX TABLE and REINDEX INDEX SQL per contracts/maintenance.go.md
-- [ ] T035 [US3] Add REINDEX TABLE option to OperationsMenu in `internal/ui/views/tables/operations.go`
-- [ ] T036 [US3] Add GetOperationWarning case for REINDEX lock warning in `internal/ui/views/tables/operations.go`
-- [ ] T037 [US3] Handle REINDEX execution in StartOperation with spinner (no progress tracking) in `internal/ui/views/tables/view.go`
+- [x] T034 [US3] Implement ExecuteReindex function in `internal/db/queries/maintenance.go` with REINDEX TABLE and REINDEX INDEX SQL per contracts/maintenance.go.md
+- [x] T035 [US3] Add REINDEX TABLE option to OperationsMenu in `internal/ui/views/tables/operations.go`
+- [x] T036 [US3] Add GetOperationWarning case for REINDEX lock warning in `internal/ui/views/tables/operations.go`
+- [x] T037 [US3] Handle REINDEX execution in StartOperation with spinner (no progress tracking) in `internal/ui/views/tables/view.go`
 
 **Checkpoint**: User Stories 1, 2, AND 3 should work - all maintenance operations functional
 
