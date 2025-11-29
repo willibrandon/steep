@@ -16,6 +16,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/monitors"
+	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
@@ -92,6 +93,9 @@ type LogsView struct {
 	// Row selection
 	selectedIdx int // Currently selected entry index (0 = oldest in view)
 
+	// History manager for command and search history
+	historyManager *HistoryManager
+
 	// Clipboard
 	clipboard *ui.ClipboardWriter
 }
@@ -130,6 +134,13 @@ func (v *LogsView) Init() tea.Cmd {
 // SetPool sets the database pool for log collection.
 func (v *LogsView) SetPool(pool *pgxpool.Pool) {
 	v.pool = pool
+}
+
+// SetDB sets the SQLite database for history persistence.
+func (v *LogsView) SetDB(db *sqlite.DB) {
+	if db != nil {
+		v.historyManager = NewHistoryManager(db)
+	}
 }
 
 // CheckLoggingStatus triggers a check of PostgreSQL logging configuration.
@@ -436,6 +447,9 @@ func (v *LogsView) handleSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		v.mode = ModeNormal
 		v.searchInput.Reset()
+		if v.historyManager != nil {
+			v.historyManager.ResetSearchNavigation()
+		}
 		return v, nil
 	case tea.KeyEnter:
 		v.mode = ModeNormal
@@ -443,6 +457,10 @@ func (v *LogsView) handleSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err := v.filter.SetSearch(searchText); err != nil {
 			v.showToast("Invalid regex: "+err.Error(), true)
 		} else {
+			// Save to history on successful search
+			if v.historyManager != nil && searchText != "" {
+				v.historyManager.AddSearch(searchText)
+			}
 			v.updateMatchIndices()
 			v.invalidateCache()
 			// Show indicator on first match immediately
@@ -451,6 +469,26 @@ func (v *LogsView) handleSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				v.rebuildViewport()
 			}
+		}
+		if v.historyManager != nil {
+			v.historyManager.ResetSearchNavigation()
+		}
+		return v, nil
+	case tea.KeyUp:
+		// Navigate to previous search in history
+		if v.historyManager != nil {
+			if prev := v.historyManager.PreviousSearch(); prev != "" {
+				v.searchInput.SetValue(prev)
+				v.searchInput.SetCursor(len(prev))
+			}
+		}
+		return v, nil
+	case tea.KeyDown:
+		// Navigate to next search in history
+		if v.historyManager != nil {
+			next := v.historyManager.NextSearch()
+			v.searchInput.SetValue(next)
+			v.searchInput.SetCursor(len(next))
 		}
 		return v, nil
 	}
@@ -467,12 +505,39 @@ func (v *LogsView) handleCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		v.mode = ModeNormal
 		v.commandInput.Reset()
+		if v.historyManager != nil {
+			v.historyManager.ResetCommandNavigation()
+		}
 		return v, nil
 	case tea.KeyEnter:
 		v.mode = ModeNormal
 		cmdText := v.commandInput.Value()
 		v.commandInput.Reset()
+		// Save to history before executing (so it's saved even if command fails)
+		if v.historyManager != nil && cmdText != "" {
+			v.historyManager.AddCommand(cmdText)
+		}
 		v.executeCommand(cmdText)
+		if v.historyManager != nil {
+			v.historyManager.ResetCommandNavigation()
+		}
+		return v, nil
+	case tea.KeyUp:
+		// Navigate to previous command in history
+		if v.historyManager != nil {
+			if prev := v.historyManager.PreviousCommand(); prev != "" {
+				v.commandInput.SetValue(prev)
+				v.commandInput.SetCursor(len(prev))
+			}
+		}
+		return v, nil
+	case tea.KeyDown:
+		// Navigate to next command in history
+		if v.historyManager != nil {
+			next := v.historyManager.NextCommand()
+			v.commandInput.SetValue(next)
+			v.commandInput.SetCursor(len(next))
+		}
 		return v, nil
 	}
 

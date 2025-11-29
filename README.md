@@ -336,6 +336,7 @@ connection:
 - Severity filtering and color-coded log levels
 - Search with regex pattern matching and n/N navigation
 - Historical log navigation with `:goto` command
+- Command and search history with SQLite persistence (↑/↓ to navigate)
 - Multi-line log entry support with proper message parsing
 - Copy log entries to clipboard
 - Press `h` for keybinding help
@@ -354,6 +355,8 @@ connection:
 | `Y` | Copy all (filtered) entries |
 | `h` | Toggle help |
 | `Esc` | Clear search/filters, close help |
+| `↑` (in `:` or `/`) | Previous history entry |
+| `↓` (in `:` or `/`) | Next history entry |
 
 **Log Viewer Commands:**
 

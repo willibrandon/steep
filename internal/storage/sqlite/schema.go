@@ -99,6 +99,24 @@ func (db *DB) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_query_history_executed_at ON query_history(executed_at DESC);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_query_history_fingerprint ON query_history(fingerprint);
+
+	-- Log viewer command history (shell-style: content is unique, re-running updates timestamp)
+	CREATE TABLE IF NOT EXISTS log_command_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		command TEXT NOT NULL UNIQUE,
+		executed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_log_command_history_executed_at ON log_command_history(executed_at DESC);
+
+	-- Log viewer search history (shell-style: pattern is unique, re-searching updates timestamp)
+	CREATE TABLE IF NOT EXISTS log_search_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		pattern TEXT NOT NULL UNIQUE,
+		executed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_log_search_history_executed_at ON log_search_history(executed_at DESC);
 	`
 
 	_, err := db.conn.Exec(schema)

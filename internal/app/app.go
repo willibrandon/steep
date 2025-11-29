@@ -103,7 +103,7 @@ type Model struct {
 	deadlockTickCounter int // Counter for slower deadlock refresh (every 30 ticks)
 
 	// Query performance monitoring
-	queryStatsDB    *sqlite.DB
+	steepDB         *sqlite.DB // Shared SQLite database for all Steep data
 	queryStatsStore *sqlite.QueryStatsStore
 	queryMonitor    *querymonitor.Monitor
 }
@@ -343,19 +343,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cacheDir, _ := os.UserCacheDir()
 			storagePath = fmt.Sprintf("%s/steep/steep.db", cacheDir)
 		}
-		queryDB, err := sqlite.Open(storagePath)
+		steepDB, err := sqlite.Open(storagePath)
 		if err == nil {
-			m.queryStatsDB = queryDB
-			m.queryStatsStore = sqlite.NewQueryStatsStore(queryDB)
+			m.steepDB = steepDB
+			m.queryStatsStore = sqlite.NewQueryStatsStore(steepDB)
 
 			// Initialize deadlock store (shares same DB)
-			m.deadlockStore = sqlite.NewDeadlockStore(queryDB)
+			m.deadlockStore = sqlite.NewDeadlockStore(steepDB)
 
 			// Initialize SQL Editor history (shares same DB)
-			m.sqlEditorView.SetDatabase(queryDB)
+			m.sqlEditorView.SetDatabase(steepDB)
+
+			// Initialize Log Viewer history (shares same DB)
+			m.logsView.SetDB(steepDB)
 
 			// Initialize replication store and monitor (shares same DB)
-			m.replicationStore = sqlite.NewReplicationStore(queryDB)
+			m.replicationStore = sqlite.NewReplicationStore(steepDB)
 			m.replicationMonitor = monitors.NewReplicationMonitor(msg.Pool, 2*time.Second, m.replicationStore)
 
 			// Set retention from config (convert duration to hours)
@@ -1276,8 +1279,8 @@ func (m *Model) Cleanup() {
 	if m.queryMonitor != nil {
 		m.queryMonitor.Stop()
 	}
-	if m.queryStatsDB != nil {
-		m.queryStatsDB.Close()
+	if m.steepDB != nil {
+		m.steepDB.Close()
 	}
 	if m.dbPool != nil {
 		m.dbPool.Close()

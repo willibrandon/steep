@@ -69,6 +69,13 @@ func GetHelpSections() []HelpSection {
 			},
 		},
 		{
+			Title: "History",
+			Items: []HelpItem{
+				{Key: "↑ (in : or /)", Desc: "Previous history entry"},
+				{Key: "↓ (in : or /)", Desc: "Next history entry"},
+			},
+		},
+		{
 			Title: "Time Formats",
 			Items: []HelpItem{
 				{Key: "14:30", Desc: "Today"},
