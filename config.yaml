@@ -21,8 +21,8 @@ connection:
   # sslkey: /path/to/client.key
 
   # Connection pool settings
-  pool_max_conns: 10
-  pool_min_conns: 2
+  pool_max_conns: 25
+  pool_min_conns: 5
 
 ui:
   theme: dark

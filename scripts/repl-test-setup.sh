@@ -122,6 +122,7 @@ docker run -d \
     --name "$PRIMARY_NAME" \
     --network "$NETWORK_NAME" \
     --hostname pg-primary \
+    --shm-size=256m \
     -e POSTGRES_PASSWORD="$POSTGRES_PASS" \
     -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256 \
     -e POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256" \
@@ -229,6 +230,7 @@ EOF
         --name "$replica_name" \
         --network "$NETWORK_NAME" \
         --hostname "pg-replica${replica_num}" \
+        --shm-size=256m \
         -e POSTGRES_PASSWORD="$POSTGRES_PASS" \
         -v "steep-replica${replica_num}-data:/var/lib/postgresql/data" \
         -p "${replica_port}:5432" \
@@ -293,6 +295,7 @@ if [[ "$LOGICAL" == "true" ]]; then
         --name "$SUBSCRIBER_NAME" \
         --network "$NETWORK_NAME" \
         --hostname pg-subscriber \
+        --shm-size=256m \
         -e POSTGRES_PASSWORD="$POSTGRES_PASS" \
         -p "${SUBSCRIBER_PORT}:5432" \
         "postgres:${PG_VERSION}" \

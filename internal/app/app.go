@@ -90,6 +90,9 @@ type Model struct {
 	statusTimestamp   time.Time
 	activeConnections int
 
+	// Read-only mode
+	readOnly bool
+
 	// Monitors
 	activityMonitor    *monitors.ActivityMonitor
 	statsMonitor       *monitors.StatsMonitor
@@ -119,6 +122,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 	statusBar := components.NewStatusBar()
 	statusBar.SetDatabase(cfg.Connection.Database)
 	statusBar.SetDateFormat(cfg.UI.DateFormat)
+	statusBar.SetReadOnly(readonly)
 
 	// Initialize dashboard view
 	dashboard := views.NewDashboard()
@@ -193,6 +197,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 		connected:         false,
 		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
 		reconnecting:      false,
+		readOnly:          readonly,
 	}, nil
 }
 
@@ -898,6 +903,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tablesview.MaintenanceResultMsg:
 		// Forward to tables view
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
+	case tablesview.ProgressTickMsg:
+		// Forward progress tick to tables view
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
+	case tablesview.OperationProgressMsg:
+		// Forward progress update to tables view
 		_, cmd := m.tablesView.Update(msg)
 		return m, cmd
 

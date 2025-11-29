@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/willibrandon/steep/internal/db/models"
@@ -129,44 +130,55 @@ func CancelBackend(ctx context.Context, pool *pgxpool.Pool, pid int) (bool, erro
 
 // GetVacuumProgress returns current progress for a VACUUM operation.
 // Returns nil if no VACUUM is in progress for the given table.
+// Creates a direct connection to bypass pool contention during heavy I/O.
 func GetVacuumProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, tableName string) (*models.OperationProgress, error) {
 	query := `
 		SELECT
-			pid,
-			phase,
-			heap_blks_total,
-			heap_blks_scanned,
-			heap_blks_vacuumed,
-			index_vacuum_count,
-			COALESCE(indexes_total, 0) as indexes_total,
-			COALESCE(indexes_processed, 0) as indexes_processed,
-			ROUND(100.0 * heap_blks_scanned / NULLIF(heap_blks_total, 0), 2) AS progress_pct
-		FROM pg_stat_progress_vacuum
-		WHERE relid = $1::regclass
+			v.pid,
+			v.phase,
+			v.heap_blks_total,
+			v.heap_blks_scanned,
+			v.heap_blks_vacuumed,
+			v.index_vacuum_count,
+			COALESCE(v.max_dead_tuples, 0) as max_dead_tuples,
+			COALESCE(v.num_dead_tuples, 0) as num_dead_tuples,
+			COALESCE(ROUND(100.0 * v.heap_blks_scanned / NULLIF(v.heap_blks_total, 0), 2), 0) AS progress_pct
+		FROM pg_stat_progress_vacuum v
+		JOIN pg_class c ON c.oid = v.relid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1 AND c.relname = $2
 	`
 
-	tableRef := schemaName + "." + tableName
+	// Create a direct connection to bypass pool contention
+	// This ensures progress queries can always get through even when pool is saturated
+	conn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig)
+	if err != nil {
+		return nil, fmt.Errorf("connect for vacuum progress: %w", err)
+	}
+	defer conn.Close(ctx)
+
 	var progress models.OperationProgress
 	var pid int
 	var progressPct float64
+	var maxDeadTuples, numDeadTuples int64
 
-	err := pool.QueryRow(ctx, query, tableRef).Scan(
+	err = conn.QueryRow(ctx, query, schemaName, tableName).Scan(
 		&pid,
 		&progress.Phase,
 		&progress.HeapBlksTotal,
 		&progress.HeapBlksScanned,
 		&progress.HeapBlksVacuumed,
 		&progress.IndexVacuumCount,
-		&progress.IndexesTotal,
-		&progress.IndexesProcessed,
+		&maxDeadTuples,
+		&numDeadTuples,
 		&progressPct,
 	)
 	if err != nil {
 		// No progress found - operation not running or completed
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("get vacuum progress for %s: %w", tableRef, err)
+		return nil, fmt.Errorf("get vacuum progress for %s.%s: %w", schemaName, tableName, err)
 	}
 
 	progress.PercentComplete = progressPct
@@ -176,25 +188,35 @@ func GetVacuumProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, tabl
 
 // GetVacuumFullProgress returns current progress for a VACUUM FULL operation.
 // Uses pg_stat_progress_cluster since VACUUM FULL rewrites the table.
+// Creates a direct connection to bypass pool contention during heavy I/O.
 func GetVacuumFullProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, tableName string) (*models.OperationProgress, error) {
 	query := `
 		SELECT
-			pid,
-			phase,
-			heap_blks_total,
-			heap_blks_scanned,
-			ROUND(100.0 * heap_blks_scanned / NULLIF(heap_blks_total, 0), 2) AS progress_pct
-		FROM pg_stat_progress_cluster
-		WHERE relid = $1::regclass
-		  AND command = 'VACUUM FULL'
+			pc.pid,
+			pc.phase,
+			pc.heap_blks_total,
+			pc.heap_blks_scanned,
+			COALESCE(ROUND(100.0 * pc.heap_blks_scanned / NULLIF(pc.heap_blks_total, 0), 2), 0) AS progress_pct
+		FROM pg_stat_progress_cluster pc
+		JOIN pg_class c ON c.oid = pc.relid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1 AND c.relname = $2
+		  AND pc.command = 'VACUUM FULL'
 	`
 
-	tableRef := schemaName + "." + tableName
+	// Create a direct connection to bypass pool contention
+	// This ensures progress queries can always get through even when pool is saturated
+	conn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig)
+	if err != nil {
+		return nil, fmt.Errorf("connect for vacuum full progress: %w", err)
+	}
+	defer conn.Close(ctx)
+
 	var progress models.OperationProgress
 	var pid int
 	var progressPct float64
 
-	err := pool.QueryRow(ctx, query, tableRef).Scan(
+	err = conn.QueryRow(ctx, query, schemaName, tableName).Scan(
 		&pid,
 		&progress.Phase,
 		&progress.HeapBlksTotal,
@@ -203,10 +225,10 @@ func GetVacuumFullProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, 
 	)
 	if err != nil {
 		// No progress found - operation not running or completed
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("get vacuum full progress for %s: %w", tableRef, err)
+		return nil, fmt.Errorf("get vacuum full progress for %s.%s: %w", schemaName, tableName, err)
 	}
 
 	progress.PercentComplete = progressPct

@@ -484,6 +484,31 @@ func ExecuteReindex(ctx context.Context, pool *pgxpool.Pool, schemaName, tableNa
 	return nil
 }
 
+// ReindexOptions configures REINDEX behavior.
+type ReindexOptions struct {
+	Concurrently bool // Use CONCURRENTLY to avoid blocking writes (PG12+)
+}
+
+// ExecuteReindexWithOptions runs REINDEX with configurable options.
+func ExecuteReindexWithOptions(ctx context.Context, pool *pgxpool.Pool, schemaName, tableName string, opts ReindexOptions) error {
+	var query string
+	if opts.Concurrently {
+		query = fmt.Sprintf("REINDEX TABLE CONCURRENTLY %s.%s",
+			quoteIdentifier(schemaName),
+			quoteIdentifier(tableName))
+	} else {
+		query = fmt.Sprintf("REINDEX TABLE %s.%s",
+			quoteIdentifier(schemaName),
+			quoteIdentifier(tableName))
+	}
+
+	_, err := pool.Exec(ctx, query)
+	if err != nil {
+		return fmt.Errorf("reindex %s.%s: %w", schemaName, tableName, err)
+	}
+	return nil
+}
+
 // quoteIdentifier safely quotes a PostgreSQL identifier.
 // Doubles any internal double quotes and wraps in double quotes.
 func quoteIdentifier(name string) string {

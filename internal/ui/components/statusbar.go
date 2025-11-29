@@ -21,9 +21,12 @@ type StatusBar struct {
 	dateFormat        string
 
 	// Reconnection status
-	reconnecting      bool
-	reconnectAttempt  int
+	reconnecting         bool
+	reconnectAttempt     int
 	reconnectMaxAttempts int
+
+	// Read-only mode
+	readOnly bool
 }
 
 // NewStatusBar creates a new status bar component
@@ -68,6 +71,11 @@ func (s *StatusBar) SetReconnecting(reconnecting bool, attempt, maxAttempts int)
 	s.reconnecting = reconnecting
 	s.reconnectAttempt = attempt
 	s.reconnectMaxAttempts = maxAttempts
+}
+
+// SetReadOnly sets the read-only mode flag
+func (s *StatusBar) SetReadOnly(readOnly bool) {
+	s.readOnly = readOnly
 }
 
 // View renders the status bar
@@ -120,13 +128,20 @@ func (s *StatusBar) View() string {
 		}
 	}
 
+	// Read-only mode indicator
+	var readOnlySection string
+	if s.readOnly {
+		readOnlySection = " | " + styles.WarningStyle.Render("READ-ONLY")
+	}
+
 	// Build status line
-	statusLine := fmt.Sprintf("%s | %s | %s%s%s",
+	statusLine := fmt.Sprintf("%s | %s | %s%s%s%s",
 		statusIndicator,
 		dbName,
 		timestamp,
 		metricsSection,
 		debugSection,
+		readOnlySection,
 	)
 
 	// Apply styling

@@ -18,6 +18,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/db/queries"
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
@@ -33,6 +34,7 @@ const (
 	ModeConfirmVacuum
 	ModeConfirmAnalyze
 	ModeConfirmReindex
+	ModeConfirmReindexConcurrently
 	ModeHelp
 	// New modes for operations menu
 	ModeOperationsMenu    // Show operation selection menu
@@ -158,11 +160,25 @@ type (
 
 	// MaintenanceResultMsg contains the result of a maintenance operation.
 	MaintenanceResultMsg struct {
-		Operation string // "VACUUM", "ANALYZE", "REINDEX"
-		TableName string // schema.table
+		Operation string        // "VACUUM", "ANALYZE", "REINDEX"
+		TableName string        // schema.table
 		Success   bool
 		Error     error
+		Elapsed   time.Duration // How long the operation took
 	}
+
+	// OperationProgressMsg contains progress update for a running operation.
+	OperationProgressMsg struct {
+		Progress *models.OperationProgress
+	}
+
+	// OperationStartedMsg signals that an operation has started.
+	OperationStartedMsg struct {
+		Operation *models.MaintenanceOperation
+	}
+
+	// ProgressTickMsg triggers a progress poll.
+	ProgressTickMsg struct{}
 )
 
 // TablesView displays schema and table statistics.
@@ -208,9 +224,12 @@ type TablesView struct {
 	maintenanceTarget *models.Table // Table selected for maintenance operation
 
 	// Operations menu state
-	operationsMenu   *OperationsMenu             // Active operations menu (nil if not showing)
-	currentOperation *models.MaintenanceOperation // Currently running operation (nil if none)
-	operationHistory *models.OperationHistory     // Session-scoped operation history
+	operationsMenu       *OperationsMenu             // Active operations menu (nil if not showing)
+	currentOperation     *models.MaintenanceOperation // Currently running operation (nil if none)
+	operationHistory     *models.OperationHistory     // Session-scoped operation history
+	pendingVacuumFull    bool                         // If true, execute VACUUM FULL instead of VACUUM
+	pendingVacuumAnalyze bool                         // If true, execute VACUUM ANALYZE instead of VACUUM
+	pollingInProgress    bool                         // If true, a progress poll is already running
 
 	// App state
 	readonlyMode   bool
@@ -271,12 +290,18 @@ func (v *TablesView) FetchTablesData() tea.Cmd {
 
 // fetchTablesData returns a command that loads all table data.
 func (v *TablesView) fetchTablesData() tea.Cmd {
+	// Don't fetch during maintenance operations to avoid timeout errors
+	if v.mode == ModeOperationProgress || v.currentOperation != nil {
+		return nil
+	}
+
 	return func() tea.Msg {
 		if v.pool == nil {
 			return TablesDataMsg{Error: fmt.Errorf("database connection not available")}
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Use longer timeout - after maintenance operations the pool may be recovering
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
 		// Check pgstattuple extension availability
@@ -332,6 +357,52 @@ func (v *TablesView) scheduleRefresh() tea.Cmd {
 	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
 		return RefreshTablesMsg{}
 	})
+}
+
+// progressTick returns a command for polling operation progress.
+func (v *TablesView) progressTick() tea.Cmd {
+	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
+		return ProgressTickMsg{}
+	})
+}
+
+// pollProgress polls for the current operation's progress.
+func (v *TablesView) pollProgress() tea.Cmd {
+	if v.currentOperation == nil || v.maintenanceTarget == nil {
+		return nil
+	}
+
+	opType := v.currentOperation.Type
+	schema := v.maintenanceTarget.SchemaName
+	table := v.maintenanceTarget.Name
+
+	return func() tea.Msg {
+		// Use short timeout - if pool is contended, fail fast and try again next tick
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		var progress *models.OperationProgress
+		var err error
+
+		switch opType {
+		case models.OpVacuum, models.OpVacuumAnalyze:
+			// Regular VACUUM uses pg_stat_progress_vacuum
+			progress, err = queries.GetVacuumProgress(ctx, v.pool, schema, table)
+		case models.OpVacuumFull:
+			// VACUUM FULL uses pg_stat_progress_cluster (rewrites table)
+			progress, err = queries.GetVacuumFullProgress(ctx, v.pool, schema, table)
+		default:
+			// ANALYZE, REINDEX don't have progress tracking
+			return OperationProgressMsg{Progress: nil}
+		}
+
+		if err != nil {
+			// Log error but continue - non-fatal
+			logger.Debug("progress poll error", "error", err, "schema", schema, "table", table, "opType", opType)
+			return OperationProgressMsg{Progress: nil}
+		}
+		return OperationProgressMsg{Progress: progress}
+	}
 }
 
 // installExtension returns a command that installs the pgstattuple extension.
@@ -499,18 +570,65 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case MaintenanceResultMsg:
 		v.maintenanceTarget = nil
+		v.currentOperation = nil
+		v.pollingInProgress = false // Reset polling state
+		v.lastUpdate = time.Now()   // Reset lastUpdate to prevent STALE indicator
+		v.mode = ModeNormal
 		if msg.Success {
-			v.showToast(fmt.Sprintf("✓ %s completed: %s", msg.Operation, msg.TableName), false)
+			v.showToast(fmt.Sprintf("✓ %s completed: %s (%s)", msg.Operation, msg.TableName, formatDuration(msg.Elapsed)), false)
 			return v, v.fetchTablesData()
 		}
 		errMsg := fmt.Sprintf("✗ %s failed: %s", msg.Operation, msg.TableName)
 		if msg.Error != nil {
 			errMsg = fmt.Sprintf("✗ %s failed on %s: %v", msg.Operation, msg.TableName, msg.Error)
+			logger.Error("maintenance operation failed",
+				"operation", msg.Operation,
+				"table", msg.TableName,
+				"error", msg.Error)
 		}
 		v.showToast(errMsg, true)
 		return v, nil
 
+	case OperationStartedMsg:
+		v.currentOperation = msg.Operation
+		v.mode = ModeOperationProgress
+		v.pollingInProgress = true // Mark poll as in progress
+		return v, tea.Batch(v.progressTick(), v.pollProgress())
+
+	case ProgressTickMsg:
+		// Only poll if we're still showing progress and not already polling
+		if v.mode == ModeOperationProgress && v.currentOperation != nil {
+			if v.pollingInProgress {
+				// Poll still in progress, just schedule next tick without new poll
+				logger.Debug("skipping poll, previous poll still in progress")
+				return v, v.progressTick()
+			}
+			v.pollingInProgress = true
+			return v, tea.Batch(v.progressTick(), v.pollProgress())
+		}
+		return v, nil
+
+	case OperationProgressMsg:
+		v.pollingInProgress = false // Poll completed, allow next poll
+		if v.currentOperation != nil {
+			if msg.Progress != nil {
+				v.currentOperation.Progress = msg.Progress
+				logger.Debug("operation progress update",
+					"phase", msg.Progress.Phase,
+					"percent", msg.Progress.PercentComplete,
+					"blocks_scanned", msg.Progress.HeapBlksScanned,
+					"blocks_total", msg.Progress.HeapBlksTotal)
+			} else {
+				logger.Debug("operation progress poll returned nil")
+			}
+		}
+		return v, nil
+
 	case RefreshTablesMsg:
+		// Skip auto-refresh during maintenance operations to avoid timeout errors
+		if v.mode == ModeOperationProgress || v.currentOperation != nil {
+			return v, v.scheduleRefresh() // Just reschedule, don't fetch
+		}
 		if !v.refreshing {
 			v.refreshing = true
 			return v, v.fetchTablesData()
@@ -642,19 +760,38 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	}
 
 	// Handle maintenance confirmation dialogs
-	if v.mode == ModeConfirmVacuum || v.mode == ModeConfirmAnalyze || v.mode == ModeConfirmReindex {
+	if v.mode == ModeConfirmVacuum || v.mode == ModeConfirmAnalyze || v.mode == ModeConfirmReindex || v.mode == ModeConfirmReindexConcurrently {
 		switch key {
 		case "y", "Y", "enter":
-			// User confirmed - execute the operation
-			cmd := v.executeMaintenance()
-			v.mode = ModeNormal
-			return cmd
+			// User confirmed - execute the operation (executeMaintenance sets mode to ModeOperationProgress)
+			return v.executeMaintenance()
 		case "n", "N", "esc", "q":
 			// User cancelled
 			v.mode = ModeNormal
 			v.maintenanceTarget = nil
+			v.pendingVacuumFull = false
+			v.pendingVacuumAnalyze = false
 		}
 		return nil
+	}
+
+	// Handle operation progress mode
+	if v.mode == ModeOperationProgress {
+		switch key {
+		case "esc":
+			// Dismiss progress overlay but keep operation running in background
+			v.mode = ModeNormal
+			v.showToast("Operation continues in background", false)
+		case "c", "C":
+			// TODO: Cancel operation (would need to track PID and call pg_cancel_backend)
+			v.showToast("Cancel not yet implemented", true)
+		}
+		return nil
+	}
+
+	// Handle operations menu
+	if v.mode == ModeOperationsMenu {
+		return v.handleOperationsMenuKey(key)
 	}
 
 	// Handle details mode
@@ -851,6 +988,10 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return v.promptMaintenance(ModeConfirmAnalyze)
 	case "r":
 		return v.promptMaintenance(ModeConfirmReindex)
+
+	// Operations menu - shows all maintenance operations
+	case "x":
+		return v.openOperationsMenu()
 	}
 
 	return nil
@@ -1321,6 +1462,8 @@ func (v *TablesView) promptMaintenance(mode TablesMode) tea.Cmd {
 			opName = "ANALYZE"
 		case ModeConfirmReindex:
 			opName = "REINDEX"
+		case ModeConfirmReindexConcurrently:
+			opName = "REINDEX CONCURRENTLY"
 		}
 		v.showToast(fmt.Sprintf("%s blocked: read-only mode", opName), true)
 		return nil
@@ -1351,43 +1494,176 @@ func (v *TablesView) executeMaintenance() tea.Cmd {
 	target := v.maintenanceTarget
 	tableName := fmt.Sprintf("%s.%s", target.SchemaName, target.Name)
 
+	// Capture pending flags before we reset them
+	vacuumFull := v.pendingVacuumFull
+	vacuumAnalyze := v.pendingVacuumAnalyze
+	v.pendingVacuumFull = false
+	v.pendingVacuumAnalyze = false
+
+	// Determine operation type
+	var opType models.OperationType
 	switch v.mode {
 	case ModeConfirmVacuum:
-		return func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			defer cancel()
-			err := queries.ExecuteVacuum(ctx, v.pool, target.SchemaName, target.Name)
-			return MaintenanceResultMsg{
-				Operation: "VACUUM",
-				TableName: tableName,
-				Success:   err == nil,
-				Error:     err,
-			}
+		switch {
+		case vacuumFull:
+			opType = models.OpVacuumFull
+		case vacuumAnalyze:
+			opType = models.OpVacuumAnalyze
+		default:
+			opType = models.OpVacuum
 		}
 	case ModeConfirmAnalyze:
-		return func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			defer cancel()
-			err := queries.ExecuteAnalyze(ctx, v.pool, target.SchemaName, target.Name)
-			return MaintenanceResultMsg{
-				Operation: "ANALYZE",
-				TableName: tableName,
-				Success:   err == nil,
-				Error:     err,
-			}
-		}
+		opType = models.OpAnalyze
 	case ModeConfirmReindex:
-		return func() tea.Msg {
+		opType = models.OpReindexTable
+	case ModeConfirmReindexConcurrently:
+		opType = models.OpReindexConcurrently
+	default:
+		return nil
+	}
+
+	// Create the operation object
+	operation := &models.MaintenanceOperation{
+		ID:           fmt.Sprintf("%d", time.Now().UnixNano()),
+		Type:         opType,
+		TargetSchema: target.SchemaName,
+		TargetTable:  target.Name,
+		Status:       models.StatusRunning,
+		StartedAt:    time.Now(),
+	}
+
+	// Store operation and switch to progress mode immediately
+	v.currentOperation = operation
+	v.mode = ModeOperationProgress
+	v.pollingInProgress = true // Mark poll as in progress
+
+	logger.Debug("starting maintenance operation",
+		"type", opType,
+		"table", tableName)
+
+	// Create the operation command
+	operationCmd := v.createOperationCmd(target, tableName, opType, vacuumFull, vacuumAnalyze)
+
+	// Start polling for progress immediately and schedule regular ticks
+	return tea.Batch(v.progressTick(), v.pollProgress(), operationCmd)
+}
+
+// createOperationCmd creates the command to execute the maintenance operation.
+func (v *TablesView) createOperationCmd(target *models.Table, tableName string, opType models.OperationType, vacuumFull, vacuumAnalyze bool) tea.Cmd {
+	return func() tea.Msg {
+		startTime := time.Now()
+		var err error
+		var opName string
+
+		switch opType {
+		case models.OpVacuum, models.OpVacuumFull, models.OpVacuumAnalyze:
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
+
+			opts := queries.VacuumOptions{
+				Full:    vacuumFull,
+				Analyze: vacuumAnalyze,
+			}
+			switch {
+			case vacuumFull && vacuumAnalyze:
+				opName = "VACUUM FULL ANALYZE"
+			case vacuumFull:
+				opName = "VACUUM FULL"
+			case vacuumAnalyze:
+				opName = "VACUUM ANALYZE"
+			default:
+				opName = "VACUUM"
+			}
+			err = queries.ExecuteVacuumWithOptions(ctx, v.pool, target.SchemaName, target.Name, opts)
+
+		case models.OpAnalyze:
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			err := queries.ExecuteReindex(ctx, v.pool, target.SchemaName, target.Name)
-			return MaintenanceResultMsg{
-				Operation: "REINDEX",
-				TableName: tableName,
-				Success:   err == nil,
-				Error:     err,
-			}
+			opName = "ANALYZE"
+			err = queries.ExecuteAnalyze(ctx, v.pool, target.SchemaName, target.Name)
+
+		case models.OpReindexTable:
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
+			opName = "REINDEX"
+			err = queries.ExecuteReindex(ctx, v.pool, target.SchemaName, target.Name)
+
+		case models.OpReindexConcurrently:
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
+			defer cancel()
+			opName = "REINDEX CONCURRENTLY"
+			err = queries.ExecuteReindexWithOptions(ctx, v.pool, target.SchemaName, target.Name, queries.ReindexOptions{Concurrently: true})
 		}
+
+		return MaintenanceResultMsg{
+			Operation: opName,
+			TableName: tableName,
+			Success:   err == nil,
+			Error:     err,
+			Elapsed:   time.Since(startTime),
+		}
+	}
+}
+
+// openOperationsMenu opens the maintenance operations menu.
+func (v *TablesView) openOperationsMenu() tea.Cmd {
+	// Check readonly mode
+	if v.readonlyMode {
+		v.showToast("Operations blocked: read-only mode", true)
+		return nil
+	}
+
+	// Must have a table selected
+	if v.selectedIdx < 0 || v.selectedIdx >= len(v.treeItems) {
+		return nil
+	}
+	item := v.treeItems[v.selectedIdx]
+	if item.Table == nil {
+		v.showToast("Select a table first", true)
+		return nil
+	}
+
+	// Create and show operations menu
+	v.maintenanceTarget = item.Table
+	v.operationsMenu = NewOperationsMenu(item.Table, v.readonlyMode)
+	v.mode = ModeOperationsMenu
+	return nil
+}
+
+// handleOperationsMenuKey handles key presses in the operations menu.
+func (v *TablesView) handleOperationsMenuKey(key string) tea.Cmd {
+	switch key {
+	case "j", "down":
+		v.operationsMenu.MoveDown()
+	case "k", "up":
+		v.operationsMenu.MoveUp()
+	case "enter":
+		selected := v.operationsMenu.SelectedItem()
+		if selected != nil && !selected.Disabled {
+			// Map operation type to confirmation mode
+			switch selected.Operation {
+			case models.OpVacuum:
+				v.mode = ModeConfirmVacuum
+			case models.OpVacuumFull:
+				v.mode = ModeConfirmVacuum // Uses same confirm but with Full option
+				// Store that we want VACUUM FULL
+				v.pendingVacuumFull = true
+			case models.OpVacuumAnalyze:
+				v.mode = ModeConfirmVacuum // Uses same confirm but with Analyze option
+				v.pendingVacuumAnalyze = true
+			case models.OpAnalyze:
+				v.mode = ModeConfirmAnalyze
+			case models.OpReindexTable:
+				v.mode = ModeConfirmReindex
+			case models.OpReindexConcurrently:
+				v.mode = ModeConfirmReindexConcurrently
+			}
+			v.operationsMenu = nil
+		}
+	case "esc", "q":
+		v.mode = ModeNormal
+		v.operationsMenu = nil
+		v.maintenanceTarget = nil
 	}
 	return nil
 }
@@ -1549,8 +1825,18 @@ func (v *TablesView) View() string {
 	}
 
 	// Maintenance confirmation dialogs
-	if v.mode == ModeConfirmVacuum || v.mode == ModeConfirmAnalyze || v.mode == ModeConfirmReindex {
+	if v.mode == ModeConfirmVacuum || v.mode == ModeConfirmAnalyze || v.mode == ModeConfirmReindex || v.mode == ModeConfirmReindexConcurrently {
 		return v.renderMaintenanceConfirm()
+	}
+
+	// Operations menu
+	if v.mode == ModeOperationsMenu {
+		return v.renderOperationsMenu()
+	}
+
+	// Operation progress
+	if v.mode == ModeOperationProgress {
+		return v.renderOperationProgress()
 	}
 
 	return v.renderMainView()
@@ -2050,7 +2336,7 @@ func (v *TablesView) renderFooter() string {
 		if v.focusPanel == FocusIndexes {
 			hints = styles.FooterHintStyle.Render("[j/k]nav [i]tables [y]copy [s/S]ort [R]efresh [h]elp")
 		} else {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [P]sys [var]maint [h]elp")
+			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [P]sys [x]ops [h]elp")
 		}
 	}
 
@@ -2153,6 +2439,10 @@ func (v *TablesView) renderMaintenanceConfirm() string {
 		operation = "REINDEX"
 		description = "Rebuilds all indexes on the table. This will\nlock the table for writes during the operation."
 		command = fmt.Sprintf("REINDEX TABLE %s", tableName)
+	case ModeConfirmReindexConcurrently:
+		operation = "REINDEX CONCURRENTLY"
+		description = "Rebuilds all indexes without blocking writes.\nSlower than regular REINDEX but non-blocking."
+		command = fmt.Sprintf("REINDEX TABLE CONCURRENTLY %s", tableName)
 	}
 
 	dialogContent := fmt.Sprintf(`%s %s?
@@ -2176,6 +2466,119 @@ This will execute:
 		lipgloss.Center, lipgloss.Center,
 		dialogStyle.Render(dialogContent),
 	)
+}
+
+// renderOperationsMenu renders the operations menu overlay.
+func (v *TablesView) renderOperationsMenu() string {
+	if v.operationsMenu == nil {
+		return v.renderMainView()
+	}
+
+	// Get the menu content from the operations menu component
+	menuContent := v.operationsMenu.View()
+
+	// Wrap in a styled dialog box
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.ColorAccent).
+		Padding(1, 2).
+		Width(60)
+
+	return lipgloss.Place(
+		v.width, v.height,
+		lipgloss.Center, lipgloss.Center,
+		dialogStyle.Render(menuContent),
+	)
+}
+
+// renderOperationProgress renders the operation progress overlay.
+func (v *TablesView) renderOperationProgress() string {
+	if v.currentOperation == nil {
+		return v.renderMainView()
+	}
+
+	var b strings.Builder
+	op := v.currentOperation
+
+	// Header
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+	b.WriteString(headerStyle.Render(fmt.Sprintf("%s %s.%s", op.Type, op.TargetSchema, op.TargetTable)))
+	b.WriteString("\n\n")
+
+	// Progress bar and percentage
+	if op.Progress != nil && op.Progress.HeapBlksTotal > 0 {
+		percent := op.Progress.CalculatePercent()
+		bar := v.renderProgressBar(percent, 40)
+		b.WriteString(fmt.Sprintf("%s %5.1f%%\n", bar, percent))
+
+		// Phase
+		if op.Progress.Phase != "" {
+			phaseStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
+			b.WriteString(phaseStyle.Render(fmt.Sprintf("Phase: %s\n", op.Progress.Phase)))
+		}
+
+		// Blocks processed
+		blocksStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
+		b.WriteString(blocksStyle.Render(fmt.Sprintf("Blocks: %d / %d\n",
+			op.Progress.HeapBlksScanned, op.Progress.HeapBlksTotal)))
+	} else {
+		// No progress tracking available (ANALYZE, REINDEX, or operation just started)
+		spinnerChars := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
+		spinnerIdx := int(time.Now().UnixNano()/int64(100*time.Millisecond)) % len(spinnerChars)
+		b.WriteString(fmt.Sprintf("%c Running...\n", spinnerChars[spinnerIdx]))
+	}
+
+	// Duration
+	elapsed := time.Since(op.StartedAt)
+	durationStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
+	b.WriteString("\n")
+	b.WriteString(durationStyle.Render(fmt.Sprintf("Elapsed: %s\n", v.formatDuration(elapsed))))
+
+	// Footer hints
+	b.WriteString("\n")
+	footerStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
+	b.WriteString(footerStyle.Render("[Esc] Continue in background"))
+
+	// Wrap in dialog
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.ColorAccent).
+		Padding(1, 2).
+		Width(55)
+
+	return lipgloss.Place(
+		v.width, v.height,
+		lipgloss.Center, lipgloss.Center,
+		dialogStyle.Render(b.String()),
+	)
+}
+
+// renderProgressBar creates an ASCII progress bar.
+func (v *TablesView) renderProgressBar(percent float64, width int) string {
+	if width <= 0 {
+		width = 20
+	}
+	filled := int(float64(width) * percent / 100)
+	if filled > width {
+		filled = width
+	}
+	empty := width - filled
+
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
+	return "[" + bar + "]"
+}
+
+// formatDuration formats a duration for display.
+func (v *TablesView) formatDuration(d time.Duration) string {
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	minutes := int(d.Minutes())
+	seconds := int(d.Seconds()) % 60
+	return fmt.Sprintf("%dm %ds", minutes, seconds)
 }
 
 // buildDetailsLines builds the content lines for the details panel.

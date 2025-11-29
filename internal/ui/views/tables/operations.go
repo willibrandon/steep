@@ -77,6 +77,13 @@ func (m *OperationsMenu) buildMenuItems() []OperationMenuItem {
 			Disabled:       m.ReadOnlyMode,
 			DisabledReason: "Read-only mode",
 		},
+		{
+			Label:          "REINDEX CONCURRENTLY",
+			Operation:      models.OpReindexConcurrently,
+			Description:    "Rebuild indexes without locking (slower)",
+			Disabled:       m.ReadOnlyMode,
+			DisabledReason: "Read-only mode",
+		},
 	}
 	return items
 }
@@ -218,6 +225,8 @@ func getOperationDescription(op models.OperationType) string {
 		return "Update statistics used by the query planner for optimal execution plans."
 	case models.OpReindexTable:
 		return "Rebuild all indexes on this table to remove bloat and corruption."
+	case models.OpReindexConcurrently:
+		return "Rebuild all indexes without blocking writes. Slower but non-blocking."
 	case models.OpReindexIndex:
 		return "Rebuild a specific index."
 	default:
@@ -371,7 +380,7 @@ func IsReadOnlyBlocked(readOnly bool, op models.OperationType) bool {
 	// All maintenance operations are blocked in read-only mode
 	switch op {
 	case models.OpVacuum, models.OpVacuumFull, models.OpVacuumAnalyze,
-		models.OpAnalyze, models.OpReindexTable, models.OpReindexIndex:
+		models.OpAnalyze, models.OpReindexTable, models.OpReindexConcurrently, models.OpReindexIndex:
 		return true
 	default:
 		return false

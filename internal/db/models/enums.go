@@ -4,12 +4,13 @@ package models
 type OperationType string
 
 const (
-	OpVacuum        OperationType = "VACUUM"
-	OpVacuumFull    OperationType = "VACUUM FULL"
-	OpVacuumAnalyze OperationType = "VACUUM ANALYZE"
-	OpAnalyze       OperationType = "ANALYZE"
-	OpReindexTable  OperationType = "REINDEX TABLE"
-	OpReindexIndex  OperationType = "REINDEX INDEX"
+	OpVacuum              OperationType = "VACUUM"
+	OpVacuumFull          OperationType = "VACUUM FULL"
+	OpVacuumAnalyze       OperationType = "VACUUM ANALYZE"
+	OpAnalyze             OperationType = "ANALYZE"
+	OpReindexTable        OperationType = "REINDEX TABLE"
+	OpReindexConcurrently OperationType = "REINDEX CONCURRENTLY"
+	OpReindexIndex        OperationType = "REINDEX INDEX"
 )
 
 // OperationStatus represents the current status of a maintenance operation.

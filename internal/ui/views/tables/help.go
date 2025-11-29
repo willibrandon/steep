@@ -49,6 +49,7 @@ func HelpOverlay(width, height int, pgstattupleAvailable bool) string {
 		{"d", "Copy DELETE template"},
 		{"", ""},
 		{"Maintenance", ""},
+		{"x", "Open operations menu"},
 		{"v", "VACUUM table"},
 		{"a", "ANALYZE table"},
 		{"r", "REINDEX table"},

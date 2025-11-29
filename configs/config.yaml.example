@@ -35,11 +35,11 @@ connection:
 
   # Maximum connections in pool (default: 10)
   # Higher values support more concurrent queries but consume more database resources
-  pool_max_conns: 10
+  pool_max_conns: 25
 
   # Minimum connections in pool (default: 2)
   # Keeps pool warm for faster query execution
-  pool_min_conns: 2
+  pool_min_conns: 5
 
 # User interface configuration
 ui:

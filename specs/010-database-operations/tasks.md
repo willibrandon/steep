@@ -57,26 +57,26 @@
 
 ### Tests for User Story 1
 
-- [ ] T012 [P] [US1] Create `tests/integration/maintenance_test.go` with TestExecuteVacuum, TestVacuumProgress tests using testcontainers
-- [ ] T013 [P] [US1] Create `tests/unit/progress_test.go` with TestCalculatePercent, TestFormatDuration unit tests
+- [x] T012 [P] [US1] Create `tests/integration/maintenance_test.go` with TestExecuteVacuum, TestVacuumProgress tests using testcontainers
+- [x] T013 [P] [US1] Create `tests/unit/progress_test.go` with TestCalculatePercent, TestFormatDuration unit tests
 
 ### Implementation for User Story 1
 
-- [ ] T014 [US1] Implement ExecuteVacuum function in `internal/db/queries/maintenance.go` with VACUUM, VACUUM FULL, VACUUM ANALYZE SQL generation per contracts/maintenance.go.md
-- [ ] T015 [US1] Implement GetVacuumProgress function in `internal/db/queries/maintenance.go` querying pg_stat_progress_vacuum per contracts/maintenance.go.md
-- [ ] T016 [US1] Implement GetVacuumFullProgress function in `internal/db/queries/maintenance.go` querying pg_stat_progress_cluster per contracts/maintenance.go.md
-- [ ] T017 [US1] Add `x` key binding in `internal/ui/views/tables/view.go` handleKeyPress to open operations menu when table selected
-- [ ] T018 [US1] Implement OperationsMenu.View() rendering with VACUUM, VACUUM FULL, VACUUM ANALYZE options in `internal/ui/views/tables/operations.go`
-- [ ] T019 [US1] Implement OperationsMenu key handling (j/k navigation, Enter select, Esc close) in `internal/ui/views/tables/operations.go`
-- [ ] T020 [US1] Create ConfirmOperationDialog component in `internal/ui/views/tables/operations.go` with y/Enter confirm, n/Esc cancel per contracts/ui_operations.go.md
-- [ ] T021 [US1] Implement GetOperationWarning function for VACUUM FULL lock warning in `internal/ui/views/tables/operations.go`
-- [ ] T022 [US1] Create ProgressIndicator component in `internal/ui/views/tables/operations.go` with progress bar, phase, elapsed time per contracts/ui_operations.go.md
-- [ ] T023 [US1] Implement StartOperation method in TablesView that executes vacuum and starts progress polling in `internal/ui/views/tables/view.go`
-- [ ] T024 [US1] Implement pollProgress using tea.Tick for 1-second polling interval in `internal/ui/views/tables/view.go`
-- [ ] T025 [US1] Add OperationStartedMsg, OperationProgressMsg, OperationCompletedMsg message handlers to TablesView.Update() in `internal/ui/views/tables/view.go`
-- [ ] T026 [US1] Display operation result toast with duration and completion status after VACUUM completes in `internal/ui/views/tables/view.go`
-- [ ] T027 [US1] Add ModeOperationsMenu and ModeOperationProgress rendering to TablesView.View() in `internal/ui/views/tables/view.go`
-- [ ] T028 [US1] Update help overlay in `internal/ui/views/tables/help.go` with `x` key for operations menu
+- [x] T014 [US1] Implement ExecuteVacuum function in `internal/db/queries/maintenance.go` with VACUUM, VACUUM FULL, VACUUM ANALYZE SQL generation per contracts/maintenance.go.md
+- [x] T015 [US1] Implement GetVacuumProgress function in `internal/db/queries/maintenance.go` querying pg_stat_progress_vacuum per contracts/maintenance.go.md
+- [x] T016 [US1] Implement GetVacuumFullProgress function in `internal/db/queries/maintenance.go` querying pg_stat_progress_cluster per contracts/maintenance.go.md
+- [x] T017 [US1] Add `x` key binding in `internal/ui/views/tables/view.go` handleKeyPress to open operations menu when table selected
+- [x] T018 [US1] Implement OperationsMenu.View() rendering with VACUUM, VACUUM FULL, VACUUM ANALYZE options in `internal/ui/views/tables/operations.go`
+- [x] T019 [US1] Implement OperationsMenu key handling (j/k navigation, Enter select, Esc close) in `internal/ui/views/tables/operations.go`
+- [x] T020 [US1] Create ConfirmOperationDialog component in `internal/ui/views/tables/operations.go` with y/Enter confirm, n/Esc cancel per contracts/ui_operations.go.md
+- [x] T021 [US1] Implement GetOperationWarning function for VACUUM FULL lock warning in `internal/ui/views/tables/operations.go`
+- [x] T022 [US1] Create ProgressIndicator component in `internal/ui/views/tables/operations.go` with progress bar, phase, elapsed time per contracts/ui_operations.go.md
+- [x] T023 [US1] Implement StartOperation method in TablesView that executes vacuum and starts progress polling in `internal/ui/views/tables/view.go`
+- [x] T024 [US1] Implement pollProgress using tea.Tick for 1-second polling interval in `internal/ui/views/tables/view.go`
+- [x] T025 [US1] Add OperationStartedMsg, OperationProgressMsg, OperationCompletedMsg message handlers to TablesView.Update() in `internal/ui/views/tables/view.go`
+- [x] T026 [US1] Display operation result toast with duration and completion status after VACUUM completes in `internal/ui/views/tables/view.go`
+- [x] T027 [US1] Add ModeOperationsMenu and ModeOperationProgress rendering to TablesView.View() in `internal/ui/views/tables/view.go`
+- [x] T028 [US1] Update help overlay in `internal/ui/views/tables/help.go` with `x` key for operations menu
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - DBAs can execute VACUUM with progress tracking
 
