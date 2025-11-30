@@ -1106,7 +1106,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Toggle debug panel with D (only when not in input mode and debug mode enabled)
-	if (msg.String() == "D" || msg.String() == "d") && !inInputMode && logger.IsDebugEnabled() {
+	if msg.String() == "D" && !inInputMode && logger.IsDebugEnabled() {
 		m.debugPanel.Toggle()
 		return m, nil
 	}
