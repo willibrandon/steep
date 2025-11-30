@@ -1627,8 +1627,8 @@ Prioritize P1 stories (editor, execution, results) then P2 (syntax highlighting,
 - Alert states: Normal, Warning, Critical
 - Visual indicators: Color changes, icons, status bar notifications
 - Alert panel showing active alerts with severity and message
-- Alert history log (timestamped events)
-- Alert acknowledgment tracking
+- Alert history persistence using existing SQLite storage
+- Alert acknowledgment tracking with SQLite persistence
 - Alert conditions: threshold comparisons, rate of change, time-based triggers
 
 **Alert Examples**:
@@ -1651,7 +1651,7 @@ Prioritize P1 stories (editor, execution, results) then P2 (syntax highlighting,
 
 **Spec-Kit Command**:
 ```bash
-/speckit.specify Implement Alert System for threshold-based monitoring with visual indicators and history tracking. Support alert configuration in YAML with conditions for critical metrics (replication lag, connection limits, cache hit ratio, long transactions). Evaluate alert rules on each metric refresh cycle and update alert states (Normal, Warning, Critical). Display active alerts in Dashboard with color-coded severity indicators and status bar alert counts. Provide alert history view with timestamp, metric, condition, state, and acknowledgment status. Enable alert acknowledgment to track resolution. Prioritize P1 stories (basic alerts, visual indicators) over P2 (history, acknowledgment) and P3 (custom complex rules). Validate alert rules on startup.
+/speckit.specify Implement Alert System for threshold-based monitoring with visual indicators and history tracking. Support alert configuration in YAML with conditions for critical metrics (replication lag, connection limits, cache hit ratio, long transactions). Evaluate alert rules on each metric refresh cycle and update alert states (Normal, Warning, Critical). Display active alerts in Dashboard with color-coded severity indicators and status bar alert counts. Provide alert history view with timestamp, metric, condition, state, and acknowledgment status. Enable alert acknowledgment to track resolution. Prioritize P1 stories (basic alerts, visual indicators) and P2 (history, acknowledgment) and P3 (custom complex rules). Validate alert rules on startup.
 ```
 
 ---
