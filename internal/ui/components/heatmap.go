@@ -161,22 +161,22 @@ func (h *Heatmap) renderFull() string {
 		sb.WriteString("\n\n")
 	}
 
-	// Hour axis header
+	// Day labels - 5 chars each ("Sun  ", "Mon  ", etc.)
+	dayLabels := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+
+	// Hour axis header - align with 5-char day label prefix
 	if h.config.ShowHourAxis {
-		sb.WriteString("      ")
+		sb.WriteString("     ") // 5 spaces to match day label width
 		for hr := 0; hr < 24; hr++ {
 			sb.WriteString(fmt.Sprintf("%02d ", hr))
 		}
 		sb.WriteString("\n")
 	}
 
-	// Day labels
-	dayLabels := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
-
 	// Render each day row
 	for d := 0; d < 7; d++ {
 		if h.config.ShowDayAxis {
-			sb.WriteString(fmt.Sprintf(" %s ", dayLabels[d]))
+			sb.WriteString(fmt.Sprintf("%-5s", dayLabels[d])) // 5 chars, left-aligned
 		}
 
 		for hr := 0; hr < 24; hr++ {
@@ -221,22 +221,22 @@ func (h *Heatmap) renderCondensed() string {
 		{"Evening", 18, 23},
 	}
 
-	// Period header
+	// Day labels - 5 chars each
+	dayLabels := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+
+	// Period header - align with 5-char day label prefix
 	if h.config.ShowHourAxis {
-		sb.WriteString("      ")
+		sb.WriteString("     ") // 5 spaces to match day label width
 		for _, p := range periods {
-			sb.WriteString(fmt.Sprintf("%-10s ", p.name))
+			sb.WriteString(fmt.Sprintf("%-11s", p.name)) // 11 chars to match condensed cell width
 		}
 		sb.WriteString("\n")
 	}
 
-	// Day labels
-	dayLabels := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
-
 	// Render each day row with aggregated periods
 	for d := 0; d < 7; d++ {
 		if h.config.ShowDayAxis {
-			sb.WriteString(fmt.Sprintf(" %s ", dayLabels[d]))
+			sb.WriteString(fmt.Sprintf("%-5s", dayLabels[d])) // 5 chars, left-aligned
 		}
 
 		for _, p := range periods {
@@ -289,18 +289,18 @@ func (h *Heatmap) renderCell(value float64) string {
 	return style.Render(char + " ")
 }
 
-// renderCondensedCell renders a condensed cell (wider).
+// renderCondensedCell renders a condensed cell (11 chars wide to match period header).
 func (h *Heatmap) renderCondensedCell(value float64) string {
-	// No data
+	// No data - 11 chars total
 	if value < 0 {
 		noDataStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-		return noDataStyle.Render("··         ")
+		return noDataStyle.Render("··         ") // 2 + 9 = 11 chars
 	}
 
 	// Calculate intensity level (0-3)
 	level := h.getIntensityLevel(value)
 	char, style := h.getCellStyle(level)
-	return style.Render(char + char + "         ")
+	return style.Render(char + "         ") // 2 + 9 = 11 chars
 }
 
 // getIntensityLevel returns 0-3 based on value position between min and max.

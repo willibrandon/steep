@@ -77,6 +77,18 @@ func (h *HelpText) View() string {
 	b.WriteString(h.formatShortcut("r", "Refresh data"))
 	b.WriteString("\n")
 
+	// Dashboard section
+	b.WriteString(styles.HeaderStyle.Render("Dashboard"))
+	b.WriteString("\n")
+	b.WriteString(h.formatShortcut("w/W", "Cycle time window"))
+	b.WriteString(h.formatShortcut("V", "Toggle charts visibility"))
+	b.WriteString(h.formatShortcut("H", "Toggle TPS heatmap"))
+	b.WriteString("\n")
+	b.WriteString(styles.MutedStyle.Render("  Heatmap: 7×24 grid showing TPS patterns"))
+	b.WriteString("\n")
+	b.WriteString(styles.MutedStyle.Render("  by day of week (rows) and hour (columns)"))
+	b.WriteString("\n")
+
 	// Wrap in styled dialog
 	content := b.String()
 	dialog := styles.HelpDialogStyle.Render(content)
