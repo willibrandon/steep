@@ -326,11 +326,17 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL log files (file system read or pg_read_file()), position tracking via SQLite (009-log-viewer)
 - Go 1.25.4 (per go.mod) + bubbletea, bubbles, lipgloss, pgx/pgxpool (010-database-operations)
 - PostgreSQL (pg_stat_progress_vacuum, pg_stat_progress_cluster, pg_stat_all_tables, pg_roles, pg_catalog, pg_class_aclitem) (010-database-operations)
-- Go 1.25.4 + bubbletea, bubbles, lipgloss, asciigraph (v0.7.3 - already installed), pgx/pgxpool, go-sqlite3 (011-visualizations)
-- SQLite (existing ~/.config/steep/steep.db), PostgreSQL (source metrics) (011-visualizations)
-- Go 1.25.4 + bubbletea, bubbles, lipgloss, asciigraph (v0.7.3), pterm (NEW), pgx/pgxpool, go-sqlite3 (011-visualizations)
+- Go 1.25.4 + bubbletea, bubbles, lipgloss, asciigraph (v0.7.3), pterm (v0.12.82), pgx/pgxpool, go-sqlite3 (011-visualizations)
+- SQLite (existing ~/.config/steep/steep.db for metrics persistence), PostgreSQL (source metrics) (011-visualizations)
 
 ## Recent Changes
+- 011-visualizations: Time-series graphs on Dashboard (TPS, connections, cache hit ratio) with configurable time windows (1m-24h)
+- 011-visualizations: TPS heatmap showing weekly activity patterns (24h × 7d grid) with RGB color gradient
+- 011-visualizations: Sparklines in Activity view (query duration trends) and Tables view (size trends)
+- 011-visualizations: Bar charts in Queries view (top 10 by execution time) and Tables view (top 10 by size)
+- 011-visualizations: Global chart toggle (V key) across Dashboard, Queries, and Tables views
+- 011-visualizations: Metrics collection infrastructure (internal/metrics package) with CircularBuffer and MetricsStore
+- 011-visualizations: Per-connection duration tracking for Activity view sparklines
 - 007-sql-editor: External REPL support via :repl command (pgcli, psql, with Docker fallback)
 - 007-sql-editor: Multi-arch Docker image for pgcli (willibrandon/pgcli) supporting amd64 and arm64
 - 007-sql-editor: Windows Docker support with automatic host.docker.internal translation

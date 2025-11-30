@@ -4,7 +4,7 @@ A terminal-based PostgreSQL monitoring tool built with Go and [Bubbletea](https:
 
 ## Features
 
-- **Real-time Dashboard** - Monitor database metrics, connections, and server status
+- **Real-time Dashboard** - Monitor database metrics with time-series graphs, TPS heatmap, and server status
 - **Query Performance Monitoring** - Track slow queries, view EXPLAIN plans with tree visualization, search/filter by pattern
 - **SQL Editor** - Interactive SQL editor with vim-style editing, syntax highlighting, transaction support, history, and snippets
 - **Database Operations** - Table maintenance (VACUUM, ANALYZE, REINDEX), permission management, role administration
@@ -199,18 +199,21 @@ connection:
 ### Views
 
 #### Dashboard
-- Database overview statistics
-- Server version information
-- Connection status
-- Quick health metrics
+- Database overview statistics (TPS, active connections, cache hit ratio)
+- Time-series graphs for TPS, connections, and cache hit ratio
+- TPS heatmap showing weekly activity patterns (24h × 7d grid)
+- Time window selection: 1m, 5m, 15m, 1h, 24h (keys 1-5)
+- Toggle charts on/off with `V` key
+- Toggle heatmap with `H` key
 
-#### Activity (Coming Soon)
-- Real-time connection monitoring
-- Session statistics
-- Wait events
+#### Activity
+- Real-time connection monitoring with query duration sparklines
+- Session statistics and wait events
+- Color-coded connection states
 
 #### Queries
 - Query performance statistics with fingerprinting
+- Bar chart showing top 10 queries by execution time
 - Sort by total time, calls, mean time, or rows
 - EXPLAIN plan viewer with JSON output (`e` key)
 - EXPLAIN ANALYZE with tree visualization (`E` key) - shows timing, cost percentages, and highlights slowest/costliest nodes
@@ -218,6 +221,7 @@ connection:
 - Copy queries to clipboard
 - Reset statistics
 - Data source indicator (sampling or log parsing)
+- Toggle charts on/off with `V` key
 - Press `h` for keybinding help
 
 #### Locks
@@ -233,6 +237,8 @@ connection:
 #### Tables
 - Hierarchical schema/table browser with expand/collapse
 - Table statistics: size, rows, cache hit ratio, bloat percentage
+- Sparkline trend column showing table size history
+- Bar chart showing top 10 tables by size
 - Index usage statistics with unused index highlighting (yellow)
 - Bloat detection with color coding (red >20%, yellow 10-20%)
 - Table details panel: columns, constraints, indexes, size breakdown
@@ -245,6 +251,7 @@ connection:
 - Permissions dialog for viewing/managing table grants (p key)
 - pgstattuple extension auto-install prompt
 - System schema toggle (P key)
+- Toggle charts on/off with `V` key
 - Read-only mode support (blocks all maintenance operations)
 - Press `h` for keybinding help
 
@@ -655,6 +662,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] Replication monitoring
 - [x] Log viewer
 - [x] Database operations (maintenance, permissions, roles)
+- [x] Advanced visualizations (time-series graphs, sparklines, bar charts, heatmaps)
 - [ ] Export metrics to Prometheus
 - [ ] Alert configuration
 - [ ] Light theme
