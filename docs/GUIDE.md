@@ -1603,7 +1603,7 @@ Prioritize P1 stories (editor, execution, results) then P2 (syntax highlighting,
 
 **Spec-Kit Command**:
 ```bash
-/speckit.specify Implement Advanced Visualizations using asciigraph library for ASCII-based charts. Add time-series line graphs for key metrics (TPS, connections, cache hit ratio) with configurable time windows (1m, 5m, 1h, 24h). Generate sparklines for inline trending in Activity and Tables views showing query duration and table growth. Create bar charts for comparative analysis (top tables by size, top queries by time). Support in-memory circular buffer for historical data with memory limits and optional disk persistence. Prioritize P1 story (time-series graphs) and P2 (sparklines, bar charts) and P3 (heatmaps). Provide chart toggle to show/hide visualizations.
+/speckit.specify Implement Advanced Visualizations using asciigraph library for ASCII-based charts. Add time-series line graphs for key metrics (TPS, connections, cache hit ratio) with configurable time windows (1m, 5m, 1h, 24h). Generate sparklines for inline trending in Activity and Tables views showing query duration and table growth. Create bar charts for comparative analysis (top tables by size, top queries by time). Support in-memory circular buffer for historical data with memory limits and sqlite disk persistence. Prioritize P1 story (time-series graphs) and P2 (sparklines, bar charts) and P3 (heatmaps). Provide chart toggle to show/hide visualizations.
 ```
 
 ---
