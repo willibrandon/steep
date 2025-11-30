@@ -30,6 +30,7 @@ import (
 	logsview "github.com/willibrandon/steep/internal/ui/views/logs"
 	queriesview "github.com/willibrandon/steep/internal/ui/views/queries"
 	replicationview "github.com/willibrandon/steep/internal/ui/views/replication"
+	rolesview "github.com/willibrandon/steep/internal/ui/views/roles"
 	sqleditorview "github.com/willibrandon/steep/internal/ui/views/sqleditor"
 	tablesview "github.com/willibrandon/steep/internal/ui/views/tables"
 )
@@ -72,6 +73,7 @@ type Model struct {
 	sqlEditorView   *sqleditorview.SQLEditorView
 	configView      *configview.ConfigView
 	logsView        *logsview.LogsView
+	rolesView       *rolesview.RolesView
 
 	// Application state
 	helpVisible bool
@@ -164,6 +166,10 @@ func New(readonly bool, configPath string) (*Model, error) {
 	logsView := logsview.NewLogsView()
 	logsView.SetReadOnly(readonly)
 
+	// Initialize Roles view
+	rolesView := rolesview.NewRolesView()
+	rolesView.SetReadOnly(readonly)
+
 	// Define available views
 	viewList := []views.ViewType{
 		views.ViewDashboard,
@@ -175,6 +181,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 		views.ViewSQLEditor,
 		views.ViewConfig,
 		views.ViewLogs,
+		views.ViewRoles,
 	}
 
 	return &Model{
@@ -194,6 +201,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 		sqlEditorView:     sqlEditorView,
 		configView:        configView,
 		logsView:          logsView,
+		rolesView:         rolesView,
 		connected:         false,
 		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
 		reconnecting:      false,
@@ -270,6 +278,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.configView.Update(relativeMsg)
 		case views.ViewLogs:
 			m.logsView.Update(relativeMsg)
+		case views.ViewRoles:
+			m.rolesView.Update(relativeMsg)
 		}
 		return m, nil
 
@@ -298,6 +308,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sqlEditorView.SetSize(msg.Width, viewHeight)
 		m.configView.SetSize(msg.Width, viewHeight)
 		m.logsView.SetSize(msg.Width, viewHeight)
+		m.rolesView.SetSize(msg.Width, viewHeight)
 		return m, nil
 
 	case DatabaseConnectedMsg:
@@ -333,6 +344,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logsView.SetConnected(true)
 		m.logsView.SetConnectionInfo(connectionInfo)
 		m.logsView.SetPool(msg.Pool)
+		m.rolesView.SetConnected(true)
+		m.rolesView.SetConnectionInfo(connectionInfo)
+		m.rolesView.SetPool(msg.Pool)
 
 		// Initialize monitors
 		refreshInterval := m.config.UI.RefreshInterval
@@ -427,6 +441,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fetchDeadlockHistory(m.deadlockMonitor, m.program),
 			fetchConfigData(m.configMonitor),
 			m.tablesView.FetchTablesData(),
+			m.rolesView.FetchRolesData(),
 			tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
 				return dataTickMsg{}
 			}),
@@ -958,6 +973,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd := m.logsView.Update(msg)
 		return m, cmd
 
+	// Roles view messages
+	case rolesview.RolesDataMsg:
+		// Forward roles data to roles view
+		_, cmd := m.rolesView.Update(msg)
+		return m, cmd
+
+	case rolesview.RoleDetailsMsg:
+		// Forward role details to roles view
+		_, cmd := m.rolesView.Update(msg)
+		return m, cmd
+
+	case rolesview.RefreshRolesMsg:
+		// Forward refresh request to roles view
+		_, cmd := m.rolesView.Update(msg)
+		return m, cmd
+
+	case rolesview.CreateRoleResultMsg:
+		// Forward to roles view for toast and refresh
+		_, cmd := m.rolesView.Update(msg)
+		return m, cmd
+
+	case rolesview.DropRoleResultMsg:
+		// Forward to roles view for toast and refresh
+		_, cmd := m.rolesView.Update(msg)
+		return m, cmd
+
+	case rolesview.AlterRoleResultMsg:
+		// Forward to roles view for toast and refresh
+		_, cmd := m.rolesView.Update(msg)
+		return m, cmd
+
 	case ReconnectAttemptMsg:
 		// Update reconnection status display
 		m.statusBar.SetReconnecting(true, msg.Attempt, msg.MaxAttempts)
@@ -1065,6 +1111,9 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "9":
 			m.currentView = views.ViewLogs
 			return m, nil
+		case "0":
+			m.currentView = views.ViewRoles
+			return m, nil
 		case "tab":
 			m.nextView()
 			return m, nil
@@ -1130,6 +1179,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			_, cmd = m.logsView.Update(msg)
 			return m, cmd
 		}
+	case views.ViewRoles:
+		if m.connected {
+			var cmd tea.Cmd
+			_, cmd = m.rolesView.Update(msg)
+			return m, cmd
+		}
 	}
 
 	return m, nil
@@ -1183,6 +1238,8 @@ func (m *Model) currentViewIsInputMode() bool {
 		return m.configView.IsInputMode()
 	case views.ViewLogs:
 		return m.logsView.IsInputMode()
+	case views.ViewRoles:
+		return m.rolesView.IsInputMode()
 	default:
 		return false
 	}
@@ -1269,6 +1326,8 @@ func (m Model) renderCurrentView() string {
 		return m.configView.View()
 	case views.ViewLogs:
 		return m.logsView.View()
+	case views.ViewRoles:
+		return m.rolesView.View()
 	default:
 		return styles.ErrorStyle.Render("Unknown view")
 	}

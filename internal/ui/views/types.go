@@ -15,6 +15,7 @@ const (
 	ViewSQLEditor
 	ViewConfig
 	ViewLogs
+	ViewRoles
 )
 
 // String returns the string representation of the view type
@@ -38,6 +39,8 @@ func (v ViewType) String() string {
 		return "Configuration"
 	case ViewLogs:
 		return "Logs"
+	case ViewRoles:
+		return "Roles"
 	default:
 		return "Unknown"
 	}
@@ -64,6 +67,8 @@ func (v ViewType) ShortName() string {
 		return "cfg"
 	case ViewLogs:
 		return "log"
+	case ViewRoles:
+		return "rol"
 	default:
 		return "unk"
 	}

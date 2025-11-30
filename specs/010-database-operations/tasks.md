@@ -155,23 +155,23 @@
 
 ### Tests for User Story 5
 
-- [ ] T046 [P] [US5] Create `tests/integration/roles_test.go` with TestGetRoles, TestGetRoleMemberships tests
+- [x] T046 [P] [US5] Create `tests/integration/roles_test.go` with TestGetRoles, TestGetRoleMemberships tests
 
 ### Implementation for User Story 5
 
-- [ ] T047 [US5] Create `internal/db/queries/roles.go` with GetRoles function per contracts/roles.go.md SQL query
-- [ ] T048 [US5] Implement GetRoleMemberships function in `internal/db/queries/roles.go` per contracts/roles.go.md
-- [ ] T049 [US5] Implement GetRoleDetails function in `internal/db/queries/roles.go` per contracts/roles.go.md
-- [ ] T050 [US5] Implement FormatRoleAttributes helper (S=superuser, L=login, R=createrole, D=createdb, B=bypassrls) in `internal/db/queries/roles.go`
-- [ ] T051 [US5] Implement FormatConnectionLimit helper (-1 = ∞) in `internal/db/queries/roles.go`
-- [ ] T052 [US5] Create `internal/ui/views/roles/view.go` with RolesView struct following Tables view pattern
-- [ ] T053 [US5] Implement RolesView.Init() to fetch roles on load in `internal/ui/views/roles/view.go`
-- [ ] T054 [US5] Implement RolesView.View() with role table (Name, Attributes, Conn Limit, Valid Until, Member Of) in `internal/ui/views/roles/view.go`
-- [ ] T055 [US5] Implement RolesView.Update() with keyboard navigation (j/k, g/G, Enter for details) in `internal/ui/views/roles/view.go`
-- [ ] T056 [US5] Add role details panel showing memberships, owned objects on Enter in `internal/ui/views/roles/view.go`
-- [ ] T057 [US5] Create `internal/ui/views/roles/help.go` with help overlay for Roles view
-- [ ] T058 [US5] Add `0` key binding in `internal/ui/app.go` to switch to Roles view
-- [ ] T059 [US5] Register RolesView in view switching logic in `internal/ui/app.go`
+- [x] T047 [US5] Create `internal/db/queries/roles.go` with GetRoles function per contracts/roles.go.md SQL query
+- [x] T048 [US5] Implement GetRoleMemberships function in `internal/db/queries/roles.go` per contracts/roles.go.md
+- [x] T049 [US5] Implement GetRoleDetails function in `internal/db/queries/roles.go` per contracts/roles.go.md
+- [x] T050 [US5] Implement FormatRoleAttributes helper (S=superuser, L=login, R=createrole, D=createdb, B=bypassrls) in `internal/db/queries/roles.go`
+- [x] T051 [US5] Implement FormatConnectionLimit helper (-1 = ∞) in `internal/db/queries/roles.go`
+- [x] T052 [US5] Create `internal/ui/views/roles/view.go` with RolesView struct following Tables view pattern
+- [x] T053 [US5] Implement RolesView.Init() to fetch roles on load in `internal/ui/views/roles/view.go`
+- [x] T054 [US5] Implement RolesView.View() with role table (Name, Attributes, Conn Limit, Valid Until, Member Of) in `internal/ui/views/roles/view.go`
+- [x] T055 [US5] Implement RolesView.Update() with keyboard navigation (j/k, g/G, Enter for details) in `internal/ui/views/roles/view.go`
+- [x] T056 [US5] Add role details panel showing memberships, owned objects on Enter in `internal/ui/views/roles/view.go`
+- [x] T057 [US5] Create `internal/ui/views/roles/help.go` with help overlay for Roles view
+- [x] T058 [US5] Add `0` key binding in `internal/app/app.go` to switch to Roles view
+- [x] T059 [US5] Register RolesView in view switching logic in `internal/app/app.go`
 
 **Checkpoint**: Roles view fully functional - users can browse all database roles and view details
 
