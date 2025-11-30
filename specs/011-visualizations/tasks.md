@@ -19,12 +19,12 @@
 
 **Purpose**: Add dependencies and create package structure
 
-- [ ] T001 Add pterm dependency with `go get github.com/pterm/pterm`
-- [ ] T002 Run `go mod tidy` to update go.sum
-- [ ] T003 Create metrics package directory at internal/metrics/
-- [ ] T004 Create mockups directory at specs/011-visualizations/mockups/
+- [x] T001 Add pterm dependency with `go get github.com/pterm/pterm`
+- [x] T002 Run `go mod tidy` to update go.sum
+- [x] T003 Create metrics package directory at internal/metrics/
+- [x] T004 Create mockups directory at specs/011-visualizations/mockups/
 
-**Checkpoint**: Dependencies installed, directories created
+**Checkpoint**: Dependencies installed, directories created ✅
 
 ---
 
@@ -34,19 +34,19 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 [P] Implement TimeWindow type with Duration/Granularity/String methods in internal/metrics/timewindow.go
-- [ ] T006 [P] Implement DataPoint struct in internal/metrics/datapoint.go
-- [ ] T007 Implement CircularBuffer with Push/GetRecent/GetSince/GetValues/Len/Clear in internal/metrics/buffer.go
-- [ ] T008 Add unit tests for CircularBuffer eviction behavior in internal/metrics/buffer_test.go
-- [ ] T009 Add metrics_history table schema to internal/storage/sqlite/db.go
-- [ ] T010 Implement MetricsStore with SaveDataPoint/SaveBatch/GetHistory/GetAggregated/Prune in internal/storage/sqlite/metrics_store.go
-- [ ] T011 Add unit tests for MetricsStore in internal/storage/sqlite/metrics_store_test.go
-- [ ] T012 Implement MetricsCollector with Record/GetValues/GetDataPoints/GetLatest/Start/Stop in internal/metrics/collector.go
-- [ ] T013 Add unit tests for MetricsCollector in internal/metrics/collector_test.go
-- [ ] T014 Integrate MetricsCollector initialization in internal/app/app.go
-- [ ] T015 Record TPS/connections/cache_hit_ratio metrics in database monitor goroutine in internal/monitors/database.go
+- [x] T005 [P] Implement TimeWindow type with Duration/Granularity/String methods in internal/metrics/timewindow.go
+- [x] T006 [P] Implement DataPoint struct in internal/metrics/datapoint.go
+- [x] T007 Implement CircularBuffer with Push/GetRecent/GetSince/GetValues/Len/Clear in internal/metrics/buffer.go
+- [x] T008 Add unit tests for CircularBuffer eviction behavior in internal/metrics/buffer_test.go
+- [x] T009 Add metrics_history table schema to internal/storage/sqlite/schema.go
+- [x] T010 Implement MetricsStore with SaveDataPoint/SaveBatch/GetHistory/GetAggregated/Prune in internal/storage/sqlite/metrics_store.go
+- [x] T011 Add unit tests for MetricsStore in internal/storage/sqlite/metrics_store_test.go
+- [x] T012 Implement MetricsCollector with Record/GetValues/GetDataPoints/GetLatest/Start/Stop in internal/metrics/collector.go
+- [x] T013 Add unit tests for MetricsCollector in internal/metrics/collector_test.go
+- [x] T014 Integrate MetricsCollector initialization in internal/app/app.go
+- [x] T015 Record TPS/connections/cache_hit_ratio metrics in database monitor goroutine in internal/monitors/stats.go
 
-**Checkpoint**: Foundation ready - metrics collection operational, user story implementation can begin
+**Checkpoint**: Foundation ready - metrics collection operational, user story implementation can begin ✅
 
 ---
 

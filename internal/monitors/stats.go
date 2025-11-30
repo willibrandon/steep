@@ -11,11 +11,17 @@ import (
 	"github.com/willibrandon/steep/internal/ui"
 )
 
+// MetricsRecorder is an interface for recording metrics for visualization.
+type MetricsRecorder interface {
+	Record(metricName string, value float64)
+}
+
 // StatsMonitor fetches database metrics at regular intervals.
 type StatsMonitor struct {
-	pool         *pgxpool.Pool
-	interval     time.Duration
-	lastSnapshot *models.MetricsSnapshot
+	pool            *pgxpool.Pool
+	interval        time.Duration
+	lastSnapshot    *models.MetricsSnapshot
+	metricsRecorder MetricsRecorder
 }
 
 // NewStatsMonitor creates a new StatsMonitor.
@@ -24,6 +30,11 @@ func NewStatsMonitor(pool *pgxpool.Pool, interval time.Duration) *StatsMonitor {
 		pool:     pool,
 		interval: interval,
 	}
+}
+
+// SetMetricsRecorder sets the metrics recorder for visualization data.
+func (m *StatsMonitor) SetMetricsRecorder(recorder MetricsRecorder) {
+	m.metricsRecorder = recorder
 }
 
 // FetchOnce fetches metrics data once and returns the result.
@@ -84,6 +95,13 @@ func (m *StatsMonitor) FetchOnce(ctx context.Context) ui.MetricsDataMsg {
 		metrics.CacheHitRatio = float64(snapshot.BlksHit) / float64(totalBlocks) * 100
 	} else {
 		metrics.CacheHitRatio = 100 // No blocks read means perfect cache
+	}
+
+	// Record metrics for visualization if recorder is set
+	if m.metricsRecorder != nil {
+		m.metricsRecorder.Record("tps", metrics.TPS)
+		m.metricsRecorder.Record("connections", float64(metrics.ConnectionCount))
+		m.metricsRecorder.Record("cache_hit_ratio", metrics.CacheHitRatio)
 	}
 
 	return ui.MetricsDataMsg{

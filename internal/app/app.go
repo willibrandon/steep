@@ -17,6 +17,7 @@ import (
 	"github.com/willibrandon/steep/internal/db"
 	"github.com/willibrandon/steep/internal/db/queries"
 	"github.com/willibrandon/steep/internal/logger"
+	"github.com/willibrandon/steep/internal/metrics"
 	"github.com/willibrandon/steep/internal/monitors"
 	querymonitor "github.com/willibrandon/steep/internal/monitors/queries"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
@@ -111,6 +112,10 @@ type Model struct {
 	steepDB         *sqlite.DB // Shared SQLite database for all Steep data
 	queryStatsStore *sqlite.QueryStatsStore
 	queryMonitor    *querymonitor.Monitor
+
+	// Metrics collection for visualizations
+	metricsCollector *metrics.Collector
+	metricsStore     *sqlite.MetricsStore
 }
 
 // New creates a new application model
@@ -212,6 +217,11 @@ func New(readonly bool, configPath string) (*Model, error) {
 // SetProgram sets the tea.Program reference for sending messages from goroutines.
 func (m *Model) SetProgram(p *tea.Program) {
 	m.program = p
+}
+
+// MetricsCollector returns the metrics collector for recording metrics.
+func (m *Model) MetricsCollector() *metrics.Collector {
+	return m.metricsCollector
 }
 
 // Init initializes the application
@@ -352,6 +362,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		refreshInterval := m.config.UI.RefreshInterval
 		m.activityMonitor = monitors.NewActivityMonitor(msg.Pool, refreshInterval)
 		m.statsMonitor = monitors.NewStatsMonitor(msg.Pool, refreshInterval)
+		// Connect metrics collector to stats monitor for visualization data
+		if m.metricsCollector != nil {
+			m.statsMonitor.SetMetricsRecorder(m.metricsCollector)
+		}
 		m.locksMonitor = monitors.NewLocksMonitor(msg.Pool, 2*time.Second) // 2s refresh for locks
 		m.configMonitor = monitors.NewConfigMonitor(msg.Pool, 60*time.Second) // 60s refresh for config
 
@@ -366,6 +380,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err == nil {
 			m.steepDB = steepDB
 			m.queryStatsStore = sqlite.NewQueryStatsStore(steepDB)
+
+			// Initialize metrics store and collector for visualizations
+			m.metricsStore = sqlite.NewMetricsStore(steepDB)
+			m.metricsCollector = metrics.NewCollector(
+				metrics.WithStore(m.metricsStore),
+				metrics.WithRetentionDays(7),
+			)
+			_ = m.metricsCollector.Start(context.Background())
 
 			// Initialize deadlock store (shares same DB)
 			m.deadlockStore = sqlite.NewDeadlockStore(steepDB)
@@ -1380,6 +1402,9 @@ func (m Model) renderHelp() string {
 
 // Cleanup performs cleanup operations before the application exits
 func (m *Model) Cleanup() {
+	if m.metricsCollector != nil {
+		m.metricsCollector.Stop()
+	}
 	if m.queryMonitor != nil {
 		m.queryMonitor.Stop()
 	}

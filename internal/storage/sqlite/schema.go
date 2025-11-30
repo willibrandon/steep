@@ -117,6 +117,20 @@ func (db *DB) initSchema() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_log_search_history_executed_at ON log_search_history(executed_at DESC);
+
+	-- Metrics history for visualization time-series data
+	CREATE TABLE IF NOT EXISTS metrics_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		timestamp TEXT NOT NULL,
+		metric_name TEXT NOT NULL,
+		value REAL NOT NULL
+	);
+
+	-- Index for efficient time-range queries per metric
+	CREATE INDEX IF NOT EXISTS idx_metrics_history_name_time ON metrics_history(metric_name, timestamp);
+
+	-- Index for time-based cleanup
+	CREATE INDEX IF NOT EXISTS idx_metrics_history_timestamp ON metrics_history(timestamp);
 	`
 
 	_, err := db.conn.Exec(schema)
