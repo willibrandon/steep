@@ -328,6 +328,8 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL (pg_stat_progress_vacuum, pg_stat_progress_cluster, pg_stat_all_tables, pg_roles, pg_catalog, pg_class_aclitem) (010-database-operations)
 - Go 1.25.4 + bubbletea, bubbles, lipgloss, asciigraph (v0.7.3), pterm (v0.12.82), pgx/pgxpool, go-sqlite3 (011-visualizations)
 - SQLite (existing ~/.config/steep/steep.db for metrics persistence), PostgreSQL (source metrics) (011-visualizations)
+- Go 1.25.4 (per go.mod) + bubbletea, bubbles, lipgloss, pgx/pgxpool, go-sqlite3, viper (config) (012-alert-system)
+- SQLite (~/.config/steep/steep.db) for alert history and acknowledgment persistence; YAML (~/.config/steep/config.yaml) for alert rule configuration (012-alert-system)
 
 ## Recent Changes
 - 011-visualizations: Time-series graphs on Dashboard (TPS, connections, cache hit ratio) with configurable time windows (1m-24h)
