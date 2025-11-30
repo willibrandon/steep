@@ -78,12 +78,12 @@
 
 ### Implementation for User Story 5
 
-- [ ] T023 [P] [US5] Add ChartToggleState to app model in internal/app/app.go
-- [ ] T024 [US5] Implement 'v' key handler for chart toggle in internal/ui/views/dashboard.go
-- [ ] T025 [US5] Update status bar to show chart visibility state in internal/ui/components/statusbar.go
-- [ ] T026 [US5] Propagate toggle state to all views that display charts in internal/app/app.go
+- [x] T023 [P] [US5] Add ChartToggleState to app model in internal/app/app.go
+- [x] T024 [US5] Implement 'v' key handler for chart toggle in internal/app/app.go (global handler)
+- [x] T025 [US5] Update status bar to show chart visibility state in internal/ui/components/statusbar.go
+- [x] T026 [US5] Propagate toggle state to all views that display charts in internal/app/app.go
 
-**Checkpoint**: Chart toggle works globally across all views
+**Checkpoint**: Chart toggle works globally across all views ✅
 
 ---
 

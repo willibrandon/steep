@@ -116,6 +116,9 @@ type Model struct {
 	// Metrics collection for visualizations
 	metricsCollector *metrics.Collector
 	metricsStore     *sqlite.MetricsStore
+
+	// Chart visibility (global toggle)
+	chartsVisible bool
 }
 
 // New creates a new application model
@@ -211,6 +214,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
 		reconnecting:      false,
 		readOnly:          readonly,
+		chartsVisible:     true, // Charts visible by default
 	}, nil
 }
 
@@ -1148,6 +1152,16 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Toggle debug panel with D (only when not in input mode and debug mode enabled)
 	if msg.String() == "D" && !inInputMode && logger.IsDebugEnabled() {
 		m.debugPanel.Toggle()
+		return m, nil
+	}
+
+	// Global chart toggle with 'v' (not when in input mode)
+	if msg.String() == "v" && !inInputMode {
+		m.chartsVisible = !m.chartsVisible
+		// Propagate to all views that display charts
+		m.dashboard.SetChartsVisible(m.chartsVisible)
+		// Update status bar
+		m.statusBar.SetChartsVisible(m.chartsVisible)
 		return m, nil
 	}
 

@@ -27,12 +27,16 @@ type StatusBar struct {
 
 	// Read-only mode
 	readOnly bool
+
+	// Chart visibility
+	chartsVisible bool
 }
 
 // NewStatusBar creates a new status bar component
 func NewStatusBar() *StatusBar {
 	return &StatusBar{
-		dateFormat: "2006-01-02 15:04:05",
+		dateFormat:    "2006-01-02 15:04:05",
+		chartsVisible: true,
 	}
 }
 
@@ -76,6 +80,11 @@ func (s *StatusBar) SetReconnecting(reconnecting bool, attempt, maxAttempts int)
 // SetReadOnly sets the read-only mode flag
 func (s *StatusBar) SetReadOnly(readOnly bool) {
 	s.readOnly = readOnly
+}
+
+// SetChartsVisible sets the chart visibility state
+func (s *StatusBar) SetChartsVisible(visible bool) {
+	s.chartsVisible = visible
 }
 
 // View renders the status bar
@@ -134,14 +143,21 @@ func (s *StatusBar) View() string {
 		readOnlySection = " | " + styles.WarningStyle.Render("READ-ONLY")
 	}
 
+	// Chart visibility indicator (only show when hidden)
+	var chartsSection string
+	if !s.chartsVisible {
+		chartsSection = " | " + styles.MutedStyle.Render("Charts OFF")
+	}
+
 	// Build status line
-	statusLine := fmt.Sprintf("%s | %s | %s%s%s%s",
+	statusLine := fmt.Sprintf("%s | %s | %s%s%s%s%s",
 		statusIndicator,
 		dbName,
 		timestamp,
 		metricsSection,
 		debugSection,
 		readOnlySection,
+		chartsSection,
 	)
 
 	// Apply styling
