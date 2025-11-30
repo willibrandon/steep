@@ -132,6 +132,8 @@ func CancelBackend(ctx context.Context, pool *pgxpool.Pool, pid int) (bool, erro
 // Returns nil if no VACUUM is in progress for the given table.
 // Creates a direct connection to bypass pool contention during heavy I/O.
 func GetVacuumProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, tableName string) (*models.OperationProgress, error) {
+	// Note: max_dead_tuples and num_dead_tuples were removed in PostgreSQL 17
+	// due to the TidStore redesign for dead tuple storage
 	query := `
 		SELECT
 			v.pid,
@@ -140,8 +142,6 @@ func GetVacuumProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, tabl
 			v.heap_blks_scanned,
 			v.heap_blks_vacuumed,
 			v.index_vacuum_count,
-			COALESCE(v.max_dead_tuples, 0) as max_dead_tuples,
-			COALESCE(v.num_dead_tuples, 0) as num_dead_tuples,
 			COALESCE(ROUND(100.0 * v.heap_blks_scanned / NULLIF(v.heap_blks_total, 0), 2), 0) AS progress_pct
 		FROM pg_stat_progress_vacuum v
 		JOIN pg_class c ON c.oid = v.relid
@@ -160,7 +160,6 @@ func GetVacuumProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, tabl
 	var progress models.OperationProgress
 	var pid int
 	var progressPct float64
-	var maxDeadTuples, numDeadTuples int64
 
 	err = conn.QueryRow(ctx, query, schemaName, tableName).Scan(
 		&pid,
@@ -169,8 +168,6 @@ func GetVacuumProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, tabl
 		&progress.HeapBlksScanned,
 		&progress.HeapBlksVacuumed,
 		&progress.IndexVacuumCount,
-		&maxDeadTuples,
-		&numDeadTuples,
 		&progressPct,
 	)
 	if err != nil {

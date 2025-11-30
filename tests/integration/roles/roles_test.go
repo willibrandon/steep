@@ -16,7 +16,7 @@ func setupPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 
 	req := testcontainers.ContainerRequest{
-		Image:        "postgres:15-alpine",
+		Image:        "postgres:18-alpine",
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
 			"POSTGRES_USER":     "test",
@@ -339,6 +339,194 @@ func TestFormatConnectionLimit(t *testing.T) {
 		result := queries.FormatConnectionLimit(tt.limit)
 		if result != tt.expected {
 			t.Errorf("FormatConnectionLimit(%d) = %q, want %q", tt.limit, result, tt.expected)
+		}
+	}
+}
+
+// createTestTable creates a test table for permission tests.
+func createTestTable(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uint32 {
+	t.Helper()
+
+	// Create a test table
+	_, err := pool.Exec(ctx, `CREATE TABLE test_permissions_table (id serial PRIMARY KEY, name text)`)
+	if err != nil {
+		t.Fatalf("Failed to create test table: %v", err)
+	}
+
+	// Get the table OID
+	var tableOID uint32
+	err = pool.QueryRow(ctx, `SELECT oid FROM pg_class WHERE relname = 'test_permissions_table'`).Scan(&tableOID)
+	if err != nil {
+		t.Fatalf("Failed to get table OID: %v", err)
+	}
+
+	return tableOID
+}
+
+// TestGetTablePermissions verifies GetTablePermissions returns permissions on a table.
+func TestGetTablePermissions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	pool := setupPostgres(t, ctx)
+	createTestRoles(t, ctx, pool)
+	tableOID := createTestTable(t, ctx, pool)
+
+	// Grant SELECT to test_user
+	_, err := pool.Exec(ctx, `GRANT SELECT ON test_permissions_table TO test_user`)
+	if err != nil {
+		t.Fatalf("Failed to grant SELECT: %v", err)
+	}
+
+	// Get permissions
+	perms, err := queries.GetTablePermissions(ctx, pool, tableOID)
+	if err != nil {
+		t.Fatalf("GetTablePermissions failed: %v", err)
+	}
+
+	// Should have at least the owner permissions and the grant to test_user
+	var foundTestUserSelect bool
+	for _, p := range perms {
+		if p.Grantee == "test_user" && p.PrivilegeType == "SELECT" {
+			foundTestUserSelect = true
+			break
+		}
+	}
+
+	if !foundTestUserSelect {
+		t.Error("Expected to find SELECT permission for test_user")
+	}
+}
+
+// TestGrantTablePrivilege verifies GrantTablePrivilege grants a privilege.
+func TestGrantTablePrivilege(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	pool := setupPostgres(t, ctx)
+	createTestRoles(t, ctx, pool)
+	tableOID := createTestTable(t, ctx, pool)
+
+	// Grant INSERT to test_user
+	err := queries.GrantTablePrivilege(ctx, pool, "public", "test_permissions_table", "test_user", "INSERT", false)
+	if err != nil {
+		t.Fatalf("GrantTablePrivilege failed: %v", err)
+	}
+
+	// Verify the grant
+	perms, err := queries.GetTablePermissions(ctx, pool, tableOID)
+	if err != nil {
+		t.Fatalf("GetTablePermissions failed: %v", err)
+	}
+
+	var foundInsert bool
+	for _, p := range perms {
+		if p.Grantee == "test_user" && p.PrivilegeType == "INSERT" {
+			foundInsert = true
+			if p.IsGrantable {
+				t.Error("Expected is_grantable=false for grant without WITH GRANT OPTION")
+			}
+			break
+		}
+	}
+
+	if !foundInsert {
+		t.Error("Expected to find INSERT permission for test_user after grant")
+	}
+}
+
+// TestGrantTablePrivilegeWithGrantOption verifies WITH GRANT OPTION works.
+func TestGrantTablePrivilegeWithGrantOption(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	pool := setupPostgres(t, ctx)
+	createTestRoles(t, ctx, pool)
+	tableOID := createTestTable(t, ctx, pool)
+
+	// Grant UPDATE to test_admin with grant option
+	err := queries.GrantTablePrivilege(ctx, pool, "public", "test_permissions_table", "test_admin", "UPDATE", true)
+	if err != nil {
+		t.Fatalf("GrantTablePrivilege with grant option failed: %v", err)
+	}
+
+	// Verify the grant
+	perms, err := queries.GetTablePermissions(ctx, pool, tableOID)
+	if err != nil {
+		t.Fatalf("GetTablePermissions failed: %v", err)
+	}
+
+	var foundUpdate bool
+	for _, p := range perms {
+		if p.Grantee == "test_admin" && p.PrivilegeType == "UPDATE" {
+			foundUpdate = true
+			if !p.IsGrantable {
+				t.Error("Expected is_grantable=true for grant WITH GRANT OPTION")
+			}
+			break
+		}
+	}
+
+	if !foundUpdate {
+		t.Error("Expected to find UPDATE permission for test_admin after grant")
+	}
+}
+
+// TestRevokeTablePrivilege verifies RevokeTablePrivilege revokes a privilege.
+func TestRevokeTablePrivilege(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	pool := setupPostgres(t, ctx)
+	createTestRoles(t, ctx, pool)
+	tableOID := createTestTable(t, ctx, pool)
+
+	// First grant DELETE to test_user
+	_, err := pool.Exec(ctx, `GRANT DELETE ON test_permissions_table TO test_user`)
+	if err != nil {
+		t.Fatalf("Failed to grant DELETE: %v", err)
+	}
+
+	// Verify it was granted
+	perms, err := queries.GetTablePermissions(ctx, pool, tableOID)
+	if err != nil {
+		t.Fatalf("GetTablePermissions failed: %v", err)
+	}
+
+	var foundDeleteBefore bool
+	for _, p := range perms {
+		if p.Grantee == "test_user" && p.PrivilegeType == "DELETE" {
+			foundDeleteBefore = true
+			break
+		}
+	}
+	if !foundDeleteBefore {
+		t.Fatal("Expected DELETE to be granted before revoke test")
+	}
+
+	// Now revoke it
+	err = queries.RevokeTablePrivilege(ctx, pool, "public", "test_permissions_table", "test_user", "DELETE", false)
+	if err != nil {
+		t.Fatalf("RevokeTablePrivilege failed: %v", err)
+	}
+
+	// Verify it was revoked
+	perms, err = queries.GetTablePermissions(ctx, pool, tableOID)
+	if err != nil {
+		t.Fatalf("GetTablePermissions failed after revoke: %v", err)
+	}
+
+	for _, p := range perms {
+		if p.Grantee == "test_user" && p.PrivilegeType == "DELETE" {
+			t.Error("Expected DELETE permission to be revoked from test_user")
 		}
 	}
 }

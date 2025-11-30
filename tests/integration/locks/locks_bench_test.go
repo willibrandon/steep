@@ -275,7 +275,7 @@ func setupPostgresForBench(b *testing.B, ctx context.Context) *pgxpool.Pool {
 	b.Helper()
 
 	req := testcontainers.ContainerRequest{
-		Image:        "postgres:15-alpine",
+		Image:        "postgres:18-alpine",
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
 			"POSTGRES_USER":     "test",

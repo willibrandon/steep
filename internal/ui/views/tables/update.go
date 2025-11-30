@@ -182,6 +182,79 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return v, nil
 
+	case PermissionsDataMsg:
+		logger.Debug("received PermissionsDataMsg",
+			"tableOID", msg.TableOID,
+			"permCount", len(msg.Permissions),
+			"roleCount", len(msg.RoleNames),
+			"hasError", msg.Error != nil,
+			"dialogExists", v.permissionsDialog != nil)
+		if v.permissionsDialog != nil {
+			v.permissionsDialog.Loading = false
+			if msg.Error != nil {
+				logger.Error("PermissionsDataMsg error", "error", msg.Error)
+				v.permissionsDialog.Error = msg.Error
+			} else {
+				v.permissionsDialog.Permissions = msg.Permissions
+				v.permissionsDialog.RoleNames = msg.RoleNames
+				logger.Debug("permissions dialog updated", "permCount", len(msg.Permissions))
+			}
+		} else {
+			logger.Debug("PermissionsDataMsg received but dialog is nil")
+		}
+		return v, nil
+
+	case PermissionsRefreshMsg:
+		if v.permissionsDialog != nil {
+			v.permissionsDialog.Loading = true
+			return v, v.fetchPermissionsData(v.permissionsDialog.TableOID)
+		}
+		return v, nil
+
+	case GrantPermissionMsg:
+		// Execute grant and refresh
+		if v.readonlyMode {
+			v.showToast("GRANT blocked: read-only mode", true)
+			return v, nil
+		}
+		return v, v.executeGrant(msg.Schema, msg.Table, msg.Role, msg.Privilege, msg.WithGrantOption)
+
+	case GrantPermissionResultMsg:
+		if msg.Success {
+			v.showToast(fmt.Sprintf("Granted %s to %s", msg.Privilege, msg.Role), false)
+			// Refresh permissions
+			if v.permissionsDialog != nil {
+				v.permissionsDialog.Loading = true
+				return v, v.fetchPermissionsData(v.permissionsDialog.TableOID)
+			}
+		} else {
+			errMsg := fmt.Sprintf("Grant failed: %v", msg.Error)
+			v.showToast(errMsg, true)
+		}
+		return v, nil
+
+	case RevokePermissionMsg:
+		// Execute revoke and refresh
+		if v.readonlyMode {
+			v.showToast("REVOKE blocked: read-only mode", true)
+			return v, nil
+		}
+		return v, v.executeRevoke(msg.Schema, msg.Table, msg.Role, msg.Privilege, msg.Cascade)
+
+	case RevokePermissionResultMsg:
+		if msg.Success {
+			v.showToast(fmt.Sprintf("Revoked %s from %s", msg.Privilege, msg.Role), false)
+			// Refresh permissions
+			if v.permissionsDialog != nil {
+				v.permissionsDialog.Loading = true
+				return v, v.fetchPermissionsData(v.permissionsDialog.TableOID)
+			}
+		} else {
+			errMsg := fmt.Sprintf("Revoke failed: %v", msg.Error)
+			v.showToast(errMsg, true)
+		}
+		return v, nil
+
 	case RefreshTablesMsg:
 		// Skip auto-refresh during maintenance operations to avoid timeout errors
 		if v.mode == ModeOperationProgress || v.currentOperation != nil {

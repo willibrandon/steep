@@ -53,6 +53,7 @@ func HelpOverlay(width, height int, pgstattupleAvailable bool) string {
 		{"v", "VACUUM table"},
 		{"a", "ANALYZE table"},
 		{"r", "REINDEX table"},
+		{"p", "View/manage permissions"},
 		{"", ""},
 		{"General", ""},
 		{"R", "Refresh data"},

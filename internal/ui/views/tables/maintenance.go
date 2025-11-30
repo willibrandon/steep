@@ -324,6 +324,184 @@ func (v *TablesView) toggleExpand() {
 	}
 }
 
+// openPermissionsDialog opens the permissions dialog for the selected table.
+func (v *TablesView) openPermissionsDialog() tea.Cmd {
+	// Must have a table selected
+	if v.selectedIdx < 0 || v.selectedIdx >= len(v.treeItems) {
+		logger.Debug("openPermissionsDialog: no item selected")
+		return nil
+	}
+	item := v.treeItems[v.selectedIdx]
+	if item.Table == nil {
+		v.showToast("Select a table first", true)
+		logger.Debug("openPermissionsDialog: selected item is not a table")
+		return nil
+	}
+
+	logger.Debug("openPermissionsDialog: opening for table",
+		"schema", item.Table.SchemaName,
+		"table", item.Table.Name,
+		"oid", item.Table.OID)
+
+	// Create permissions dialog
+	v.permissionsDialog = NewPermissionsDialog(
+		item.Table.OID,
+		item.Table.SchemaName,
+		item.Table.Name,
+		min(80, v.width-4),
+		min(25, v.height-4),
+		v.readonlyMode,
+	)
+	v.mode = ModePermissions
+
+	// Fetch permissions and role names
+	return v.fetchPermissionsData(item.Table.OID)
+}
+
+// fetchPermissionsData returns a command to fetch permissions for a table.
+func (v *TablesView) fetchPermissionsData(tableOID uint32) tea.Cmd {
+	logger.Debug("fetchPermissionsData: creating command", "tableOID", tableOID)
+	return func() tea.Msg {
+		logger.Debug("fetchPermissionsData: executing command", "tableOID", tableOID)
+		if v.pool == nil {
+			logger.Error("fetchPermissionsData: pool is nil")
+			return PermissionsDataMsg{
+				TableOID: tableOID,
+				Error:    fmt.Errorf("database connection not available"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// Fetch permissions
+		logger.Debug("fetchPermissionsData: fetching permissions", "tableOID", tableOID)
+		permissions, err := queries.GetTablePermissions(ctx, v.pool, tableOID)
+		if err != nil {
+			logger.Error("fetchPermissionsData: GetTablePermissions failed", "error", err)
+			return PermissionsDataMsg{
+				TableOID: tableOID,
+				Error:    fmt.Errorf("fetch permissions: %w", err),
+			}
+		}
+		logger.Debug("fetchPermissionsData: got permissions", "count", len(permissions))
+
+		// Fetch role names for grant dialog
+		roleNames, err := queries.GetAllRoleNames(ctx, v.pool)
+		if err != nil {
+			// Non-fatal: we can still show permissions
+			logger.Debug("fetchPermissionsData: GetAllRoleNames failed (non-fatal)", "error", err)
+			roleNames = nil
+		} else {
+			logger.Debug("fetchPermissionsData: got role names", "count", len(roleNames))
+		}
+
+		return PermissionsDataMsg{
+			TableOID:    tableOID,
+			Permissions: permissions,
+			RoleNames:   roleNames,
+		}
+	}
+}
+
+// handlePermissionsKey handles key presses in the permissions dialog.
+func (v *TablesView) handlePermissionsKey(key string) tea.Cmd {
+	if v.permissionsDialog == nil {
+		v.mode = ModeNormal
+		return nil
+	}
+
+	done, cmd := v.permissionsDialog.Update(key)
+	if done {
+		v.permissionsDialog = nil
+		v.mode = ModeNormal
+		return nil
+	}
+	return cmd
+}
+
+// executeGrant executes a GRANT operation.
+func (v *TablesView) executeGrant(schema, table, role, privilege string, withGrantOption bool) tea.Cmd {
+	return func() tea.Msg {
+		if v.pool == nil {
+			return GrantPermissionResultMsg{
+				Schema:    schema,
+				Table:     table,
+				Role:      role,
+				Privilege: privilege,
+				Success:   false,
+				Error:     fmt.Errorf("database connection not available"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := queries.GrantTablePrivilege(ctx, v.pool, schema, table, role, privilege, withGrantOption)
+		if err != nil {
+			logger.Error("GRANT failed", "error", err, "schema", schema, "table", table, "role", role, "privilege", privilege)
+			return GrantPermissionResultMsg{
+				Schema:    schema,
+				Table:     table,
+				Role:      role,
+				Privilege: privilege,
+				Success:   false,
+				Error:     err,
+			}
+		}
+
+		logger.Debug("GRANT succeeded", "schema", schema, "table", table, "role", role, "privilege", privilege)
+		return GrantPermissionResultMsg{
+			Schema:    schema,
+			Table:     table,
+			Role:      role,
+			Privilege: privilege,
+			Success:   true,
+		}
+	}
+}
+
+// executeRevoke executes a REVOKE operation.
+func (v *TablesView) executeRevoke(schema, table, role, privilege string, cascade bool) tea.Cmd {
+	return func() tea.Msg {
+		if v.pool == nil {
+			return RevokePermissionResultMsg{
+				Schema:    schema,
+				Table:     table,
+				Role:      role,
+				Privilege: privilege,
+				Success:   false,
+				Error:     fmt.Errorf("database connection not available"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := queries.RevokeTablePrivilege(ctx, v.pool, schema, table, role, privilege, cascade)
+		if err != nil {
+			logger.Error("REVOKE failed", "error", err, "schema", schema, "table", table, "role", role, "privilege", privilege)
+			return RevokePermissionResultMsg{
+				Schema:    schema,
+				Table:     table,
+				Role:      role,
+				Privilege: privilege,
+				Success:   false,
+				Error:     err,
+			}
+		}
+
+		logger.Debug("REVOKE succeeded", "schema", schema, "table", table, "role", role, "privilege", privilege)
+		return RevokePermissionResultMsg{
+			Schema:    schema,
+			Table:     table,
+			Role:      role,
+			Privilege: privilege,
+			Success:   true,
+		}
+	}
+}
+
 // collapseOrMoveUp collapses the current item or moves to parent.
 func (v *TablesView) collapseOrMoveUp() {
 	if v.selectedIdx < 0 || v.selectedIdx >= len(v.treeItems) {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/willibrandon/steep/internal/logger"
 )
 
 // handleKeyPress processes keyboard input in normal mode.
@@ -69,6 +71,11 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Handle operations menu
 	if v.mode == ModeOperationsMenu {
 		return v.handleOperationsMenuKey(key)
+	}
+
+	// Handle permissions dialog
+	if v.mode == ModePermissions {
+		return v.handlePermissionsKey(key)
 	}
 
 	// Handle details mode
@@ -279,6 +286,13 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Operations menu - shows all maintenance operations
 	case "x":
 		return v.openOperationsMenu()
+
+	// Permissions dialog - show table permissions
+	case "p":
+		logger.Debug("input: 'p' key pressed, calling openPermissionsDialog")
+		cmd := v.openPermissionsDialog()
+		logger.Debug("input: openPermissionsDialog returned", "cmdIsNil", cmd == nil)
+		return cmd
 
 	// Resize split (only when index panel is visible)
 	// - shrinks index panel, + grows index panel

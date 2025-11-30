@@ -54,6 +54,11 @@ func (v *TablesView) View() string {
 		return v.renderOperationProgress()
 	}
 
+	// Permissions dialog
+	if v.mode == ModePermissions && v.permissionsDialog != nil {
+		return v.renderPermissionsDialog()
+	}
+
 	return v.renderMainView()
 }
 
@@ -576,12 +581,27 @@ func (v *TablesView) renderFooter() string {
 		indexes := v.getSelectedTableIndexes()
 		showIndexPanel := len(indexes) > 0
 
+		// Check if a table is selected (for permissions hint)
+		tableSelected := false
+		if v.selectedIdx >= 0 && v.selectedIdx < len(v.treeItems) {
+			item := v.treeItems[v.selectedIdx]
+			tableSelected = item.Table != nil
+		}
+
 		if v.focusPanel == FocusIndexes {
 			hints = styles.FooterHintStyle.Render("[j/k]nav [i]tables [y]copy [s/S]ort [-/+]resize [R]efresh [h]elp")
 		} else if showIndexPanel {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [-/+]resize [x]ops [h]elp")
+			if tableSelected {
+				hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [-/+]resize [x]ops [p]erms [h]elp")
+			} else {
+				hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [-/+]resize [x]ops [h]elp")
+			}
 		} else {
-			hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [P]sys [x]ops [h]elp")
+			if tableSelected {
+				hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [P]sys [x]ops [p]erms [h]elp")
+			} else {
+				hints = styles.FooterHintStyle.Render("[j/k]nav [Enter/d]details [i]ndex [y]copy [s/S]ort [P]sys [x]ops [h]elp")
+			}
 		}
 	}
 
@@ -824,4 +844,19 @@ func (v *TablesView) formatDuration(d time.Duration) string {
 	minutes := int(d.Minutes())
 	seconds := int(d.Seconds()) % 60
 	return fmt.Sprintf("%dm %ds", minutes, seconds)
+}
+
+// renderPermissionsDialog renders the permissions dialog overlay.
+func (v *TablesView) renderPermissionsDialog() string {
+	if v.permissionsDialog == nil {
+		return v.renderMainView()
+	}
+
+	dialogContent := v.permissionsDialog.View()
+
+	return lipgloss.Place(
+		v.width, v.height,
+		lipgloss.Center, lipgloss.Center,
+		dialogContent,
+	)
 }

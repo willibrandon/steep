@@ -112,7 +112,7 @@ func (h *testPTYHelper) waitForScreen(contains string, timeout time.Duration) bo
 func setupTestContainer(t *testing.T, ctx context.Context) (testcontainers.Container, string, string) {
 	t.Log("Starting PostgreSQL testcontainer...")
 	req := testcontainers.ContainerRequest{
-		Image:        "postgres:15-alpine",
+		Image:        "postgres:18-alpine",
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
 			"POSTGRES_USER":     "test",
@@ -608,7 +608,7 @@ func TestReplicationViewMouseClick(t *testing.T) {
 	// Start PostgreSQL with logical replication enabled for slots
 	t.Log("Starting PostgreSQL with wal_level=logical...")
 	req := testcontainers.ContainerRequest{
-		Image:        "postgres:15-alpine",
+		Image:        "postgres:18-alpine",
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
 			"POSTGRES_USER":     "test",

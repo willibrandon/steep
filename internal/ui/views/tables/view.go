@@ -34,6 +34,7 @@ const (
 	ModeOperationsMenu    // Show operation selection menu
 	ModeOperationProgress // Show progress for running operation
 	ModeConfirmCancel     // Confirm operation cancellation
+	ModePermissions       // Show permissions dialog
 )
 
 // FocusPanel indicates which panel has keyboard focus.
@@ -227,6 +228,9 @@ type TablesView struct {
 	pendingVacuumFull    bool                         // If true, execute VACUUM FULL instead of VACUUM
 	pendingVacuumAnalyze bool                         // If true, execute VACUUM ANALYZE instead of VACUUM
 	pollingInProgress    bool                         // If true, a progress poll is already running
+
+	// Permissions dialog state
+	permissionsDialog *PermissionsDialog // Active permissions dialog (nil if not showing)
 
 	// App state
 	readonlyMode   bool

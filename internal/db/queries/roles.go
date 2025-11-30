@@ -375,3 +375,132 @@ func FormatValidUntil(t *time.Time) string {
 	}
 	return t.Format("2006-01-02")
 }
+
+// TablePermission represents a permission on a table.
+type TablePermission struct {
+	ObjectType    string
+	ObjectOID     uint32
+	ObjectName    string
+	Grantee       string
+	Grantor       string
+	PrivilegeType string
+	IsGrantable   bool
+}
+
+// GetTablePermissions returns all permissions on a table using aclexplode().
+func GetTablePermissions(ctx context.Context, pool *pgxpool.Pool, tableOID uint32) ([]TablePermission, error) {
+	// Use LATERAL join to properly expand ACL entries
+	// Handle grantee = 0 (PUBLIC) with CASE statement
+	query := `
+SELECT
+    'table' AS object_type,
+    c.oid AS object_oid,
+    n.nspname || '.' || c.relname AS object_name,
+    CASE WHEN acl.grantee = 0 THEN 'public' ELSE acl.grantee::regrole::text END AS grantee,
+    acl.grantor::regrole::text AS grantor,
+    acl.privilege_type AS privilege_type,
+    acl.is_grantable AS is_grantable
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace,
+LATERAL aclexplode(c.relacl) AS acl
+WHERE c.oid = $1
+ORDER BY grantee, privilege_type`
+
+	rows, err := pool.Query(ctx, query, tableOID)
+	if err != nil {
+		return nil, fmt.Errorf("query table permissions: %w", err)
+	}
+	defer rows.Close()
+
+	var permissions []TablePermission
+	for rows.Next() {
+		var p TablePermission
+		err := rows.Scan(
+			&p.ObjectType,
+			&p.ObjectOID,
+			&p.ObjectName,
+			&p.Grantee,
+			&p.Grantor,
+			&p.PrivilegeType,
+			&p.IsGrantable,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan permission: %w", err)
+		}
+		permissions = append(permissions, p)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate permissions: %w", err)
+	}
+
+	return permissions, nil
+}
+
+// GrantTablePrivilege grants a privilege on a table to a role.
+func GrantTablePrivilege(ctx context.Context, pool *pgxpool.Pool, schema, table, role, privilege string, withGrantOption bool) error {
+	// Build the GRANT statement using quoted identifiers
+	sql := fmt.Sprintf("GRANT %s ON %s.%s TO %s",
+		privilege,
+		quoteIdentifier(schema),
+		quoteIdentifier(table),
+		quoteIdentifier(role))
+
+	if withGrantOption {
+		sql += " WITH GRANT OPTION"
+	}
+
+	_, err := pool.Exec(ctx, sql)
+	if err != nil {
+		return fmt.Errorf("grant privilege: %w", err)
+	}
+
+	return nil
+}
+
+// RevokeTablePrivilege revokes a privilege from a role on a table.
+func RevokeTablePrivilege(ctx context.Context, pool *pgxpool.Pool, schema, table, role, privilege string, cascade bool) error {
+	// Build the REVOKE statement using quoted identifiers
+	sql := fmt.Sprintf("REVOKE %s ON %s.%s FROM %s",
+		privilege,
+		quoteIdentifier(schema),
+		quoteIdentifier(table),
+		quoteIdentifier(role))
+
+	if cascade {
+		sql += " CASCADE"
+	}
+
+	_, err := pool.Exec(ctx, sql)
+	if err != nil {
+		return fmt.Errorf("revoke privilege: %w", err)
+	}
+
+	return nil
+}
+
+// GetAllRoleNames returns a list of all role names for use in UI selectors.
+func GetAllRoleNames(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	query := `SELECT rolname FROM pg_roles ORDER BY rolname`
+
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query role names: %w", err)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan role name: %w", err)
+		}
+		names = append(names, name)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate role names: %w", err)
+	}
+
+	return names, nil
+}

@@ -185,19 +185,19 @@
 
 ### Tests for User Story 6
 
-- [ ] T060 [P] [US6] Add TestGetTablePermissions, TestGrantTablePrivilege, TestRevokeTablePrivilege tests to `tests/integration/roles_test.go`
+- [x] T060 [P] [US6] Add TestGetTablePermissions, TestGrantTablePrivilege, TestRevokeTablePrivilege tests to `tests/integration/roles_test.go`
 
 ### Implementation for User Story 6
 
-- [ ] T061 [US6] Implement GetTablePermissions function in `internal/db/queries/roles.go` using aclexplode() per contracts/roles.go.md
-- [ ] T062 [US6] Implement GrantTablePrivilege function in `internal/db/queries/roles.go` with SQL generation per contracts/roles.go.md
-- [ ] T063 [US6] Implement RevokeTablePrivilege function in `internal/db/queries/roles.go` with optional CASCADE per contracts/roles.go.md
-- [ ] T064 [US6] Create `internal/ui/views/tables/permissions.go` with PermissionsDialog component
-- [ ] T065 [US6] Implement permissions list view showing current grants in `internal/ui/views/tables/permissions.go`
-- [ ] T066 [US6] Add GRANT dialog with role selector and privilege type picker in `internal/ui/views/tables/permissions.go`
-- [ ] T067 [US6] Add REVOKE confirmation dialog with optional CASCADE warning in `internal/ui/views/tables/permissions.go`
-- [ ] T068 [US6] Wire permissions dialog to table details panel or operations menu in `internal/ui/views/tables/view.go`
-- [ ] T069 [US6] Enforce read-only mode blocking for GRANT/REVOKE operations in `internal/ui/views/tables/permissions.go`
+- [x] T061 [US6] Implement GetTablePermissions function in `internal/db/queries/roles.go` using aclexplode() per contracts/roles.go.md
+- [x] T062 [US6] Implement GrantTablePrivilege function in `internal/db/queries/roles.go` with SQL generation per contracts/roles.go.md
+- [x] T063 [US6] Implement RevokeTablePrivilege function in `internal/db/queries/roles.go` with optional CASCADE per contracts/roles.go.md
+- [x] T064 [US6] Create `internal/ui/views/tables/permissions.go` with PermissionsDialog component
+- [x] T065 [US6] Implement permissions list view showing current grants in `internal/ui/views/tables/permissions.go`
+- [x] T066 [US6] Add GRANT dialog with role selector and privilege type picker in `internal/ui/views/tables/permissions.go`
+- [x] T067 [US6] Add REVOKE confirmation dialog with optional CASCADE warning in `internal/ui/views/tables/permissions.go`
+- [x] T068 [US6] Wire permissions dialog to table details panel or operations menu in `internal/ui/views/tables/view.go`
+- [x] T069 [US6] Enforce read-only mode blocking for GRANT/REVOKE operations in `internal/ui/views/tables/permissions.go`
 
 **Checkpoint**: Full permission management - view, grant, revoke permissions with confirmation
 

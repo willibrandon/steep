@@ -34,7 +34,7 @@ func TestMouseClickPTY(t *testing.T) {
 	// Start PostgreSQL testcontainer
 	t.Log("Starting PostgreSQL testcontainer...")
 	req := testcontainers.ContainerRequest{
-		Image:        "postgres:15-alpine",
+		Image:        "postgres:18-alpine",
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
 			"POSTGRES_USER":     "test",

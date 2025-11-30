@@ -931,6 +931,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd := m.tablesView.Update(msg)
 		return m, cmd
 
+	case tablesview.PermissionsDataMsg:
+		// Forward permissions data to tables view
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
+	case tablesview.GrantPermissionMsg:
+		// Forward grant request to tables view
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
+	case tablesview.GrantPermissionResultMsg:
+		// Forward grant result to tables view
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
+	case tablesview.RevokePermissionMsg:
+		// Forward revoke request to tables view
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
+	case tablesview.RevokePermissionResultMsg:
+		// Forward revoke result to tables view
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
+	case tablesview.PermissionsRefreshMsg:
+		// Forward permissions refresh to tables view
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
 	case spinner.TickMsg:
 		// Forward spinner ticks to locks, queries, and tables views
 		_, locksCmd := m.locksView.Update(msg)
