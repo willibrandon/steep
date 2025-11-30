@@ -124,8 +124,21 @@ func (v *SQLEditorView) ensureColumnVisible() {
 // handleMouseMsg handles mouse events for scrolling and clicking.
 // Routes events to vimtea editor or results table based on focus.
 func (v *SQLEditorView) handleMouseMsg(msg tea.MouseMsg) tea.Cmd {
-	// Don't handle mouse during execution or help mode
-	if v.mode == ModeExecuting || v.mode == ModeHelp {
+	// Don't handle mouse during execution
+	if v.mode == ModeExecuting {
+		return nil
+	}
+
+	// Handle mouse wheel in help mode
+	if v.mode == ModeHelp {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			if v.helpScroll > 0 {
+				v.helpScroll--
+			}
+		case tea.MouseButtonWheelDown:
+			v.helpScroll++
+		}
 		return nil
 	}
 
