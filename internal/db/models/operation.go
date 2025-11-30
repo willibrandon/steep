@@ -21,6 +21,7 @@ type MaintenanceOperation struct {
 
 // OperationProgress contains real-time progress data for trackable operations.
 type OperationProgress struct {
+	PID              int // Backend PID (for cancellation)
 	Phase            string
 	HeapBlksTotal    int64
 	HeapBlksScanned  int64

@@ -178,6 +178,7 @@ func GetVacuumProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, tabl
 		return nil, fmt.Errorf("get vacuum progress for %s.%s: %w", schemaName, tableName, err)
 	}
 
+	progress.PID = pid
 	progress.PercentComplete = progressPct
 	progress.LastUpdated = time.Now()
 	return &progress, nil
@@ -228,6 +229,7 @@ func GetVacuumFullProgress(ctx context.Context, pool *pgxpool.Pool, schemaName, 
 		return nil, fmt.Errorf("get vacuum full progress for %s.%s: %w", schemaName, tableName, err)
 	}
 
+	progress.PID = pid
 	progress.PercentComplete = progressPct
 	progress.LastUpdated = time.Now()
 	return &progress, nil

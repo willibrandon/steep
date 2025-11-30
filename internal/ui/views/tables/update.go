@@ -182,6 +182,30 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return v, nil
 
+	case OperationCancelledMsg:
+		v.mode = ModeNormal
+		v.pollingInProgress = false
+		if msg.Error != nil {
+			// Cancel call itself failed
+			v.showToast(fmt.Sprintf("Cancel failed: %v", msg.Error), true)
+			logger.Error("cancel operation failed", "pid", msg.PID, "error", msg.Error)
+		} else if msg.Cancelled {
+			// Successfully sent cancel signal
+			v.showToast("Operation cancelled", false)
+			v.currentOperation = nil
+			v.maintenanceTarget = nil
+			logger.Debug("operation cancelled", "pid", msg.PID)
+			// Refresh data after cancellation
+			return v, v.fetchTablesData()
+		} else {
+			// pg_cancel_backend returned false - process may have already completed
+			v.showToast("Cancel signal sent (process may have completed)", false)
+			v.currentOperation = nil
+			v.maintenanceTarget = nil
+			logger.Debug("cancel signal sent but returned false", "pid", msg.PID)
+		}
+		return v, nil
+
 	case PermissionsDataMsg:
 		logger.Debug("received PermissionsDataMsg",
 			"tableOID", msg.TableOID,

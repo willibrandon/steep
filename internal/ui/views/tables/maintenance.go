@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/db/queries"
@@ -500,6 +501,116 @@ func (v *TablesView) executeRevoke(schema, table, role, privilege string, cascad
 			Success:   true,
 		}
 	}
+}
+
+// cancelOperation attempts to cancel the currently running operation.
+func (v *TablesView) cancelOperation() tea.Cmd {
+	if v.currentOperation == nil || v.maintenanceTarget == nil || v.pool == nil {
+		v.mode = ModeNormal
+		return nil
+	}
+
+	op := v.currentOperation
+	target := v.maintenanceTarget
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// First, find the PID of the running operation
+		var pid int
+		var progress *models.OperationProgress
+		var err error
+
+		switch op.Type {
+		case models.OpVacuum, models.OpVacuumAnalyze:
+			progress, err = queries.GetVacuumProgress(ctx, v.pool, target.SchemaName, target.Name)
+		case models.OpVacuumFull:
+			progress, err = queries.GetVacuumFullProgress(ctx, v.pool, target.SchemaName, target.Name)
+		default:
+			// For operations without progress tracking, we can't get the PID easily
+			// Try querying pg_stat_activity directly
+			var found bool
+			pid, found, err = findMaintenancePID(ctx, v.pool, target.SchemaName, target.Name, op.Type)
+			if err != nil || !found {
+				return OperationCancelledMsg{
+					PID:       0,
+					Cancelled: false,
+					Error:     fmt.Errorf("could not find operation PID: operation may have already completed"),
+				}
+			}
+		}
+
+		if err != nil {
+			return OperationCancelledMsg{
+				PID:       0,
+				Cancelled: false,
+				Error:     fmt.Errorf("get progress: %w", err),
+			}
+		}
+
+		// Get PID from progress if we have it
+		if progress != nil && progress.PID > 0 {
+			pid = progress.PID
+		}
+
+		if pid == 0 {
+			// Operation may have already completed
+			return OperationCancelledMsg{
+				PID:       0,
+				Cancelled: false,
+				Error:     fmt.Errorf("operation not found: may have already completed"),
+			}
+		}
+
+		logger.Debug("cancelling operation", "pid", pid, "operation", op.Type, "table", target.Name)
+
+		// Call pg_cancel_backend
+		cancelled, err := queries.CancelBackend(ctx, v.pool, pid)
+		if err != nil {
+			return OperationCancelledMsg{
+				PID:       pid,
+				Cancelled: false,
+				Error:     err,
+			}
+		}
+
+		return OperationCancelledMsg{
+			PID:       pid,
+			Cancelled: cancelled,
+			Error:     nil,
+		}
+	}
+}
+
+// findMaintenancePID queries pg_stat_activity to find a running maintenance operation.
+func findMaintenancePID(ctx context.Context, pool *pgxpool.Pool, schema, table string, opType models.OperationType) (int, bool, error) {
+	var queryPattern string
+	switch opType {
+	case models.OpAnalyze:
+		queryPattern = fmt.Sprintf("ANALYZE.*%s\\.%s", schema, table)
+	case models.OpReindexTable, models.OpReindexConcurrently:
+		queryPattern = fmt.Sprintf("REINDEX.*%s\\.%s", schema, table)
+	default:
+		queryPattern = fmt.Sprintf("(VACUUM|ANALYZE).*%s\\.%s", schema, table)
+	}
+
+	query := `
+		SELECT pid FROM pg_stat_activity
+		WHERE state = 'active'
+		  AND query ~* $1
+		LIMIT 1
+	`
+
+	var pid int
+	err := pool.QueryRow(ctx, query, queryPattern).Scan(&pid)
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return pid, true, nil
 }
 
 // collapseOrMoveUp collapses the current item or moves to parent.

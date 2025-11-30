@@ -174,6 +174,18 @@ type (
 
 	// ProgressTickMsg triggers a progress poll.
 	ProgressTickMsg struct{}
+
+	// CancelOperationMsg signals that the user wants to cancel an operation.
+	CancelOperationMsg struct {
+		PID int // PID of the backend to cancel
+	}
+
+	// OperationCancelledMsg contains the result of a cancellation attempt.
+	OperationCancelledMsg struct {
+		PID       int
+		Cancelled bool  // True if pg_cancel_backend returned true
+		Error     error // Non-nil if the cancel call itself failed
+	}
 )
 
 // TablesView displays schema and table statistics.

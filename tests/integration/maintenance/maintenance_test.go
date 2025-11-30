@@ -240,6 +240,253 @@ func TestGetRunningMaintenanceOperations(t *testing.T) {
 	}
 }
 
+// TestCancelBackendWithRunningQuery verifies CancelBackend can cancel an actual running query.
+func TestCancelBackendWithRunningQuery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	pool := setupPostgres(t, ctx)
+
+	// Channel to receive PID from the long-running query
+	pidChan := make(chan int, 1)
+	errChan := make(chan error, 1)
+
+	// Start a long-running query in a goroutine
+	go func() {
+		// Get a dedicated connection for the long-running query
+		conn, err := pool.Acquire(ctx)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		defer conn.Release()
+
+		// Get the backend PID
+		var pid int
+		err = conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		pidChan <- pid
+
+		// Run a long sleep (will be cancelled)
+		_, err = conn.Exec(ctx, "SELECT pg_sleep(30)")
+		// We expect this to fail due to cancellation
+		errChan <- err
+	}()
+
+	// Wait for the PID
+	var pid int
+	select {
+	case pid = <-pidChan:
+		t.Logf("Long-running query started with PID %d", pid)
+	case err := <-errChan:
+		t.Fatalf("Failed to start long-running query: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for long-running query to start")
+	}
+
+	// Give the query a moment to start sleeping
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel the backend
+	cancelled, err := queries.CancelBackend(ctx, pool, pid)
+	if err != nil {
+		t.Fatalf("CancelBackend failed: %v", err)
+	}
+	if !cancelled {
+		t.Error("Expected CancelBackend to return true for running query")
+	}
+
+	// Wait for the query to finish (with error due to cancellation)
+	select {
+	case err := <-errChan:
+		if err == nil {
+			t.Error("Expected error from cancelled query, got nil")
+		} else {
+			t.Logf("Query cancelled as expected: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("Timeout waiting for cancelled query to finish")
+	}
+}
+
+// TestVacuumProgressIncludesPID verifies that vacuum progress tracking returns the PID.
+func TestVacuumProgressIncludesPID(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	pool := setupPostgres(t, ctx)
+
+	// Create a large table to have enough time to catch progress
+	_, err := pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS test_vacuum_progress (
+			id SERIAL PRIMARY KEY,
+			data TEXT
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create test table: %v", err)
+	}
+
+	// Insert 1M rows to make vacuum take long enough to catch
+	t.Log("Inserting 1M rows...")
+	_, err = pool.Exec(ctx, `
+		INSERT INTO test_vacuum_progress (data)
+		SELECT repeat(md5(random()::text), 10)
+		FROM generate_series(1, 1000000)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to insert test data: %v", err)
+	}
+
+	// Delete half to create dead tuples
+	t.Log("Deleting 500K rows to create dead tuples...")
+	_, err = pool.Exec(ctx, `DELETE FROM test_vacuum_progress WHERE id <= 500000`)
+	if err != nil {
+		t.Fatalf("Failed to delete test data: %v", err)
+	}
+
+	// Start VACUUM in a goroutine
+	vacuumDone := make(chan error, 1)
+	go func() {
+		_, err := pool.Exec(ctx, "VACUUM test_vacuum_progress")
+		vacuumDone <- err
+	}()
+
+	// Poll for progress - with 1M rows we should reliably catch it
+	var foundProgress bool
+	t.Log("Starting VACUUM and polling for progress...")
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		progress, err := queries.GetVacuumProgress(ctx, pool, "public", "test_vacuum_progress")
+		if err != nil {
+			t.Logf("Progress poll error (may be expected): %v", err)
+		}
+		if progress != nil {
+			foundProgress = true
+			t.Logf("Found vacuum progress: PID=%d, Phase=%s, Percent=%.1f%%",
+				progress.PID, progress.Phase, progress.PercentComplete)
+			if progress.PID == 0 {
+				t.Error("Expected non-zero PID in progress")
+			}
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Wait for VACUUM to complete
+	select {
+	case err := <-vacuumDone:
+		if err != nil {
+			t.Fatalf("VACUUM failed: %v", err)
+		}
+	case <-time.After(120 * time.Second):
+		t.Fatal("VACUUM timed out")
+	}
+
+	// With 1M rows we should have caught the progress
+	if !foundProgress {
+		t.Error("Expected to catch vacuum progress with 1M rows")
+	}
+}
+
+// TestCancelRunningVacuum verifies we can cancel a running VACUUM operation.
+func TestCancelRunningVacuum(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	pool := setupPostgres(t, ctx)
+
+	// Create a large table to ensure VACUUM takes long enough to cancel
+	_, err := pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS test_cancel_vacuum (
+			id SERIAL PRIMARY KEY,
+			data TEXT
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create test table: %v", err)
+	}
+
+	// Insert 1M rows
+	t.Log("Inserting 1M rows...")
+	_, err = pool.Exec(ctx, `
+		INSERT INTO test_cancel_vacuum (data)
+		SELECT repeat(md5(random()::text), 10)
+		FROM generate_series(1, 1000000)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to insert test data: %v", err)
+	}
+
+	// Delete half to create dead tuples
+	t.Log("Deleting 500K rows to create dead tuples...")
+	_, err = pool.Exec(ctx, `DELETE FROM test_cancel_vacuum WHERE id <= 500000`)
+	if err != nil {
+		t.Fatalf("Failed to delete test data: %v", err)
+	}
+
+	// Start VACUUM in a goroutine
+	t.Log("Starting VACUUM...")
+	vacuumDone := make(chan error, 1)
+	go func() {
+		_, err := pool.Exec(ctx, "VACUUM test_cancel_vacuum")
+		vacuumDone <- err
+	}()
+
+	// Wait a bit for VACUUM to start, then try to find and cancel it
+	time.Sleep(100 * time.Millisecond)
+
+	var cancelled bool
+	var foundPID int
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		progress, err := queries.GetVacuumProgress(ctx, pool, "public", "test_cancel_vacuum")
+		if err != nil {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		if progress != nil && progress.PID > 0 {
+			foundPID = progress.PID
+			t.Logf("Found VACUUM with PID %d at %.1f%%, attempting to cancel...",
+				progress.PID, progress.PercentComplete)
+			cancelled, err = queries.CancelBackend(ctx, pool, progress.PID)
+			if err != nil {
+				t.Logf("Cancel error: %v", err)
+			} else if cancelled {
+				t.Log("Successfully sent cancel signal")
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Wait for VACUUM to complete (should be cancelled)
+	select {
+	case err := <-vacuumDone:
+		if cancelled {
+			// If we cancelled, we expect an error
+			if err != nil {
+				t.Logf("VACUUM cancelled as expected: %v", err)
+			} else {
+				t.Error("Expected VACUUM to fail after cancellation, but it succeeded")
+			}
+		} else {
+			t.Errorf("Failed to cancel VACUUM (foundPID=%d)", foundPID)
+		}
+	case <-time.After(120 * time.Second):
+		t.Fatal("VACUUM timed out")
+	}
+}
+
 // TestGetTablesWithVacuumStatus verifies tables are returned with vacuum status fields.
 func TestGetTablesWithVacuumStatus(t *testing.T) {
 	if testing.Short() {

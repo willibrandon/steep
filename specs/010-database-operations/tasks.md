@@ -211,11 +211,11 @@
 
 ### Implementation for Cancellation
 
-- [ ] T070 Implement CancelOperation function calling pg_cancel_backend in `internal/db/queries/maintenance.go` per contracts/maintenance.go.md
-- [ ] T071 Add `c` key binding in ModeOperationProgress to show cancel confirmation in `internal/ui/views/tables/view.go`
-- [ ] T072 Create cancel confirmation dialog (ModeConfirmCancel) in `internal/ui/views/tables/operations.go`
-- [ ] T073 Handle CancelOperationMsg and OperationCancelledMsg in TablesView.Update() in `internal/ui/views/tables/view.go`
-- [ ] T074 Add cancel hint "[c] Cancel operation" to progress indicator view in `internal/ui/views/tables/operations.go`
+- [x] T070 Implement CancelOperation function calling pg_cancel_backend in `internal/db/queries/maintenance.go` per contracts/maintenance.go.md
+- [x] T071 Add `c` key binding in ModeOperationProgress to show cancel confirmation in `internal/ui/views/tables/view.go`
+- [x] T072 Create cancel confirmation dialog (ModeConfirmCancel) in `internal/ui/views/tables/operations.go`
+- [x] T073 Handle CancelOperationMsg and OperationCancelledMsg in TablesView.Update() in `internal/ui/views/tables/view.go`
+- [x] T074 Add cancel hint "[c] Cancel operation" to progress indicator view in `internal/ui/views/tables/operations.go`
 
 **Checkpoint**: Users can cancel long-running operations with confirmation
 

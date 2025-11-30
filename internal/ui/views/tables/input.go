@@ -62,8 +62,21 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			v.mode = ModeNormal
 			v.showToast("Operation continues in background", false)
 		case "c", "C":
-			// TODO: Cancel operation (would need to track PID and call pg_cancel_backend)
-			v.showToast("Cancel not yet implemented", true)
+			// Show cancel confirmation dialog
+			v.mode = ModeConfirmCancel
+		}
+		return nil
+	}
+
+	// Handle cancel confirmation mode
+	if v.mode == ModeConfirmCancel {
+		switch key {
+		case "y", "Y", "enter":
+			// User confirmed - cancel the operation
+			return v.cancelOperation()
+		case "n", "N", "esc", "q":
+			// User declined - return to progress view
+			v.mode = ModeOperationProgress
 		}
 		return nil
 	}

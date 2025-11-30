@@ -54,6 +54,11 @@ func (v *TablesView) View() string {
 		return v.renderOperationProgress()
 	}
 
+	// Cancel confirmation dialog
+	if v.mode == ModeConfirmCancel {
+		return v.renderCancelConfirm()
+	}
+
 	// Permissions dialog
 	if v.mode == ModePermissions && v.permissionsDialog != nil {
 		return v.renderPermissionsDialog()
@@ -802,7 +807,7 @@ func (v *TablesView) renderOperationProgress() string {
 	// Footer hints
 	b.WriteString("\n")
 	footerStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
-	b.WriteString(footerStyle.Render("[Esc] Continue in background"))
+	b.WriteString(footerStyle.Render("[c] Cancel  [Esc] Continue in background"))
 
 	// Wrap in dialog
 	dialogStyle := lipgloss.NewStyle().
@@ -815,6 +820,24 @@ func (v *TablesView) renderOperationProgress() string {
 		v.width, v.height,
 		lipgloss.Center, lipgloss.Center,
 		dialogStyle.Render(b.String()),
+	)
+}
+
+// renderCancelConfirm renders the cancel confirmation dialog.
+func (v *TablesView) renderCancelConfirm() string {
+	if v.currentOperation == nil {
+		return v.renderMainView()
+	}
+
+	dialog := &CancelConfirmDialog{
+		Operation: v.currentOperation,
+		Width:     50,
+	}
+
+	return lipgloss.Place(
+		v.width, v.height,
+		lipgloss.Center, lipgloss.Center,
+		dialog.View(),
 	)
 }
 
