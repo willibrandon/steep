@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/metrics"
+	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
@@ -21,15 +23,20 @@ type DashboardView struct {
 	// Components
 	metricsPanel     *components.MetricsPanel
 	timeSeriesPanel  *components.TimeSeriesPanel
+	heatmapPanel     *components.HeatmapPanel
 
 	// Metrics collector for graph data
 	metricsCollector *metrics.Collector
+
+	// Metrics store for heatmap data
+	metricsStore *sqlite.MetricsStore
 
 	// State
 	connected        bool
 	connectionInfo   string
 	lastUpdate       time.Time
 	chartsVisible    bool
+	heatmapVisible   bool
 	timeWindow       metrics.TimeWindow
 
 	// Data
@@ -39,10 +46,15 @@ type DashboardView struct {
 
 // NewDashboard creates a new dashboard view.
 func NewDashboard() *DashboardView {
+	heatmapConfig := components.DefaultHeatmapConfig()
+	heatmapConfig.Title = "TPS Heatmap (7 days)"
+
 	return &DashboardView{
 		metricsPanel:    components.NewMetricsPanel(),
 		timeSeriesPanel: components.NewTimeSeriesPanel(),
+		heatmapPanel:    components.NewHeatmapPanel(heatmapConfig),
 		chartsVisible:   true,
+		heatmapVisible:  false, // Hidden by default
 		timeWindow:      metrics.TimeWindow1h,
 	}
 }
@@ -84,9 +96,13 @@ func (d *DashboardView) handleKeyPress(msg tea.KeyMsg) (ViewModel, tea.Cmd) {
 	case "W":
 		d.cycleTimeWindow(false) // Backward
 
-	// Chart visibility toggle
-	case "v":
-		d.chartsVisible = !d.chartsVisible
+	// Heatmap visibility toggle
+	case "H":
+		d.heatmapVisible = !d.heatmapVisible
+		d.heatmapPanel.SetVisible(d.heatmapVisible)
+		if d.heatmapVisible {
+			d.updateHeatmapData()
+		}
 	}
 
 	return d, nil
@@ -140,6 +156,36 @@ func (d *DashboardView) updateChartData() {
 	d.timeSeriesPanel.SetTPSData(tpsData)
 	d.timeSeriesPanel.SetConnectionsData(connData)
 	d.timeSeriesPanel.SetCacheHitData(cacheData)
+
+	// Update heatmap if visible
+	if d.heatmapVisible {
+		d.updateHeatmapData()
+	}
+}
+
+// updateHeatmapData fetches aggregated data for the heatmap.
+func (d *DashboardView) updateHeatmapData() {
+	if d.metricsStore == nil {
+		return
+	}
+
+	// Get last 7 days of TPS data aggregated by day/hour
+	since := time.Now().AddDate(0, 0, -7)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	matrix, minVal, maxVal, err := d.metricsStore.GetHourlyAggregatesMatrix(
+		ctx,
+		string(metrics.MetricTPS),
+		"", // Global metric (no key)
+		since,
+	)
+	if err != nil {
+		// Log error but don't crash - heatmap will show "collecting data"
+		return
+	}
+
+	d.heatmapPanel.SetData(matrix, minVal, maxVal)
 }
 
 // View renders the dashboard view.
@@ -160,9 +206,15 @@ func (d *DashboardView) renderMain() string {
 	metricsPanel := d.renderMetricsPanel()
 	footer := d.renderFooter()
 
+	// Calculate heatmap height if visible
+	heatmapHeight := 0
+	if d.heatmapVisible {
+		heatmapHeight = d.heatmapPanel.Height()
+	}
+
 	// Calculate remaining height for charts or placeholder
 	footerHeight := lipgloss.Height(footer)
-	chrome := lipgloss.Height(statusBar) + lipgloss.Height(metricsPanel) + footerHeight
+	chrome := lipgloss.Height(statusBar) + lipgloss.Height(metricsPanel) + footerHeight + heatmapHeight
 	contentHeight := max(minPlaceholderHeight, d.height-chrome)
 
 	var content string
@@ -172,13 +224,21 @@ func (d *DashboardView) renderMain() string {
 		content = d.renderPlaceholderWithHeight(contentHeight)
 	}
 
-	// Top section (status bar, metrics, content)
-	topSection := lipgloss.JoinVertical(
-		lipgloss.Left,
+	// Build sections list
+	sections := []string{
 		statusBar,
 		metricsPanel,
 		content,
-	)
+	}
+
+	// Add heatmap if visible
+	if d.heatmapVisible {
+		d.heatmapPanel.SetSize(d.width - 2)
+		sections = append(sections, d.heatmapPanel.View())
+	}
+
+	// Top section (status bar, metrics, content, heatmap)
+	topSection := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
 	// Push footer to bottom of view
 	return lipgloss.JoinVertical(
@@ -263,16 +323,16 @@ func (d *DashboardView) renderFooter() string {
 	activeStyle := lipgloss.NewStyle().Foreground(styles.ColorActive).Bold(true)
 	windowHint := "[w]Window: " + activeStyle.Render(d.timeWindow.String())
 
-	// Chart toggle hint
-	var toggleHint string
-	if d.chartsVisible {
-		toggleHint = "[v]Hide"
+	// Heatmap toggle hint
+	var heatmapHint string
+	if d.heatmapVisible {
+		heatmapHint = "[H]Hide Heatmap"
 	} else {
-		toggleHint = "[v]Show"
+		heatmapHint = "[H]Show Heatmap"
 	}
 
 	// Dashboard-specific hints
-	dashboardHints := windowHint + " " + toggleHint + " [?]Help"
+	dashboardHints := windowHint + " " + heatmapHint + " [?]Help"
 
 	// Navigation hints
 	navHints := "[1]Dashboard [2]Activity [3]Queries [4]Locks [5]Tables [6]Replication [7]SQL [8]Config [9]Logs [0]Roles"
@@ -367,4 +427,23 @@ func (d *DashboardView) GetChartsVisible() bool {
 // SetChartsVisible sets the chart visibility state (for global toggle).
 func (d *DashboardView) SetChartsVisible(visible bool) {
 	d.chartsVisible = visible
+}
+
+// SetMetricsStore sets the metrics store for heatmap data.
+func (d *DashboardView) SetMetricsStore(store *sqlite.MetricsStore) {
+	d.metricsStore = store
+}
+
+// GetHeatmapVisible returns the current heatmap visibility state.
+func (d *DashboardView) GetHeatmapVisible() bool {
+	return d.heatmapVisible
+}
+
+// SetHeatmapVisible sets the heatmap visibility state.
+func (d *DashboardView) SetHeatmapVisible(visible bool) {
+	d.heatmapVisible = visible
+	d.heatmapPanel.SetVisible(visible)
+	if visible {
+		d.updateHeatmapData()
+	}
 }

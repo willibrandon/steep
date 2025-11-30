@@ -313,6 +313,122 @@ func (s *MetricsStore) Count(ctx context.Context, metricName, key string) (int64
 	return count, nil
 }
 
+// HeatmapCell represents a single cell in a heatmap grid.
+type HeatmapCell struct {
+	DayOfWeek int     // 0=Sunday, 1=Monday, ..., 6=Saturday
+	Hour      int     // 0-23
+	Value     float64 // Aggregated value (e.g., average TPS)
+	Count     int     // Number of data points contributing to this cell
+}
+
+// HeatmapData represents aggregated data for a 7x24 heatmap grid.
+type HeatmapData struct {
+	Cells    []HeatmapCell
+	Min      float64
+	Max      float64
+	HasData  bool
+	DaysSpan int // How many days of data we have
+}
+
+// GetHourlyAggregates retrieves aggregated metric data grouped by day of week and hour.
+// Returns data suitable for rendering a 7x24 heatmap showing weekly patterns.
+// The since parameter limits how far back to look (typically 7 days).
+func (s *MetricsStore) GetHourlyAggregates(ctx context.Context, metricName, key string, since time.Time) (*HeatmapData, error) {
+	// SQLite strftime: %w = day of week (0-6, Sunday=0), %H = hour (00-23)
+	query := `
+		SELECT
+			CAST(strftime('%w', timestamp) AS INTEGER) as day_of_week,
+			CAST(strftime('%H', timestamp) AS INTEGER) as hour,
+			AVG(value) as avg_value,
+			COUNT(*) as cnt
+		FROM metrics_history
+		WHERE metric_name = ? AND key = ? AND timestamp >= ?
+		GROUP BY day_of_week, hour
+		ORDER BY day_of_week, hour
+	`
+
+	rows, err := s.db.conn.QueryContext(ctx, query, metricName, key, since.Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query hourly aggregates: %w", err)
+	}
+	defer rows.Close()
+
+	result := &HeatmapData{
+		Cells:   make([]HeatmapCell, 0),
+		HasData: false,
+	}
+
+	var minVal, maxVal float64
+	first := true
+
+	for rows.Next() {
+		var cell HeatmapCell
+		if err := rows.Scan(&cell.DayOfWeek, &cell.Hour, &cell.Value, &cell.Count); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		result.Cells = append(result.Cells, cell)
+		result.HasData = true
+
+		if first {
+			minVal = cell.Value
+			maxVal = cell.Value
+			first = false
+		} else {
+			if cell.Value < minVal {
+				minVal = cell.Value
+			}
+			if cell.Value > maxVal {
+				maxVal = cell.Value
+			}
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	result.Min = minVal
+	result.Max = maxVal
+
+	// Calculate days span from the data
+	if result.HasData {
+		daysSeen := make(map[int]bool)
+		for _, cell := range result.Cells {
+			daysSeen[cell.DayOfWeek] = true
+		}
+		result.DaysSpan = len(daysSeen)
+	}
+
+	return result, nil
+}
+
+// GetHourlyAggregatesMatrix returns a 7x24 matrix of values for easy rendering.
+// Returns [7][24]float64 where index [0] = Sunday and [6] = Saturday.
+// Cells with no data are set to -1.
+func (s *MetricsStore) GetHourlyAggregatesMatrix(ctx context.Context, metricName, key string, since time.Time) ([7][24]float64, float64, float64, error) {
+	var matrix [7][24]float64
+	// Initialize with -1 to indicate no data
+	for d := 0; d < 7; d++ {
+		for h := 0; h < 24; h++ {
+			matrix[d][h] = -1
+		}
+	}
+
+	data, err := s.GetHourlyAggregates(ctx, metricName, key, since)
+	if err != nil {
+		return matrix, 0, 0, err
+	}
+
+	for _, cell := range data.Cells {
+		if cell.DayOfWeek >= 0 && cell.DayOfWeek < 7 && cell.Hour >= 0 && cell.Hour < 24 {
+			matrix[cell.DayOfWeek][cell.Hour] = cell.Value
+		}
+	}
+
+	return matrix, data.Min, data.Max, nil
+}
+
 // scanDataPoints scans rows into DataPoint slice.
 func scanDataPoints(rows *sql.Rows) ([]metrics.DataPoint, error) {
 	var result []metrics.DataPoint

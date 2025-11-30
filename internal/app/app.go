@@ -409,6 +409,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Connect metrics collector to dashboard for chart data
 			m.dashboard.SetMetricsCollector(m.metricsCollector)
 
+			// Connect metrics store to dashboard for heatmap
+			m.dashboard.SetMetricsStore(m.metricsStore)
+
 			// Connect metrics store to tables view for sparklines
 			m.tablesView.SetMetricsStore(m.metricsStore)
 

@@ -149,14 +149,14 @@
 
 ### Implementation for User Story 6
 
-- [ ] T042 [P] [US6] Create ASCII mockup of heatmap panel in specs/011-visualizations/mockups/heatmap.txt
-- [ ] T043 [P] [US6] Implement hourly volume aggregation query in internal/storage/sqlite/metrics_store.go
-- [ ] T044 [P] [US6] Implement Heatmap component wrapping pterm in internal/ui/components/heatmap.go
-- [ ] T045 [P] [US6] Add unit tests for Heatmap rendering in internal/ui/components/heatmap_test.go
-- [ ] T046 [US6] Add heatmap panel to Dashboard or create dedicated view in internal/ui/views/dashboard.go
-- [ ] T047 [US6] Add keybinding to toggle heatmap visibility in internal/ui/views/dashboard.go
+- [x] T042 [P] [US6] Create ASCII mockup of heatmap panel in specs/011-visualizations/mockups/heatmap.txt
+- [x] T043 [P] [US6] Implement hourly volume aggregation query in internal/storage/sqlite/metrics_store.go
+- [x] T044 [P] [US6] Implement Heatmap component wrapping pterm in internal/ui/components/heatmap.go
+- [x] T045 [P] [US6] Add unit tests for Heatmap rendering in internal/ui/components/heatmap_test.go
+- [x] T046 [US6] Add heatmap panel to Dashboard or create dedicated view in internal/ui/views/dashboard.go
+- [x] T047 [US6] Add keybinding to toggle heatmap visibility in internal/ui/views/dashboard.go
 
-**Checkpoint**: Heatmap shows query volume patterns by hour and day
+**Checkpoint**: Heatmap shows query volume patterns by hour and day ✅
 
 ---
 
