@@ -52,6 +52,10 @@ func (h *HelpText) View() string {
 	b.WriteString(h.formatShortcut("4", "Locks"))
 	b.WriteString(h.formatShortcut("5", "Tables"))
 	b.WriteString(h.formatShortcut("6", "Replication"))
+	b.WriteString(h.formatShortcut("7", "SQL Editor"))
+	b.WriteString(h.formatShortcut("8", "Config"))
+	b.WriteString(h.formatShortcut("9", "Logs"))
+	b.WriteString(h.formatShortcut("0", "Roles"))
 	b.WriteString("\n")
 
 	// Table Navigation section (for future table components)

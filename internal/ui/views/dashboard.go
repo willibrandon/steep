@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/metrics"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
@@ -18,12 +19,18 @@ type DashboardView struct {
 	height int
 
 	// Components
-	metricsPanel *components.MetricsPanel
+	metricsPanel     *components.MetricsPanel
+	timeSeriesPanel  *components.TimeSeriesPanel
+
+	// Metrics collector for graph data
+	metricsCollector *metrics.Collector
 
 	// State
-	connected      bool
-	connectionInfo string
-	lastUpdate     time.Time
+	connected        bool
+	connectionInfo   string
+	lastUpdate       time.Time
+	chartsVisible    bool
+	timeWindow       metrics.TimeWindow
 
 	// Data
 	metrics models.Metrics
@@ -33,7 +40,10 @@ type DashboardView struct {
 // NewDashboard creates a new dashboard view.
 func NewDashboard() *DashboardView {
 	return &DashboardView{
-		metricsPanel: components.NewMetricsPanel(),
+		metricsPanel:    components.NewMetricsPanel(),
+		timeSeriesPanel: components.NewTimeSeriesPanel(),
+		chartsVisible:   true,
+		timeWindow:      metrics.TimeWindow1h,
 	}
 }
 
@@ -52,13 +62,84 @@ func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
 			d.metrics = msg.Metrics
 			d.metricsPanel.SetMetrics(d.metrics)
 			d.lastUpdate = msg.FetchedAt
+			d.updateChartData()
 		}
 
 	case tea.WindowSizeMsg:
 		d.SetSize(msg.Width, msg.Height)
+
+	case tea.KeyMsg:
+		return d.handleKeyPress(msg)
 	}
 
 	return d, nil
+}
+
+// handleKeyPress handles keyboard input for the dashboard.
+func (d *DashboardView) handleKeyPress(msg tea.KeyMsg) (ViewModel, tea.Cmd) {
+	switch msg.String() {
+	// Time window cycling
+	case "w":
+		d.cycleTimeWindow(true) // Forward
+	case "W":
+		d.cycleTimeWindow(false) // Backward
+
+	// Chart visibility toggle
+	case "v":
+		d.chartsVisible = !d.chartsVisible
+	}
+
+	return d, nil
+}
+
+// cycleTimeWindow cycles through time windows.
+func (d *DashboardView) cycleTimeWindow(forward bool) {
+	windows := []metrics.TimeWindow{
+		metrics.TimeWindow1m,
+		metrics.TimeWindow5m,
+		metrics.TimeWindow15m,
+		metrics.TimeWindow1h,
+		metrics.TimeWindow24h,
+	}
+
+	currentIdx := 0
+	for i, w := range windows {
+		if w == d.timeWindow {
+			currentIdx = i
+			break
+		}
+	}
+
+	if forward {
+		currentIdx = (currentIdx + 1) % len(windows)
+	} else {
+		currentIdx = (currentIdx - 1 + len(windows)) % len(windows)
+	}
+
+	d.setTimeWindow(windows[currentIdx])
+}
+
+// setTimeWindow updates the time window and refreshes chart data.
+func (d *DashboardView) setTimeWindow(window metrics.TimeWindow) {
+	d.timeWindow = window
+	d.timeSeriesPanel.SetWindow(window)
+	d.updateChartData()
+}
+
+// updateChartData fetches data from the metrics collector and updates charts.
+func (d *DashboardView) updateChartData() {
+	if d.metricsCollector == nil {
+		return
+	}
+
+	// Get data for current time window
+	tpsData := d.metricsCollector.GetValues(metrics.MetricTPS, d.timeWindow)
+	connData := d.metricsCollector.GetValues(metrics.MetricConnections, d.timeWindow)
+	cacheData := d.metricsCollector.GetValues(metrics.MetricCacheHitRatio, d.timeWindow)
+
+	d.timeSeriesPanel.SetTPSData(tpsData)
+	d.timeSeriesPanel.SetConnectionsData(connData)
+	d.timeSeriesPanel.SetCacheHitData(cacheData)
 }
 
 // View renders the dashboard view.
@@ -79,20 +160,39 @@ func (d *DashboardView) renderMain() string {
 	metricsPanel := d.renderMetricsPanel()
 	footer := d.renderFooter()
 
-	// Calculate placeholder height from rendered section heights.
-	// JoinVertical combines components at their full heights, so we use raw lipgloss.Height().
-	chrome := lipgloss.Height(statusBar) + lipgloss.Height(metricsPanel) + lipgloss.Height(footer)
-	placeholderHeight := max(minPlaceholderHeight, d.height-chrome)
+	// Calculate remaining height for charts or placeholder
+	footerHeight := lipgloss.Height(footer)
+	chrome := lipgloss.Height(statusBar) + lipgloss.Height(metricsPanel) + footerHeight
+	contentHeight := max(minPlaceholderHeight, d.height-chrome)
 
-	placeholder := d.renderPlaceholderWithHeight(placeholderHeight)
+	var content string
+	if d.chartsVisible {
+		content = d.renderTimeSeriesPanel(contentHeight)
+	} else {
+		content = d.renderPlaceholderWithHeight(contentHeight)
+	}
 
-	return lipgloss.JoinVertical(
+	// Top section (status bar, metrics, content)
+	topSection := lipgloss.JoinVertical(
 		lipgloss.Left,
 		statusBar,
 		metricsPanel,
-		placeholder,
+		content,
+	)
+
+	// Push footer to bottom of view
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		lipgloss.NewStyle().Height(d.height - footerHeight).Render(topSection),
 		footer,
 	)
+}
+
+// renderTimeSeriesPanel renders the time-series charts panel.
+func (d *DashboardView) renderTimeSeriesPanel(height int) string {
+	// Update panel size with available height
+	d.timeSeriesPanel.SetSize(d.width-2, height)
+	return d.timeSeriesPanel.View()
 }
 
 // renderStatusBar renders the top status bar.
@@ -125,20 +225,30 @@ func (d *DashboardView) renderMetricsPanel() string {
 
 // renderPlaceholderWithHeight renders a placeholder for future dashboard content with specified height.
 func (d *DashboardView) renderPlaceholderWithHeight(height int) string {
-	content := lipgloss.JoinVertical(
-		lipgloss.Center,
-		"",
-		styles.MutedStyle.Render("Dashboard Overview"),
-		"",
-		styles.MutedStyle.Render("Future enhancements:"),
-		styles.MutedStyle.Render("• TPS graphs and sparklines"),
-		styles.MutedStyle.Render("• Cache hit ratio trends"),
-		styles.MutedStyle.Render("• Connection pool status"),
-		styles.MutedStyle.Render("• Alert summary panel"),
-		styles.MutedStyle.Render("• Quick stats overview"),
-		"",
-		styles.MutedStyle.Render("Press [2] for Activity monitoring"),
-	)
+	var content string
+	if !d.chartsVisible {
+		// Charts are hidden by user
+		content = lipgloss.JoinVertical(
+			lipgloss.Center,
+			"",
+			styles.MutedStyle.Render("Charts hidden - press [v] to show"),
+			"",
+			styles.MutedStyle.Render("• TPS graphs"),
+			styles.MutedStyle.Render("• Connection trends"),
+			styles.MutedStyle.Render("• Cache hit ratio"),
+			"",
+		)
+	} else {
+		// Fallback placeholder (shouldn't normally be seen)
+		content = lipgloss.JoinVertical(
+			lipgloss.Center,
+			"",
+			styles.MutedStyle.Render("Dashboard Overview"),
+			"",
+			styles.MutedStyle.Render("Press [2] for Activity monitoring"),
+			"",
+		)
+	}
 
 	return lipgloss.NewStyle().
 		Width(d.width - 4).
@@ -149,7 +259,25 @@ func (d *DashboardView) renderPlaceholderWithHeight(height int) string {
 
 // renderFooter renders the bottom footer with hints.
 func (d *DashboardView) renderFooter() string {
-	hints := styles.FooterHintStyle.Render("[1]Dashboard [2]Activity [3]Queries [4]Locks [5]Tables [6]Replication [7]SQL Editor [8]Config [9]Logs [0]Roles")
+	// Build time window display with current selection
+	activeStyle := lipgloss.NewStyle().Foreground(styles.ColorActive).Bold(true)
+	windowHint := "[w]Window: " + activeStyle.Render(d.timeWindow.String())
+
+	// Chart toggle hint
+	var toggleHint string
+	if d.chartsVisible {
+		toggleHint = "[v]Hide"
+	} else {
+		toggleHint = "[v]Show"
+	}
+
+	// Dashboard-specific hints
+	dashboardHints := windowHint + " " + toggleHint + " [?]Help"
+
+	// Navigation hints
+	navHints := "[1]Dashboard [2]Activity [3]Queries [4]Locks [5]Tables [6]Replication [7]SQL [8]Config [9]Logs [0]Roles"
+
+	hints := styles.FooterHintStyle.Render(dashboardHints) + "\n" + styles.FooterHintStyle.Render(navHints)
 
 	return styles.FooterStyle.
 		Width(d.width - 2).
@@ -222,4 +350,21 @@ func (d *DashboardView) SetServerVersion(version string) {
 // SetDatabase sets the database name (for compatibility).
 func (d *DashboardView) SetDatabase(database string) {
 	// Database is included in connection info
+}
+
+// SetMetricsCollector sets the metrics collector for chart data.
+func (d *DashboardView) SetMetricsCollector(collector *metrics.Collector) {
+	d.metricsCollector = collector
+	d.timeSeriesPanel.SetWindow(d.timeWindow)
+	d.updateChartData()
+}
+
+// GetChartsVisible returns the current chart visibility state.
+func (d *DashboardView) GetChartsVisible() bool {
+	return d.chartsVisible
+}
+
+// SetChartsVisible sets the chart visibility state (for global toggle).
+func (d *DashboardView) SetChartsVisible(visible bool) {
+	d.chartsVisible = visible
 }

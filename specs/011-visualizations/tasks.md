@@ -58,15 +58,15 @@
 
 ### Implementation for User Story 1
 
-- [ ] T016 [P] [US1] Create ASCII mockup of Dashboard with graphs in specs/011-visualizations/mockups/dashboard-graphs.txt
-- [ ] T017 [P] [US1] Implement TimeSeriesChart component wrapping asciigraph in internal/ui/components/timeseries.go
-- [ ] T018 [P] [US1] Add unit tests for TimeSeriesChart rendering in internal/ui/components/timeseries_test.go
-- [ ] T019 [US1] Add time-series graph panel to Dashboard view in internal/ui/views/dashboard.go
-- [ ] T020 [US1] Implement time window state and number key handlers (1-5) in internal/ui/views/dashboard.go
-- [ ] T021 [US1] Add "Collecting data..." message for insufficient data in internal/ui/components/timeseries.go
-- [ ] T022 [US1] Handle terminal resize for graph dimensions in internal/ui/views/dashboard.go
+- [x] T016 [P] [US1] Create ASCII mockup of Dashboard with graphs in specs/011-visualizations/mockups/dashboard-graphs.txt
+- [x] T017 [P] [US1] Implement TimeSeriesChart component wrapping asciigraph in internal/ui/components/timeseries.go
+- [x] T018 [P] [US1] Add unit tests for TimeSeriesChart rendering in internal/ui/components/timeseries_test.go
+- [x] T019 [US1] Add time-series graph panel to Dashboard view in internal/ui/views/dashboard.go
+- [x] T020 [US1] Implement time window state and number key handlers (1-5) in internal/ui/views/dashboard.go
+- [x] T021 [US1] Add "Collecting data..." message for insufficient data in internal/ui/components/timeseries.go
+- [x] T022 [US1] Handle terminal resize for graph dimensions in internal/ui/views/dashboard.go
 
-**Checkpoint**: Dashboard shows TPS, connections, cache hit ratio graphs with time window selection
+**Checkpoint**: Dashboard shows TPS, connections, cache hit ratio graphs with time window selection ✅
 
 ---
 

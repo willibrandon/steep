@@ -362,10 +362,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		refreshInterval := m.config.UI.RefreshInterval
 		m.activityMonitor = monitors.NewActivityMonitor(msg.Pool, refreshInterval)
 		m.statsMonitor = monitors.NewStatsMonitor(msg.Pool, refreshInterval)
-		// Connect metrics collector to stats monitor for visualization data
-		if m.metricsCollector != nil {
-			m.statsMonitor.SetMetricsRecorder(m.metricsCollector)
-		}
 		m.locksMonitor = monitors.NewLocksMonitor(msg.Pool, 2*time.Second) // 2s refresh for locks
 		m.configMonitor = monitors.NewConfigMonitor(msg.Pool, 60*time.Second) // 60s refresh for config
 
@@ -388,6 +384,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				metrics.WithRetentionDays(7),
 			)
 			_ = m.metricsCollector.Start(context.Background())
+
+			// Connect metrics collector to stats monitor
+			m.statsMonitor.SetMetricsRecorder(m.metricsCollector)
+
+			// Connect metrics collector to dashboard for chart data
+			m.dashboard.SetMetricsCollector(m.metricsCollector)
 
 			// Initialize deadlock store (shares same DB)
 			m.deadlockStore = sqlite.NewDeadlockStore(steepDB)
@@ -462,12 +464,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fetchReplicationData(m.replicationMonitor),
 			fetchDeadlockHistory(m.deadlockMonitor, m.program),
 			fetchConfigData(m.configMonitor),
-			m.tablesView.FetchTablesData(),
-			m.rolesView.FetchRolesData(),
+		}
+		// Only fetch tables data when Tables view is active (pgstattuple is expensive)
+		if m.currentView == views.ViewTables {
+			cmds = append(cmds, m.tablesView.FetchTablesData())
+		}
+		// Only fetch roles data when Roles view is active
+		if m.currentView == views.ViewRoles {
+			cmds = append(cmds, m.rolesView.FetchRolesData())
+		}
+		cmds = append(cmds,
 			tea.Tick(m.config.UI.RefreshInterval, func(t time.Time) tea.Msg {
 				return dataTickMsg{}
 			}),
-		}
+		)
 		// Also fetch query stats if store is available
 		if m.queryStatsStore != nil {
 			cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queryMonitor, m.queriesView.GetSortColumn(), m.queriesView.GetSortAsc(), m.queriesView.GetFilter()))
@@ -925,8 +935,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tablesview.RefreshTablesMsg:
-		// Refresh tables data
-		return m, m.tablesView.FetchTablesData()
+		// Only refresh tables data when Tables view is active
+		if m.currentView == views.ViewTables {
+			return m, m.tablesView.FetchTablesData()
+		}
+		return m, nil
 
 	case tablesview.InstallExtensionMsg:
 		// Forward to tables view
@@ -1150,7 +1163,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "5":
 			m.currentView = views.ViewTables
-			return m, nil
+			return m, m.tablesView.FetchTablesData()
 		case "6":
 			m.currentView = views.ViewReplication
 			return m, nil
@@ -1165,13 +1178,13 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "0":
 			m.currentView = views.ViewRoles
-			return m, nil
+			return m, m.rolesView.FetchRolesData()
 		case "tab":
 			m.nextView()
-			return m, nil
+			return m, m.fetchForCurrentView()
 		case "shift+tab":
 			m.prevView()
-			return m, nil
+			return m, m.fetchForCurrentView()
 		}
 	}
 
@@ -1268,6 +1281,18 @@ func (m *Model) prevView() {
 	m.currentView = m.viewList[prevIndex]
 }
 
+// fetchForCurrentView returns a fetch command for views that need on-demand loading.
+func (m *Model) fetchForCurrentView() tea.Cmd {
+	switch m.currentView {
+	case views.ViewTables:
+		return m.tablesView.FetchTablesData()
+	case views.ViewRoles:
+		return m.rolesView.FetchRolesData()
+	default:
+		return nil
+	}
+}
+
 // currentViewIsInputMode returns true if the current view is in input mode.
 // Only checks the active view, not all views.
 func (m *Model) currentViewIsInputMode() bool {
@@ -1320,23 +1345,26 @@ func (m Model) View() string {
 	}
 
 	// Build the UI
-	var view string
-
-	// Header with current view indicator
-	view += m.renderHeader()
+	header := m.renderHeader()
+	statusBar := m.renderStatusBar()
 
 	// Main content area - render current view
+	var content string
 	if m.helpVisible {
-		view += "\n" + m.renderHelp()
+		content = m.renderHelp()
 	} else {
-		view += "\n" + m.renderCurrentView()
+		content = m.renderCurrentView()
 	}
 
-	// Status bar at bottom
-	view += "\n" + m.renderStatusBar()
+	// Join header and content
+	topSection := lipgloss.JoinVertical(lipgloss.Left, header, content)
 
-	// Fill entire terminal to prevent artifacts on resize
-	result := lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, view)
+	// Place status bar at the very bottom
+	result := lipgloss.JoinVertical(
+		lipgloss.Left,
+		lipgloss.NewStyle().Height(m.height-1).Render(topSection),
+		statusBar,
+	)
 
 	// Overlay debug panel if visible
 	if m.debugPanel.IsVisible() {
