@@ -95,13 +95,13 @@
 
 ### Implementation for User Story 2
 
-- [ ] T027 [P] [US2] Create ASCII mockup of Activity view with sparklines in specs/011-visualizations/mockups/activity-sparklines.txt
-- [ ] T028 [P] [US2] Implement per-connection duration tracking in internal/metrics/connection_metrics.go
-- [ ] T029 [P] [US2] Add unit tests for connection metrics in internal/metrics/connection_metrics_test.go
-- [ ] T030 [US2] Add sparkline column to Activity view table in internal/ui/views/activity.go
-- [ ] T031 [US2] Handle narrow terminal (hide sparklines, show "-") in internal/ui/views/activity.go
+- [x] T027 [P] [US2] Create ASCII mockup of Activity view with sparklines in specs/011-visualizations/mockups/activity-sparklines.txt
+- [x] T028 [P] [US2] Implement per-connection duration tracking in internal/metrics/connection_metrics.go
+- [x] T029 [P] [US2] Add unit tests for connection metrics in internal/metrics/connection_metrics_test.go
+- [x] T030 [US2] Add sparkline column to Activity view table in internal/ui/views/activity.go
+- [x] T031 [US2] Handle narrow terminal (hide sparklines, show "-") in internal/ui/views/activity.go
 
-**Checkpoint**: Activity view shows query duration sparklines per connection
+**Checkpoint**: Activity view shows query duration sparklines per connection ✅
 
 ---
 

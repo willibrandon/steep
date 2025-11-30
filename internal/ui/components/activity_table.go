@@ -2,22 +2,33 @@ package components
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/metrics"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
+// Minimum width to show the Trend column with sparklines
+const minWidthForSparklines = 90
+
 // ActivityTable displays PostgreSQL connections in a sortable table.
 type ActivityTable struct {
-	table          table.Model
-	connections    []models.Connection
-	width          int
-	height         int
-	queryColWidth  int // Dynamic width for query column
+	table             table.Model
+	connections       []models.Connection
+	width             int
+	height            int
+	queryColWidth     int // Dynamic width for query column
+	showSparklines    bool
+	connectionMetrics *metrics.ConnectionMetrics
+
+	// Styles for focused and unfocused states
+	focusedStyles   table.Styles
+	unfocusedStyles table.Styles
 }
 
 // NewActivityTable creates a new activity table component.
@@ -26,7 +37,7 @@ func NewActivityTable() *ActivityTable {
 		{Title: "PID", Width: 6},
 		{Title: "User", Width: 10},
 		{Title: "Database", Width: 10},
-		{Title: "State", Width: 15},
+		{Title: "State", Width: 12},
 		{Title: "Duration", Width: 8},
 		{Title: "Query", Width: 30},
 	}
@@ -37,20 +48,36 @@ func NewActivityTable() *ActivityTable {
 		table.WithHeight(10),
 	)
 
-	s := table.DefaultStyles()
-	s.Header = s.Header.
+	// Create focused styles (with selection highlighting)
+	focusedStyles := table.DefaultStyles()
+	focusedStyles.Header = focusedStyles.Header.
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(styles.ColorBorder).
 		BorderBottom(true).
 		Bold(false)
-	s.Selected = s.Selected.
+	focusedStyles.Selected = focusedStyles.Selected.
 		Foreground(styles.ColorSelectedFg).
 		Background(styles.ColorSelectedBg).
 		Bold(false)
-	t.SetStyles(s)
+
+	// Create unfocused styles (no selection highlighting)
+	unfocusedStyles := table.DefaultStyles()
+	unfocusedStyles.Header = unfocusedStyles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(styles.ColorBorder).
+		BorderBottom(true).
+		Bold(false)
+	// Selected row has no special styling when unfocused (empty style)
+	// Note: We use an empty style, not Cell style, because Cell has padding
+	// that would be applied to the whole row causing indentation
+	unfocusedStyles.Selected = lipgloss.NewStyle()
+
+	t.SetStyles(focusedStyles)
 
 	return &ActivityTable{
-		table: t,
+		table:           t,
+		focusedStyles:   focusedStyles,
+		unfocusedStyles: unfocusedStyles,
 	}
 }
 
@@ -58,6 +85,11 @@ func NewActivityTable() *ActivityTable {
 func (a *ActivityTable) SetConnections(connections []models.Connection) {
 	a.connections = connections
 	a.refreshRows()
+}
+
+// SetConnectionMetrics sets the connection metrics for sparklines.
+func (a *ActivityTable) SetConnectionMetrics(cm *metrics.ConnectionMetrics) {
+	a.connectionMetrics = cm
 }
 
 // refreshRows rebuilds the table rows with current query column width.
@@ -69,17 +101,137 @@ func (a *ActivityTable) refreshRows() {
 
 	rows := make([]table.Row, len(a.connections))
 	for i, conn := range a.connections {
-		rows[i] = table.Row{
-			fmt.Sprintf("%d", conn.PID),
-			truncate(conn.User, 10),
-			truncate(conn.Database, 10),
-			string(conn.State),
-			conn.FormatDuration(),
-			truncate(conn.Query, queryWidth),
+		if a.showSparklines {
+			trend := a.renderTrend(conn.PID)
+			rows[i] = table.Row{
+				fmt.Sprintf("%d", conn.PID),
+				truncate(conn.User, 10),
+				truncate(conn.Database, 10),
+				truncate(string(conn.State), 12),
+				conn.FormatDuration(),
+				trend,
+				truncate(conn.Query, queryWidth),
+			}
+		} else {
+			rows[i] = table.Row{
+				fmt.Sprintf("%d", conn.PID),
+				truncate(conn.User, 10),
+				truncate(conn.Database, 10),
+				truncate(string(conn.State), 12),
+				conn.FormatDuration(),
+				truncate(conn.Query, queryWidth),
+			}
 		}
 	}
 
 	a.table.SetRows(rows)
+}
+
+// renderTrend renders a sparkline with trend indicator for a connection.
+// Note: We render without colors because the bubbles table component
+// doesn't handle ANSI escape codes well in cell content.
+func (a *ActivityTable) renderTrend(pid int) string {
+	if a.connectionMetrics == nil {
+		return strings.Repeat("─", 8) + "→"
+	}
+
+	durations := a.connectionMetrics.GetDurations(pid)
+	if len(durations) == 0 {
+		return strings.Repeat("─", 8) + "→"
+	}
+
+	// Render sparkline without colors (table can't handle ANSI codes)
+	sparkline := renderPlainSparkline(durations, 8)
+
+	// Add trend indicator
+	trend := GetTrend(durations)
+	indicator := TrendIndicator(trend)
+
+	return sparkline + indicator
+}
+
+// renderPlainSparkline renders a sparkline without any ANSI color codes.
+func renderPlainSparkline(data []float64, width int) string {
+	if len(data) == 0 {
+		return strings.Repeat("─", width)
+	}
+
+	// Unicode block characters from lowest to highest
+	blocks := []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+
+	// Find min and max for scaling
+	minVal, maxVal := data[0], data[0]
+	for _, v := range data {
+		if v < minVal {
+			minVal = v
+		}
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+
+	// Avoid division by zero
+	valueRange := maxVal - minVal
+	if valueRange == 0 {
+		valueRange = 1
+	}
+
+	// Resample data to fit width
+	resampled := resampleForSparkline(data, width)
+
+	// Build sparkline
+	var sb strings.Builder
+	for _, v := range resampled {
+		// Normalize to 0-7 range (8 block characters)
+		normalized := (v - minVal) / valueRange
+		idx := int(normalized * 7)
+		if idx > 7 {
+			idx = 7
+		}
+		if idx < 0 {
+			idx = 0
+		}
+		sb.WriteRune(blocks[idx])
+	}
+
+	return sb.String()
+}
+
+// resampleForSparkline resamples data to fit within the target width.
+func resampleForSparkline(data []float64, targetWidth int) []float64 {
+	if len(data) <= targetWidth {
+		return data
+	}
+
+	result := make([]float64, targetWidth)
+	bucketSize := float64(len(data)) / float64(targetWidth)
+
+	for i := 0; i < targetWidth; i++ {
+		start := int(float64(i) * bucketSize)
+		end := int(float64(i+1) * bucketSize)
+		if end > len(data) {
+			end = len(data)
+		}
+		if start >= end {
+			start = end - 1
+		}
+		if start < 0 {
+			start = 0
+		}
+
+		// Average the values in this bucket
+		sum := 0.0
+		count := 0
+		for j := start; j < end; j++ {
+			sum += data[j]
+			count++
+		}
+		if count > 0 {
+			result[i] = sum / float64(count)
+		}
+	}
+
+	return result
 }
 
 // SetSize sets the dimensions of the table.
@@ -94,25 +246,53 @@ func (a *ActivityTable) SetSize(width, height int) {
 	}
 	a.table.SetHeight(tableHeight)
 
+	// Determine if we should show sparklines based on width
+	a.showSparklines = width >= minWidthForSparklines
+
 	// Calculate query column width to fill remaining space
-	// Other columns: PID(6) + User(10) + Database(10) + State(15) + Duration(8) + spacing(10) = 59
-	a.queryColWidth = width - 59
+	// Without sparklines: PID(6) + User(10) + Database(10) + State(12) + Duration(8) + spacing(10) = 56
+	// With sparklines: add Trend(10) = 66
+	var fixedWidth int
+	if a.showSparklines {
+		fixedWidth = 66
+	} else {
+		fixedWidth = 56
+	}
+
+	a.queryColWidth = width - fixedWidth
 	if a.queryColWidth < 30 {
 		a.queryColWidth = 30
 	}
 
-	// Adjust query column to fill remaining space
-	columns := []table.Column{
-		{Title: "PID", Width: 6},
-		{Title: "User", Width: 10},
-		{Title: "Database", Width: 10},
-		{Title: "State", Width: 15},
-		{Title: "Duration", Width: 8},
-		{Title: "Query", Width: a.queryColWidth},
+	// Build columns based on whether sparklines are shown
+	var columns []table.Column
+	if a.showSparklines {
+		columns = []table.Column{
+			{Title: "PID", Width: 6},
+			{Title: "User", Width: 10},
+			{Title: "Database", Width: 10},
+			{Title: "State", Width: 12},
+			{Title: "Duration", Width: 8},
+			{Title: "Trend", Width: 10},
+			{Title: "Query", Width: a.queryColWidth},
+		}
+	} else {
+		columns = []table.Column{
+			{Title: "PID", Width: 6},
+			{Title: "User", Width: 10},
+			{Title: "Database", Width: 10},
+			{Title: "State", Width: 12},
+			{Title: "Duration", Width: 8},
+			{Title: "Query", Width: a.queryColWidth},
+		}
 	}
+
+	// Clear rows BEFORE changing columns to avoid panic when column count changes
+	// (bubbles table panics if row column count doesn't match column definition)
+	a.table.SetRows(nil)
 	a.table.SetColumns(columns)
 
-	// Refresh rows with new query width
+	// Refresh rows with new layout
 	if len(a.connections) > 0 {
 		a.refreshRows()
 	}
@@ -182,14 +362,24 @@ func (a *ActivityTable) PageDown() {
 	}
 }
 
-// Focus gives focus to the table.
+// Focus gives focus to the table and restores selection highlighting.
 func (a *ActivityTable) Focus() {
 	a.table.Focus()
+	a.table.SetStyles(a.focusedStyles)
+	// Refresh rows to apply new styles
+	if len(a.connections) > 0 {
+		a.refreshRows()
+	}
 }
 
-// Blur removes focus from the table.
+// Blur removes focus from the table and removes selection highlighting.
 func (a *ActivityTable) Blur() {
 	a.table.Blur()
+	a.table.SetStyles(a.unfocusedStyles)
+	// Refresh rows to apply new styles
+	if len(a.connections) > 0 {
+		a.refreshRows()
+	}
 }
 
 // Focused returns whether the table is focused.

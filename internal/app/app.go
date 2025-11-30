@@ -114,8 +114,9 @@ type Model struct {
 	queryMonitor    *querymonitor.Monitor
 
 	// Metrics collection for visualizations
-	metricsCollector *metrics.Collector
-	metricsStore     *sqlite.MetricsStore
+	metricsCollector  *metrics.Collector
+	metricsStore      *sqlite.MetricsStore
+	connectionMetrics *metrics.ConnectionMetrics
 
 	// Chart visibility (global toggle)
 	chartsVisible bool
@@ -192,6 +193,9 @@ func New(readonly bool, configPath string) (*Model, error) {
 		views.ViewRoles,
 	}
 
+	// Initialize connection metrics for activity sparklines
+	connectionMetrics := metrics.NewConnectionMetrics()
+
 	return &Model{
 		config:            cfg,
 		keys:              ui.DefaultKeyMap(),
@@ -215,6 +219,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 		reconnecting:      false,
 		readOnly:          readonly,
 		chartsVisible:     true, // Charts visible by default
+		connectionMetrics: connectionMetrics,
 	}, nil
 }
 
@@ -270,6 +275,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Y:      msg.Y - headerHeight,
 			Button: msg.Button,
 			Action: msg.Action,
+			Shift:  msg.Shift,
+			Alt:    msg.Alt,
+			Ctrl:   msg.Ctrl,
 		}
 
 		// Forward translated mouse events to the active view
@@ -512,6 +520,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ui.ActivityDataMsg:
+		// Update connection metrics for sparklines
+		if m.connectionMetrics != nil && msg.Connections != nil {
+			connInfos := make([]metrics.ConnectionInfo, len(msg.Connections))
+			for i, c := range msg.Connections {
+				connInfos[i] = metrics.ConnectionInfo{
+					PID:             c.PID,
+					DurationSeconds: c.DurationSeconds,
+				}
+			}
+			m.connectionMetrics.UpdateFromConnections(connInfos)
+		}
+		// Pass connection metrics to activity view
+		m.activityView.SetConnectionMetrics(m.connectionMetrics)
 		// Forward to activity view
 		m.activityView.Update(msg)
 		return m, nil

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/metrics"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
@@ -67,6 +68,9 @@ type ActivityView struct {
 	// Our own PIDs (to warn about self-kill)
 	ownPIDs []int
 
+	// Connection metrics for sparklines
+	connectionMetrics *metrics.ConnectionMetrics
+
 	// Layout tracking for relative mouse coordinates
 	// Height of view elements above data rows (statusBar + title + table header)
 	viewHeaderHeight int
@@ -108,13 +112,20 @@ func (v *ActivityView) Update(msg tea.Msg) (views.ViewModel, tea.Cmd) {
 				v.table.MoveDown()
 			case tea.MouseButtonLeft:
 				if msg.Action == tea.MouseActionPress {
-					// msg.Y is relative to view top (app translates global to relative)
-					// Subtract view's own header height to get data row index
-					row := msg.Y - v.viewHeaderHeight
-					if row >= 0 && row < len(v.connections) {
-						v.table.GotoTop()
-						for i := 0; i < row; i++ {
-							v.table.MoveDown()
+					if msg.Shift {
+						// Shift+click to unselect (blur table)
+						v.table.Blur()
+					} else {
+						// Regular click to select row
+						// msg.Y is relative to view top (app translates global to relative)
+						// Subtract view's own header height to get data row index
+						row := msg.Y - v.viewHeaderHeight
+						if row >= 0 && row < len(v.connections) {
+							v.table.Focus()
+							v.table.GotoTop()
+							for i := 0; i < row; i++ {
+								v.table.MoveDown()
+							}
 						}
 					}
 				}
@@ -192,14 +203,32 @@ func (v *ActivityView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Normal mode keys
 	switch key {
 	// Navigation - j/k/up/down handled by table.Update()
+	case "j", "k", "up", "down":
+		// Re-focus table on navigation keys
+		v.table.Focus()
 	case "g", "home":
+		v.table.Focus()
 		v.table.GotoTop()
 	case "G", "end":
+		v.table.Focus()
 		v.table.GotoBottom()
 	case "pgup", "ctrl+u":
+		v.table.Focus()
 		v.table.PageUp()
 	case "pgdown", "ctrl+d":
+		v.table.Focus()
 		v.table.PageDown()
+	case "esc":
+		// If filter is active, clear it first; otherwise blur table to unselect
+		if !v.filter.IsEmpty() {
+			v.filter.Clear()
+			v.filterInput = ""
+			return func() tea.Msg {
+				return ui.FilterChangedMsg{Filter: v.filter}
+			}
+		}
+		// No filter active, blur table to unselect row
+		v.table.Blur()
 
 	// Actions
 	case "d", "enter":
@@ -626,4 +655,10 @@ func (v *ActivityView) GetPagination() *models.Pagination {
 // IsRefreshing returns whether a refresh is in progress.
 func (v *ActivityView) IsRefreshing() bool {
 	return v.refreshing
+}
+
+// SetConnectionMetrics sets the connection metrics for sparklines.
+func (v *ActivityView) SetConnectionMetrics(cm *metrics.ConnectionMetrics) {
+	v.connectionMetrics = cm
+	v.table.SetConnectionMetrics(cm)
 }

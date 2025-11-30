@@ -1,0 +1,156 @@
+Activity View with Duration Sparklines - ASCII Mockup
+=====================================================
+
+LAYOUT: Table with Trend column showing query duration sparklines per connection
+Sparklines show recent query duration history to identify connections with spiking execution times.
+
+Terminal Size: 120x40 (standard wide terminal)
+
+
+WIDE TERMINAL (120+ columns)
+============================
+
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ postgres@localhost:5432/mydb                                                            2025-11-30 14:35:22            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+Activity Monitoring
+
+┌──────┬──────────┬──────────┬───────────────┬──────────┬────────────┬───────────────────────────────────────────────────┐
+│ PID  │ User     │ Database │ State         │ Duration │ Trend      │ Query                                             │
+├──────┼──────────┼──────────┼───────────────┼──────────┼────────────┼───────────────────────────────────────────────────┤
+│ 1234 │ appuser  │ mydb     │ active        │ 2.34s    │ ▁▂▃▄▅▆▇█↑  │ SELECT * FROM orders WHERE status = 'pending'... │
+│ 1235 │ appuser  │ mydb     │ idle in trans │ 45.2s    │ ▄▄▄▄▄▄▄▄→  │ UPDATE users SET last_login = NOW() WHERE id...  │
+│ 1236 │ admin    │ postgres │ active        │ 0.12s    │ ▂▁▂▁▂▁▂▁→  │ SELECT pg_stat_activity.*                         │
+│ 1237 │ worker   │ mydb     │ active        │ 15.6s    │ ▁▁▁▁▁█▇▆↑  │ INSERT INTO analytics SELECT * FROM events...    │
+│ 1238 │ appuser  │ mydb     │ idle          │ -        │ ▁▁▁▁▁▁▁▁→  │ COMMIT                                            │
+│ 1239 │ batch    │ mydb     │ active        │ 3m 22s   │ █▇▆▅▄▃▂▁↓  │ COPY large_table FROM '/tmp/data.csv'...         │
+│ 1240 │ replica  │ postgres │ active        │ 0.01s    │ ▁▁▁▁▁▁▁▁→  │ <background: WAL sender>                          │
+└──────┴──────────┴──────────┴───────────────┴──────────┴────────────┴───────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ [/]filter [r]efresh [a]ll-dbs [C]lear [d]etail [c]ancel [x]kill                                                 7/42   │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+STANDARD TERMINAL (100 columns)
+===============================
+
+┌────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ postgres@localhost:5432/mydb                                            2025-11-30 14:35:22   │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+Activity Monitoring
+
+┌──────┬──────────┬──────────┬───────────────┬──────────┬──────────┬─────────────────────────────┐
+│ PID  │ User     │ Database │ State         │ Duration │ Trend    │ Query                       │
+├──────┼──────────┼──────────┼───────────────┼──────────┼──────────┼─────────────────────────────┤
+│ 1234 │ appuser  │ mydb     │ active        │ 2.34s    │ ▁▂▄▅▇█↑  │ SELECT * FROM orders...    │
+│ 1235 │ appuser  │ mydb     │ idle in trans │ 45.2s    │ ▄▄▄▄▄▄→  │ UPDATE users SET last...   │
+│ 1236 │ admin    │ postgres │ active        │ 0.12s    │ ▂▁▂▁▂▁→  │ SELECT pg_stat_activ...    │
+│ 1237 │ worker   │ mydb     │ active        │ 15.6s    │ ▁▁▁█▇▆↑  │ INSERT INTO analyti...     │
+└──────┴──────────┴──────────┴───────────────┴──────────┴──────────┴─────────────────────────────┘
+
+
+NARROW TERMINAL (80 columns) - Sparklines Hidden
+=================================================
+
+When terminal width < 90 columns, the Trend column is hidden to preserve readability.
+
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ postgres@localhost:5432/mydb                            2025-11-30 14:35:22    │
+└────────────────────────────────────────────────────────────────────────────────┘
+
+Activity Monitoring
+
+┌──────┬──────────┬──────────┬───────────────┬──────────┬─────────────────────────┐
+│ PID  │ User     │ Database │ State         │ Duration │ Query                   │
+├──────┼──────────┼──────────┼───────────────┼──────────┼─────────────────────────┤
+│ 1234 │ appuser  │ mydb     │ active        │ 2.34s    │ SELECT * FROM orders... │
+│ 1235 │ appuser  │ mydb     │ idle in trans │ 45.2s    │ UPDATE users SET la...  │
+│ 1236 │ admin    │ postgres │ active        │ 0.12s    │ SELECT pg_stat_acti...  │
+│ 1237 │ worker   │ mydb     │ active        │ 15.6s    │ INSERT INTO analyt...   │
+└──────┴──────────┴──────────┴───────────────┴──────────┴─────────────────────────┘
+
+
+SPARKLINE VISUAL PATTERNS
+=========================
+
+1. Spike Pattern (recent slow query):
+   ▁▁▁▁▁▁▇█↑   - Duration increased sharply (RED if > 10s, YELLOW if > 5s)
+
+2. Stable Pattern (consistent performance):
+   ▄▄▄▄▄▄▄▄→   - Duration remains consistent (GREEN)
+
+3. Recovery Pattern (slowing down):
+   █▇▆▅▄▃▂▁↓   - Duration decreasing (GREEN)
+
+4. Oscillating Pattern (variable load):
+   ▂▅▂▅▂▅▂▅→   - Duration varies but trends stable (YELLOW)
+
+5. No History (new connection):
+   ────────→   - No data points yet (MUTED)
+
+
+TREND INDICATOR MEANINGS
+========================
+
+↑ (Up Arrow):    Duration trending up (potential issue)
+→ (Right Arrow): Duration stable (healthy)
+↓ (Down Arrow):  Duration trending down (recovering)
+
+
+COLOR CODING
+============
+
+Sparkline colors based on severity of recent durations:
+
+- GREEN (Color 42):  All recent durations < 5 seconds
+- YELLOW (Color 214): Any duration between 5-10 seconds
+- RED (Color 196):    Any duration > 10 seconds
+
+Trend arrow inherits sparkline color.
+
+
+DESIGN NOTES
+============
+
+1. Column Layout (Wide Terminal - 120 cols):
+   - PID:      6 chars (fixed)
+   - User:     10 chars (fixed)
+   - Database: 10 chars (fixed)
+   - State:    15 chars (fixed)
+   - Duration: 10 chars (fixed)
+   - Trend:    12 chars (8 sparkline + 1 trend + 3 padding) = 12 (fixed)
+   - Query:    remaining space (flexible)
+   Total fixed: 63 chars + 12 trend = 75 chars
+   Query gets: width - 77 chars
+
+2. Column Layout (Standard Terminal - 100 cols):
+   - Trend:    8 chars (6 sparkline + 1 trend + 1 padding)
+   - Query:    narrower
+
+3. Column Layout (Narrow Terminal - <90 cols):
+   - Trend:    HIDDEN (show "-" or omit entirely)
+   - Query:    gets all remaining space
+
+4. Data Collection:
+   - Track last 10 query durations per PID
+   - Store in memory (ConnectionMetrics map)
+   - Clear when connection ends/PID reused
+   - Update on each activity refresh
+
+5. Sparkline Rendering:
+   - Use existing RenderUnicodeSparkline() from sparkline.go
+   - Width: 8 chars for wide, 6 for standard
+   - Append trend indicator (↑→↓)
+
+6. Performance Considerations:
+   - ConnectionMetrics stored in memory (not persisted)
+   - Limited to 10 points per connection (circular buffer)
+   - Max 1000 connections tracked (evict LRU)
+
+7. Integration Points:
+   - ConnectionMetrics: internal/metrics/connection_metrics.go
+   - ActivityTable: Add Trend column between Duration and Query
+   - Activity View: Pass metrics collector reference
