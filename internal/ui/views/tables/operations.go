@@ -43,6 +43,13 @@ func NewOperationsMenu(table *models.Table, readOnly bool) *OperationsMenu {
 func (m *OperationsMenu) buildMenuItems() []OperationMenuItem {
 	items := []OperationMenuItem{
 		{
+			Label:          "BLOAT",
+			Operation:      models.OpCheckBloat,
+			Description:    "Measure bloat via pgstattuple",
+			Disabled:       false, // Read-only safe
+			DisabledReason: "",
+		},
+		{
 			Label:          "VACUUM",
 			Operation:      models.OpVacuum,
 			Description:    "Reclaim dead tuple space",
@@ -215,6 +222,8 @@ func (d *ConfirmOperationDialog) View() string {
 // getOperationDescription returns a description for the operation type.
 func getOperationDescription(op models.OperationType) string {
 	switch op {
+	case models.OpCheckBloat:
+		return "Calculate accurate bloat percentage using pgstattuple extension. This does a full table scan."
 	case models.OpVacuum:
 		return "Reclaim storage space from dead tuples without blocking reads."
 	case models.OpVacuumFull:

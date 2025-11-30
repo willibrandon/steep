@@ -246,12 +246,6 @@ func (v *TablesView) handleHistoryKey(key string) tea.Cmd {
 
 // openOperationsMenu opens the maintenance operations menu.
 func (v *TablesView) openOperationsMenu() tea.Cmd {
-	// Check readonly mode
-	if v.readonlyMode {
-		v.showToast("Operations blocked: read-only mode", true)
-		return nil
-	}
-
 	// Check if operation already in progress (T075: single-operation enforcement)
 	if v.currentOperation != nil {
 		v.showToast("Another maintenance operation is in progress. Wait for it to complete or cancel it.", true)
@@ -268,7 +262,7 @@ func (v *TablesView) openOperationsMenu() tea.Cmd {
 		return nil
 	}
 
-	// Create and show operations menu
+	// Create and show operations menu (read-only status affects which items are enabled)
 	v.maintenanceTarget = item.Table
 	v.operationsMenu = NewOperationsMenu(item.Table, v.readonlyMode)
 	v.mode = ModeOperationsMenu
@@ -284,9 +278,18 @@ func (v *TablesView) handleOperationsMenuKey(key string) tea.Cmd {
 		v.operationsMenu.MoveUp()
 	case "enter":
 		selected := v.operationsMenu.SelectedItem()
+		logger.Debug("handleOperationsMenuKey: enter pressed",
+			"selected", selected,
+			"disabled", selected != nil && selected.Disabled)
 		if selected != nil && !selected.Disabled {
 			// Map operation type to confirmation mode
 			switch selected.Operation {
+			case models.OpCheckBloat:
+				// CHECK BLOAT is read-only - execute immediately without confirmation
+				logger.Debug("handleOperationsMenuKey: executing CHECK BLOAT")
+				v.mode = ModeNormal
+				v.operationsMenu = nil
+				return v.executeCheckBloat()
 			case models.OpVacuum:
 				v.mode = ModeConfirmVacuum
 			case models.OpVacuumFull:
@@ -692,6 +695,83 @@ func findMaintenancePID(ctx context.Context, pool *pgxpool.Pool, schema, table s
 		return 0, false, err
 	}
 	return pid, true, nil
+}
+
+// executeCheckBloat executes an on-demand bloat check using pgstattuple.
+func (v *TablesView) executeCheckBloat() tea.Cmd {
+	logger.Debug("executeCheckBloat called")
+
+	if v.maintenanceTarget == nil {
+		logger.Error("executeCheckBloat: maintenanceTarget is nil")
+		return nil
+	}
+	if v.pool == nil {
+		logger.Error("executeCheckBloat: pool is nil")
+		return nil
+	}
+
+	target := v.maintenanceTarget
+	tableName := fmt.Sprintf("%s.%s", target.SchemaName, target.Name)
+	tableOID := target.OID
+
+	// Create the operation object for tracking (same pattern as other maintenance ops)
+	operation := &models.MaintenanceOperation{
+		ID:           fmt.Sprintf("%d", time.Now().UnixNano()),
+		Type:         models.OpCheckBloat,
+		TargetSchema: target.SchemaName,
+		TargetTable:  target.Name,
+		Status:       models.StatusRunning,
+		StartedAt:    time.Now(),
+	}
+
+	// Store operation (for history tracking, but no progress UI needed)
+	v.currentOperation = operation
+
+	logger.Debug("executeCheckBloat: starting bloat check",
+		"table", tableName,
+		"oid", tableOID)
+
+	return func() tea.Msg {
+		logger.Debug("executeCheckBloat: command func executing",
+			"table", tableName,
+			"oid", tableOID)
+
+		startTime := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		bloatPct, err := queries.GetSingleTableBloat(ctx, v.pool, tableOID)
+		elapsed := time.Since(startTime)
+
+		if err != nil {
+			logger.Error("executeCheckBloat: query failed",
+				"table", tableName,
+				"oid", tableOID,
+				"error", err,
+				"elapsed", elapsed)
+			return CheckBloatResultMsg{
+				TableOID:  tableOID,
+				TableName: tableName,
+				Success:   false,
+				Error:     err,
+				Elapsed:   elapsed,
+			}
+		}
+
+		logger.Debug("executeCheckBloat: query succeeded",
+			"table", tableName,
+			"oid", tableOID,
+			"bloatPct", bloatPct,
+			"elapsed", elapsed)
+
+		return CheckBloatResultMsg{
+			TableOID:  tableOID,
+			TableName: tableName,
+			BloatPct:  bloatPct,
+			Success:   true,
+			Elapsed:   elapsed,
+		}
+	}
 }
 
 // collapseOrMoveUp collapses the current item or moves to parent.

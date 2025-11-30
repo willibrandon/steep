@@ -187,6 +187,16 @@ type (
 		Cancelled bool  // True if pg_cancel_backend returned true
 		Error     error // Non-nil if the cancel call itself failed
 	}
+
+	// CheckBloatResultMsg contains the result of an on-demand bloat check.
+	CheckBloatResultMsg struct {
+		TableOID  uint32
+		TableName string        // schema.table
+		BloatPct  float64       // Bloat percentage from pgstattuple
+		Success   bool
+		Error     error
+		Elapsed   time.Duration // How long the operation took
+	}
 )
 
 // TablesView displays schema and table statistics.
@@ -350,22 +360,14 @@ func (v *TablesView) fetchTablesData() tea.Cmd {
 			return TablesDataMsg{Error: fmt.Errorf("fetch partitions: %w", err)}
 		}
 
-		// Get accurate bloat if pgstattuple is available
-		var bloat map[uint32]float64
-		if pgstattupleAvailable {
-			bloat, err = queries.GetTableBloat(ctx, v.pool)
-			if err != nil {
-				// Non-fatal: fall back to estimates
-				bloat = nil
-			}
-		}
-
+		// Bloat is now checked on-demand via [x] ops menu -> BLOAT
+		// This avoids expensive pgstattuple scans on every refresh
 		return TablesDataMsg{
 			Schemas:              schemas,
 			Tables:               tables,
 			Indexes:              indexes,
 			Partitions:           partitions,
-			Bloat:                bloat,
+			Bloat:                nil,
 			PgstattupleAvailable: pgstattupleAvailable,
 		}
 	}

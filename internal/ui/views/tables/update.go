@@ -25,7 +25,7 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Error != nil {
 			v.err = msg.Error
 		} else {
-			// Preserve expanded state before updating
+			// Preserve expanded state and accurate bloat values before updating
 			expandedSchemas := make(map[uint32]bool)
 			for _, s := range v.schemas {
 				if s.Expanded {
@@ -33,9 +33,13 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			expandedTables := make(map[uint32]bool)
+			accurateBloat := make(map[uint32]float64) // Preserve on-demand bloat checks
 			for _, t := range v.tables {
 				if t.Expanded {
 					expandedTables[t.OID] = true
+				}
+				if !t.BloatEstimated {
+					accurateBloat[t.OID] = t.BloatPct
 				}
 			}
 
@@ -48,13 +52,11 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.lastUpdate = time.Now()
 			v.err = nil
 
-			// Apply accurate bloat values if available
-			if msg.Bloat != nil {
-				for i := range v.tables {
-					if pct, ok := msg.Bloat[v.tables[i].OID]; ok {
-						v.tables[i].BloatPct = pct
-						v.tables[i].BloatEstimated = false
-					}
+			// Restore accurate bloat values from on-demand checks
+			for i := range v.tables {
+				if pct, ok := accurateBloat[v.tables[i].OID]; ok {
+					v.tables[i].BloatPct = pct
+					v.tables[i].BloatEstimated = false
 				}
 			}
 
@@ -298,6 +300,61 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			errMsg := fmt.Sprintf("Revoke failed: %v", msg.Error)
 			v.showToast(errMsg, true)
+		}
+		return v, nil
+
+	case CheckBloatResultMsg:
+		logger.Debug("CheckBloatResultMsg received",
+			"table", msg.TableName,
+			"success", msg.Success,
+			"bloatPct", msg.BloatPct,
+			"elapsed", msg.Elapsed)
+
+		// Track operation in session history (same pattern as MaintenanceResultMsg)
+		if v.currentOperation != nil && v.operationHistory != nil {
+			completedOp := *v.currentOperation
+			now := time.Now()
+			completedOp.CompletedAt = &now
+			completedOp.Duration = msg.Elapsed
+			if msg.Success {
+				completedOp.Status = models.StatusCompleted
+			} else {
+				completedOp.Status = models.StatusFailed
+				completedOp.Error = msg.Error
+			}
+			v.operationHistory.Add(completedOp)
+			logger.Debug("bloat check added to history",
+				"table", msg.TableName,
+				"success", msg.Success,
+				"elapsed", msg.Elapsed,
+				"historySize", len(v.operationHistory.Operations))
+		}
+
+		v.maintenanceTarget = nil
+		v.currentOperation = nil
+		if msg.Success {
+			// Update the table's bloat value in memory via tablesByOID
+			if table, ok := v.tablesByOID[msg.TableOID]; ok {
+				table.BloatPct = msg.BloatPct
+				table.BloatEstimated = false // Mark as accurate (from pgstattuple)
+			}
+			// Also update in v.tables slice (source for tree rebuild)
+			for i := range v.tables {
+				if v.tables[i].OID == msg.TableOID {
+					v.tables[i].BloatPct = msg.BloatPct
+					v.tables[i].BloatEstimated = false
+					break
+				}
+			}
+			// Rebuild tree to reflect updated bloat value
+			v.buildTreeItems()
+			v.showToast(fmt.Sprintf("✓ Bloat for %s: %.1f%% (%s)", msg.TableName, msg.BloatPct, formatDuration(msg.Elapsed)), false)
+		} else {
+			errMsg := fmt.Sprintf("✗ Bloat check failed on %s: %s", msg.TableName, GetActionableErrorMessage(msg.Error))
+			v.showToast(errMsg, true)
+			logger.Error("bloat check failed",
+				"table", msg.TableName,
+				"error", msg.Error)
 		}
 		return v, nil
 

@@ -301,6 +301,21 @@ func GetTableBloat(ctx context.Context, pool *pgxpool.Pool) (map[uint32]float64,
 	return bloat, nil
 }
 
+// GetSingleTableBloat retrieves accurate bloat percentage for a single table using pgstattuple.
+// Returns the dead tuple percentage. Only call this when pgstattuple is available.
+func GetSingleTableBloat(ctx context.Context, pool *pgxpool.Pool, oid uint32) (float64, error) {
+	// pgstattuple takes a regclass, so we cast the OID
+	query := `SELECT COALESCE((pgstattuple($1::regclass)).dead_tuple_percent, 0)`
+
+	var bloatPct float64
+	err := pool.QueryRow(ctx, query, oid).Scan(&bloatPct)
+	if err != nil {
+		return 0, fmt.Errorf("query single table bloat: %w", err)
+	}
+
+	return bloatPct, nil
+}
+
 // GetPartitionHierarchy retrieves parent-child partition relationships.
 // Returns a map of parent OID -> slice of child OIDs.
 func GetPartitionHierarchy(ctx context.Context, pool *pgxpool.Pool) (map[uint32][]uint32, error) {

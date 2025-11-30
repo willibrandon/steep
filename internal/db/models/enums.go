@@ -11,6 +11,7 @@ const (
 	OpReindexTable        OperationType = "REINDEX TABLE"
 	OpReindexConcurrently OperationType = "REINDEX CONCURRENTLY"
 	OpReindexIndex        OperationType = "REINDEX INDEX"
+	OpCheckBloat          OperationType = "BLOAT"
 )
 
 // OperationStatus represents the current status of a maintenance operation.

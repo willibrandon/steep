@@ -956,6 +956,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd := m.tablesView.Update(msg)
 		return m, cmd
 
+	case tablesview.CheckBloatResultMsg:
+		// Forward bloat check result to tables view
+		_, cmd := m.tablesView.Update(msg)
+		return m, cmd
+
 	case tablesview.ProgressTickMsg:
 		// Forward progress tick to tables view
 		_, cmd := m.tablesView.Update(msg)
