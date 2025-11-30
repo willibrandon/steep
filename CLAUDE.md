@@ -328,6 +328,9 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL (pg_stat_progress_vacuum, pg_stat_progress_cluster, pg_stat_all_tables, pg_roles, pg_catalog, pg_class_aclitem) (010-database-operations)
 
 ## Recent Changes
+- 007-sql-editor: External REPL support via :repl command (pgcli, psql, with Docker fallback)
+- 007-sql-editor: Multi-arch Docker image for pgcli (willibrandon/pgcli) supporting amd64 and arm64
+- 007-sql-editor: Windows Docker support with automatic host.docker.internal translation
 - 010-database-operations: Maintenance operations menu (VACUUM, VACUUM FULL, VACUUM ANALYZE, ANALYZE, REINDEX TABLE, REINDEX CONCURRENTLY)
 - 010-database-operations: Operation progress tracking with real-time progress bar for VACUUM/VACUUM FULL
 - 010-database-operations: Single-operation enforcement (one maintenance op at a time)

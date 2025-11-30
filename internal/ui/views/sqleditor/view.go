@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components/vimtea"
@@ -228,6 +229,11 @@ func NewSQLEditorView(syntaxTheme string) *SQLEditorView {
 	// Export commands
 	v.editor.AddCommand("export", func(buf vimtea.Buffer, args []string) tea.Cmd {
 		return v.exportCmd(args)
+	})
+
+	// REPL command - launch external pgcli or psql
+	v.editor.AddCommand("repl", func(buf vimtea.Buffer, args []string) tea.Cmd {
+		return v.replCmd(args)
 	})
 
 	// Initialize snippet manager
@@ -533,6 +539,16 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.showToast("Copy failed: "+msg.Error.Error(), true)
 		} else {
 			v.showToast("Row copied", false)
+		}
+
+	case ReplExitedMsg:
+		// REPL has exited, we're back in the TUI
+		if msg.Err != nil {
+			errMsg := fmt.Sprintf("REPL %s error: %s", msg.Tool, msg.Err.Error())
+			logger.Error(errMsg)
+			v.showToast(errMsg, true)
+		} else {
+			v.showToast("Returned from "+msg.Tool, false)
 		}
 
 	case vimtea.CommandMsg:

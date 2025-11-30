@@ -339,6 +339,12 @@ connection:
 | `:snippets` | Open snippet browser |
 | `:export csv FILE` | Export results to CSV |
 | `:export json FILE` | Export results to JSON |
+| `:repl` | Launch pgcli or psql (auto-detect) |
+| `:repl pgcli` | Launch pgcli specifically |
+| `:repl psql` | Launch psql specifically |
+| `:repl docker` | Force Docker (pgcli or psql) |
+| `:repl docker pgcli` | Force Docker pgcli |
+| `:repl docker psql` | Force Docker psql |
 | `:clear` | Clear editor and results |
 
 #### Configuration

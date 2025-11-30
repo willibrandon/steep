@@ -492,60 +492,158 @@ func (v *SQLEditorView) renderFooter() string {
 	return strings.Join(parts, " │ ")
 }
 
-// renderHelp renders the help overlay.
+// helpKeyBinding represents a single key binding entry for help.
+type helpKeyBinding struct {
+	key  string
+	desc string
+}
+
+// getHelpBindings returns all help key bindings for SQL Editor.
+func getHelpBindings() []helpKeyBinding {
+	return []helpKeyBinding{
+		{"Focus Switching", ""},
+		{"\\", "Toggle focus (editor / results)"},
+		{"Enter", "From results: enter editor in insert mode"},
+		{"", ""},
+		{"Editor Mode", ""},
+		{"F5", "Execute query"},
+		{"Ctrl+Enter", "Execute query (insert mode)"},
+		{"i/a/o", "Enter insert mode (vim-style)"},
+		{"Esc", "Exit insert mode / switch to results"},
+		{"", ""},
+		{"History", ""},
+		{"Up/Down", "Navigate history (cursor at 0,0)"},
+		{"Ctrl+R", "Search history (reverse search)"},
+		{"", ""},
+		{"Results Mode", ""},
+		{"j/k", "Move selection down/up"},
+		{"h/l", "Move selection left/right (cell)"},
+		{"0/$", "First/last column"},
+		{"g/G", "Go to first/last row"},
+		{"Ctrl+d/u", "Page down/up (10 rows)"},
+		{"Left/Right", "Scroll columns"},
+		{"n/p", "Next/previous page (100 rows)"},
+		{"s/S", "Cycle sort column / toggle direction"},
+		{"y/Y", "Copy cell / copy row"},
+		{"", ""},
+		{"Resize Panes", ""},
+		{"-/+", "Shrink/grow results pane"},
+		{"Ctrl+Up/Down", "Resize panes (alternative)"},
+		{"", ""},
+		{"Commands", ""},
+		{":exec", "Execute query"},
+		{":save NAME", "Save query as snippet"},
+		{":load NAME", "Load snippet into editor"},
+		{":snippets", "Open snippet browser (Ctrl+O)"},
+		{":export csv/json FILE", "Export results"},
+		{":repl [pgcli|psql]", "Launch external REPL"},
+		{"", ""},
+		{"General", ""},
+		{"1-7", "Switch views"},
+		{"H", "Show this help"},
+		{"q", "Quit application"},
+	}
+}
+
+// renderHelp renders the scrollable help overlay centered on screen.
 func (v *SQLEditorView) renderHelp() string {
-	helpText := `SQL Editor Help
+	keyBindings := getHelpBindings()
 
-FOCUS SWITCHING
-  \            Toggle focus (editor ↔ results) in normal mode
-  Enter        From results: enter editor in insert mode
+	// Calculate max key width for alignment
+	maxKeyWidth := 0
+	for _, kb := range keyBindings {
+		if len(kb.key) > maxKeyWidth {
+			maxKeyWidth = len(kb.key)
+		}
+	}
 
-EDITOR MODE (● indicator shows focus)
-  F5           Execute query
-  Ctrl+Enter   Execute query (insert mode)
-  i/a/o        Enter insert mode (vim-style)
-  Esc          Exit insert mode / switch to results
+	// Build all lines
+	var allLines []string
+	for _, kb := range keyBindings {
+		if kb.key == "" && kb.desc == "" {
+			allLines = append(allLines, "")
+			continue
+		}
+		if kb.desc == "" {
+			// Section header
+			allLines = append(allLines, styles.HelpTitleStyle.Render(kb.key))
+			continue
+		}
+		key := styles.HelpKeyStyle.Render(padRight(kb.key, maxKeyWidth+2))
+		desc := styles.HelpDescStyle.Render(kb.desc)
+		allLines = append(allLines, key+desc)
+	}
 
-HISTORY (cursor at line 1, column 0)
-  ↑            Previous query in history
-  ↓            Next query in history
-  Ctrl+R       Search history (reverse search)
+	totalLines := len(allLines)
 
-RESULTS MODE (allows view switching and quit)
-  j/k          Move selection down/up
-  h/l          Move selection left/right (cell)
-  0/$          First/last column
-  g/G          Go to first/last row
-  Ctrl+d/u     Page down/up (10 rows)
-  ←/→          Scroll columns left/right
-  n/p          Next/previous page (100 rows)
-  s/S          Cycle sort column / toggle direction
-  y/Y          Copy cell / copy row
+	// Calculate visible height (leave room for title, footer, borders, padding)
+	visibleHeight := v.height - 10
+	if visibleHeight < 5 {
+		visibleHeight = 5
+	}
+	if visibleHeight > totalLines {
+		visibleHeight = totalLines
+	}
 
-RESIZE EDITOR/RESULTS SPLIT
-  -/+          Resize panes
-  Ctrl+↑/↓     Resize panes (alternative)
+	// Clamp scroll offset
+	maxScroll := totalLines - visibleHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if v.helpScroll > maxScroll {
+		v.helpScroll = maxScroll
+	}
+	if v.helpScroll < 0 {
+		v.helpScroll = 0
+	}
 
-COMMANDS (type ':' in normal mode)
-  :exec        Execute query
-  :save NAME   Save query as snippet
-  :load NAME   Load snippet into editor
-  :snippets    Open snippet browser (also Ctrl+O)
-  :export csv FILE   Export results to CSV
-  :export json FILE  Export results to JSON
+	// Get visible slice
+	endIdx := v.helpScroll + visibleHeight
+	if endIdx > totalLines {
+		endIdx = totalLines
+	}
+	visibleLines := allLines[v.helpScroll:endIdx]
 
-NAVIGATION
-  1-7          Switch views
-  H            Show this help
-  q            Quit application
+	// Build content
+	var b strings.Builder
 
-Press H, q, or Esc to close this help.`
+	// Title
+	b.WriteString(styles.HelpTitleStyle.Render("SQL Editor Help"))
+	b.WriteString("\n\n")
 
-	return lipgloss.NewStyle().
-		Width(v.width).
-		Height(v.height).
-		Padding(2, 4).
-		Render(helpText)
+	// Visible lines
+	b.WriteString(strings.Join(visibleLines, "\n"))
+
+	// Footer with scroll indicator
+	b.WriteString("\n\n")
+	footerStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
+	if maxScroll > 0 {
+		scrollPct := float64(v.helpScroll) / float64(maxScroll) * 100
+		b.WriteString(footerStyle.Render(fmt.Sprintf("[j/k] scroll  [H/q/Esc] close  (%.0f%%)", scrollPct)))
+	} else {
+		b.WriteString(footerStyle.Render("[H/q/Esc] close"))
+	}
+
+	// Wrap in dialog with border
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.ColorAccent).
+		Padding(1, 2)
+
+	// Center on screen - this fills the entire screen area
+	return lipgloss.Place(
+		v.width, v.height,
+		lipgloss.Center, lipgloss.Center,
+		dialogStyle.Render(b.String()),
+	)
+}
+
+// padRight pads a string with spaces to the specified width.
+func padRight(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-len(s))
 }
 
 // renderSearchOverlay renders the Ctrl+R reverse search overlay.
