@@ -541,7 +541,7 @@ func getHelpBindings() []helpKeyBinding {
 		{":repl docker [pgcli|psql]", "Launch REPL via Docker"},
 		{"", ""},
 		{"General", ""},
-		{"1-7", "Switch views"},
+		{"1-9,0", "Switch views"},
 		{"H", "Show this help"},
 		{"q", "Quit application"},
 	}

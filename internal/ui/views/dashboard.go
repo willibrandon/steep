@@ -149,7 +149,7 @@ func (d *DashboardView) renderPlaceholderWithHeight(height int) string {
 
 // renderFooter renders the bottom footer with hints.
 func (d *DashboardView) renderFooter() string {
-	hints := styles.FooterHintStyle.Render("[1]Dashboard [2]Activity [3]Queries [4]Locks [5]Tables [6]Replication [7]SQL Editor [8]Config [9]Logs")
+	hints := styles.FooterHintStyle.Render("[1]Dashboard [2]Activity [3]Queries [4]Locks [5]Tables [6]Replication [7]SQL Editor [8]Config [9]Logs [0]Roles")
 
 	return styles.FooterStyle.
 		Width(d.width - 2).

@@ -1111,7 +1111,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Check for view jumping (1-8) - but not when in input mode (editing fields)
+	// Check for view jumping (1-9, 0) - but not when in input mode (editing fields)
 	if !inInputMode {
 		switch msg.String() {
 		case "1":
