@@ -127,6 +127,26 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return v, nil
 
 	case MaintenanceResultMsg:
+		// T076: Track operation in session history before clearing currentOperation
+		if v.currentOperation != nil && v.operationHistory != nil {
+			completedOp := *v.currentOperation
+			now := time.Now()
+			completedOp.CompletedAt = &now
+			completedOp.Duration = msg.Elapsed
+			if msg.Success {
+				completedOp.Status = models.StatusCompleted
+			} else {
+				completedOp.Status = models.StatusFailed
+				completedOp.Error = msg.Error
+			}
+			v.operationHistory.Add(completedOp)
+			logger.Debug("operation added to history",
+				"operation", msg.Operation,
+				"table", msg.TableName,
+				"success", msg.Success,
+				"historySize", len(v.operationHistory.Operations))
+		}
+
 		v.maintenanceTarget = nil
 		v.currentOperation = nil
 		v.pollingInProgress = false // Reset polling state
@@ -138,7 +158,9 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		errMsg := fmt.Sprintf("✗ %s failed: %s", msg.Operation, msg.TableName)
 		if msg.Error != nil {
-			errMsg = fmt.Sprintf("✗ %s failed on %s: %v", msg.Operation, msg.TableName, msg.Error)
+			// T079: Use actionable error message
+			actionableMsg := GetActionableErrorMessage(msg.Error)
+			errMsg = fmt.Sprintf("✗ %s failed on %s: %s", msg.Operation, msg.TableName, actionableMsg)
 			logger.Error("maintenance operation failed",
 				"operation", msg.Operation,
 				"table", msg.TableName,
@@ -353,12 +375,17 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case ModeHelp:
 			switch msg.Button {
-			case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
-				// Could add help scroll here if needed
+			case tea.MouseButtonWheelUp:
+				if v.helpScrollOffset > 0 {
+					v.helpScrollOffset--
+				}
+			case tea.MouseButtonWheelDown:
+				v.helpScrollOffset++
 			case tea.MouseButtonLeft:
 				// Click anywhere to close help
 				if msg.Action == tea.MouseActionPress {
 					v.mode = ModeNormal
+					v.helpScrollOffset = 0
 				}
 			}
 		case ModeDetails:

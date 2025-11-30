@@ -383,9 +383,9 @@ func (v *TablesView) SetPool(pool *pgxpool.Pool) {
 	v.pool = pool
 }
 
-// IsInputMode returns true if in an input mode.
+// IsInputMode returns true if in an input mode (overlays that should capture 'q').
 func (v *TablesView) IsInputMode() bool {
-	return v.mode == ModeDetails || v.mode == ModeHelp
+	return v.mode == ModeDetails || v.mode == ModeHelp || v.mode == ModeOperationHistory
 }
 
 // showToast displays a toast message.

@@ -19,7 +19,7 @@ func (v *TablesView) View() string {
 
 	// Check for overlay modes
 	if v.mode == ModeHelp {
-		return HelpOverlay(v.width, v.height, v.pgstattupleAvailable)
+		return v.renderHelpOverlay()
 	}
 
 	if v.mode == ModeCopyMenu {
@@ -62,6 +62,11 @@ func (v *TablesView) View() string {
 	// Permissions dialog
 	if v.mode == ModePermissions && v.permissionsDialog != nil {
 		return v.renderPermissionsDialog()
+	}
+
+	// Operation history overlay
+	if v.mode == ModeOperationHistory {
+		return v.renderOperationHistory()
 	}
 
 	return v.renderMainView()
@@ -881,5 +886,127 @@ func (v *TablesView) renderPermissionsDialog() string {
 		v.width, v.height,
 		lipgloss.Center, lipgloss.Center,
 		dialogContent,
+	)
+}
+
+// renderOperationHistory renders the operation history overlay.
+func (v *TablesView) renderOperationHistory() string {
+	if v.operationHistory == nil || len(v.operationHistory.Operations) == 0 {
+		return v.renderMainView()
+	}
+
+	var b strings.Builder
+
+	// Title
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+	b.WriteString(titleStyle.Render("Operation History"))
+	b.WriteString("\n\n")
+
+	// Get recent operations (most recent first)
+	ops := v.operationHistory.Recent(15) // Show up to 15 recent operations
+
+	// Calculate visible rows based on terminal height
+	maxVisible := min(len(ops), (v.height-10)/2) // Leave room for title, footer, borders
+	if maxVisible < 5 {
+		maxVisible = min(5, len(ops))
+	}
+
+	// Scrolling: keep selected item in view
+	startIdx := 0
+	if v.historySelectedIdx >= maxVisible {
+		startIdx = v.historySelectedIdx - maxVisible + 1
+	}
+	endIdx := min(startIdx+maxVisible, len(ops))
+
+	// Fixed column widths for alignment
+	const (
+		opWidth       = 8
+		tableWidth    = 25
+		durationWidth = 8
+		timeWidth     = 8
+	)
+
+	// Render each operation
+	for i := startIdx; i < endIdx; i++ {
+		op := ops[i]
+		isSelected := i == v.historySelectedIdx
+
+		// Status icon and color
+		var statusIcon string
+		var statusColor lipgloss.Color
+		switch op.Status {
+		case models.StatusCompleted:
+			statusIcon = "+"
+			statusColor = styles.ColorSuccess
+		case models.StatusFailed:
+			statusIcon = "x"
+			statusColor = styles.ColorError
+		case models.StatusCancelled:
+			statusIcon = "-"
+			statusColor = styles.ColorMuted
+		default:
+			statusIcon = "?"
+			statusColor = styles.ColorMuted
+		}
+
+		// Format operation name
+		opName := string(op.Type)
+
+		// Format table name with truncation
+		tableName := fmt.Sprintf("%s.%s", op.TargetSchema, op.TargetTable)
+		tableName = truncateWithWidth(tableName, tableWidth)
+
+		// Format duration with fixed width
+		durationStr := formatDuration(op.Duration)
+
+		// Format timestamp
+		var timeStr string
+		if op.CompletedAt != nil {
+			timeStr = op.CompletedAt.Format("15:04:05")
+		} else {
+			timeStr = op.StartedAt.Format("15:04:05")
+		}
+
+		// Build row with fixed-width columns
+		row := fmt.Sprintf("%s %s %s %s %s",
+			statusIcon,
+			padRight(opName, opWidth),
+			padRight(tableName, tableWidth),
+			padRight(durationStr, durationWidth),
+			timeStr)
+
+		// Apply styling
+		if isSelected {
+			b.WriteString(lipgloss.NewStyle().
+				Background(styles.ColorAccent).
+				Foreground(lipgloss.Color("0")).
+				Render(row))
+		} else {
+			b.WriteString(lipgloss.NewStyle().Foreground(statusColor).Render(row))
+		}
+		b.WriteString("\n")
+	}
+
+	// Scroll indicator if there are more items
+	if len(ops) > maxVisible {
+		scrollInfo := fmt.Sprintf("\n%d of %d operations", v.historySelectedIdx+1, len(ops))
+		b.WriteString(lipgloss.NewStyle().Foreground(styles.ColorMuted).Render(scrollInfo))
+	}
+
+	// Footer
+	b.WriteString("\n\n")
+	footerStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
+	b.WriteString(footerStyle.Render("[j/k] navigate  [q/Esc/H] close"))
+
+	// Wrap in dialog - use dynamic width based on content
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.ColorAccent).
+		Padding(1, 2)
+
+	return lipgloss.Place(
+		v.width, v.height,
+		lipgloss.Center, lipgloss.Center,
+		dialogStyle.Render(b.String()),
 	)
 }

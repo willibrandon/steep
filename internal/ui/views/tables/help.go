@@ -1,18 +1,22 @@
 package tables
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
-// HelpOverlay renders the help overlay for the tables view.
-func HelpOverlay(width, height int, pgstattupleAvailable bool) string {
-	title := styles.HelpTitleStyle.Render("Tables View Help")
+// helpKeyBinding represents a single key binding entry.
+type helpKeyBinding struct {
+	key  string
+	desc string
+}
 
-	keyBindings := []struct {
-		key  string
-		desc string
-	}{
+// getHelpBindings returns all help key bindings.
+func getHelpBindings() []helpKeyBinding {
+	return []helpKeyBinding{
 		{"Navigation", ""},
 		{"j / ↓", "Move down"},
 		{"k / ↑", "Move up"},
@@ -54,12 +58,18 @@ func HelpOverlay(width, height int, pgstattupleAvailable bool) string {
 		{"a", "ANALYZE table"},
 		{"r", "REINDEX table"},
 		{"p", "View/manage permissions"},
+		{"H", "View operation history"},
 		{"", ""},
 		{"General", ""},
 		{"R", "Refresh data"},
 		{"h / ?", "Toggle this help"},
 		{"Esc / q", "Close overlay"},
 	}
+}
+
+// renderHelpOverlay renders the scrollable help overlay.
+func (v *TablesView) renderHelpOverlay() string {
+	keyBindings := getHelpBindings()
 
 	// Calculate max key width for alignment
 	maxKeyWidth := 0
@@ -69,45 +79,91 @@ func HelpOverlay(width, height int, pgstattupleAvailable bool) string {
 		}
 	}
 
-	var lines string
+	// Build all lines
+	var allLines []string
 	for _, kb := range keyBindings {
 		if kb.key == "" && kb.desc == "" {
-			lines += "\n"
+			allLines = append(allLines, "")
 			continue
 		}
 		if kb.desc == "" {
 			// Section header
-			lines += styles.HelpTitleStyle.Render(kb.key) + "\n"
+			allLines = append(allLines, styles.HelpTitleStyle.Render(kb.key))
 			continue
 		}
 		key := styles.HelpKeyStyle.Render(padRight(kb.key, maxKeyWidth+2))
 		desc := styles.HelpDescStyle.Render(kb.desc)
-		lines += key + desc + "\n"
+		allLines = append(allLines, key+desc)
 	}
 
-	// Add pgstattuple status
+	// Add pgstattuple status at end
 	var pgstatStatus string
-	if pgstattupleAvailable {
-		pgstatStatus = lipgloss.NewStyle().Foreground(styles.ColorSuccess).Render("✓") + " pgstattuple installed"
+	if v.pgstattupleAvailable {
+		pgstatStatus = lipgloss.NewStyle().Foreground(styles.ColorSuccess).Render("+") + " pgstattuple installed"
 	} else {
-		pgstatStatus = lipgloss.NewStyle().Foreground(styles.ColorMuted).Render("✗") + " pgstattuple not installed (estimated bloat)"
+		pgstatStatus = lipgloss.NewStyle().Foreground(styles.ColorMuted).Render("-") + " pgstattuple not installed (estimated bloat)"
+	}
+	allLines = append(allLines, "", pgstatStatus)
+
+	totalLines := len(allLines)
+
+	// Calculate visible height (leave room for title, footer, borders, padding)
+	visibleHeight := v.height - 10
+	if visibleHeight < 5 {
+		visibleHeight = 5
+	}
+	if visibleHeight > totalLines {
+		visibleHeight = totalLines
 	}
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		"",
-		lines,
-		pgstatStatus,
-	)
+	// Clamp scroll offset
+	maxScroll := totalLines - visibleHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if v.helpScrollOffset > maxScroll {
+		v.helpScrollOffset = maxScroll
+	}
+	if v.helpScrollOffset < 0 {
+		v.helpScrollOffset = 0
+	}
 
-	dialog := styles.HelpDialogStyle.Render(content)
+	// Get visible slice
+	endIdx := v.helpScrollOffset + visibleHeight
+	if endIdx > totalLines {
+		endIdx = totalLines
+	}
+	visibleLines := allLines[v.helpScrollOffset:endIdx]
+
+	// Build content
+	var b strings.Builder
+
+	// Title
+	b.WriteString(styles.HelpTitleStyle.Render("Tables View Help"))
+	b.WriteString("\n\n")
+
+	// Visible lines
+	b.WriteString(strings.Join(visibleLines, "\n"))
+
+	// Footer with scroll indicator
+	b.WriteString("\n\n")
+	footerStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
+	if maxScroll > 0 {
+		scrollPct := float64(v.helpScrollOffset) / float64(maxScroll) * 100
+		b.WriteString(footerStyle.Render(fmt.Sprintf("[j/k] scroll  [q/Esc] close  (%.0f%%)", scrollPct)))
+	} else {
+		b.WriteString(footerStyle.Render("[q/Esc] close"))
+	}
+
+	// Wrap in dialog
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.ColorAccent).
+		Padding(1, 2)
 
 	return lipgloss.Place(
-		width, height,
+		v.width, v.height,
 		lipgloss.Center, lipgloss.Center,
-		dialog,
-		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceForeground(lipgloss.Color("235")),
+		dialogStyle.Render(b.String()),
 	)
 }

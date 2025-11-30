@@ -45,44 +45,44 @@ func (m *OperationsMenu) buildMenuItems() []OperationMenuItem {
 		{
 			Label:          "VACUUM",
 			Operation:      models.OpVacuum,
-			Description:    "Reclaim space from dead tuples",
+			Description:    "Reclaim dead tuple space",
 			Disabled:       m.ReadOnlyMode,
-			DisabledReason: "Read-only mode",
+			DisabledReason: "Read-only",
 		},
 		{
 			Label:          "VACUUM FULL",
 			Operation:      models.OpVacuumFull,
-			Description:    "Rewrite table to reclaim all space (BLOCKS TABLE)",
+			Description:    "Full table rewrite (LOCKS)",
 			Disabled:       m.ReadOnlyMode,
-			DisabledReason: "Read-only mode",
+			DisabledReason: "Read-only",
 		},
 		{
 			Label:          "VACUUM ANALYZE",
 			Operation:      models.OpVacuumAnalyze,
-			Description:    "Vacuum and update statistics",
+			Description:    "Vacuum + update stats",
 			Disabled:       m.ReadOnlyMode,
-			DisabledReason: "Read-only mode",
+			DisabledReason: "Read-only",
 		},
 		{
 			Label:          "ANALYZE",
 			Operation:      models.OpAnalyze,
-			Description:    "Update query planner statistics",
+			Description:    "Update planner stats",
 			Disabled:       m.ReadOnlyMode,
-			DisabledReason: "Read-only mode",
+			DisabledReason: "Read-only",
 		},
 		{
 			Label:          "REINDEX TABLE",
 			Operation:      models.OpReindexTable,
-			Description:    "Rebuild all indexes (LOCKS TABLE)",
+			Description:    "Rebuild indexes (LOCKS)",
 			Disabled:       m.ReadOnlyMode,
-			DisabledReason: "Read-only mode",
+			DisabledReason: "Read-only",
 		},
 		{
 			Label:          "REINDEX CONCURRENTLY",
 			Operation:      models.OpReindexConcurrently,
-			Description:    "Rebuild indexes without locking (slower)",
+			Description:    "Rebuild indexes (no lock)",
 			Disabled:       m.ReadOnlyMode,
-			DisabledReason: "Read-only mode",
+			DisabledReason: "Read-only",
 		},
 	}
 	return items
@@ -390,4 +390,34 @@ func IsReadOnlyBlocked(readOnly bool, op models.OperationType) bool {
 // GetReadOnlyMessage returns a user-friendly message for read-only mode blocking.
 func GetReadOnlyMessage(op models.OperationType) string {
 	return fmt.Sprintf("%s blocked: application is in read-only mode", op)
+}
+
+// GetActionableErrorMessage converts an error to a user-friendly actionable message.
+// Per contracts/maintenance.go.md error table (T079).
+func GetActionableErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	errStr := err.Error()
+
+	// Check for specific error patterns and return actionable messages
+	switch {
+	case strings.Contains(errStr, "permission denied"):
+		return "Insufficient privileges. Ensure your database user has the required permissions on this table."
+	case strings.Contains(errStr, "does not exist"):
+		return "Table not found. It may have been dropped or renamed."
+	case strings.Contains(errStr, "could not obtain lock"):
+		return "Could not obtain lock. The table is being used by another operation. Try again later."
+	case strings.Contains(errStr, "canceling statement"):
+		return "Operation was cancelled."
+	case strings.Contains(errStr, "read-only"):
+		return "Operation blocked: application is in read-only mode."
+	case strings.Contains(errStr, "connection"):
+		return "Database connection lost. The operation may still be running server-side. Check pg_stat_activity."
+	case strings.Contains(errStr, "timeout"):
+		return "Operation timed out. For large tables, consider running maintenance during off-peak hours."
+	default:
+		return errStr
+	}
 }

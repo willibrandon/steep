@@ -225,14 +225,16 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T075 Implement single-operation enforcement in TablesView - block new operations while one is in progress in `internal/ui/views/tables/view.go`
-- [ ] T076 Add session-only OperationHistory tracking in TablesView (cleared on exit) in `internal/ui/views/tables/view.go`
-- [ ] T077 Add GetRunningOperations query to detect existing maintenance operations in `internal/db/queries/maintenance.go`
-- [ ] T078 Implement error handling for ErrReadOnlyMode, ErrOperationInProgress, ErrInsufficientPrivileges in `internal/db/queries/maintenance.go`
-- [ ] T079 Add actionable error messages per contracts/maintenance.go.md error table in `internal/ui/views/tables/operations.go`
-- [ ] T080 [P] Add connection loss handling during operations - show reconnection status in `internal/ui/views/tables/view.go`
-- [ ] T081 Run integration tests with `make test` to validate all operations
-- [ ] T082 Run quickstart.md validation checklist
+- [x] T075 Implement single-operation enforcement in TablesView - block new operations while one is in progress in `internal/ui/views/tables/maintenance.go`
+- [x] T076 Add session-only OperationHistory tracking in TablesView (cleared on exit) in `internal/ui/views/tables/update.go`
+- [x] T077 Add GetRunningOperations query to detect existing maintenance operations in `internal/db/queries/maintenance.go`
+- [x] T078 Implement error handling for ErrReadOnlyMode, ErrOperationInProgress, ErrInsufficientPrivileges in `internal/db/queries/maintenance.go`
+- [x] T079 Add actionable error messages per contracts/maintenance.go.md error table in `internal/ui/views/tables/operations.go`
+- [x] T080 [P] Add connection loss handling during operations - show reconnection status in `internal/ui/views/tables/maintenance.go`
+- [x] T081 Run integration tests with `make test` to validate all operations
+- [x] T082 Run quickstart.md validation checklist
+
+**Checkpoint**: All phases complete - feature ready for final review
 
 ---
 

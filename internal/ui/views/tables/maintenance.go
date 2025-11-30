@@ -3,6 +3,7 @@ package tables
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -30,6 +31,12 @@ func (v *TablesView) promptMaintenance(mode TablesMode) tea.Cmd {
 			opName = "REINDEX CONCURRENTLY"
 		}
 		v.showToast(fmt.Sprintf("%s blocked: read-only mode", opName), true)
+		return nil
+	}
+
+	// Check if operation already in progress (T075: single-operation enforcement)
+	if v.currentOperation != nil {
+		v.showToast("Another maintenance operation is in progress. Wait for it to complete or cancel it.", true)
 		return nil
 	}
 
@@ -119,6 +126,17 @@ func (v *TablesView) createOperationCmd(target *models.Table, tableName string, 
 		var err error
 		var opName string
 
+		// T080: Check connection is available before starting
+		if v.pool == nil {
+			return MaintenanceResultMsg{
+				Operation: string(opType),
+				TableName: tableName,
+				Success:   false,
+				Error:     queries.ErrConnectionLost,
+				Elapsed:   time.Since(startTime),
+			}
+		}
+
 		switch opType {
 		case models.OpVacuum, models.OpVacuumFull, models.OpVacuumAnalyze:
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -159,6 +177,11 @@ func (v *TablesView) createOperationCmd(target *models.Table, tableName string, 
 			err = queries.ExecuteReindexWithOptions(ctx, v.pool, target.SchemaName, target.Name, queries.ReindexOptions{Concurrently: true})
 		}
 
+		// T080: Wrap connection-related errors with clearer message
+		if err != nil && isConnectionError(err) {
+			err = fmt.Errorf("%w: %v", queries.ErrConnectionLost, err)
+		}
+
 		return MaintenanceResultMsg{
 			Operation: opName,
 			TableName: tableName,
@@ -169,11 +192,69 @@ func (v *TablesView) createOperationCmd(target *models.Table, tableName string, 
 	}
 }
 
+// isConnectionError checks if an error is connection-related (T080).
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection") ||
+		strings.Contains(errStr, "closed") ||
+		strings.Contains(errStr, "EOF") ||
+		strings.Contains(errStr, "reset by peer") ||
+		strings.Contains(errStr, "broken pipe")
+}
+
+// openOperationHistory opens the operation history overlay.
+func (v *TablesView) openOperationHistory() {
+	if v.operationHistory == nil || len(v.operationHistory.Operations) == 0 {
+		v.showToast("No operations in history", false)
+		return
+	}
+	v.historySelectedIdx = 0
+	v.mode = ModeOperationHistory
+}
+
+// handleHistoryKey handles key presses in the operation history overlay.
+func (v *TablesView) handleHistoryKey(key string) tea.Cmd {
+	if v.operationHistory == nil {
+		v.mode = ModeNormal
+		return nil
+	}
+
+	ops := v.operationHistory.Recent(100)
+	maxIdx := len(ops) - 1
+
+	switch key {
+	case "j", "down":
+		if v.historySelectedIdx < maxIdx {
+			v.historySelectedIdx++
+		}
+	case "k", "up":
+		if v.historySelectedIdx > 0 {
+			v.historySelectedIdx--
+		}
+	case "g", "home":
+		v.historySelectedIdx = 0
+	case "G", "end":
+		v.historySelectedIdx = maxIdx
+	case "esc", "q", "H":
+		v.mode = ModeNormal
+	}
+	return nil
+}
+
 // openOperationsMenu opens the maintenance operations menu.
 func (v *TablesView) openOperationsMenu() tea.Cmd {
 	// Check readonly mode
 	if v.readonlyMode {
 		v.showToast("Operations blocked: read-only mode", true)
+		return nil
+	}
+
+	// Check if operation already in progress (T075: single-operation enforcement)
+	if v.currentOperation != nil {
+		v.showToast("Another maintenance operation is in progress. Wait for it to complete or cancel it.", true)
 		return nil
 	}
 

@@ -31,10 +31,11 @@ const (
 	ModeConfirmReindexConcurrently
 	ModeHelp
 	// New modes for operations menu
-	ModeOperationsMenu    // Show operation selection menu
-	ModeOperationProgress // Show progress for running operation
-	ModeConfirmCancel     // Confirm operation cancellation
-	ModePermissions       // Show permissions dialog
+	ModeOperationsMenu     // Show operation selection menu
+	ModeOperationProgress  // Show progress for running operation
+	ModeConfirmCancel      // Confirm operation cancellation
+	ModePermissions        // Show permissions dialog
+	ModeOperationHistory   // Show operation history overlay
 )
 
 // FocusPanel indicates which panel has keyboard focus.
@@ -237,12 +238,16 @@ type TablesView struct {
 	operationsMenu       *OperationsMenu              // Active operations menu (nil if not showing)
 	currentOperation     *models.MaintenanceOperation // Currently running operation (nil if none)
 	operationHistory     *models.OperationHistory     // Session-scoped operation history
+	historySelectedIdx   int                          // Selected index in history overlay
 	pendingVacuumFull    bool                         // If true, execute VACUUM FULL instead of VACUUM
 	pendingVacuumAnalyze bool                         // If true, execute VACUUM ANALYZE instead of VACUUM
 	pollingInProgress    bool                         // If true, a progress poll is already running
 
 	// Permissions dialog state
 	permissionsDialog *PermissionsDialog // Active permissions dialog (nil if not showing)
+
+	// Help overlay state
+	helpScrollOffset int // Scroll offset for help overlay
 
 	// App state
 	readonlyMode   bool

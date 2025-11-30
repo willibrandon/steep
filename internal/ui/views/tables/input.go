@@ -12,11 +12,29 @@ import (
 func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	key := msg.String()
 
-	// Handle help mode
+	// Handle help mode with scrolling
 	if v.mode == ModeHelp {
 		switch key {
 		case "h", "?", "esc", "q":
 			v.mode = ModeNormal
+			v.helpScrollOffset = 0
+		case "j", "down":
+			v.helpScrollOffset++
+		case "k", "up":
+			if v.helpScrollOffset > 0 {
+				v.helpScrollOffset--
+			}
+		case "g", "home":
+			v.helpScrollOffset = 0
+		case "G", "end":
+			v.helpScrollOffset = 999 // Will be clamped in render
+		case "ctrl+d", "pgdown":
+			v.helpScrollOffset += 10
+		case "ctrl+u", "pgup":
+			v.helpScrollOffset -= 10
+			if v.helpScrollOffset < 0 {
+				v.helpScrollOffset = 0
+			}
 		}
 		return nil
 	}
@@ -84,6 +102,11 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	// Handle operations menu
 	if v.mode == ModeOperationsMenu {
 		return v.handleOperationsMenuKey(key)
+	}
+
+	// Handle operation history overlay
+	if v.mode == ModeOperationHistory {
+		return v.handleHistoryKey(key)
 	}
 
 	// Handle permissions dialog
@@ -306,6 +329,10 @@ func (v *TablesView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		cmd := v.openPermissionsDialog()
 		logger.Debug("input: openPermissionsDialog returned", "cmdIsNil", cmd == nil)
 		return cmd
+
+	// Operation history overlay
+	case "H":
+		v.openOperationHistory()
 
 	// Resize split (only when index panel is visible)
 	// - shrinks index panel, + grows index panel
