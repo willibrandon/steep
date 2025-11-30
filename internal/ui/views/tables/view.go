@@ -14,6 +14,8 @@ import (
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/db/queries"
 	"github.com/willibrandon/steep/internal/logger"
+	"github.com/willibrandon/steep/internal/metrics"
+	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
 )
 
@@ -281,6 +283,13 @@ type TablesView struct {
 
 	// Database connection
 	pool *pgxpool.Pool
+
+	// Metrics store for sparklines (keyed metrics for table sizes)
+	metricsStore *sqlite.MetricsStore
+
+	// Sparkline cache: key="schema.table" -> size history
+	tableSizeCache   map[string][]metrics.DataPoint
+	lastMetricsFetch time.Time
 }
 
 // NewTablesView creates a new TablesView instance.
@@ -471,4 +480,75 @@ func (v *TablesView) fetchTableDetails(tableOID uint32) tea.Cmd {
 			Constraints: constraints,
 		}
 	}
+}
+
+// SetMetricsStore sets the metrics store for table size sparklines.
+func (v *TablesView) SetMetricsStore(store *sqlite.MetricsStore) {
+	v.metricsStore = store
+	v.tableSizeCache = make(map[string][]metrics.DataPoint)
+}
+
+// recordTableSizes saves current table sizes to the keyed metrics store.
+// Called after table data is refreshed.
+func (v *TablesView) recordTableSizes() {
+	if v.metricsStore == nil {
+		logger.Debug("tables: recordTableSizes skipped - no metrics store")
+		return
+	}
+	if len(v.tables) == 0 {
+		logger.Debug("tables: recordTableSizes skipped - no tables")
+		return
+	}
+
+	// Build keyed data points for all tables
+	keyValues := make(map[string]float64, len(v.tables))
+	for _, t := range v.tables {
+		key := fmt.Sprintf("%s.%s", t.SchemaName, t.Name)
+		keyValues[key] = float64(t.TotalSize)
+	}
+
+	// Save asynchronously to avoid blocking the UI
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := v.metricsStore.SaveBatchMultiKey(ctx, "table_size", time.Now(), keyValues); err != nil {
+			logger.Debug("failed to record table sizes", "error", err, "count", len(keyValues))
+		}
+	}()
+}
+
+// refreshTableSizeCache loads sparkline data for visible tables.
+func (v *TablesView) refreshTableSizeCache() {
+	if v.metricsStore == nil {
+		logger.Debug("tables: refreshTableSizeCache skipped - no metrics store")
+		return
+	}
+
+	// Collect keys for visible tables
+	keys := make([]string, 0, len(v.tables))
+	for _, t := range v.tables {
+		key := fmt.Sprintf("%s.%s", t.SchemaName, t.Name)
+		keys = append(keys, key)
+	}
+
+	if len(keys) == 0 {
+		return
+	}
+
+	// Query last 24 hours of data
+	since := time.Now().Add(-24 * time.Hour)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	history, err := v.metricsStore.GetHistoryBatch(ctx, "table_size", keys, since, 100)
+	if err != nil {
+		logger.Debug("tables: failed to fetch table size history", "error", err)
+		return
+	}
+
+	logger.Debug("tables: refreshed table size cache", "keysRequested", len(keys), "keysReturned", len(history))
+	v.tableSizeCache = history
+	v.lastMetricsFetch = time.Now()
 }

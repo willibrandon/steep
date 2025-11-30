@@ -113,10 +113,10 @@
 
 ### Implementation for User Story 3
 
-- [ ] T032 [P] [US3] Create ASCII mockup of Tables view with sparklines in specs/011-visualizations/mockups/tables-sparklines.txt
-- [ ] T033 [US3] Record table sizes to MetricsStore in tables monitor in internal/monitors/tables.go
-- [ ] T034 [US3] Add sparkline column to Tables view in internal/ui/views/tables/tabs.go
-- [ ] T035 [US3] Handle narrow terminal (hide sparklines, show "-") in internal/ui/views/tables/tabs.go
+- [x] T032 [P] [US3] Create ASCII mockup of Tables view with sparklines in specs/011-visualizations/mockups/tables-sparklines.txt
+- [x] T033 [US3] Record table sizes to MetricsStore in internal/ui/views/tables/view.go (recordTableSizes, refreshTableSizeCache)
+- [x] T034 [US3] Add sparkline column (Trend) to Tables view in internal/ui/views/tables/render.go (renderTableSparkline)
+- [x] T035 [US3] Handle narrow terminal (hide sparklines when width < 80) in internal/ui/views/tables/render.go (showSparklines)
 
 **Checkpoint**: Tables view shows size trend sparklines per table
 

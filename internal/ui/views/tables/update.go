@@ -87,6 +87,10 @@ func (v *TablesView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			v.ensureVisible()
 
+			// Record table sizes for sparklines and refresh cache
+			v.recordTableSizes()
+			v.refreshTableSizeCache()
+
 			// Show install prompt if pgstattuple not available, not readonly, and not previously shown
 			if !msg.PgstattupleAvailable && !v.readonlyMode && !v.installPromptShown {
 				v.mode = ModeConfirmInstall

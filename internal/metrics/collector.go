@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/willibrandon/steep/internal/logger"
 )
 
 // Common metric names used throughout the application.
@@ -14,11 +16,14 @@ const (
 )
 
 // MetricsStore defines the interface for persistent metric storage.
+// The key parameter allows storing entity-specific metrics (e.g., per-table sizes).
+// Use key="" for global metrics (dashboard TPS, connections, etc.).
 type MetricsStore interface {
-	SaveDataPoint(ctx context.Context, metricName string, dp DataPoint) error
-	SaveBatch(ctx context.Context, metricName string, points []DataPoint) error
-	GetHistory(ctx context.Context, metricName string, since time.Time, limit int) ([]DataPoint, error)
-	GetAggregated(ctx context.Context, metricName string, since time.Time, intervalSeconds int) ([]DataPoint, error)
+	SaveDataPoint(ctx context.Context, metricName, key string, dp DataPoint) error
+	SaveBatch(ctx context.Context, metricName, key string, points []DataPoint) error
+	GetHistory(ctx context.Context, metricName, key string, since time.Time, limit int) ([]DataPoint, error)
+	GetHistoryBatch(ctx context.Context, metricName string, keys []string, since time.Time, limitPerKey int) (map[string][]DataPoint, error)
+	GetAggregated(ctx context.Context, metricName, key string, since time.Time, intervalSeconds int) ([]DataPoint, error)
 	Prune(ctx context.Context, retentionDays int) (int64, error)
 }
 
@@ -105,6 +110,7 @@ func NewCollector(opts ...CollectorOption) *Collector {
 func (c *Collector) Record(metricName string, value float64) {
 	dp := NewDataPoint(value)
 	if !dp.IsValid() {
+		logger.Debug("metrics: invalid data point", "metric", metricName, "value", value)
 		return
 	}
 
@@ -118,6 +124,7 @@ func (c *Collector) Record(metricName string, value float64) {
 			Buffer: NewCircularBuffer(c.capacity),
 		}
 		c.series[metricName] = series
+		logger.Debug("metrics: created new series", "metric", metricName)
 	}
 
 	series.Buffer.Push(dp)
@@ -156,16 +163,21 @@ func (c *Collector) GetValues(metricName string, window TimeWindow) []float64 {
 	c.mu.RUnlock()
 
 	if !ok {
+		logger.Debug("metrics: GetValues - series not found", "metric", metricName)
 		return nil
 	}
 
 	// For short windows, use in-memory buffer only
 	if !window.RequiresPersistence() {
-		return series.Buffer.GetValuesForWindow(window)
+		values := series.Buffer.GetValuesForWindow(window)
+		logger.Debug("metrics: GetValues - from buffer", "metric", metricName, "window", window, "count", len(values))
+		return values
 	}
 
 	// For longer windows, merge with persistent storage
-	return c.getMergedValues(metricName, window)
+	values := c.getMergedValues(metricName, window)
+	logger.Debug("metrics: GetValues - merged", "metric", metricName, "window", window, "count", len(values))
+	return values
 }
 
 // GetDataPoints returns full DataPoint structs for the time window.
@@ -305,7 +317,9 @@ func (c *Collector) persistAll() {
 		points := series.Buffer.GetSince(since)
 
 		if len(points) > 0 {
-			_ = c.store.SaveBatch(ctx, name, points)
+			if err := c.store.SaveBatch(ctx, name, "", points); err != nil {
+				logger.Debug("metrics: failed to persist batch", "metric", name, "points", len(points), "error", err)
+			}
 		}
 	}
 }
@@ -323,7 +337,12 @@ func (c *Collector) pruneLoop() {
 			return
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
-			_, _ = c.store.Prune(ctx, c.retentionDays)
+			deleted, err := c.store.Prune(ctx, c.retentionDays)
+			if err != nil {
+				logger.Debug("metrics: failed to prune", "error", err)
+			} else if deleted > 0 {
+				logger.Debug("metrics: pruned old data", "deleted", deleted)
+			}
 			cancel()
 		}
 	}
@@ -348,12 +367,17 @@ func (c *Collector) getMergedValues(metricName string, window TimeWindow) []floa
 	defer cancel()
 
 	var points []DataPoint
+	var err error
 
 	// For 24h window, use aggregated data
 	if window == TimeWindow24h {
-		points, _ = c.store.GetAggregated(ctx, metricName, since, int(granularity.Seconds()))
+		points, err = c.store.GetAggregated(ctx, metricName, "", since, int(granularity.Seconds()))
 	} else {
-		points, _ = c.store.GetHistory(ctx, metricName, since, 10000)
+		points, err = c.store.GetHistory(ctx, metricName, "", since, 10000)
+	}
+
+	if err != nil {
+		logger.Debug("metrics: failed to get history", "metric", metricName, "window", window, "error", err)
 	}
 
 	if len(points) == 0 {
@@ -361,8 +385,11 @@ func (c *Collector) getMergedValues(metricName string, window TimeWindow) []floa
 		series := c.series[metricName]
 		c.mu.RUnlock()
 		if series != nil {
-			return series.Buffer.GetValuesForWindow(window)
+			bufferValues := series.Buffer.GetValuesForWindow(window)
+			logger.Debug("metrics: using buffer fallback", "metric", metricName, "bufferLen", len(bufferValues))
+			return bufferValues
 		}
+		logger.Debug("metrics: no data available", "metric", metricName, "window", window)
 		return nil
 	}
 
@@ -394,10 +421,16 @@ func (c *Collector) getMergedDataPoints(metricName string, window TimeWindow) []
 
 	// For 24h window, use aggregated data
 	if window == TimeWindow24h {
-		points, _ := c.store.GetAggregated(ctx, metricName, since, int(granularity.Seconds()))
+		points, err := c.store.GetAggregated(ctx, metricName, "", since, int(granularity.Seconds()))
+		if err != nil {
+			logger.Debug("metrics: failed to get aggregated data points", "metric", metricName, "error", err)
+		}
 		return points
 	}
 
-	points, _ := c.store.GetHistory(ctx, metricName, since, 10000)
+	points, err := c.store.GetHistory(ctx, metricName, "", since, 10000)
+	if err != nil {
+		logger.Debug("metrics: failed to get history data points", "metric", metricName, "error", err)
+	}
 	return points
 }

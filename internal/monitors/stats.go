@@ -8,6 +8,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/db/queries"
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/ui"
 )
 
@@ -35,6 +36,7 @@ func NewStatsMonitor(pool *pgxpool.Pool, interval time.Duration) *StatsMonitor {
 // SetMetricsRecorder sets the metrics recorder for visualization data.
 func (m *StatsMonitor) SetMetricsRecorder(recorder MetricsRecorder) {
 	m.metricsRecorder = recorder
+	logger.Debug("stats monitor: metrics recorder set", "recorder", recorder != nil)
 }
 
 // FetchOnce fetches metrics data once and returns the result.
@@ -102,6 +104,9 @@ func (m *StatsMonitor) FetchOnce(ctx context.Context) ui.MetricsDataMsg {
 		m.metricsRecorder.Record("tps", metrics.TPS)
 		m.metricsRecorder.Record("connections", float64(metrics.ConnectionCount))
 		m.metricsRecorder.Record("cache_hit_ratio", metrics.CacheHitRatio)
+		logger.Debug("stats monitor: recorded metrics", "tps", metrics.TPS, "connections", metrics.ConnectionCount, "cache_hit", metrics.CacheHitRatio)
+	} else {
+		logger.Debug("stats monitor: no metrics recorder set")
 	}
 
 	return ui.MetricsDataMsg{

@@ -100,20 +100,26 @@ type MetricsCollector interface {
 }
 
 // MetricsStore defines the interface for persistent metric storage.
+// The key parameter allows storing entity-specific metrics (e.g., per-table sizes).
+// Use key="" for global metrics (dashboard TPS, connections, etc.).
 type MetricsStore interface {
 	// SaveDataPoint persists a single data point.
-	SaveDataPoint(ctx context.Context, metricName string, dp DataPoint) error
+	SaveDataPoint(ctx context.Context, metricName, key string, dp DataPoint) error
 
 	// SaveBatch persists multiple data points in a transaction.
-	SaveBatch(ctx context.Context, metricName string, points []DataPoint) error
+	SaveBatch(ctx context.Context, metricName, key string, points []DataPoint) error
 
 	// GetHistory retrieves historical data for a metric since the given time.
 	// Limited to prevent unbounded result sets.
-	GetHistory(ctx context.Context, metricName string, since time.Time, limit int) ([]DataPoint, error)
+	GetHistory(ctx context.Context, metricName, key string, since time.Time, limit int) ([]DataPoint, error)
+
+	// GetHistoryBatch retrieves historical data for multiple keys in a single query.
+	// Returns a map of key -> []DataPoint for efficient batch lookups.
+	GetHistoryBatch(ctx context.Context, metricName string, keys []string, since time.Time, limitPerKey int) (map[string][]DataPoint, error)
 
 	// GetAggregated retrieves aggregated data (AVG) grouped by interval.
 	// Used for long time windows (1h, 24h) to reduce data points.
-	GetAggregated(ctx context.Context, metricName string, since time.Time, intervalSeconds int) ([]DataPoint, error)
+	GetAggregated(ctx context.Context, metricName, key string, since time.Time, intervalSeconds int) ([]DataPoint, error)
 
 	// Prune removes entries older than the retention period.
 	// Returns number of rows deleted.

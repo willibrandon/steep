@@ -42,18 +42,50 @@ func TestMetricsStore_SaveDataPoint(t *testing.T) {
 	ctx := context.Background()
 	dp := metrics.NewDataPointAt(time.Now(), 42.5)
 
-	err := store.SaveDataPoint(ctx, "test_metric", dp)
+	err := store.SaveDataPoint(ctx, "test_metric", "", dp)
 	if err != nil {
 		t.Fatalf("SaveDataPoint failed: %v", err)
 	}
 
 	// Verify it was saved
-	count, err := store.Count(ctx, "test_metric")
+	count, err := store.Count(ctx, "test_metric", "")
 	if err != nil {
 		t.Fatalf("Count failed: %v", err)
 	}
 	if count != 1 {
 		t.Errorf("expected count 1, got %d", count)
+	}
+}
+
+func TestMetricsStore_SaveDataPoint_WithKey(t *testing.T) {
+	store, cleanup := setupTestMetricsStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	dp := metrics.NewDataPointAt(time.Now(), 1024.0)
+
+	// Save with a key (e.g., table name)
+	err := store.SaveDataPoint(ctx, "table_size", "public.users", dp)
+	if err != nil {
+		t.Fatalf("SaveDataPoint failed: %v", err)
+	}
+
+	// Verify it was saved with the key
+	count, err := store.Count(ctx, "table_size", "public.users")
+	if err != nil {
+		t.Fatalf("Count failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected count 1, got %d", count)
+	}
+
+	// Different key should have 0
+	count, err = store.Count(ctx, "table_size", "public.orders")
+	if err != nil {
+		t.Fatalf("Count failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected count 0 for different key, got %d", count)
 	}
 }
 
@@ -70,12 +102,12 @@ func TestMetricsStore_SaveBatch(t *testing.T) {
 		metrics.NewDataPointAt(now, 3.0),
 	}
 
-	err := store.SaveBatch(ctx, "batch_metric", points)
+	err := store.SaveBatch(ctx, "batch_metric", "", points)
 	if err != nil {
 		t.Fatalf("SaveBatch failed: %v", err)
 	}
 
-	count, err := store.Count(ctx, "batch_metric")
+	count, err := store.Count(ctx, "batch_metric", "")
 	if err != nil {
 		t.Fatalf("Count failed: %v", err)
 	}
@@ -89,9 +121,42 @@ func TestMetricsStore_SaveBatch_Empty(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	err := store.SaveBatch(ctx, "empty_metric", nil)
+	err := store.SaveBatch(ctx, "empty_metric", "", nil)
 	if err != nil {
 		t.Fatalf("SaveBatch with empty slice should not error: %v", err)
+	}
+}
+
+func TestMetricsStore_SaveBatchMultiKey(t *testing.T) {
+	store, cleanup := setupTestMetricsStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	keyValues := map[string]float64{
+		"public.users":  1024,
+		"public.orders": 2048,
+		"public.items":  4096,
+	}
+
+	err := store.SaveBatchMultiKey(ctx, "table_size", now, keyValues)
+	if err != nil {
+		t.Fatalf("SaveBatchMultiKey failed: %v", err)
+	}
+
+	// Verify each key
+	for key, expectedValue := range keyValues {
+		latest, ok, err := store.GetLatest(ctx, "table_size", key)
+		if err != nil {
+			t.Fatalf("GetLatest failed for %s: %v", key, err)
+		}
+		if !ok {
+			t.Errorf("expected data for key %s", key)
+		}
+		if latest.Value != expectedValue {
+			t.Errorf("expected value %f for key %s, got %f", expectedValue, key, latest.Value)
+		}
 	}
 }
 
@@ -105,14 +170,14 @@ func TestMetricsStore_GetHistory(t *testing.T) {
 	// Save 5 points
 	for i := 0; i < 5; i++ {
 		dp := metrics.NewDataPointAt(now.Add(time.Duration(i)*time.Second), float64(i+1))
-		if err := store.SaveDataPoint(ctx, "history_metric", dp); err != nil {
+		if err := store.SaveDataPoint(ctx, "history_metric", "", dp); err != nil {
 			t.Fatalf("SaveDataPoint failed: %v", err)
 		}
 	}
 
 	// Get history from 2 seconds ago
 	since := now.Add(2 * time.Second)
-	points, err := store.GetHistory(ctx, "history_metric", since, 100)
+	points, err := store.GetHistory(ctx, "history_metric", "", since, 100)
 	if err != nil {
 		t.Fatalf("GetHistory failed: %v", err)
 	}
@@ -133,19 +198,56 @@ func TestMetricsStore_GetHistory_Limit(t *testing.T) {
 	// Save 10 points
 	for i := 0; i < 10; i++ {
 		dp := metrics.NewDataPointAt(now.Add(time.Duration(i)*time.Second), float64(i))
-		if err := store.SaveDataPoint(ctx, "limit_metric", dp); err != nil {
+		if err := store.SaveDataPoint(ctx, "limit_metric", "", dp); err != nil {
 			t.Fatalf("SaveDataPoint failed: %v", err)
 		}
 	}
 
 	// Get with limit of 5
-	points, err := store.GetHistory(ctx, "limit_metric", now.Add(-time.Hour), 5)
+	points, err := store.GetHistory(ctx, "limit_metric", "", now.Add(-time.Hour), 5)
 	if err != nil {
 		t.Fatalf("GetHistory failed: %v", err)
 	}
 
 	if len(points) != 5 {
 		t.Errorf("expected 5 points, got %d", len(points))
+	}
+}
+
+func TestMetricsStore_GetHistoryBatch(t *testing.T) {
+	store, cleanup := setupTestMetricsStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Save data for multiple keys
+	tables := []string{"public.users", "public.orders", "public.items"}
+	for _, table := range tables {
+		for i := 0; i < 3; i++ {
+			dp := metrics.NewDataPointAt(now.Add(time.Duration(i)*time.Second), float64((i+1)*100))
+			if err := store.SaveDataPoint(ctx, "table_size", table, dp); err != nil {
+				t.Fatalf("SaveDataPoint failed: %v", err)
+			}
+		}
+	}
+
+	// Get batch history
+	results, err := store.GetHistoryBatch(ctx, "table_size", tables, now.Add(-time.Hour), 100)
+	if err != nil {
+		t.Fatalf("GetHistoryBatch failed: %v", err)
+	}
+
+	// Verify each key has 3 points
+	for _, table := range tables {
+		points, ok := results[table]
+		if !ok {
+			t.Errorf("missing results for key %s", table)
+			continue
+		}
+		if len(points) != 3 {
+			t.Errorf("expected 3 points for %s, got %d", table, len(points))
+		}
 	}
 }
 
@@ -160,13 +262,13 @@ func TestMetricsStore_GetAggregated(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		ts := now.Add(time.Duration(i*6) * time.Second) // 0, 6, 12, 18, 24, 30, 36, 42, 48, 54 seconds
 		dp := metrics.NewDataPointAt(ts, float64(i+1))
-		if err := store.SaveDataPoint(ctx, "agg_metric", dp); err != nil {
+		if err := store.SaveDataPoint(ctx, "agg_metric", "", dp); err != nil {
 			t.Fatalf("SaveDataPoint failed: %v", err)
 		}
 	}
 
 	// Aggregate by 30 second buckets
-	points, err := store.GetAggregated(ctx, "agg_metric", now.Add(-time.Hour), 30)
+	points, err := store.GetAggregated(ctx, "agg_metric", "", now.Add(-time.Hour), 30)
 	if err != nil {
 		t.Fatalf("GetAggregated failed: %v", err)
 	}
@@ -184,7 +286,7 @@ func TestMetricsStore_GetLatest(t *testing.T) {
 	ctx := context.Background()
 
 	// Empty metric
-	_, ok, err := store.GetLatest(ctx, "nonexistent_metric")
+	_, ok, err := store.GetLatest(ctx, "nonexistent_metric", "")
 	if err != nil {
 		t.Fatalf("GetLatest failed: %v", err)
 	}
@@ -196,12 +298,12 @@ func TestMetricsStore_GetLatest(t *testing.T) {
 	now := time.Now()
 	for i := 0; i < 3; i++ {
 		dp := metrics.NewDataPointAt(now.Add(time.Duration(i)*time.Second), float64(i+1)*10)
-		if err := store.SaveDataPoint(ctx, "latest_metric", dp); err != nil {
+		if err := store.SaveDataPoint(ctx, "latest_metric", "", dp); err != nil {
 			t.Fatalf("SaveDataPoint failed: %v", err)
 		}
 	}
 
-	latest, ok, err := store.GetLatest(ctx, "latest_metric")
+	latest, ok, err := store.GetLatest(ctx, "latest_metric", "")
 	if err != nil {
 		t.Fatalf("GetLatest failed: %v", err)
 	}
@@ -223,7 +325,7 @@ func TestMetricsStore_Prune(t *testing.T) {
 	// Save 3 old points (8 days ago)
 	for i := 0; i < 3; i++ {
 		dp := metrics.NewDataPointAt(now.AddDate(0, 0, -8).Add(time.Duration(i)*time.Second), float64(i))
-		if err := store.SaveDataPoint(ctx, "prune_metric", dp); err != nil {
+		if err := store.SaveDataPoint(ctx, "prune_metric", "", dp); err != nil {
 			t.Fatalf("SaveDataPoint failed: %v", err)
 		}
 	}
@@ -231,13 +333,13 @@ func TestMetricsStore_Prune(t *testing.T) {
 	// Save 2 recent points
 	for i := 0; i < 2; i++ {
 		dp := metrics.NewDataPointAt(now.Add(time.Duration(i)*time.Second), float64(i+10))
-		if err := store.SaveDataPoint(ctx, "prune_metric", dp); err != nil {
+		if err := store.SaveDataPoint(ctx, "prune_metric", "", dp); err != nil {
 			t.Fatalf("SaveDataPoint failed: %v", err)
 		}
 	}
 
 	// Verify total count
-	count, _ := store.Count(ctx, "prune_metric")
+	count, _ := store.Count(ctx, "prune_metric", "")
 	if count != 5 {
 		t.Errorf("expected 5 points before prune, got %d", count)
 	}
@@ -252,7 +354,7 @@ func TestMetricsStore_Prune(t *testing.T) {
 	}
 
 	// Verify remaining count
-	count, _ = store.Count(ctx, "prune_metric")
+	count, _ = store.Count(ctx, "prune_metric", "")
 	if count != 2 {
 		t.Errorf("expected 2 points after prune, got %d", count)
 	}
@@ -270,7 +372,7 @@ func TestMetricsStore_MultipleMetrics(t *testing.T) {
 	for _, name := range metrics1 {
 		for i := 0; i < 3; i++ {
 			dp := metrics.NewDataPointAt(now.Add(time.Duration(i)*time.Second), float64(i+1))
-			if err := store.SaveDataPoint(ctx, name, dp); err != nil {
+			if err := store.SaveDataPoint(ctx, name, "", dp); err != nil {
 				t.Fatalf("SaveDataPoint failed for %s: %v", name, err)
 			}
 		}
@@ -278,7 +380,7 @@ func TestMetricsStore_MultipleMetrics(t *testing.T) {
 
 	// Verify each metric has 3 points
 	for _, name := range metrics1 {
-		count, err := store.Count(ctx, name)
+		count, err := store.Count(ctx, name, "")
 		if err != nil {
 			t.Fatalf("Count failed for %s: %v", name, err)
 		}

@@ -119,17 +119,17 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_log_search_history_executed_at ON log_search_history(executed_at DESC);
 
 	-- Metrics history for visualization time-series data
+	-- key column allows entity-specific metrics (e.g., table sizes use key='schema.table')
+	-- Dashboard metrics use key='' (empty string)
 	CREATE TABLE IF NOT EXISTS metrics_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		timestamp TEXT NOT NULL,
 		metric_name TEXT NOT NULL,
+		key TEXT NOT NULL DEFAULT '',
 		value REAL NOT NULL
 	);
 
-	-- Index for efficient time-range queries per metric
-	CREATE INDEX IF NOT EXISTS idx_metrics_history_name_time ON metrics_history(metric_name, timestamp);
-
-	-- Index for time-based cleanup
+	-- Index for time-based cleanup (doesn't reference key column for backwards compat)
 	CREATE INDEX IF NOT EXISTS idx_metrics_history_timestamp ON metrics_history(timestamp);
 	`
 
@@ -144,6 +144,15 @@ func (db *DB) initSchema() error {
 	// Migration: add fingerprint column to query_history if it doesn't exist
 	_, _ = db.conn.Exec("ALTER TABLE query_history ADD COLUMN fingerprint INTEGER")
 	_, _ = db.conn.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_query_history_fingerprint ON query_history(fingerprint)")
+
+	// Migration: add key column to metrics_history if it doesn't exist
+	_, _ = db.conn.Exec("ALTER TABLE metrics_history ADD COLUMN key TEXT NOT NULL DEFAULT ''")
+	// Drop old index and create new composite index
+	_, _ = db.conn.Exec("DROP INDEX IF EXISTS idx_metrics_history_name_time")
+	_, _ = db.conn.Exec("CREATE INDEX IF NOT EXISTS idx_metrics_history_name_key_time ON metrics_history(metric_name, key, timestamp)")
+
+	// Migration: drop deprecated keyed_metrics_history table if it exists
+	_, _ = db.conn.Exec("DROP TABLE IF EXISTS keyed_metrics_history")
 
 	return nil
 }

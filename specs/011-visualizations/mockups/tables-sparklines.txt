@@ -1,0 +1,72 @@
+Tables View with Size Trend Sparklines
+=======================================
+
+Overview:
+- Add "Trend" column showing table size changes over 24h
+- Uses existing sparkline.go component (RenderUnicodeSparkline)
+- Column positioned between Cache and Vacuum columns
+- Hidden when terminal width < 100 characters
+
+Wide Terminal (120+ chars):
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Tables                                                                                                              │
+├─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Schema/Table                               Size       Rows         Bloat    Cache    Trend        Vacuum           │
+├─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ▼ public                                                                                                            │
+│    ├─ users                                1.2 GB     5,234,123    12%      98%      ▂▃▄▅▆▇█↑     2h ago            │
+│    ├─ orders                               856 MB     2,456,789    8%       95%      ▄▄▄▄▄▄▄→     5h ago            │
+│    ├─ products                             234 MB     45,678       3%       99%      █▇▆▅▄▃▂↓     1d ago            │
+│    └─ sessions                             128 MB     12,345       1%       97%      ▁▁▂▃▄▅▆↑     3h ago            │
+│ ▶ pg_catalog                                                                                                        │
+│ ▶ information_schema                                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+Standard Terminal (100-119 chars):
+┌────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Tables                                                                                         │
+├────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Schema/Table                      Size       Rows        Bloat   Cache   Trend      Vacuum     │
+├────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ▼ public                                                                                       │
+│    ├─ users                       1.2 GB     5,234,123   12%     98%     ▂▄▆█↑      2h ago     │
+│    ├─ orders                      856 MB     2,456,789   8%      95%     ▄▄▄▄→      5h ago     │
+│    └─ products                    234 MB     45,678      3%      99%     █▆▄▂↓      1d ago     │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+Narrow Terminal (<100 chars) - Trend column hidden:
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ Tables                                                                               │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│ Schema/Table                      Size       Rows        Bloat   Cache   Vacuum      │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│ ▼ public                                                                             │
+│    ├─ users                       1.2 GB     5,234,123   12%     98%     2h ago      │
+│    ├─ orders                      856 MB     2,456,789   8%      95%     5h ago      │
+│    └─ products                    234 MB     45,678      3%      99%     1d ago      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+Sparkline Patterns:
+- Growing table:   ▁▂▃▄▅▆▇█  with ↑ indicator (green)
+- Stable table:    ▄▄▄▄▄▄▄▄  with → indicator (dim)
+- Shrinking table: █▇▆▅▄▃▂▁  with ↓ indicator (yellow)
+
+Column Details:
+- Width: 10 characters (8 for sparkline + 1 for trend arrow + 1 padding)
+- Data source: SQLite metrics_history table with key="table_size:<schema>.<table>"
+- Time window: 24 hours
+- Sparkline width: 8 characters (compact for table cells)
+
+Data Flow:
+1. TablesView fetches table data (existing flow)
+2. After data refresh, record current sizes to MetricsStore with keyed metric
+3. Query MetricsStore for each visible table's size history
+4. Render sparkline using RenderUnicodeSparkline from sparkline.go
+5. Add trend indicator using GetTrend()
+
+Implementation Notes:
+- Use NEW keyed functions in MetricsStore (don't modify existing SaveDataPoint/GetHistory)
+- Add SaveKeyedDataPoint(), GetKeyedHistory() as separate functions
+- Store with metric_name="table_size", key="<schema>.<table>"
+- Cache sparkline data in TablesView to avoid repeated queries during render
+- Refresh cache when data refreshes (on RefreshTablesMsg)

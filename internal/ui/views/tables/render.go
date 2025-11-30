@@ -9,10 +9,18 @@ import (
 
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/db/queries"
+	"github.com/willibrandon/steep/internal/logger"
+	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
+// Minimum terminal width to show the Trend column with sparklines
+const minWidthForSparklines = 80
+
 func (v *TablesView) View() string {
+	// Log width on every render to debug sparklines
+	logger.Debug("tables: View() called", "width", v.width, "showSparklines", v.showSparklines())
+
 	if !v.connected {
 		return styles.InfoStyle.Render("Connecting to database...")
 	}
@@ -166,6 +174,15 @@ func (v *TablesView) renderTitle() string {
 	return titleStyle.Render("Tables" + sysIndicator)
 }
 
+// showSparklines returns true if the terminal is wide enough for sparklines.
+func (v *TablesView) showSparklines() bool {
+	result := v.width >= minWidthForSparklines
+	if !result {
+		logger.Debug("tables: sparklines disabled", "width", v.width, "minWidth", minWidthForSparklines)
+	}
+	return result
+}
+
 // renderHeader renders the column headers with sort indicators.
 func (v *TablesView) renderHeader() string {
 	// Column widths
@@ -174,10 +191,17 @@ func (v *TablesView) renderHeader() string {
 	rowsWidth := 12
 	bloatWidth := 8
 	cacheWidth := 8
+	trendWidth := 10 // sparkline + trend indicator
 	vacuumWidth := 10
 
+	// Calculate fixed columns width
+	fixedWidth := sizeWidth + rowsWidth + bloatWidth + cacheWidth + vacuumWidth + 10
+	if v.showSparklines() {
+		fixedWidth += trendWidth + 1
+	}
+
 	// Adjust name width based on terminal
-	remaining := v.width - sizeWidth - rowsWidth - bloatWidth - cacheWidth - vacuumWidth - 10
+	remaining := v.width - fixedWidth
 	if remaining > 20 {
 		nameWidth = remaining
 	}
@@ -194,6 +218,7 @@ func (v *TablesView) renderHeader() string {
 	rowsHeader := "Rows"
 	bloatHeader := "Bloat"
 	cacheHeader := "Cache"
+	trendHeader := "Trend"
 	vacuumHeader := "Vacuum"
 
 	switch v.sortColumn {
@@ -215,8 +240,15 @@ func (v *TablesView) renderHeader() string {
 		padRight(rowsHeader, rowsWidth),
 		padRight(bloatHeader, bloatWidth),
 		padRight(cacheHeader, cacheWidth),
-		padRight(vacuumHeader, vacuumWidth),
 	}
+
+	// Add Trend column if terminal is wide enough
+	if v.showSparklines() {
+		logger.Debug("tables: adding Trend header column", "width", v.width)
+		headers = append(headers, padRight(trendHeader, trendWidth))
+	}
+
+	headers = append(headers, padRight(vacuumHeader, vacuumWidth))
 
 	headerLine := strings.Join(headers, " ")
 	return styles.TableHeaderStyle.Width(v.width - 2).Render(headerLine)
@@ -439,21 +471,31 @@ func (v *TablesView) renderIndexRow(idx models.Index, isSelected bool) string {
 
 // renderTreeRow renders a single tree row.
 func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
+	// Log what type of item is being rendered
+	logger.Debug("tables: renderTreeRow", "isSchema", item.IsSchema, "isTable", item.IsTable, "isPartition", item.IsPartition)
+
 	// Column widths (must match renderHeader)
 	nameWidth := 40
 	sizeWidth := 10
 	rowsWidth := 12
 	bloatWidth := 8
 	cacheWidth := 8
+	trendWidth := 10
 	vacuumWidth := 10
 
+	// Calculate fixed columns width
+	fixedWidth := sizeWidth + rowsWidth + bloatWidth + cacheWidth + vacuumWidth + 10
+	if v.showSparklines() {
+		fixedWidth += trendWidth + 1
+	}
+
 	// Adjust name width based on terminal
-	remaining := v.width - sizeWidth - rowsWidth - bloatWidth - cacheWidth - vacuumWidth - 10
+	remaining := v.width - fixedWidth
 	if remaining > 20 {
 		nameWidth = remaining
 	}
 
-	var name, size, rowCount, bloat, cacheHit, vacuum string
+	var name, size, rowCount, bloat, cacheHit, trend, vacuum string
 	var bloatPct float64
 	var vacuumIndicator queries.VacuumIndicator
 
@@ -468,6 +510,7 @@ func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 		rowCount = ""
 		bloat = ""
 		cacheHit = ""
+		trend = ""
 		vacuum = ""
 	} else if item.IsTable || item.IsPartition {
 		// Table or partition row
@@ -499,6 +542,12 @@ func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 			bloat = fmt.Sprintf("%.0f%%", bloatPct)
 		}
 		cacheHit = fmt.Sprintf("%.0f%%", item.Table.CacheHitRatio)
+
+		// Generate trend sparkline if enabled (no color when selected to preserve highlight)
+		if v.showSparklines() {
+			trend = v.renderTableSparkline(item.Table.SchemaName, item.Table.Name, trendWidth, isSelected)
+		}
+
 		// Format vacuum timestamp
 		vacuum = queries.FormatVacuumTimestamp(queries.MaxVacuumTime(item.Table.LastVacuum, item.Table.LastAutovacuum))
 		vacuumIndicator = queries.GetVacuumStatusIndicator(item.Table.LastVacuum, item.Table.LastAutovacuum, queries.DefaultStaleVacuumConfig())
@@ -532,26 +581,52 @@ func (v *TablesView) renderTreeRow(item TreeItem, isSelected bool) string {
 		}
 	}
 
-	row := fmt.Sprintf("%s %s %s %s %s %s",
-		padRight(displayName, nameWidth),
-		padRight(size, sizeWidth),
-		padRight(rowCount, rowsWidth),
-		bloatStr,
-		padRight(cacheHit, cacheWidth),
-		vacuumStr,
-	)
-
-	// Apply styling
-	if isSelected {
-		// Reformat without color for selected row
+	// Build row with or without trend column
+	var row string
+	if v.showSparklines() {
+		row = fmt.Sprintf("%s %s %s %s %s %s %s",
+			padRight(displayName, nameWidth),
+			padRight(size, sizeWidth),
+			padRight(rowCount, rowsWidth),
+			bloatStr,
+			padRight(cacheHit, cacheWidth),
+			padRight(trend, trendWidth),
+			vacuumStr,
+		)
+	} else {
 		row = fmt.Sprintf("%s %s %s %s %s %s",
 			padRight(displayName, nameWidth),
 			padRight(size, sizeWidth),
 			padRight(rowCount, rowsWidth),
-			padRight(bloat, bloatWidth),
+			bloatStr,
 			padRight(cacheHit, cacheWidth),
-			padRight(vacuum, vacuumWidth),
+			vacuumStr,
 		)
+	}
+
+	// Apply styling
+	if isSelected {
+		// Reformat without color for selected row
+		if v.showSparklines() {
+			row = fmt.Sprintf("%s %s %s %s %s %s %s",
+				padRight(displayName, nameWidth),
+				padRight(size, sizeWidth),
+				padRight(rowCount, rowsWidth),
+				padRight(bloat, bloatWidth),
+				padRight(cacheHit, cacheWidth),
+				padRight(trend, trendWidth),
+				padRight(vacuum, vacuumWidth),
+			)
+		} else {
+			row = fmt.Sprintf("%s %s %s %s %s %s",
+				padRight(displayName, nameWidth),
+				padRight(size, sizeWidth),
+				padRight(rowCount, rowsWidth),
+				padRight(bloat, bloatWidth),
+				padRight(cacheHit, cacheWidth),
+				padRight(vacuum, vacuumWidth),
+			)
+		}
 		return styles.TableSelectedStyle.Width(v.width - 2).Render(row)
 	}
 
@@ -1009,4 +1084,66 @@ func (v *TablesView) renderOperationHistory() string {
 		lipgloss.Center, lipgloss.Center,
 		dialogStyle.Render(b.String()),
 	)
+}
+
+// renderTableSparkline renders a sparkline for a table's size history.
+// Returns a string of trendWidth characters showing the size trend over 24h.
+// When isSelected is true, colors are omitted to preserve selection highlight.
+func (v *TablesView) renderTableSparkline(schemaName, tableName string, trendWidth int, isSelected bool) string {
+	// Create the cache key matching what refreshTableSizeCache uses
+	key := fmt.Sprintf("%s.%s", schemaName, tableName)
+
+	// Check if cache is nil (SetMetricsStore not called yet)
+	if v.tableSizeCache == nil {
+		logger.Debug("tables: sparkline cache nil", "key", key)
+		return strings.Repeat("─", trendWidth-2) + " →"
+	}
+
+	// Look up data in cache
+	dataPoints, ok := v.tableSizeCache[key]
+	if !ok || len(dataPoints) < 2 {
+		// Not enough data yet - show placeholder
+		logger.Debug("tables: sparkline placeholder", "key", key, "found", ok, "points", len(dataPoints), "cacheSize", len(v.tableSizeCache))
+		return strings.Repeat("─", trendWidth-2) + " →"
+	}
+
+	// Extract float64 values from DataPoints
+	values := make([]float64, len(dataPoints))
+	for i, dp := range dataPoints {
+		values[i] = dp.Value
+	}
+
+	// Render sparkline with space for trend indicator
+	sparklineWidth := trendWidth - 2 // Leave room for " " + trend arrow
+	config := components.SparklineConfig{
+		Width:  sparklineWidth,
+		Height: 1,
+	}
+
+	// Only apply color when not selected (to preserve selection highlight)
+	if !isSelected {
+		config.Color = lipgloss.Color("117") // Light blue
+	}
+	sparkline := components.RenderUnicodeSparkline(values, config)
+
+	// Get trend and indicator
+	trendDir := components.GetTrend(values)
+	indicator := components.TrendIndicator(trendDir)
+
+	// Apply color to trend indicator only when not selected
+	var styledIndicator string
+	if isSelected {
+		styledIndicator = indicator
+	} else {
+		switch trendDir {
+		case components.TrendUp:
+			styledIndicator = lipgloss.NewStyle().Foreground(styles.ColorError).Render(indicator)
+		case components.TrendDown:
+			styledIndicator = lipgloss.NewStyle().Foreground(styles.ColorSuccess).Render(indicator)
+		default:
+			styledIndicator = lipgloss.NewStyle().Foreground(styles.ColorMuted).Render(indicator)
+		}
+	}
+
+	return sparkline + " " + styledIndicator
 }

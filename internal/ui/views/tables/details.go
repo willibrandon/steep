@@ -406,9 +406,16 @@ func truncateWithWidth(s string, maxWidth int) string {
 }
 
 func padRight(s string, width int) string {
-	w := runewidth.StringWidth(s)
-	if w >= width {
-		return runewidth.Truncate(s, width, "")
+	// Use lipgloss.Width which correctly handles ANSI escape codes
+	w := lipgloss.Width(s)
+	if w == width {
+		return s // Exact fit, no padding needed
+	}
+	if w > width {
+		// Need to truncate - but runewidth.Truncate doesn't handle ANSI codes
+		// For now, just return as-is (will overflow but won't corrupt)
+		// TODO: implement ANSI-aware truncation
+		return s
 	}
 	return s + strings.Repeat(" ", width-w)
 }

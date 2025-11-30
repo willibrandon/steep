@@ -104,9 +104,14 @@ func RenderUnicodeSparkline(data []float64, config SparklineConfig) string {
 		sb.WriteRune(blocks[idx])
 	}
 
-	// Apply color
-	style := lipgloss.NewStyle().Foreground(config.Color)
-	return style.Render(sb.String())
+	rawSparkline := sb.String()
+
+	// Only apply color if one is set (skip for selected rows to preserve highlight)
+	if config.Color != "" {
+		style := lipgloss.NewStyle().Foreground(config.Color)
+		return style.Render(rawSparkline)
+	}
+	return rawSparkline
 }
 
 // RenderAsciigraphSparkline renders a multi-line chart using asciigraph.

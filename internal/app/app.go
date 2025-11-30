@@ -235,6 +235,7 @@ func (m *Model) MetricsCollector() *metrics.Collector {
 
 // Init initializes the application
 func (m Model) Init() tea.Cmd {
+	logger.Debug("app: Init called - starting up")
 	return tea.Batch(
 		connectToDatabase(m.config),
 		tickStatusBar(),
@@ -385,7 +386,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			storagePath = fmt.Sprintf("%s/steep/steep.db", cacheDir)
 		}
 		steepDB, err := sqlite.Open(storagePath)
-		if err == nil {
+		if err != nil {
+			logger.Debug("failed to open steep database", "path", storagePath, "error", err)
+		} else {
+			logger.Debug("opened steep database", "path", storagePath)
 			m.steepDB = steepDB
 			m.queryStatsStore = sqlite.NewQueryStatsStore(steepDB)
 
@@ -395,13 +399,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				metrics.WithStore(m.metricsStore),
 				metrics.WithRetentionDays(7),
 			)
-			_ = m.metricsCollector.Start(context.Background())
+			if err := m.metricsCollector.Start(context.Background()); err != nil {
+				logger.Debug("failed to start metrics collector", "error", err)
+			}
 
 			// Connect metrics collector to stats monitor
 			m.statsMonitor.SetMetricsRecorder(m.metricsCollector)
 
 			// Connect metrics collector to dashboard for chart data
 			m.dashboard.SetMetricsCollector(m.metricsCollector)
+
+			// Connect metrics store to tables view for sparklines
+			m.tablesView.SetMetricsStore(m.metricsStore)
 
 			// Initialize deadlock store (shares same DB)
 			m.deadlockStore = sqlite.NewDeadlockStore(steepDB)
