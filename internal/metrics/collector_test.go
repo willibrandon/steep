@@ -5,7 +5,14 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/willibrandon/steep/internal/logger"
 )
+
+func init() {
+	// Initialize logger for tests (use LevelWarn to reduce noise)
+	logger.InitLogger(logger.LevelWarn, "")
+}
 
 func TestCollector_Record(t *testing.T) {
 	c := NewCollector()

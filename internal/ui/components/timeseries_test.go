@@ -358,3 +358,100 @@ func TestTimeSeriesChart_MinimumDimensions(t *testing.T) {
 		t.Errorf("minPoints should be at least 1, got %d", chart.minPoints)
 	}
 }
+
+// Benchmark tests - target: <50ms per render
+
+func BenchmarkTimeSeriesChart_Render(b *testing.B) {
+	config := DefaultTimeSeriesConfig()
+	config.Width = 80
+	config.Height = 10
+	chart := NewTimeSeriesChart(config)
+	chart.SetTitle("TPS")
+	chart.SetWindow(metrics.TimeWindow1h)
+
+	// Typical workload: 360 data points (1h window)
+	data := make([]float64, 360)
+	for i := range data {
+		data[i] = float64(100 + i%50)
+	}
+	chart.SetData(data)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = chart.View()
+	}
+}
+
+func BenchmarkTimeSeriesChart_RenderLarge(b *testing.B) {
+	config := DefaultTimeSeriesConfig()
+	config.Width = 120
+	config.Height = 15
+	chart := NewTimeSeriesChart(config)
+	chart.SetTitle("TPS")
+	chart.SetWindow(metrics.TimeWindow24h)
+
+	// Large workload: 1440 data points (24h window)
+	data := make([]float64, 1440)
+	for i := range data {
+		data[i] = float64(50 + i%100)
+	}
+	chart.SetData(data)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = chart.View()
+	}
+}
+
+func BenchmarkTimeSeriesChart_RenderEmpty(b *testing.B) {
+	config := DefaultTimeSeriesConfig()
+	config.Width = 80
+	config.Height = 10
+	chart := NewTimeSeriesChart(config)
+	chart.SetTitle("TPS")
+	chart.SetWindow(metrics.TimeWindow1h)
+	// No data - renders "Collecting data..."
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = chart.View()
+	}
+}
+
+func BenchmarkTimeSeriesPanel_Render(b *testing.B) {
+	panel := NewTimeSeriesPanel()
+	panel.SetSize(120, 30)
+	panel.SetWindow(metrics.TimeWindow1h)
+
+	// Typical workload per chart
+	data := make([]float64, 360)
+	for i := range data {
+		data[i] = float64(100 + i%50)
+	}
+	panel.SetTPSData(data)
+	panel.SetConnectionsData(data)
+	panel.SetCacheHitData(data)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = panel.View()
+	}
+}
+
+func BenchmarkTimeSeriesChart_Resample(b *testing.B) {
+	config := DefaultTimeSeriesConfig()
+	config.Width = 80
+	chart := NewTimeSeriesChart(config)
+
+	// Large data that requires resampling
+	data := make([]float64, 1440)
+	for i := range data {
+		data[i] = float64(i)
+	}
+	chart.SetData(data)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = chart.resampleData()
+	}
+}

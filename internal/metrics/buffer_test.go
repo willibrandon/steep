@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"math"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -288,5 +289,69 @@ func BenchmarkCircularBuffer_GetRecent(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = buf.GetRecent(100)
+	}
+}
+
+func BenchmarkCircularBuffer_GetSince(b *testing.B) {
+	buf := NewCircularBuffer(DefaultBufferCapacity)
+	now := time.Now()
+	for i := 0; i < DefaultBufferCapacity; i++ {
+		buf.Push(NewDataPointAt(now.Add(time.Duration(i)*time.Second), float64(i)))
+	}
+	// Query last 100 seconds
+	since := now.Add(time.Duration(DefaultBufferCapacity-100) * time.Second)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = buf.GetSince(since)
+	}
+}
+
+func BenchmarkCircularBuffer_Latest(b *testing.B) {
+	buf := NewCircularBuffer(DefaultBufferCapacity)
+	for i := 0; i < DefaultBufferCapacity; i++ {
+		buf.Push(NewDataPointAt(time.Now(), float64(i)))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = buf.Latest()
+	}
+}
+
+// TestCircularBuffer_MemoryFootprint verifies buffer memory stays under target.
+func TestCircularBuffer_MemoryFootprint(t *testing.T) {
+	var m1, m2 runtime.MemStats
+
+	// Force GC and get baseline
+	runtime.GC()
+	runtime.ReadMemStats(&m1)
+
+	// Create 3 buffers at max capacity (simulating TPS, connections, cache_hit_ratio)
+	buffers := make([]*CircularBuffer, 3)
+	for i := range buffers {
+		buffers[i] = NewCircularBuffer(DefaultBufferCapacity)
+		for j := 0; j < DefaultBufferCapacity; j++ {
+			buffers[i].Push(NewDataPointAt(time.Now(), float64(j)))
+		}
+	}
+
+	// Force GC and measure
+	runtime.GC()
+	runtime.ReadMemStats(&m2)
+
+	allocatedMB := float64(m2.HeapAlloc-m1.HeapAlloc) / 1024 / 1024
+	targetMB := float64(10) // 10 MB target per spec
+
+	t.Logf("Memory footprint: %.2f MB (3 buffers x %d points)", allocatedMB, DefaultBufferCapacity)
+	t.Logf("Target: <%.0f MB", targetMB)
+
+	if allocatedMB >= targetMB {
+		t.Errorf("memory usage %.2f MB exceeds target %.0f MB", allocatedMB, targetMB)
+	}
+
+	// Keep buffers alive
+	for _, buf := range buffers {
+		_ = buf.Len()
 	}
 }

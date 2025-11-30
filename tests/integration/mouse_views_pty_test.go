@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -55,33 +54,6 @@ func (h *testPTYHelper) getScreen() string {
 	h.termMu.Lock()
 	defer h.termMu.Unlock()
 	return h.term.String()
-}
-
-func (h *testPTYHelper) getLine(y int) string {
-	h.termMu.Lock()
-	defer h.termMu.Unlock()
-	var buf bytes.Buffer
-	cols, _ := h.term.Size()
-	for x := 0; x < cols; x++ {
-		cell := h.term.Cell(x, y)
-		buf.WriteRune(cell.Char)
-	}
-	return strings.TrimRight(buf.String(), " ")
-}
-
-func (h *testPTYHelper) findHighlightedRow() int {
-	h.termMu.Lock()
-	defer h.termMu.Unlock()
-	cols, rows := h.term.Size()
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
-			cell := h.term.Cell(col, row)
-			if cell.BG != vt10x.DefaultBG && cell.BG != 0 {
-				return row
-			}
-		}
-	}
-	return -1
 }
 
 func (h *testPTYHelper) send(s string) {
@@ -471,6 +443,10 @@ func TestTablesViewMouseClick(t *testing.T) {
 		t.Fatalf("Tables view did not load. Screen:\n%s", helper.getScreen())
 	}
 
+	// Toggle charts off to give more space for table panel (uppercase V for global toggle)
+	helper.send("V")
+	time.Sleep(300 * time.Millisecond)
+
 	// Expand public schema if collapsed
 	helper.send("l") // expand
 	time.Sleep(300 * time.Millisecond)
@@ -558,12 +534,12 @@ func TestTablesViewMouseClick(t *testing.T) {
 		rowsToTest = 5
 	}
 
-	// First go to a known position (bottom) so we can see actual movement
-	helper.send("G") // Go to bottom
+	// First go to top to ensure scrollOffset=0 (positions were captured from top view)
+	helper.send("g") // Go to top
 	time.Sleep(300 * time.Millisecond)
 
 	startIdx := getSelectedIndex()
-	t.Logf("Starting at index %d (bottom)", startIdx)
+	t.Logf("Starting at index %d (top)", startIdx)
 
 	// Test clicking on table rows (skip schema to avoid expand/collapse side effects)
 	// Table rows start at index 1 in the tree (index 0 is the schema)

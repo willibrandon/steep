@@ -164,13 +164,13 @@
 
 **Purpose**: Documentation, help text, performance validation
 
-- [ ] T048 Update help overlay with chart keybindings (v, 1-5) in internal/ui/components/help.go
-- [ ] T049 Add benchmark tests for chart rendering (<50ms) in internal/ui/components/timeseries_test.go
-- [ ] T050 Add benchmark tests for CircularBuffer operations (<1ms) in internal/metrics/buffer_test.go
-- [ ] T051 Add integration tests for MetricsStore persistence in tests/integration/metrics_store_test.go
-- [ ] T052 Verify memory usage stays under 10MB with profiling
-- [ ] T053 Run quickstart.md validation scenarios
-- [ ] T054 Update CLAUDE.md via .specify/scripts/bash/update-agent-context.sh
+- [x] T048 Update help overlay with chart keybindings (v, 1-5) in internal/ui/components/help.go
+- [x] T049 Add benchmark tests for chart rendering (<50ms) in internal/ui/components/timeseries_test.go
+- [x] T050 Add benchmark tests for CircularBuffer operations (<1ms) in internal/metrics/buffer_test.go
+- [x] T051 Add integration tests for MetricsStore persistence in tests/integration/metrics_store_test.go
+- [x] T052 Verify memory usage stays under 10MB with profiling
+- [x] T053 Run quickstart.md validation scenarios
+- [x] T054 Update CLAUDE.md via .specify/scripts/bash/update-agent-context.sh
 
 ---
 
