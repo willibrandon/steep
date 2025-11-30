@@ -7,7 +7,8 @@ A terminal-based PostgreSQL monitoring tool built with Go and [Bubbletea](https:
 - **Real-time Dashboard** - Monitor database metrics, connections, and server status
 - **Query Performance Monitoring** - Track slow queries, view EXPLAIN plans with tree visualization, search/filter by pattern
 - **SQL Editor** - Interactive SQL editor with vim-style editing, syntax highlighting, transaction support, history, and snippets
-- **Multiple Views** - Dashboard, Activity, Queries, Locks, Tables, Replication, SQL Editor, and Configuration monitoring
+- **Database Operations** - Table maintenance (VACUUM, ANALYZE, REINDEX), permission management, role administration
+- **Multiple Views** - Dashboard, Activity, Queries, Locks, Tables, Replication, SQL Editor, Configuration, Logs, and Roles
 - **Keyboard Navigation** - Vim-style and intuitive keyboard shortcuts
 - **Automatic Reconnection** - Resilient connection handling with exponential backoff
 - **Password Management** - Secure password handling via environment variables or commands
@@ -191,6 +192,7 @@ connection:
 - `7` - SQL Editor view
 - `8` - Configuration view
 - `9` - Log Viewer
+- `0` - Roles view
 - `Tab` - Next view
 - `Shift+Tab` - Previous view
 
@@ -236,15 +238,63 @@ connection:
 - Table details panel: columns, constraints, indexes, size breakdown
 - Partition hierarchy visualization
 - SQL copy menu: SELECT, INSERT, UPDATE, DELETE templates
-- Maintenance operations: VACUUM, ANALYZE, REINDEX with confirmation
+- Maintenance operations menu: VACUUM, VACUUM FULL, VACUUM ANALYZE, ANALYZE, REINDEX TABLE, REINDEX CONCURRENTLY
+- Operation progress tracking with real-time progress bar (VACUUM/VACUUM FULL)
+- Operation cancellation support (sends pg_cancel_backend)
+- Session operation history overlay (H key)
+- Permissions dialog for viewing/managing table grants (p key)
 - pgstattuple extension auto-install prompt
 - System schema toggle (P key)
+- Read-only mode support (blocks all maintenance operations)
 - Press `h` for keybinding help
 
-#### Replication (Coming Soon)
-- Replication lag
-- Replica status
-- WAL statistics
+**Tables Key Bindings:**
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↓/↑` | Navigate up/down |
+| `g/G` | First/last item |
+| `Enter` | Expand/collapse or open details |
+| `→/l` | Expand schema or partitions |
+| `←` | Collapse or move to parent |
+| `i` | Toggle focus tables/indexes |
+| `d` | Open table details |
+| `x` | Open operations menu |
+| `v` | VACUUM table (quick) |
+| `a` | ANALYZE table (quick) |
+| `r` | REINDEX table (quick) |
+| `p` | View/manage permissions |
+| `H` | View operation history |
+| `P` | Toggle system schemas |
+| `s/S` | Cycle sort column/toggle direction |
+| `y` | Copy table or index name |
+| `R` | Refresh data |
+
+#### Replication
+- **Overview Tab**: Replica status with lag metrics, topology visualization, sparklines for lag trends
+- **Slots Tab**: Replication slots management, drop inactive slots with confirmation
+- **Logical Tab**: Publications and subscriptions browser
+- **Setup Tab**: Physical/logical replication wizards, connection string builder, configuration checker
+- Topology view with pipeline visualization
+- Lag history sparklines with color coding (green <1MB, yellow 1-10MB, red >10MB)
+- Time windows: 1m (memory), 5m/15m/1h (SQLite persistence)
+- Press `h` for keybinding help
+
+**Replication Key Bindings:**
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↓/↑` | Navigate up/down |
+| `g/G` | First/last item |
+| `Tab` or `→/←` | Switch tabs |
+| `d` or `Enter` | View details |
+| `t` | Toggle topology view |
+| `w` | Cycle time window (sparklines) |
+| `D` | Drop inactive slot (Slots tab) |
+| `p/P` | Focus publications/subscriptions (Logical tab) |
+| `s/S` | Cycle sort column/toggle direction |
+| `y` | Copy selected value |
+| `r` | Refresh data |
 
 #### SQL Editor
 - Multi-line SQL query editor with vim-style editing
@@ -391,6 +441,30 @@ logs:
 - `auto` (default): Try filesystem first, fall back to pg_read_file
 - `filesystem`: Direct disk access (requires local log directory)
 - `pg_read_file`: Read via SQL (works with remote/containerized PostgreSQL, requires superuser or pg_read_server_files role)
+
+#### Roles
+- Browse database roles with attributes (superuser, login, create role, etc.)
+- Role details overlay with membership information
+- Create, drop, and alter roles
+- Attribute display codes: S=Superuser, L=Login, R=CreateRole, D=CreateDB, B=BypassRLS
+- Sort by name, attributes, or connection limit
+- Copy role name to clipboard
+- Read-only mode support (blocks create/drop/alter)
+- Press `h` for keybinding help
+
+**Roles Key Bindings:**
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↓/↑` | Navigate up/down |
+| `g/G` | First/last role |
+| `Enter` | View role details |
+| `c` | Create new role |
+| `x` | Drop selected role |
+| `a` | Alter selected role |
+| `s/S` | Cycle sort column/toggle direction |
+| `y` | Copy role name |
+| `r` | Refresh data |
 
 ### Status Bar
 
@@ -572,8 +646,9 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] Table statistics view
 - [x] SQL Editor with history and snippets
 - [x] Configuration viewer
-- [ ] Replication monitoring
+- [x] Replication monitoring
 - [x] Log viewer
+- [x] Database operations (maintenance, permissions, roles)
 - [ ] Export metrics to Prometheus
 - [ ] Alert configuration
 - [ ] Light theme

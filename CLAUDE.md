@@ -128,6 +128,10 @@ type ViewModel interface {
 - `pg_stat_replication` - Replication status
 - `pg_stat_all_tables` - Table access statistics
 - `pg_stat_all_indexes` - Index usage statistics
+- `pg_stat_progress_vacuum` - VACUUM operation progress
+- `pg_stat_progress_cluster` - VACUUM FULL/CLUSTER progress
+- `pg_roles` - Database role information
+- `pg_settings` - Configuration parameters
 
 **Extension Awareness**: Graceful degradation when optional extensions unavailable:
 - `pg_stat_statements` (highly recommended)
@@ -312,16 +316,35 @@ These reference implementations are available for studying UI/UX patterns before
 - PostgreSQL (pg_locks, pg_stat_activity system views) (004-locks-blocking)
 - Go 1.21+ (Go 1.25.4 per go.mod) + bubbletea, bubbles, lipgloss, pgx/pgxpool, golang.design/x/clipboard (005-tables-statistics)
 - PostgreSQL (source database via pg_stat_all_tables, pg_stat_all_indexes, pgstattuple) (005-tables-statistics)
-- Go 1.25.4 (per go.mod) (006-replication-monitoring)
+- Go 1.25.4 (per go.mod) + bubbletea, bubbles, lipgloss, pgx/pgxpool, asciigraph (sparklines), go-sqlite3 (lag history) (006-replication-monitoring)
+- PostgreSQL (pg_stat_replication, pg_replication_slots, pg_publication, pg_subscription) (006-replication-monitoring)
 - Go 1.25.4 + bubbletea, vimtea (vim-style editor), lipgloss, pgx/pgxpool, chroma (syntax highlighting), golang.design/x/clipboard, go-yaml (007-sql-editor)
 - SQLite (query history in ~/.config/steep/), YAML (snippets in ~/.config/steep/snippets.yaml) (007-sql-editor)
 - Go 1.25.4 (per go.mod) + bubbletea, bubbles (table, viewport), lipgloss, pgx/pgxpool (008-configuration-viewer)
 - PostgreSQL (pg_settings view - read-only) (008-configuration-viewer)
 - Go 1.25.4 (per go.mod) + bubbletea, bubbles (viewport), lipgloss, pgx/pgxpool (009-log-viewer)
 - PostgreSQL log files (file system read or pg_read_file()), position tracking via SQLite (009-log-viewer)
-- PostgreSQL (source database via pg_stat_progress_vacuum, pg_stat_all_tables, pg_roles, pg_catalog) (010-database-operations)
+- Go 1.25.4 (per go.mod) + bubbletea, bubbles, lipgloss, pgx/pgxpool (010-database-operations)
+- PostgreSQL (pg_stat_progress_vacuum, pg_stat_progress_cluster, pg_stat_all_tables, pg_roles, pg_catalog, pg_class_aclitem) (010-database-operations)
 
 ## Recent Changes
+- 010-database-operations: Maintenance operations menu (VACUUM, VACUUM FULL, VACUUM ANALYZE, ANALYZE, REINDEX TABLE, REINDEX CONCURRENTLY)
+- 010-database-operations: Operation progress tracking with real-time progress bar for VACUUM/VACUUM FULL
+- 010-database-operations: Single-operation enforcement (one maintenance op at a time)
+- 010-database-operations: Operation cancellation via pg_cancel_backend
+- 010-database-operations: Session-scoped operation history overlay (H key) with FIFO eviction
+- 010-database-operations: Actionable error messages for common failure scenarios
+- 010-database-operations: Connection loss detection and handling during maintenance
+- 010-database-operations: Permissions dialog (p key) for viewing table grants/grantees
+- 010-database-operations: Roles view (key 0) for browsing/creating/dropping/altering database roles
+- 010-database-operations: Scrollable help overlay with j/k navigation
+- 006-replication-monitoring: Overview tab with replica status, lag metrics, and topology visualization
+- 006-replication-monitoring: Sparklines for lag history with color coding (green <1MB, yellow 1-10MB, red >10MB)
+- 006-replication-monitoring: Time windows: 1m (memory), 5m/15m/1h (SQLite persistence)
+- 006-replication-monitoring: Slots tab for replication slots management with drop inactive slots
+- 006-replication-monitoring: Logical tab for publications and subscriptions browser
+- 006-replication-monitoring: Setup tab with physical/logical replication wizards, connection string builder, config checker
+- 006-replication-monitoring: Pipeline visualization in topology view
 - 009-log-viewer: Extended :level command with timestamp support (:level error -1h, :level warn+ >14:30)
 - 009-log-viewer: Command and search history with SQLite persistence, shell-style deduplication, ↑/↓ navigation
 - 009-log-viewer: Real-time PostgreSQL log streaming with follow mode and severity filtering
