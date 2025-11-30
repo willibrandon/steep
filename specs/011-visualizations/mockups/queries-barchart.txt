@@ -1,0 +1,169 @@
+Queries View Bar Chart - ASCII Mockup
+=====================================
+
+LAYOUT: Queries table with horizontal bar chart panel on right side
+Shows top 10 queries by execution time with color-coded bars
+
+Terminal Size: 120x40 (standard wide terminal)
+
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ postgres@localhost:5432/mydb                                                            2025-11-30 14:35:22 [LOG]      │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+Query Performance
+
+ By Calls │ By Time │ By Rows                                                                        ←/→ switch tabs
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Query                                                           Calls        Time         Mean        Rows             │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ SELECT * FROM orders WHERE customer_id = $1 ORDER BY...        12.5K       45.2s       3.6ms        125K            │
+│ INSERT INTO log_entries (timestamp, level, message,...          8.2K       38.1s       4.6ms         8.2K            │
+│ UPDATE users SET last_login = $1 WHERE id = $2                  5.1K       22.4s       4.4ms         5.1K            │
+│ SELECT COUNT(*) FROM orders WHERE status = $1                   3.8K       18.9s       5.0ms         3.8K            │
+│ SELECT u.*, o.* FROM users u JOIN orders o ON...                2.1K       15.2s       7.2ms        42.1K            │
+│ DELETE FROM sessions WHERE expires_at < $1                      1.5K       12.8s       8.5ms         4.5K            │
+│ SELECT * FROM products WHERE category = $1 LIMIT $2             1.2K        8.4s       7.0ms        24.0K            │
+│ INSERT INTO metrics (name, value, timestamp) VALUES...            892        6.2s       6.9ms          892            │
+│ SELECT AVG(amount), COUNT(*) FROM orders GROUP BY...              456        4.8s      10.5ms          456            │
+│ UPDATE inventory SET quantity = quantity - $1 WHERE...            234        2.1s       9.0ms          234            │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+╭─ Top 10 Queries by Time ───────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                        │
+│  SELECT * FROM orders WHERE... ████████████████████████████████████████████████  45.2s                                │
+│  INSERT INTO log_entries...    ████████████████████████████████████████  38.1s                                        │
+│  UPDATE users SET last_login   ███████████████████████  22.4s                                                         │
+│  SELECT COUNT(*) FROM orders   ████████████████████  18.9s                                                            │
+│  SELECT u.*, o.* FROM users    ███████████████  15.2s                                                                 │
+│  DELETE FROM sessions WHERE    █████████████  12.8s                                                                   │
+│  SELECT * FROM products WHERE  █████████  8.4s                                                                        │
+│  INSERT INTO metrics (name...  ███████  6.2s                                                                          │
+│  SELECT AVG(amount), COUNT...  █████  4.8s                                                                            │
+│  UPDATE inventory SET quant... ███  2.1s                                                                              │
+│                                                                                                                        │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ [j/k]nav [s/S]ort [e/E]xplain [y]ank [V]charts [/]filter [P/R]eset [h]elp           Sort: Time ↓  1 / 10              │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+COLOR CODING BY RANK
+====================
+
+Bar colors use a cyan gradient (brightest = highest impact, dimmer = lower impact):
+- Rank 1-2: Brightest cyan (ANSI 51) - Highest impact
+- Rank 3-4: Bright cyan (ANSI 44)    - High impact
+- Rank 5-6: Medium cyan (ANSI 37)    - Moderate impact
+- Rank 7-8: Dim cyan (ANSI 30)       - Lower impact
+- Rank 9+:  Dimmest cyan (ANSI 23)   - Lowest impact
+
+This neutral color scheme avoids alarm (no red/yellow) while still
+clearly indicating relative ranking through intensity.
+
+Visual representation:
+
+│  SELECT * FROM orders WHERE... ████████████████████████████████████████████████  45.2s  [BRIGHTEST]
+│  INSERT INTO log_entries...    ████████████████████████████████████████  38.1s          [BRIGHTEST]
+│  UPDATE users SET last_login   ███████████████████████  22.4s                           [BRIGHT]
+│  SELECT COUNT(*) FROM orders   ████████████████████  18.9s                              [BRIGHT]
+│  SELECT u.*, o.* FROM users    ███████████████  15.2s                                   [MEDIUM]
+│  DELETE FROM sessions WHERE    █████████████  12.8s                                     [MEDIUM]
+│  SELECT * FROM products WHERE  █████████  8.4s                                          [DIM]
+│  INSERT INTO metrics (name...  ███████  6.2s                                            [DIM]
+│  SELECT AVG(amount), COUNT...  █████  4.8s                                              [DIMMEST]
+│  UPDATE inventory SET quant... ███  2.1s                                                [DIMMEST]
+
+
+NARROW TERMINAL (80x24) - Bar Chart Below Table
+===============================================
+
+When terminal width < 100, bar chart moves below the table:
+
+Query Performance
+ By Calls │ By Time │ By Rows                                    ←/→ switch tabs
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ Query                                    Calls     Time      Mean     Rows      │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│ SELECT * FROM orders WHERE...           12.5K    45.2s    3.6ms    125K        │
+│ INSERT INTO log_entries...               8.2K    38.1s    4.6ms      8.2K        │
+│ UPDATE users SET last_login...           5.1K    22.4s    4.4ms      5.1K        │
+│ SELECT COUNT(*) FROM orders...           3.8K    18.9s    5.0ms      3.8K        │
+│ SELECT u.*, o.* FROM users...            2.1K    15.2s    7.2ms     42.1K        │
+└──────────────────────────────────────────────────────────────────────────────────┘
+
+╭─ Top 10 by Time ────────────────────────────────────────────────────────────────╮
+│ SELECT * FROM orders...  ██████████████████████████████████████████████  45.2s │
+│ INSERT INTO log_ent...   █████████████████████████████████████  38.1s          │
+│ UPDATE users SET...      ██████████████████████  22.4s                          │
+│ SELECT COUNT(*)...       ████████████████████  18.9s                            │
+│ SELECT u.*, o.*...       ███████████████  15.2s                                 │
+╰─────────────────────────────────────────────────────────────────────────────────╯
+
+[j/k]nav [s]ort [e]xplain [y]ank [V]charts [h]elp      Sort: Time ↓  1 / 10
+
+
+CHARTS HIDDEN STATE (V toggle)
+==============================
+
+When charts are toggled off with 'V' key, bar chart panel is hidden:
+
+Query Performance
+ By Calls │ By Time │ By Rows                                                      ←/→ switch tabs
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Query                                                Calls     Time      Mean        Rows           │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ SELECT * FROM orders WHERE customer_id = $1...     12.5K    45.2s    3.6ms       125K             │
+│ INSERT INTO log_entries (timestamp, level,...        8.2K    38.1s    4.6ms         8.2K             │
+│ UPDATE users SET last_login = $1 WHERE id = $2      5.1K    22.4s    4.4ms         5.1K             │
+│ ... (more rows visible when chart hidden)                                                            │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+[j/k]nav [s]ort [e]xplain [y]ank [V]Show Charts [h]elp                   Sort: Time ↓  1 / 10
+
+
+DESIGN NOTES
+============
+
+1. Bar Chart Panel:
+   - Fixed height: 12 lines (10 bars + border + title)
+   - Width: Full terminal width - 4 (for borders)
+   - Position: Below query table when charts visible
+   - Shows top 10 queries by current sort column (Time/Calls/Rows)
+
+2. Bar Scaling:
+   - Bars scale relative to maximum value in dataset
+   - Maximum bar width: panel width - label width - value width - padding
+   - Minimum bar width: 3 characters (for very small values)
+
+3. Query Truncation:
+   - Query labels truncated to 25 characters with "..."
+   - Full query visible in table above or via selection
+
+4. Value Display:
+   - Time: Formatted as ms/s/m (e.g., "45.2s", "125ms", "2m15s")
+   - Calls: Formatted with K/M suffix (e.g., "12.5K", "1.2M")
+   - Rows: Formatted with K/M suffix
+
+5. Color Mapping (Intensity Gradient):
+   - Rank 1-2: Brightest cyan (ANSI 51) - Highest impact
+   - Rank 3-4: Bright cyan (ANSI 44) - High impact
+   - Rank 5-6: Medium cyan (ANSI 37) - Moderate impact
+   - Rank 7-8: Dim cyan (ANSI 30) - Lower impact
+   - Rank 9+: Dimmest cyan (ANSI 23) - Lowest impact
+   (Neutral gradient avoids alarm connotations of red/yellow)
+
+6. Toggle Behavior:
+   - 'V' key (uppercase) toggles bar chart visibility (global toggle)
+   - When hidden, query table expands to fill space
+   - Footer shows "[V]Show Charts" or "[V]Hide Charts"
+
+7. Dynamic Title:
+   - Title changes based on current sort: "Top 10 Queries by Time/Calls/Rows"
+   - Reflects current tab selection
+
+8. Integration:
+   - Uses RenderSimpleBarChart() for pure ASCII/Unicode rendering
+   - Applies lipgloss styles for cyan gradient coloring
+   - Compatible with Bubbletea's View() method

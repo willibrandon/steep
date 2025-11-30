@@ -125,17 +125,34 @@ func (v *TablesView) renderMainView() string {
 		// Split view: table panel + index panel
 		tablePanel := v.renderTableSplit()
 		indexPanel := v.renderIndexPanel(indexes)
+		barChart := v.renderBarChart()
 		footer := v.renderFooter()
-		return lipgloss.JoinVertical(lipgloss.Left, statusBar, title, header, tablePanel, indexPanel, footer)
+
+		parts := []string{statusBar, title, header, tablePanel, indexPanel}
+		if barChart != "" {
+			parts = append(parts, barChart)
+		}
+		parts = append(parts, footer)
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	}
 
 	// Table content (full height)
 	table := v.renderTable()
 
+	// Bar chart (when visible and has data)
+	barChart := v.renderBarChart()
+
 	// Footer
 	footer := v.renderFooter()
 
-	return lipgloss.JoinVertical(lipgloss.Left, statusBar, title, header, table, footer)
+	// Build view parts
+	parts := []string{statusBar, title, header, table}
+	if barChart != "" {
+		parts = append(parts, barChart)
+	}
+	parts = append(parts, footer)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 // renderStatusBar renders the top status bar.
@@ -1084,6 +1101,72 @@ func (v *TablesView) renderOperationHistory() string {
 		lipgloss.Center, lipgloss.Center,
 		dialogStyle.Render(b.String()),
 	)
+}
+
+// renderBarChart renders the horizontal bar chart showing top 10 tables by size.
+func (v *TablesView) renderBarChart() string {
+	if !v.chartsVisible || len(v.tables) == 0 {
+		return ""
+	}
+
+	// Sort tables by size to get top 10
+	type tableSize struct {
+		Name string
+		Size int64
+	}
+	tableSizes := make([]tableSize, 0, len(v.tables))
+	for _, t := range v.tables {
+		tableSizes = append(tableSizes, tableSize{
+			Name: fmt.Sprintf("%s.%s", t.SchemaName, t.Name),
+			Size: t.TotalSize,
+		})
+	}
+
+	// Sort by size descending
+	for i := 0; i < len(tableSizes)-1; i++ {
+		for j := i + 1; j < len(tableSizes); j++ {
+			if tableSizes[j].Size > tableSizes[i].Size {
+				tableSizes[i], tableSizes[j] = tableSizes[j], tableSizes[i]
+			}
+		}
+	}
+
+	// Take top 10
+	maxItems := 10
+	if len(tableSizes) < maxItems {
+		maxItems = len(tableSizes)
+	}
+
+	items := make([]components.BarChartItem, maxItems)
+	for i := 0; i < maxItems; i++ {
+		items[i] = components.BarChartItem{
+			Label: tableSizes[i].Name,
+			Value: float64(tableSizes[i].Size),
+			Rank:  i + 1,
+		}
+	}
+
+	config := components.BarChartConfig{
+		Title:         "Top 10 Tables by Size",
+		Width:         v.width - 4,
+		Height:        maxItems,
+		MaxLabelWidth: 30,
+		ShowValues:    true,
+		Horizontal:    true,
+		ValueFormatter: func(val float64) string {
+			return models.FormatBytes(int64(val))
+		},
+	}
+
+	chart := components.RenderSimpleBarChart(items, config)
+
+	// Wrap in a box
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("238")).
+		Width(v.width - 4)
+
+	return boxStyle.Render(chart)
 }
 
 // renderTableSparkline renders a sparkline for a table's size history.

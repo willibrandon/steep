@@ -296,7 +296,12 @@ func (v *TablesView) ensureIndexVisible() {
 // splitContentHeight returns the total available height for tables + indexes panels.
 func (v *TablesView) splitContentHeight() int {
 	// Fixed elements: status(3) + title(1) + header(2 w/border) + indexTitle(1) + indexHeader(2 w/border) + footer(3) = 12
-	return max(6, v.height-12) // Min 6 to allow 3 for each panel
+	reservedLines := 12
+	// Reserve space for bar chart when visible
+	if v.chartsVisible && len(v.tables) > 0 {
+		reservedLines += 14 // Bar chart height
+	}
+	return max(6, v.height-reservedLines) // Min 6 to allow 3 for each panel
 }
 
 // indexPanelHeight returns the height of the index panel (content rows only).

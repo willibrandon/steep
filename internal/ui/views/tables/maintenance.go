@@ -375,7 +375,17 @@ func (v *TablesView) ensureVisible() {
 // tableHeight returns the number of visible table rows.
 func (v *TablesView) tableHeight() int {
 	// Fixed elements: status(3 w/border) + title(1) + header(2 w/border) + footer(3 w/border) = 9
-	return max(1, v.height-9)
+	reservedLines := 9
+	// Reserve space for bar chart when visible
+	if v.chartsVisible && len(v.tables) > 0 {
+		reservedLines += 14 // Bar chart height
+	}
+	return max(1, v.height-reservedLines)
+}
+
+// barChartHeight returns the height allocated for the bar chart.
+func (v *TablesView) barChartHeight() int {
+	return 12 // 10 bars + title + spacing
 }
 
 // toggleExpand toggles expand/collapse for the selected item.

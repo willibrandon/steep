@@ -383,6 +383,11 @@ func (v *TablesView) SetPool(pool *pgxpool.Pool) {
 	v.pool = pool
 }
 
+// SetChartsVisible sets the chart visibility state (controlled by global toggle).
+func (v *TablesView) SetChartsVisible(visible bool) {
+	v.chartsVisible = visible
+}
+
 // IsInputMode returns true if in an input mode (overlays that should capture 'q').
 func (v *TablesView) IsInputMode() bool {
 	return v.mode == ModeDetails || v.mode == ModeHelp || v.mode == ModeOperationHistory

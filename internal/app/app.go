@@ -1185,11 +1185,13 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Global chart toggle with 'v' (not when in input mode)
-	if msg.String() == "v" && !inInputMode {
+	// Global chart toggle with 'V' (not when in input mode)
+	if msg.String() == "V" && !inInputMode {
 		m.chartsVisible = !m.chartsVisible
 		// Propagate to all views that display charts
 		m.dashboard.SetChartsVisible(m.chartsVisible)
+		m.queriesView.SetChartsVisible(m.chartsVisible)
+		m.tablesView.SetChartsVisible(m.chartsVisible)
 		// Update status bar
 		m.statusBar.SetChartsVisible(m.chartsVisible)
 		return m, nil

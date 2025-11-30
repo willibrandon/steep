@@ -13,6 +13,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
+	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
@@ -121,6 +122,9 @@ type QueriesView struct {
 
 	// Clipboard
 	clipboard *ui.ClipboardWriter
+
+	// Bar chart visibility (global toggle from app)
+	chartsVisible bool
 }
 
 // NewQueriesView creates a new queries view.
@@ -129,11 +133,12 @@ func NewQueriesView() *QueriesView {
 	s.Spinner = spinner.MiniDot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	return &QueriesView{
-		mode:        ModeNormal,
-		sortColumn:  SortByCalls,
-		scanSpinner: s,
-		explainView: NewExplainView(),
-		clipboard:   ui.NewClipboardWriter(),
+		mode:          ModeNormal,
+		sortColumn:    SortByCalls,
+		scanSpinner:   s,
+		explainView:   NewExplainView(),
+		clipboard:     ui.NewClipboardWriter(),
+		chartsVisible: true, // Show charts by default
 	}
 }
 
@@ -606,7 +611,102 @@ func (v *QueriesView) tableHeight() int {
 	if v.scanning {
 		reservedLines = 11 // Extra line for progress indicator
 	}
+	// Reserve space for bar chart when visible (12 lines: 10 bars + title + spacing)
+	if v.chartsVisible && len(v.stats) > 0 {
+		reservedLines += 14 // Bar chart height
+	}
 	return max(1, v.height-reservedLines)
+}
+
+// barChartHeight returns the height allocated for the bar chart.
+func (v *QueriesView) barChartHeight() int {
+	return 12 // 10 bars + title + spacing
+}
+
+// renderBarChart renders the horizontal bar chart showing top queries.
+func (v *QueriesView) renderBarChart() string {
+	if !v.chartsVisible || len(v.stats) == 0 {
+		return ""
+	}
+
+	// Build bar chart items from stats
+	maxItems := 10
+	if len(v.stats) < maxItems {
+		maxItems = len(v.stats)
+	}
+
+	items := make([]components.BarChartItem, maxItems)
+	for i := 0; i < maxItems; i++ {
+		stat := v.stats[i]
+		// Get the value based on current sort column
+		var value float64
+		switch v.sortColumn {
+		case SortByTotalTime:
+			value = stat.TotalTimeMs
+		case SortByCalls:
+			value = float64(stat.Calls)
+		case SortByRows:
+			value = float64(stat.TotalRows)
+		case SortByMeanTime:
+			value = stat.MeanTimeMs()
+		default:
+			value = stat.TotalTimeMs
+		}
+
+		items[i] = components.BarChartItem{
+			Label: stat.NormalizedQuery,
+			Value: value,
+			Rank:  i + 1,
+		}
+	}
+
+	// Build title based on sort column
+	var title string
+	switch v.sortColumn {
+	case SortByTotalTime:
+		title = "Top 10 Queries by Total Time"
+	case SortByCalls:
+		title = "Top 10 Queries by Calls"
+	case SortByRows:
+		title = "Top 10 Queries by Rows"
+	case SortByMeanTime:
+		title = "Top 10 Queries by Mean Time"
+	default:
+		title = "Top 10 Queries"
+	}
+
+	// Configure value formatter based on sort column
+	var valueFormatter func(float64) string
+	switch v.sortColumn {
+	case SortByTotalTime, SortByMeanTime:
+		valueFormatter = formatDuration
+	case SortByCalls, SortByRows:
+		valueFormatter = func(v float64) string {
+			return formatCount(int64(v))
+		}
+	default:
+		valueFormatter = formatDuration
+	}
+
+	config := components.BarChartConfig{
+		Title:          title,
+		Width:          v.width - 4,
+		Height:         maxItems,
+		MaxLabelWidth:  30,
+		ShowValues:     true,
+		Horizontal:     true,
+		ValueFormatter: valueFormatter,
+	}
+
+	chart := components.RenderSimpleBarChart(items, config)
+
+	// Wrap in a box
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("238")).
+		Width(v.width - 4)
+
+	return boxStyle.Render(chart)
 }
 
 // renderTitle renders the view title.
@@ -762,18 +862,29 @@ func (v *QueriesView) View() string {
 	// Table
 	table := v.renderTable()
 
+	// Bar chart (when visible and has data)
+	barChart := v.renderBarChart()
+
 	// Footer
 	footer := v.renderFooter()
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
+	// Build view parts
+	parts := []string{
 		statusBar,
 		title,
 		header,
 		tabBar,
 		table,
-		footer,
-	)
+	}
+
+	// Add bar chart if visible
+	if barChart != "" {
+		parts = append(parts, barChart)
+	}
+
+	parts = append(parts, footer)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 // renderConfirmResetDialog renders the reset confirmation dialog.
@@ -1031,6 +1142,11 @@ func (v *QueriesView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
 	v.explainView.SetSize(width, height)
+}
+
+// SetChartsVisible sets the chart visibility state (controlled by global toggle).
+func (v *QueriesView) SetChartsVisible(visible bool) {
+	v.chartsVisible = visible
 }
 
 // SetConnected sets the connection status.

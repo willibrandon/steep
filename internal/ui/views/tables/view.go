@@ -290,6 +290,9 @@ type TablesView struct {
 	// Sparkline cache: key="schema.table" -> size history
 	tableSizeCache   map[string][]metrics.DataPoint
 	lastMetricsFetch time.Time
+
+	// Bar chart visibility (global toggle from app)
+	chartsVisible bool
 }
 
 // NewTablesView creates a new TablesView instance.
@@ -307,6 +310,7 @@ func NewTablesView() *TablesView {
 		splitRatio:         0.67, // 67% tables, 33% indexes
 		partitions:         make(map[uint32][]uint32),
 		tablesByOID:        make(map[uint32]*models.Table),
+		chartsVisible:      true, // Show charts by default
 		clipboard:          ui.NewClipboardWriter(),
 		spinner:            s,
 		showSystemSchemas:  false, // Hidden by default per spec

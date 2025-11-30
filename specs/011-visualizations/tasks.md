@@ -130,14 +130,14 @@
 
 ### Implementation for User Story 4
 
-- [ ] T036 [P] [US4] Create ASCII mockup of Queries view bar chart in specs/011-visualizations/mockups/queries-barchart.txt
-- [ ] T037 [P] [US4] Implement BarChart component wrapping pterm in internal/ui/components/barchart.go
-- [ ] T038 [P] [US4] Add unit tests for BarChart rendering in internal/ui/components/barchart_test.go
-- [ ] T039 [US4] Add bar chart panel to Queries view in internal/ui/views/queries/tabs.go
-- [ ] T040 [US4] Add bar chart panel to Tables view in internal/ui/views/tables/tabs.go
-- [ ] T041 [US4] Implement color coding by rank (red=top 3, yellow=4-6, green=7+) in internal/ui/components/barchart.go
+- [x] T036 [P] [US4] Create ASCII mockup of Queries view bar chart in specs/011-visualizations/mockups/queries-barchart.txt
+- [x] T037 [P] [US4] Implement BarChart component wrapping pterm in internal/ui/components/barchart.go
+- [x] T038 [P] [US4] Add unit tests for BarChart rendering in internal/ui/components/barchart_test.go
+- [x] T039 [US4] Add bar chart panel to Queries view in internal/ui/views/queries/view.go
+- [x] T040 [US4] Add bar chart panel to Tables view in internal/ui/views/tables/render.go
+- [x] T041 [US4] Implement color coding by rank (cyan gradient: brightest=top, dimmer=lower) in internal/ui/components/barchart.go
 
-**Checkpoint**: Bar charts visible in Queries and Tables views
+**Checkpoint**: Bar charts visible in Queries and Tables views ✅
 
 ---
 
