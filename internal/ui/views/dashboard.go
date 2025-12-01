@@ -2,6 +2,8 @@ package views
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -42,6 +44,10 @@ type DashboardView struct {
 	// Data
 	metrics models.Metrics
 	err     error
+
+	// Alert state
+	warningCount  int
+	criticalCount int
 }
 
 // NewDashboard creates a new dashboard view.
@@ -76,6 +82,10 @@ func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
 			d.lastUpdate = msg.FetchedAt
 			d.updateChartData()
 		}
+
+	case ui.AlertStateMsg:
+		d.warningCount = msg.WarningCount
+		d.criticalCount = msg.CriticalCount
 
 	case tea.WindowSizeMsg:
 		d.SetSize(msg.Width, msg.Height)
@@ -265,9 +275,12 @@ func (d *DashboardView) renderStatusBar() string {
 		staleIndicator = styles.ErrorStyle.Render(" [STALE]")
 	}
 
+	// Alert counts
+	alertCounts := d.renderAlertCounts()
+
 	timestamp := styles.StatusTimeStyle.Render(d.lastUpdate.Format("2006-01-02 15:04:05"))
 
-	gap := d.width - lipgloss.Width(title) - lipgloss.Width(staleIndicator) - lipgloss.Width(timestamp) - 4
+	gap := d.width - lipgloss.Width(title) - lipgloss.Width(staleIndicator) - lipgloss.Width(alertCounts) - lipgloss.Width(timestamp) - 4
 	if gap < 1 {
 		gap = 1
 	}
@@ -275,7 +288,28 @@ func (d *DashboardView) renderStatusBar() string {
 
 	return styles.StatusBarStyle.
 		Width(d.width - 2).
-		Render(title + staleIndicator + spaces + timestamp)
+		Render(title + staleIndicator + spaces + alertCounts + " " + timestamp)
+}
+
+// renderAlertCounts renders alert warning/critical counts with colors.
+func (d *DashboardView) renderAlertCounts() string {
+	if d.warningCount == 0 && d.criticalCount == 0 {
+		return ""
+	}
+
+	var parts []string
+
+	if d.criticalCount > 0 {
+		criticalStyle := lipgloss.NewStyle().Foreground(styles.ColorAlertCritical).Bold(true)
+		parts = append(parts, criticalStyle.Render(fmt.Sprintf("%d CRIT", d.criticalCount)))
+	}
+
+	if d.warningCount > 0 {
+		warningStyle := lipgloss.NewStyle().Foreground(styles.ColorAlertWarning).Bold(true)
+		parts = append(parts, warningStyle.Render(fmt.Sprintf("%d WARN", d.warningCount)))
+	}
+
+	return strings.Join(parts, " ")
 }
 
 // renderMetricsPanel renders the metrics panel.

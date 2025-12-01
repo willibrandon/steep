@@ -88,13 +88,13 @@ Based on plan.md structure:
 
 ### Implementation for User Story 2
 
-- [ ] T025 [US2] Implement GetActiveAlerts method in internal/alerts/engine.go
-- [ ] T026 [US2] Implement WarningCount and CriticalCount methods in internal/alerts/engine.go
-- [ ] T027 [US2] Add activeAlerts, warningCount, criticalCount fields to DashboardView in internal/ui/views/dashboard.go
-- [ ] T028 [US2] Handle AlertStateMsg in DashboardView Update() in internal/ui/views/dashboard.go
-- [ ] T029 [US2] Add renderAlertCounts method to render status bar counts in internal/ui/views/dashboard.go
-- [ ] T030 [US2] Integrate alert counts into renderStatusBar in internal/ui/views/dashboard.go
-- [ ] T031 [US2] Send AlertStateMsg from app model after each evaluation in internal/app/model.go
+- [x] T025 [US2] Implement GetActiveAlerts method in internal/alerts/engine.go
+- [x] T026 [US2] Implement WarningCount and CriticalCount methods in internal/alerts/engine.go
+- [x] T027 [US2] Add activeAlerts, warningCount, criticalCount fields to DashboardView in internal/ui/views/dashboard.go
+- [x] T028 [US2] Handle AlertStateMsg in DashboardView Update() in internal/ui/views/dashboard.go
+- [x] T029 [US2] Add renderAlertCounts method to render status bar counts in internal/ui/views/dashboard.go
+- [x] T030 [US2] Integrate alert counts into renderStatusBar in internal/ui/views/dashboard.go
+- [x] T031 [US2] Send AlertStateMsg from app model after each evaluation in internal/app/model.go
 
 **Checkpoint**: Alert counts visible in status bar, colors update with severity
 
