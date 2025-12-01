@@ -377,8 +377,9 @@ func (c *LogCollector) readFileFilesystem(ctx context.Context, filePath string) 
 			// Start new buffer
 			c.lineBuffer = line
 		} else if c.lineBuffer != "" {
-			// Continuation line - append to buffer
-			c.lineBuffer += " " + strings.TrimSpace(line)
+			// Continuation line - append with newline to preserve line comment semantics
+			// Using space would break "-- comment\nSELECT" into "-- comment SELECT" (all comment)
+			c.lineBuffer += "\n" + strings.TrimSpace(line)
 		}
 	}
 
@@ -484,8 +485,8 @@ func (c *LogCollector) readFilePgReadFile(ctx context.Context, filePath string) 
 			// Start new buffer
 			c.lineBuffer = line
 		} else if c.lineBuffer != "" {
-			// Continuation line - append to buffer
-			c.lineBuffer += " " + strings.TrimSpace(line)
+			// Continuation line - append with newline to preserve line comment semantics
+			c.lineBuffer += "\n" + strings.TrimSpace(line)
 		}
 	}
 
@@ -576,6 +577,20 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 		return QueryEvent{}, false
 	}
 
+	// Filter out comment-only queries (e.g., "-- ping" health checks)
+	if isCommentOnly(query) {
+		c.lastQuery = ""
+		c.lastParams = nil
+		return QueryEvent{}, false
+	}
+
+	// Filter out noise queries that aren't useful for performance analysis
+	if isNoiseQuery(query) {
+		c.lastQuery = ""
+		c.lastParams = nil
+		return QueryEvent{}, false
+	}
+
 	// Extract rows from command tag (%i in log_line_prefix)
 	// Format: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3", "COPY 100"
 	var rows int64
@@ -624,6 +639,116 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 		User:       user,
 		Params:     params,
 	}, true
+}
+
+// isNoiseQuery checks if a query is "noise" that shouldn't be tracked for performance.
+// This includes transaction control, session management, and health checks.
+func isNoiseQuery(query string) bool {
+	// Normalize: uppercase, trim whitespace, remove trailing semicolon
+	q := strings.TrimSpace(strings.ToUpper(query))
+	q = strings.TrimSuffix(q, ";")
+	q = strings.TrimSpace(q)
+
+	// Transaction control
+	switch q {
+	case "BEGIN", "START TRANSACTION", "COMMIT", "ROLLBACK", "END":
+		return true
+	}
+
+	// Transaction control with options (BEGIN ISOLATION LEVEL..., etc.)
+	if strings.HasPrefix(q, "BEGIN ") || strings.HasPrefix(q, "START TRANSACTION ") {
+		return true
+	}
+
+	// Savepoints
+	if strings.HasPrefix(q, "SAVEPOINT ") ||
+		strings.HasPrefix(q, "RELEASE SAVEPOINT ") ||
+		strings.HasPrefix(q, "RELEASE ") ||
+		strings.HasPrefix(q, "ROLLBACK TO SAVEPOINT ") ||
+		strings.HasPrefix(q, "ROLLBACK TO ") {
+		return true
+	}
+
+	// Session management
+	if strings.HasPrefix(q, "SET ") ||
+		strings.HasPrefix(q, "RESET ") ||
+		strings.HasPrefix(q, "SHOW ") ||
+		q == "DISCARD ALL" ||
+		q == "DISCARD TEMP" ||
+		q == "DISCARD TEMPORARY" ||
+		q == "DISCARD PLANS" ||
+		q == "DISCARD SEQUENCES" {
+		return true
+	}
+
+	// Health checks - SELECT 1, SELECT 1 AS ..., etc.
+	if q == "SELECT 1" ||
+		strings.HasPrefix(q, "SELECT 1 AS ") ||
+		q == "SELECT 1 AS ONE" ||
+		q == "SELECT TRUE" ||
+		q == "SELECT 'PING'" {
+		return true
+	}
+
+	// Empty statement
+	if q == "" {
+		return true
+	}
+
+	return false
+}
+
+// isCommentOnly checks if a query consists only of comments (no actual SQL).
+// This filters out health check queries like "-- ping".
+func isCommentOnly(query string) bool {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return true
+	}
+
+	// Remove all comments and whitespace, check if anything remains
+	inBlockComment := false
+	inLineComment := false
+
+	for i := 0; i < len(query); i++ {
+		c := query[i]
+
+		// Handle line comments
+		if !inBlockComment && i+1 < len(query) && c == '-' && query[i+1] == '-' {
+			inLineComment = true
+			i++
+			continue
+		}
+		if inLineComment && c == '\n' {
+			inLineComment = false
+			continue
+		}
+		if inLineComment {
+			continue
+		}
+
+		// Handle block comments
+		if i+1 < len(query) && c == '/' && query[i+1] == '*' {
+			inBlockComment = true
+			i++
+			continue
+		}
+		if inBlockComment && i+1 < len(query) && c == '*' && query[i+1] == '/' {
+			inBlockComment = false
+			i++
+			continue
+		}
+		if inBlockComment {
+			continue
+		}
+
+		// Found non-whitespace, non-comment character
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return false
+		}
+	}
+
+	return true
 }
 
 // parseParams extracts parameters from a DETAIL line.
