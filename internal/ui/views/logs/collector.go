@@ -144,6 +144,13 @@ func (c *LogCollector) readNewEntries(file string) ([]LogEntryData, error) {
 	}
 	defer f.Close()
 
+	// Get file size
+	stat, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := stat.Size()
+
 	// Seek to last position
 	pos := c.positions[file]
 	if pos > 0 {
@@ -153,24 +160,55 @@ func (c *LogCollector) readNewEntries(file string) ([]LogEntryData, error) {
 		}
 	}
 
-	// Read based on format
+	// Nothing new to read
+	if pos >= fileSize {
+		return nil, nil
+	}
+
+	// Read remaining content (cap at 1MB)
+	bytesToRead := fileSize - pos
+	if bytesToRead > 1024*1024 {
+		bytesToRead = 1024 * 1024
+	}
+
+	content := make([]byte, bytesToRead)
+	n, err := io.ReadFull(f, content)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return nil, err
+	}
+	content = content[:n]
+
+	// Trim to last complete line to avoid parsing partial lines
+	// This handles CRLF vs LF correctly
+	contentStr := string(content)
+	if lastNewline := strings.LastIndex(contentStr, "\n"); lastNewline >= 0 {
+		contentStr = contentStr[:lastNewline+1]
+	} else if len(contentStr) > 0 {
+		// No complete line yet, wait for more data
+		return nil, nil
+	}
+
+	// Parse the content based on format
 	var entries []LogEntryData
 	var newPos int64
 
+	reader := strings.NewReader(contentStr)
 	switch c.source.Format {
 	case monitors.LogFormatCSV:
-		entries, newPos, err = c.parseCSVLogs(f, pos)
+		entries, newPos, err = c.parseCSVLogs(reader, pos)
 	case monitors.LogFormatJSON:
-		entries, newPos, err = c.parseJSONLogs(f, pos)
+		entries, newPos, err = c.parseJSONLogs(reader, pos)
 	default:
-		entries, newPos, err = c.parseStderrLogs(f, pos)
+		entries, newPos, err = c.parseStderrLogs(reader, pos)
 	}
 
 	if err != nil {
 		return nil, err
 	}
 
-	c.positions[file] = newPos
+	// Update position based on actual content processed
+	c.positions[file] = pos + int64(len(contentStr))
+	_ = newPos // Position from parser no longer needed
 	return entries, nil
 }
 
