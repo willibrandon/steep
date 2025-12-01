@@ -305,8 +305,9 @@ func NewTablesView() *TablesView {
 		mode:               ModeNormal,
 		focusPanel:         FocusTables,
 		sortColumn:         SortByName,
+		sortAscending:      true, // A→Z by default for name sort
 		indexSortColumn:    IndexSortByName,
-		indexSortAscending: false,
+		indexSortAscending: true, // A→Z by default for name sort
 		splitRatio:         0.67, // 67% tables, 33% indexes
 		partitions:         make(map[uint32][]uint32),
 		tablesByOID:        make(map[uint32]*models.Table),
