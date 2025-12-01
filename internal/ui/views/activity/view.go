@@ -2,6 +2,7 @@ package activity
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,7 +25,36 @@ const (
 	ModeFilter
 	ModeDetail
 	ModeConfirm
+	ModeHelp
 )
+
+// SortColumn represents the available sort columns for activity view.
+type SortColumn int
+
+const (
+	SortByPID SortColumn = iota
+	SortByUser
+	SortByDatabase
+	SortByState
+	SortByDuration
+)
+
+func (s SortColumn) String() string {
+	switch s {
+	case SortByPID:
+		return "PID"
+	case SortByUser:
+		return "User"
+	case SortByDatabase:
+		return "Database"
+	case SortByState:
+		return "State"
+	case SortByDuration:
+		return "Duration"
+	default:
+		return "PID"
+	}
+}
 
 // ActivityView displays and manages PostgreSQL connections.
 type ActivityView struct {
@@ -43,6 +73,10 @@ type ActivityView struct {
 	pagination     *models.Pagination
 	lastUpdate     time.Time
 	refreshing     bool
+
+	// Sorting
+	sortColumn SortColumn
+	sortAsc    bool // false = descending (default), true = ascending
 
 	// Data
 	connections []models.Connection
@@ -78,12 +112,18 @@ type ActivityView struct {
 
 // New creates a new activity view.
 func New() *ActivityView {
+	t := components.NewActivityTable()
+	// Set default sort on table
+	t.SetSort(components.SortByDuration, false)
+
 	return &ActivityView{
-		table:      components.NewActivityTable(),
+		table:      t,
 		detailView: components.NewDetailView(),
 		pagination: models.NewPagination(),
 		filter:     models.ActivityFilter{ShowAllDatabases: true},
 		mode:       ModeNormal,
+		sortColumn: SortByDuration, // Default: sort by duration (longest first)
+		sortAsc:    false,          // Descending by default
 	}
 }
 
@@ -138,12 +178,11 @@ func (v *ActivityView) Update(msg tea.Msg) (views.ViewModel, tea.Cmd) {
 		if msg.Error != nil {
 			v.err = msg.Error
 		} else {
-			v.connections = msg.Connections
-			v.totalCount = msg.TotalCount
-			v.lastUpdate = msg.FetchedAt
 			v.err = nil
-			v.table.SetConnections(v.connections)
-			v.pagination.Update(v.totalCount)
+			// Use SetConnections to maintain sort order
+			v.SetConnections(msg.Connections, msg.TotalCount)
+			// Override lastUpdate with fetch time from message
+			v.lastUpdate = msg.FetchedAt
 		}
 
 	case tea.WindowSizeMsg:
@@ -198,6 +237,8 @@ func (v *ActivityView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return v.handleDetailMode(key)
 	case ModeConfirm:
 		return v.handleConfirmMode(key)
+	case ModeHelp:
+		return v.handleHelpMode(key)
 	}
 
 	// Normal mode keys
@@ -269,11 +310,21 @@ func (v *ActivityView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 			return ui.FilterChangedMsg{Filter: v.filter}
 		}
 	case "s":
-		// TODO: Cycle sort column
+		// Cycle sort column
+		v.cycleSortColumn()
+		v.sortConnections()
+		v.table.SetSort(components.SortColumn(v.sortColumn), v.sortAsc)
+		v.table.SetConnections(v.connections)
+	case "S":
+		// Toggle sort direction
+		v.sortAsc = !v.sortAsc
+		v.sortConnections()
+		v.table.SetSort(components.SortColumn(v.sortColumn), v.sortAsc)
+		v.table.SetConnections(v.connections)
 
 	// Help
-	case "?":
-		// TODO: Show help overlay
+	case "h":
+		v.mode = ModeHelp
 	}
 
 	return nil
@@ -356,6 +407,15 @@ func (v *ActivityView) handleConfirmMode(key string) tea.Cmd {
 	return nil
 }
 
+// handleHelpMode processes keys in help overlay mode.
+func (v *ActivityView) handleHelpMode(key string) tea.Cmd {
+	switch key {
+	case "h", "esc", "q":
+		v.mode = ModeNormal
+	}
+	return nil
+}
+
 // enterFilterMode switches to filter input mode.
 func (v *ActivityView) enterFilterMode() {
 	v.mode = ModeFilter
@@ -415,9 +475,9 @@ func (v *ActivityView) SetOwnPIDs(pids []int) {
 	v.ownPIDs = pids
 }
 
-// IsInputMode returns true if the view is in an input mode (filter, detail, confirm).
+// IsInputMode returns true if the view is in an input mode (filter, detail, confirm, help).
 func (v *ActivityView) IsInputMode() bool {
-	return v.mode == ModeFilter || v.mode == ModeDetail || v.mode == ModeConfirm
+	return v.mode == ModeFilter || v.mode == ModeDetail || v.mode == ModeConfirm || v.mode == ModeHelp
 }
 
 // View renders the activity view.
@@ -434,6 +494,11 @@ func (v *ActivityView) View() string {
 	// Check for confirm dialog overlay
 	if v.mode == ModeConfirm {
 		return v.renderWithOverlay(v.renderConfirmDialog())
+	}
+
+	// Check for help overlay
+	if v.mode == ModeHelp {
+		return v.renderWithOverlay(HelpOverlay(v.width, v.height))
 	}
 
 	return v.renderMain()
@@ -526,12 +591,19 @@ func (v *ActivityView) renderFooter() string {
 		if !v.filter.ShowAllDatabases {
 			filterIndicator += styles.FooterHintStyle.Foreground(styles.ColorActive).Render("[DB] ")
 		}
-		hints = filterIndicator + styles.FooterHintStyle.Render("[/]filter [r]efresh [a]ll-dbs [C]lear [d]etail [c]ancel [x]kill")
+		hints = filterIndicator + styles.FooterHintStyle.Render("[j/k]nav [d]etail [s/S]ort [y]ank [x]kill [r]efresh [h]elp")
 	}
 
-	count := styles.FooterCountStyle.Render(fmt.Sprintf("%d/%d", v.table.ConnectionCount(), v.totalCount))
+	// Sort info on right side
+	arrow := "↓"
+	if v.sortAsc {
+		arrow = "↑"
+	}
+	sortInfo := fmt.Sprintf("Sort: %s %s", v.sortColumn.String(), arrow)
+	count := fmt.Sprintf("%d/%d", v.table.ConnectionCount(), v.totalCount)
+	rightSide := styles.FooterCountStyle.Render(sortInfo + "  " + count)
 
-	gap := v.width - lipgloss.Width(hints) - lipgloss.Width(count) - 4
+	gap := v.width - lipgloss.Width(hints) - lipgloss.Width(rightSide) - 4
 	if gap < 1 {
 		gap = 1
 	}
@@ -539,7 +611,7 @@ func (v *ActivityView) renderFooter() string {
 
 	return styles.FooterStyle.
 		Width(v.width - 2).
-		Render(hints + spaces + count)
+		Render(hints + spaces + rightSide)
 }
 
 // renderConfirmDialog renders the confirmation dialog.
@@ -637,7 +709,8 @@ func (v *ActivityView) SetConnectionInfo(info string) {
 func (v *ActivityView) SetConnections(connections []models.Connection, totalCount int) {
 	v.connections = connections
 	v.totalCount = totalCount
-	v.table.SetConnections(connections)
+	v.sortConnections()
+	v.table.SetConnections(v.connections)
 	v.pagination.Update(totalCount)
 	v.lastUpdate = time.Now()
 }
@@ -661,4 +734,53 @@ func (v *ActivityView) IsRefreshing() bool {
 func (v *ActivityView) SetConnectionMetrics(cm *metrics.ConnectionMetrics) {
 	v.connectionMetrics = cm
 	v.table.SetConnectionMetrics(cm)
+}
+
+// cycleSortColumn cycles to the next sort column.
+func (v *ActivityView) cycleSortColumn() {
+	v.sortColumn = SortColumn((int(v.sortColumn) + 1) % 5) // 5 sort columns
+}
+
+// sortConnections sorts the connections slice by the current sort column.
+func (v *ActivityView) sortConnections() {
+	if len(v.connections) == 0 {
+		return
+	}
+
+	sort.Slice(v.connections, func(i, j int) bool {
+		a, b := v.connections[i], v.connections[j]
+
+		var less bool
+		switch v.sortColumn {
+		case SortByPID:
+			less = a.PID < b.PID
+		case SortByUser:
+			less = a.User < b.User
+		case SortByDatabase:
+			less = a.Database < b.Database
+		case SortByState:
+			less = a.State < b.State
+		case SortByDuration:
+			// Sort by duration (longer durations first by default)
+			less = a.DurationSeconds > b.DurationSeconds
+		default:
+			less = a.PID < b.PID
+		}
+
+		// Reverse if ascending
+		if v.sortAsc {
+			return !less
+		}
+		return less
+	})
+}
+
+// GetSortColumn returns the current sort column.
+func (v *ActivityView) GetSortColumn() SortColumn {
+	return v.sortColumn
+}
+
+// IsSortAsc returns whether sorting is ascending.
+func (v *ActivityView) IsSortAsc() bool {
+	return v.sortAsc
 }

@@ -49,5 +49,6 @@ alerts:
       operator: "<"
       warning: 0.90
       critical: 0.85
+      message: "Cache hit ratio: {{.ValueFmt}}% (threshold: {{.ThreshFmt}}%)"
 
 debug: true

@@ -16,6 +16,17 @@ import (
 // Minimum width to show the Trend column with sparklines
 const minWidthForSparklines = 90
 
+// SortColumn represents the column to sort by.
+type SortColumn int
+
+const (
+	SortByPID SortColumn = iota
+	SortByUser
+	SortByDatabase
+	SortByState
+	SortByDuration
+)
+
 // ActivityTable displays PostgreSQL connections in a sortable table.
 type ActivityTable struct {
 	table             table.Model
@@ -25,6 +36,10 @@ type ActivityTable struct {
 	queryColWidth     int // Dynamic width for query column
 	showSparklines    bool
 	connectionMetrics *metrics.ConnectionMetrics
+
+	// Sorting
+	sortColumn SortColumn
+	sortAsc    bool
 
 	// Styles for focused and unfocused states
 	focusedStyles   table.Styles
@@ -250,13 +265,13 @@ func (a *ActivityTable) SetSize(width, height int) {
 	a.showSparklines = width >= minWidthForSparklines
 
 	// Calculate query column width to fill remaining space
-	// Without sparklines: PID(6) + User(10) + Database(10) + State(12) + Duration(8) + spacing(10) = 56
-	// With sparklines: add Trend(10) = 66
+	// Without sparklines: PID(8) + User(12) + Database(12) + State(14) + Duration(10) + spacing(10) = 66
+	// With sparklines: add Trend(10) = 76
 	var fixedWidth int
 	if a.showSparklines {
-		fixedWidth = 66
+		fixedWidth = 76
 	} else {
-		fixedWidth = 56
+		fixedWidth = 66
 	}
 
 	a.queryColWidth = width - fixedWidth
@@ -264,38 +279,8 @@ func (a *ActivityTable) SetSize(width, height int) {
 		a.queryColWidth = 30
 	}
 
-	// Build columns based on whether sparklines are shown
-	var columns []table.Column
-	if a.showSparklines {
-		columns = []table.Column{
-			{Title: "PID", Width: 6},
-			{Title: "User", Width: 10},
-			{Title: "Database", Width: 10},
-			{Title: "State", Width: 12},
-			{Title: "Duration", Width: 8},
-			{Title: "Trend", Width: 10},
-			{Title: "Query", Width: a.queryColWidth},
-		}
-	} else {
-		columns = []table.Column{
-			{Title: "PID", Width: 6},
-			{Title: "User", Width: 10},
-			{Title: "Database", Width: 10},
-			{Title: "State", Width: 12},
-			{Title: "Duration", Width: 8},
-			{Title: "Query", Width: a.queryColWidth},
-		}
-	}
-
-	// Clear rows BEFORE changing columns to avoid panic when column count changes
-	// (bubbles table panics if row column count doesn't match column definition)
-	a.table.SetRows(nil)
-	a.table.SetColumns(columns)
-
-	// Refresh rows with new layout
-	if len(a.connections) > 0 {
-		a.refreshRows()
-	}
+	// Rebuild columns with sort indicators
+	a.rebuildColumns()
 }
 
 // Update handles messages for the activity table.
@@ -401,4 +386,63 @@ func truncate(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// SetSort sets the current sort column and direction, and updates column headers.
+func (a *ActivityTable) SetSort(col SortColumn, asc bool) {
+	a.sortColumn = col
+	a.sortAsc = asc
+	// Rebuild columns with updated sort indicators
+	a.rebuildColumns()
+}
+
+// sortIndicator returns the column title with a sort arrow if it's the active sort column.
+func (a *ActivityTable) sortIndicator(title string, col SortColumn) string {
+	if a.sortColumn == col {
+		if a.sortAsc {
+			return title + " ↑"
+		}
+		return title + " ↓"
+	}
+	return title
+}
+
+// rebuildColumns rebuilds the table columns with current sort indicators.
+func (a *ActivityTable) rebuildColumns() {
+	var columns []table.Column
+	if a.showSparklines {
+		columns = []table.Column{
+			{Title: a.sortIndicator("PID", SortByPID), Width: 8},
+			{Title: a.sortIndicator("User", SortByUser), Width: 12},
+			{Title: a.sortIndicator("Database", SortByDatabase), Width: 12},
+			{Title: a.sortIndicator("State", SortByState), Width: 14},
+			{Title: a.sortIndicator("Duration", SortByDuration), Width: 10},
+			{Title: "Trend", Width: 10},
+			{Title: "Query", Width: a.queryColWidth},
+		}
+	} else {
+		columns = []table.Column{
+			{Title: a.sortIndicator("PID", SortByPID), Width: 8},
+			{Title: a.sortIndicator("User", SortByUser), Width: 12},
+			{Title: a.sortIndicator("Database", SortByDatabase), Width: 12},
+			{Title: a.sortIndicator("State", SortByState), Width: 14},
+			{Title: a.sortIndicator("Duration", SortByDuration), Width: 10},
+			{Title: "Query", Width: a.queryColWidth},
+		}
+	}
+
+	// Preserve selection if possible
+	currentIdx := a.table.Cursor()
+
+	a.table.SetRows(nil)
+	a.table.SetColumns(columns)
+
+	// Refresh rows
+	if len(a.connections) > 0 {
+		a.refreshRows()
+		// Restore cursor position if valid
+		if currentIdx >= 0 && currentIdx < len(a.connections) {
+			a.table.SetCursor(currentIdx)
+		}
+	}
 }

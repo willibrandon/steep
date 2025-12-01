@@ -86,6 +86,10 @@ alerts:
       warning: 80      # Warn when > 80 connections
       critical: 95     # Critical when > 95 connections
       enabled: true
+      # Optional: Custom message with Go template syntax
+      # Available fields: Name, Metric, Warning, Critical, State, PrevState,
+      #                   Value, Threshold, ValueFmt (2 decimals), ThreshFmt (2 decimals)
+      message: "{{.Name}}: {{.ValueFmt}} connections (threshold: {{.ThreshFmt}})"
 
     # Example: Alert on low cache hit ratio
     - name: low_cache_hit
@@ -94,6 +98,7 @@ alerts:
       warning: 0.95    # Warn when < 95% (0.95)
       critical: 0.90   # Critical when < 90% (0.90)
       enabled: true
+      message: "Cache hit ratio: {{.ValueFmt}} ({{.State}})"
 
     # Example: Alert on high TPS (potential load spike)
     # - name: high_tps

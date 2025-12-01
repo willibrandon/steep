@@ -1,8 +1,11 @@
 package alerts
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/willibrandon/steep/internal/config"
@@ -358,15 +361,59 @@ func (e *Engine) CriticalCount() int {
 	return count
 }
 
+// messageTemplateData holds data available for message template substitution.
+type messageTemplateData struct {
+	// From Rule
+	Name     string
+	Metric   string
+	Warning  float64
+	Critical float64
+
+	// From State
+	State      string  // "normal", "warning", "critical"
+	PrevState  string  // Previous state
+	Value      float64 // Current metric value
+	Threshold  float64 // Threshold that was crossed
+	ValueFmt   string  // Value formatted with 2 decimal places
+	ThreshFmt  string  // Threshold formatted with 2 decimal places
+}
+
 // formatMessage formats an alert message for display.
+// Supports Go text/template syntax with fields: Name, Metric, Warning, Critical,
+// State, PrevState, Value, Threshold, ValueFmt, ThreshFmt.
 func (e *Engine) formatMessage(rule *Rule, state *State) string {
-	if rule.Message != "" {
-		// TODO: Implement message template substitution
-		return rule.Message
+	if rule.Message == "" {
+		return rule.Name
 	}
 
-	// Default message format
-	return rule.Name
+	// Build template data
+	data := messageTemplateData{
+		Name:      rule.Name,
+		Metric:    rule.Metric,
+		Warning:   rule.Warning,
+		Critical:  rule.Critical,
+		State:     string(state.CurrentState),
+		PrevState: string(state.PreviousState),
+		Value:     state.MetricValue,
+		Threshold: state.Threshold,
+		ValueFmt:  fmt.Sprintf("%.2f", state.MetricValue),
+		ThreshFmt: fmt.Sprintf("%.2f", state.Threshold),
+	}
+
+	// Parse and execute template
+	tmpl, err := template.New("message").Parse(rule.Message)
+	if err != nil {
+		logger.Debug("failed to parse alert message template", "rule", rule.Name, "error", err)
+		return rule.Message // Return raw message on parse error
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		logger.Debug("failed to execute alert message template", "rule", rule.Name, "error", err)
+		return rule.Message // Return raw message on execute error
+	}
+
+	return buf.String()
 }
 
 // AlertNotFoundError indicates an alert rule was not found.

@@ -345,6 +345,7 @@ These reference implementations are available for studying UI/UX patterns before
 - 012-alert-system: Configurable history retention (alerts.history_retention, default 720h/30 days)
 - 012-alert-system: Hourly prune goroutine for automatic history cleanup
 - 012-alert-system: Graceful degradation when metrics unavailable during connection loss
+- 012-alert-system: Message templates with Go text/template syntax (fields: Name, Metric, Warning, Critical, State, PrevState, Value, Threshold, ValueFmt, ThreshFmt)
 - 011-visualizations: Time-series graphs on Dashboard (TPS, connections, cache hit ratio) with configurable time windows (1m-24h)
 - 011-visualizations: TPS heatmap showing weekly activity patterns (24h × 7d grid) with RGB color gradient
 - 011-visualizations: Sparklines in Activity view (query duration trends) and Tables view (size trends)

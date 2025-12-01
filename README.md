@@ -493,13 +493,14 @@ alerts:
   history_retention: 720h       # Keep history for 30 days (default)
 
   rules:
-    # Simple threshold alert
+    # Simple threshold alert with custom message
     - name: high_connections
       metric: active_connections
       operator: ">"
       warning: 80               # Warn when > 80 connections
       critical: 95              # Critical when > 95 connections
       enabled: true
+      message: "{{.Name}}: {{.ValueFmt}} connections (threshold: {{.ThreshFmt}})"
 
     # Alert on low cache hit ratio
     - name: low_cache_hit
@@ -508,6 +509,7 @@ alerts:
       warning: 0.95             # Warn when < 95%
       critical: 0.90            # Critical when < 90%
       enabled: true
+      message: "Cache hit ratio dropped to {{.ValueFmt}}%"
 
     # Expression-based rule (connection utilization ratio)
     - name: connection_saturation
@@ -534,6 +536,23 @@ alerts:
 **Operators:** `>`, `<`, `>=`, `<=`, `==`, `!=`
 
 **Expressions:** Metrics can be combined with `+`, `-`, `*`, `/` operators and parentheses for complex conditions like `(active_connections / max_connections) * 100`.
+
+**Message Templates:**
+
+Custom alert messages support Go `text/template` syntax with these fields:
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `{{.Name}}` | Rule name | `high_connections` |
+| `{{.Metric}}` | Metric expression | `active_connections` |
+| `{{.Warning}}` | Warning threshold | `80` |
+| `{{.Critical}}` | Critical threshold | `95` |
+| `{{.State}}` | Current state | `warning`, `critical` |
+| `{{.PrevState}}` | Previous state | `normal` |
+| `{{.Value}}` | Current metric value | `85.5` |
+| `{{.Threshold}}` | Crossed threshold | `80` |
+| `{{.ValueFmt}}` | Value (2 decimals) | `85.50` |
+| `{{.ThreshFmt}}` | Threshold (2 decimals) | `80.00` |
 
 **Alert States:**
 - **Normal** - Metric is within acceptable range

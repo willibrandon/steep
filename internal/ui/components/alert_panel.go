@@ -131,19 +131,22 @@ func (p *AlertPanel) renderAlert(alert alerts.ActiveAlert, maxWidth int) string 
 	duration := alert.DurationString()
 	durationStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
 
-	// Format: ● rule_name: value (threshold) [duration] [ACK]
-	valueStr := fmt.Sprintf("%.2f", alert.MetricValue)
-	thresholdStr := fmt.Sprintf("%.2f", alert.Threshold)
-	info := fmt.Sprintf(": %s (threshold: %s)", valueStr, thresholdStr)
+	// Use the formatted message (supports templates), fallback to default format
+	message := alert.Message
+	if message == "" {
+		// Default format if no message template configured
+		valueStr := fmt.Sprintf("%.2f", alert.MetricValue)
+		thresholdStr := fmt.Sprintf("%.2f", alert.Threshold)
+		message = fmt.Sprintf("%s: %s (threshold: %s)", alert.RuleName, valueStr, thresholdStr)
+	}
 
-	// Calculate available width for rule name
-	// icon(1) + space(1) + info + space(1) + duration + ack(" [x]" = 4 chars)
-	fixedWidth := 3 + len(info) + 1 + len(duration) + 4
-	availableForName := maxWidth - fixedWidth
+	// Calculate available width for message
+	// icon(1) + space(1) + space(1) + duration + ack(" [x]" = 4 chars)
+	fixedWidth := 3 + 1 + len(duration) + 4
+	availableForMessage := maxWidth - fixedWidth
 
-	name := alert.RuleName
-	if len(name) > availableForName && availableForName > 3 {
-		name = name[:availableForName-3] + "..."
+	if len(message) > availableForMessage && availableForMessage > 3 {
+		message = message[:availableForMessage-3] + "..."
 	}
 
 	// When acknowledged, dim the entire line
@@ -151,14 +154,13 @@ func (p *AlertPanel) renderAlert(alert alerts.ActiveAlert, maxWidth int) string 
 		dimStyle := lipgloss.NewStyle().Foreground(styles.ColorAlertAck)
 		return fmt.Sprintf("%s %s",
 			iconStyle.Render(icon),
-			dimStyle.Render(fmt.Sprintf("%s%s %s%s", name, info, duration, ackIndicator)),
+			dimStyle.Render(fmt.Sprintf("%s %s%s", message, duration, ackIndicator)),
 		)
 	}
 
-	return fmt.Sprintf("%s %s%s %s%s",
+	return fmt.Sprintf("%s %s %s%s",
 		iconStyle.Render(icon),
-		name,
-		info,
+		message,
 		durationStyle.Render(duration),
 		ackIndicator,
 	)
