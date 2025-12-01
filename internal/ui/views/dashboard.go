@@ -92,6 +92,7 @@ func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
 		d.criticalCount = msg.CriticalCount
 		d.activeAlerts = msg.ActiveAlerts
 		d.alertPanel.SetAlerts(msg.ActiveAlerts)
+		d.updateMetricsPanelAlertStates(msg.ActiveAlerts)
 
 	case tea.WindowSizeMsg:
 		d.SetSize(msg.Width, msg.Height)
@@ -202,6 +203,25 @@ func (d *DashboardView) updateHeatmapData() {
 	}
 
 	d.heatmapPanel.SetData(matrix, minVal, maxVal)
+}
+
+// updateMetricsPanelAlertStates updates the metrics panel based on active alerts.
+func (d *DashboardView) updateMetricsPanelAlertStates(activeAlerts []alerts.ActiveAlert) {
+	// Reset to normal by default
+	cacheState := components.MetricAlertNone
+
+	// Check for cache_hit_ratio alert
+	for _, alert := range activeAlerts {
+		if alert.RuleName == "low_cache_hit" || alert.RuleName == "cache_hit_ratio" {
+			if alert.IsCritical() {
+				cacheState = components.MetricAlertCritical
+			} else if alert.IsWarning() && cacheState != components.MetricAlertCritical {
+				cacheState = components.MetricAlertWarning
+			}
+		}
+	}
+
+	d.metricsPanel.SetCacheHitAlertState(cacheState)
 }
 
 // View renders the dashboard view.

@@ -9,11 +9,23 @@ import (
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
 
+// MetricAlertState represents the alert state for a specific metric.
+type MetricAlertState int
+
+const (
+	MetricAlertNone MetricAlertState = iota
+	MetricAlertWarning
+	MetricAlertCritical
+)
+
 // MetricsPanel displays the four main database metrics.
 type MetricsPanel struct {
 	width   int
 	metrics models.Metrics
 	maxConn int
+
+	// Alert states for metrics (driven by alert system)
+	cacheHitAlertState MetricAlertState
 }
 
 // NewMetricsPanel creates a new metrics panel component.
@@ -36,6 +48,11 @@ func (p *MetricsPanel) SetMaxConnections(max int) {
 // SetWidth sets the width of the panel.
 func (p *MetricsPanel) SetWidth(width int) {
 	p.width = width
+}
+
+// SetCacheHitAlertState sets the alert state for cache hit ratio.
+func (p *MetricsPanel) SetCacheHitAlertState(state MetricAlertState) {
+	p.cacheHitAlertState = state
 }
 
 // View renders the metrics panel.
@@ -146,12 +163,14 @@ func (p *MetricsPanel) formatSize() string {
 	}
 }
 
-// getCacheStatus returns the panel status based on cache hit ratio.
+// getCacheStatus returns the panel status based on alert state.
 func (p *MetricsPanel) getCacheStatus() models.PanelStatus {
-	if p.metrics.CacheHitRatio < 80 {
+	switch p.cacheHitAlertState {
+	case MetricAlertCritical:
 		return models.PanelCritical
-	} else if p.metrics.CacheHitRatio < 90 {
+	case MetricAlertWarning:
 		return models.PanelWarning
+	default:
+		return models.PanelNormal
 	}
-	return models.PanelNormal
 }
