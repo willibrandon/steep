@@ -14,6 +14,9 @@ import (
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 )
 
+// Pre-compiled regex for detecting corrupted queries with embedded timestamps
+var timestampInQueryRe = regexp.MustCompile(`\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}`)
+
 // DataSourceType indicates the source of query data.
 type DataSourceType int
 
@@ -395,20 +398,38 @@ func (m *Monitor) estimateRows(ctx context.Context, query string, params map[str
 		return 0
 	}
 
-	// Replace parameter placeholders with actual values if available, otherwise use 0
-	queryForExplain := query
+	// Skip queries that look corrupted (e.g., concatenated with log lines)
+	if looksCorrupted(query) {
+		return 0
+	}
+
+	// Take only the first statement if multiple are concatenated
+	queryForExplain := extractFirstStatement(query)
+	if queryForExplain == "" {
+		return 0
+	}
+
+	// ALWAYS handle ANY/ALL first - params for ANY should be arrays, but log parsing
+	// sometimes captures scalar values (like file paths). Replace with empty array.
+	anyAllRe := regexp.MustCompile(`(=\s*ANY\s*\(\s*)\$\d+(\s*\))`)
+	queryForExplain = anyAllRe.ReplaceAllString(queryForExplain, "${1}ARRAY[]::text[]${2}")
+
 	if len(params) > 0 {
-		// Use captured params for accurate estimates
+		// Use captured params for accurate estimates (excluding ANY params already handled)
 		for param, value := range params {
+			// Skip params that look like file paths (log parsing bug)
+			if strings.HasPrefix(value, "/") {
+				continue
+			}
 			// Quote string values for SQL
 			quotedValue := "'" + strings.ReplaceAll(value, "'", "''") + "'"
 			queryForExplain = strings.ReplaceAll(queryForExplain, param, quotedValue)
 		}
-	} else {
-		// Fall back to replacing with 0 for unknown params
-		paramRe := regexp.MustCompile(`\$\d+`)
-		queryForExplain = paramRe.ReplaceAllString(query, "0")
 	}
+
+	// Replace any remaining params with NULL (type-compatible with most things)
+	paramRe := regexp.MustCompile(`\$\d+`)
+	queryForExplain = paramRe.ReplaceAllString(queryForExplain, "NULL")
 
 	// Run EXPLAIN (FORMAT JSON) to get plan with row estimates
 	explainQuery := fmt.Sprintf("EXPLAIN (FORMAT JSON) %s", queryForExplain)
@@ -438,11 +459,224 @@ func (m *Monitor) estimateRows(ctx context.Context, query string, params map[str
 	return 0
 }
 
+// extractFirstStatement extracts the first SQL statement from a possibly multi-statement string.
+// It finds the first semicolon that's not inside a string literal or comment.
+func extractFirstStatement(query string) string {
+	// Find the first semicolon that ends a statement
+	// We need to be careful about semicolons inside string literals
+	inString := false
+	stringChar := byte(0)
+	inBlockComment := false
+
+	for i := 0; i < len(query); i++ {
+		c := query[i]
+
+		// Handle block comments
+		if !inString && i+1 < len(query) && c == '/' && query[i+1] == '*' {
+			inBlockComment = true
+			i++
+			continue
+		}
+		if inBlockComment && i+1 < len(query) && c == '*' && query[i+1] == '/' {
+			inBlockComment = false
+			i++
+			continue
+		}
+		if inBlockComment {
+			continue
+		}
+
+		// Handle string literals
+		if !inString && (c == '\'' || c == '"') {
+			inString = true
+			stringChar = c
+			continue
+		}
+		if inString && c == stringChar {
+			// Check for escaped quote
+			if i+1 < len(query) && query[i+1] == stringChar {
+				i++ // Skip escaped quote
+				continue
+			}
+			inString = false
+			continue
+		}
+
+		// Found a semicolon outside of string/comment - this ends the first statement
+		if !inString && c == ';' {
+			stmt := strings.TrimSpace(query[:i])
+			if stmt != "" {
+				return stmt
+			}
+		}
+	}
+
+	// No semicolon found, return the whole query
+	return strings.TrimSpace(query)
+}
+
+// looksCorrupted checks if a query appears to have been corrupted by
+// log parsing issues (e.g., concatenated with log lines from other entries).
+func looksCorrupted(query string) bool {
+	// Check for embedded log line patterns that indicate concatenation errors
+	// These patterns should NOT appear in valid SQL outside of string literals
+	logPatterns := []string{
+		" UTC [",                       // Log line timestamp suffix
+		" LOG:",                         // PostgreSQL log prefix
+		"] LOG:",                        // Log prefix with bracket
+	}
+
+	// Check patterns against parts of query outside string literals
+	unquoted := removeStringLiterals(query)
+	upperUnquoted := strings.ToUpper(unquoted)
+
+	for _, pattern := range logPatterns {
+		if strings.Contains(upperUnquoted, strings.ToUpper(pattern)) {
+			return true
+		}
+	}
+
+	// Check for timestamp pattern outside of string literals (YYYY-MM-DD HH:MM:SS)
+	// This catches cases like "...blocked.pid 2025-11-30 05:37:39..."
+	if timestampInQueryRe.MatchString(unquoted) {
+		return true
+	}
+
+	// Check for line comments (--) that are NOT followed by a newline.
+	// Log parsing joins multi-line queries with spaces, which breaks line comments.
+	// "SELECT 1 -- comment\nFROM" becomes "SELECT 1 -- comment FROM" where "FROM" is commented out.
+	// If there's a -- without a following newline, the query structure is broken.
+	if hasLineCommentWithoutNewline(query) {
+		return true
+	}
+
+	// Check for query concatenation patterns - fragments of other queries appended
+	// e.g., "...NULLS LAST  replay_lag::text as time_lag FROM pg_stat_replication"
+	// These indicate two different queries were incorrectly merged
+	concatPatterns := []string{
+		"NULLS LAST  ",                  // Double space often indicates concatenation point
+		" FROM PG_STAT_REPLICATION",     // Replication query fragment in non-replication query
+		"::TEXT AS TIME_LAG",            // Common replication query fragment
+	}
+
+	for _, pattern := range concatPatterns {
+		if strings.Contains(upperUnquoted, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// removeStringLiterals replaces string literals with empty strings to allow
+// pattern matching against SQL structure without matching quoted content.
+func removeStringLiterals(query string) string {
+	var result strings.Builder
+	result.Grow(len(query))
+
+	inString := false
+	stringChar := byte(0)
+
+	for i := 0; i < len(query); i++ {
+		c := query[i]
+
+		if !inString && (c == '\'' || c == '"') {
+			inString = true
+			stringChar = c
+			result.WriteByte(c)
+			continue
+		}
+
+		if inString {
+			if c == stringChar {
+				// Check for escaped quote
+				if i+1 < len(query) && query[i+1] == stringChar {
+					i++ // Skip escaped quote
+					continue
+				}
+				inString = false
+				result.WriteByte(c)
+			}
+			// Skip characters inside strings
+			continue
+		}
+
+		result.WriteByte(c)
+	}
+
+	return result.String()
+}
+
+// hasLineCommentWithoutNewline checks if query has a line comment (--) that extends to end of string
+// without a newline to terminate it. This indicates log parsing broke the query structure.
+func hasLineCommentWithoutNewline(query string) bool {
+	inString := false
+	stringChar := byte(0)
+	inBlockComment := false
+
+	for i := 0; i < len(query); i++ {
+		c := query[i]
+
+		// Handle block comments
+		if !inString && i+1 < len(query) && c == '/' && query[i+1] == '*' {
+			inBlockComment = true
+			i++
+			continue
+		}
+		if inBlockComment && i+1 < len(query) && c == '*' && query[i+1] == '/' {
+			inBlockComment = false
+			i++
+			continue
+		}
+		if inBlockComment {
+			continue
+		}
+
+		// Handle string literals
+		if !inString && (c == '\'' || c == '"') {
+			inString = true
+			stringChar = c
+			continue
+		}
+		if inString && c == stringChar {
+			if i+1 < len(query) && query[i+1] == stringChar {
+				i++ // Skip escaped quote
+				continue
+			}
+			inString = false
+			continue
+		}
+		if inString {
+			continue
+		}
+
+		// Found start of line comment
+		if i+1 < len(query) && c == '-' && query[i+1] == '-' {
+			// Look for newline after this point
+			remainder := query[i:]
+			if !strings.Contains(remainder, "\n") {
+				// Line comment extends to end of string without newline - query is broken
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // GetExplainPlan runs EXPLAIN (FORMAT JSON) and returns the formatted plan.
 // If analyze is true, runs EXPLAIN ANALYZE which actually executes the query.
 func (m *Monitor) GetExplainPlan(ctx context.Context, query string, analyze bool) (string, error) {
-	// Replace parameters with safe values for EXPLAIN
-	queryForExplain := query
+	// Skip queries that look corrupted (e.g., concatenated with log lines)
+	if looksCorrupted(query) {
+		return "", fmt.Errorf("query appears corrupted (contains log line fragments)")
+	}
+
+	// Take only the first statement if multiple are concatenated
+	queryForExplain := extractFirstStatement(query)
+	if queryForExplain == "" {
+		return "", fmt.Errorf("empty query")
+	}
 
 	// Handle EXTRACT - replace parameter in EXTRACT context with 'epoch'
 	extractRe := regexp.MustCompile(`EXTRACT\s*\(\s*\$\d+`)
@@ -454,7 +688,11 @@ func (m *Monitor) GetExplainPlan(ctx context.Context, query string, analyze bool
 	offsetRe := regexp.MustCompile(`OFFSET\s+\$\d+`)
 	queryForExplain = offsetRe.ReplaceAllString(queryForExplain, "OFFSET 0")
 
-	// Replace remaining parameters with NULL (type-compatible with anything)
+	// Handle ANY/ALL with parameters - replace with empty array
+	anyAllRe := regexp.MustCompile(`(=\s*ANY\s*\(\s*)\$\d+(\s*\))`)
+	queryForExplain = anyAllRe.ReplaceAllString(queryForExplain, "${1}ARRAY[]::text[]${2}")
+
+	// Replace remaining parameters with NULL (type-compatible with most things)
 	paramRe := regexp.MustCompile(`\$\d+`)
 	queryForExplain = paramRe.ReplaceAllString(queryForExplain, "NULL")
 
