@@ -288,6 +288,27 @@ func (e *Engine) Acknowledge(ruleName string) error {
 	return nil
 }
 
+// Unacknowledge removes acknowledgment from an alert.
+func (e *Engine) Unacknowledge(ruleName string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	state, ok := e.states[ruleName]
+	if !ok {
+		return &AlertNotFoundError{RuleName: ruleName}
+	}
+
+	if !state.Acknowledged {
+		return nil // Already unacknowledged, no-op
+	}
+
+	state.Unacknowledge()
+
+	logger.Info("alert unacknowledged", "rule", ruleName)
+
+	return nil
+}
+
 // RuleCount returns the number of loaded rules.
 func (e *Engine) RuleCount() int {
 	e.mu.RLock()

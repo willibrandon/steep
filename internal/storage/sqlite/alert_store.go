@@ -145,6 +145,18 @@ func (s *AlertStore) Acknowledge(ctx context.Context, eventID int64, by string) 
 	return err
 }
 
+// Unacknowledge removes acknowledgment from an event.
+func (s *AlertStore) Unacknowledge(ctx context.Context, eventID int64) error {
+	query := `
+		UPDATE alert_events
+		SET acknowledged_at = NULL, acknowledged_by = NULL
+		WHERE id = ?
+	`
+
+	_, err := s.db.conn.ExecContext(ctx, query, eventID)
+	return err
+}
+
 // Prune removes events older than retention period.
 // Returns number of deleted events.
 func (s *AlertStore) Prune(ctx context.Context, retention time.Duration) (int64, error) {

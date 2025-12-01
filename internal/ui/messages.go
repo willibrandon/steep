@@ -339,9 +339,10 @@ type AlertHistoryMsg struct {
 	Error  error
 }
 
-// AlertAcknowledgedMsg indicates an alert was acknowledged.
+// AlertAcknowledgedMsg indicates an alert acknowledgment state changed.
 type AlertAcknowledgedMsg struct {
-	RuleName string
-	EventID  int64
-	Error    error
+	RuleName       string
+	EventID        int64
+	Unacknowledged bool // true if this was an unacknowledge operation
+	Error          error
 }

@@ -109,7 +109,11 @@ func (p *AlertPanel) renderAlert(alert alerts.ActiveAlert, maxWidth int) string 
 	// Severity icon
 	var icon string
 	var iconStyle lipgloss.Style
-	if alert.IsCritical() {
+	if alert.Acknowledged {
+		// Dim icon when acknowledged
+		icon = "●"
+		iconStyle = lipgloss.NewStyle().Foreground(styles.ColorAlertAck)
+	} else if alert.IsCritical() {
 		icon = "●"
 		iconStyle = lipgloss.NewStyle().Foreground(styles.ColorAlertCritical).Bold(true)
 	} else {
@@ -117,30 +121,24 @@ func (p *AlertPanel) renderAlert(alert alerts.ActiveAlert, maxWidth int) string 
 		iconStyle = lipgloss.NewStyle().Foreground(styles.ColorAlertWarning).Bold(true)
 	}
 
-	// Acknowledged indicator
-	var ackIndicator string
+	// Acknowledged indicator - ASCII checkbox style
+	ackIndicator := " [ ]"
 	if alert.Acknowledged {
-		ackIndicator = " ✓"
+		ackIndicator = " [x]"
 	}
 
 	// Duration
 	duration := alert.DurationString()
 	durationStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
 
-	// Rule name and value
-	nameStyle := lipgloss.NewStyle()
-	if alert.Acknowledged {
-		nameStyle = nameStyle.Foreground(styles.ColorAlertAck)
-	}
-
-	// Format: ● rule_name: value (threshold) [duration] [✓]
+	// Format: ● rule_name: value (threshold) [duration] [ACK]
 	valueStr := fmt.Sprintf("%.2f", alert.MetricValue)
 	thresholdStr := fmt.Sprintf("%.2f", alert.Threshold)
 	info := fmt.Sprintf(": %s (threshold: %s)", valueStr, thresholdStr)
 
 	// Calculate available width for rule name
-	// icon(1) + space(1) + info + space(1) + duration + ack
-	fixedWidth := 3 + len(info) + 1 + len(duration) + len(ackIndicator)
+	// icon(1) + space(1) + info + space(1) + duration + ack(" [x]" = 4 chars)
+	fixedWidth := 3 + len(info) + 1 + len(duration) + 4
 	availableForName := maxWidth - fixedWidth
 
 	name := alert.RuleName
@@ -148,9 +146,18 @@ func (p *AlertPanel) renderAlert(alert alerts.ActiveAlert, maxWidth int) string 
 		name = name[:availableForName-3] + "..."
 	}
 
+	// When acknowledged, dim the entire line
+	if alert.Acknowledged {
+		dimStyle := lipgloss.NewStyle().Foreground(styles.ColorAlertAck)
+		return fmt.Sprintf("%s %s",
+			iconStyle.Render(icon),
+			dimStyle.Render(fmt.Sprintf("%s%s %s%s", name, info, duration, ackIndicator)),
+		)
+	}
+
 	return fmt.Sprintf("%s %s%s %s%s",
 		iconStyle.Render(icon),
-		nameStyle.Render(name),
+		name,
 		info,
 		durationStyle.Render(duration),
 		ackIndicator,

@@ -58,6 +58,12 @@ func (e *Event) Acknowledge(by string) {
 	e.AcknowledgedBy = by
 }
 
+// Unacknowledge removes the acknowledgment from the event.
+func (e *Event) Unacknowledge() {
+	e.AcknowledgedAt = nil
+	e.AcknowledgedBy = ""
+}
+
 // StateTransition returns a human-readable description of the state change.
 func (e *Event) StateTransition() string {
 	return e.PrevState.String() + " → " + e.NewState.String()

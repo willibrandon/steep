@@ -58,6 +58,7 @@ type DashboardView struct {
 	historyEvents []alerts.Event
 	historyIndex  int
 	alertStore    *sqlite.AlertStore
+	alertEngine   *alerts.Engine
 }
 
 // NewDashboard creates a new dashboard view.
@@ -107,6 +108,21 @@ func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
 			d.historyIndex = 0
 		}
 
+	case ui.AlertAcknowledgedMsg:
+		if msg.Error == nil {
+			// Update the local event in historyEvents to show acknowledgment status
+			for i := range d.historyEvents {
+				if d.historyEvents[i].ID == msg.EventID {
+					if msg.Unacknowledged {
+						d.historyEvents[i].Unacknowledge()
+					} else {
+						d.historyEvents[i].Acknowledge("user")
+					}
+					break
+				}
+			}
+		}
+
 	case tea.WindowSizeMsg:
 		d.SetSize(msg.Width, msg.Height)
 
@@ -141,6 +157,16 @@ func (d *DashboardView) handleKeyPress(msg tea.KeyMsg) (ViewModel, tea.Cmd) {
 		case "G":
 			if len(d.historyEvents) > 0 {
 				d.historyIndex = len(d.historyEvents) - 1
+			}
+			return d, nil
+		case "enter":
+			// Toggle acknowledgment on the selected event
+			if d.historyIndex >= 0 && d.historyIndex < len(d.historyEvents) {
+				event := d.historyEvents[d.historyIndex]
+				if event.IsAcknowledged() {
+					return d, d.unacknowledgeAlert(event.ID, event.RuleName)
+				}
+				return d, d.acknowledgeAlert(event.ID, event.RuleName)
 			}
 			return d, nil
 		}
@@ -287,6 +313,60 @@ func (d *DashboardView) loadAlertHistory() tea.Cmd {
 	}
 }
 
+// acknowledgeAlert returns a command to acknowledge an alert event.
+func (d *DashboardView) acknowledgeAlert(eventID int64, ruleName string) tea.Cmd {
+	return func() tea.Msg {
+		if d.alertStore == nil {
+			logger.Debug("acknowledgeAlert: alertStore is nil")
+			return ui.AlertAcknowledgedMsg{EventID: eventID, RuleName: ruleName, Error: fmt.Errorf("alert store not available")}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// Persist to SQLite
+		err := d.alertStore.Acknowledge(ctx, eventID, "user")
+		logger.Debug("acknowledgeAlert: acknowledged event", "eventID", eventID, "error", err)
+
+		// Also update in-memory engine state
+		if err == nil && d.alertEngine != nil {
+			if ackErr := d.alertEngine.Acknowledge(ruleName); ackErr != nil {
+				logger.Debug("acknowledgeAlert: engine acknowledge failed", "rule", ruleName, "error", ackErr)
+				// Don't fail - the SQLite update succeeded
+			}
+		}
+
+		return ui.AlertAcknowledgedMsg{EventID: eventID, RuleName: ruleName, Error: err}
+	}
+}
+
+// unacknowledgeAlert returns a command to remove acknowledgment from an alert event.
+func (d *DashboardView) unacknowledgeAlert(eventID int64, ruleName string) tea.Cmd {
+	return func() tea.Msg {
+		if d.alertStore == nil {
+			logger.Debug("unacknowledgeAlert: alertStore is nil")
+			return ui.AlertAcknowledgedMsg{EventID: eventID, RuleName: ruleName, Error: fmt.Errorf("alert store not available")}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// Remove from SQLite
+		err := d.alertStore.Unacknowledge(ctx, eventID)
+		logger.Debug("unacknowledgeAlert: unacknowledged event", "eventID", eventID, "error", err)
+
+		// Also update in-memory engine state
+		if err == nil && d.alertEngine != nil {
+			if ackErr := d.alertEngine.Unacknowledge(ruleName); ackErr != nil {
+				logger.Debug("unacknowledgeAlert: engine unacknowledge failed", "rule", ruleName, "error", ackErr)
+				// Don't fail - the SQLite update succeeded
+			}
+		}
+
+		return ui.AlertAcknowledgedMsg{EventID: eventID, RuleName: ruleName, Unacknowledged: true, Error: err}
+	}
+}
+
 // renderHistoryOverlay renders the alert history overlay.
 func (d *DashboardView) renderHistoryOverlay() string {
 	// Calculate overlay dimensions (80% of screen, centered)
@@ -305,7 +385,7 @@ func (d *DashboardView) renderHistoryOverlay() string {
 
 	// Help text
 	helpStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
-	helpText := helpStyle.Render("[j/k] Navigate  [g/G] Top/Bottom  [Esc] Close")
+	helpText := helpStyle.Render("[j/k] Navigate  [g/G] Top/Bottom  [Enter] Acknowledge  [Esc] Close")
 
 	// Header
 	header := lipgloss.JoinVertical(lipgloss.Left, title, helpText, "")
@@ -369,21 +449,27 @@ func (d *DashboardView) renderHistoryList(width, height int) string {
 		endIdx = len(d.historyEvents)
 	}
 
-	// Define column widths
+	// Define column widths - dynamic Rule width to fit available space
 	const (
 		colTimestamp = 19 // "2006-01-02 15:04:05"
 		colState     = 5  // "CRIT ", "WARN ", "OK   "
-		colRule      = 20
 		colValue     = 8
+		colAck       = 3 // "[x]" or "[ ]"
 	)
+	// Rule gets remaining space: width - fixed cols - gaps (4 single + 1 double = 6)
+	colRule := width - colTimestamp - colState - colValue - colAck - 6
+	if colRule < 8 {
+		colRule = 8
+	}
 
 	// Column headers
 	headerStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted).Bold(true)
-	header := fmt.Sprintf("%-*s  %-*s   %-*s   %*s",
+	header := fmt.Sprintf("%-*s %-*s %-*s %*s  %s",
 		colTimestamp, "Timestamp",
 		colState, "State",
 		colRule, "Rule",
-		colValue, "Value")
+		colValue, "Value",
+		"Ack")
 	lines = append(lines, headerStyle.Render(header))
 	lines = append(lines, headerStyle.Render(strings.Repeat("─", width)))
 
@@ -418,16 +504,16 @@ func (d *DashboardView) renderHistoryList(width, height int) string {
 		// Value
 		value := fmt.Sprintf("%8.2f", event.MetricValue)
 
-		// Acknowledged indicator
-		ackStr := "  "
+		// Acknowledged checkbox - ASCII style
+		ackBox := "[ ]"
 		if event.IsAcknowledged() {
-			ackStr = " ✓"
+			ackBox = "[x]"
 		}
 
 		// Build line without ANSI codes first for selection
 		if selected {
 			// For selected line, render without colors then apply selection style
-			plainLine := fmt.Sprintf("%s  %s   %s   %s%s", timestamp, stateText, ruleName, value, ackStr)
+			plainLine := fmt.Sprintf("%s %s %s %s  %s", timestamp, stateText, ruleName, value, ackBox)
 			line := lipgloss.NewStyle().
 				Background(styles.ColorSelectedBg).
 				Foreground(styles.ColorSelectedFg).
@@ -437,7 +523,7 @@ func (d *DashboardView) renderHistoryList(width, height int) string {
 		} else {
 			// For non-selected, apply color to state only
 			coloredState := lipgloss.NewStyle().Foreground(stateColor).Render(stateText)
-			line := fmt.Sprintf("%s  %s   %s   %s%s", timestamp, coloredState, ruleName, value, ackStr)
+			line := fmt.Sprintf("%s %s %s %s  %s", timestamp, coloredState, ruleName, value, ackBox)
 			lines = append(lines, line)
 		}
 	}
@@ -767,4 +853,9 @@ func (d *DashboardView) SetHeatmapVisible(visible bool) {
 // SetAlertStore sets the alert store for history data.
 func (d *DashboardView) SetAlertStore(store *sqlite.AlertStore) {
 	d.alertStore = store
+}
+
+// SetAlertEngine sets the alert engine for acknowledgment.
+func (d *DashboardView) SetAlertEngine(engine *alerts.Engine) {
+	d.alertEngine = engine
 }

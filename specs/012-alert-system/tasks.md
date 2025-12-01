@@ -153,13 +153,13 @@ Based on plan.md structure:
 
 ### Implementation for User Story 5
 
-- [ ] T051 [US5] Handle Enter key in history overlay to acknowledge selected alert in internal/ui/views/dashboard.go
-- [ ] T052 [US5] Implement acknowledgeAlert command in internal/ui/views/dashboard.go
-- [ ] T053 [US5] Implement Engine.Acknowledge method in internal/alerts/engine.go
-- [ ] T054 [US5] Call AlertStore.Acknowledge to persist acknowledgment in internal/alerts/engine.go
-- [ ] T055 [US5] Handle AlertAcknowledgedMsg in DashboardView Update in internal/ui/views/dashboard.go
-- [ ] T056 [US5] Update history view to show acknowledgment status (checkmark) in internal/ui/views/dashboard.go
-- [ ] T057 [US5] Show acknowledgment status in active alert panel in internal/ui/components/alert_panel.go
+- [x] T051 [US5] Handle Enter key in history overlay to acknowledge selected alert in internal/ui/views/dashboard.go
+- [x] T052 [US5] Implement acknowledgeAlert command in internal/ui/views/dashboard.go
+- [x] T053 [US5] Implement Engine.Acknowledge method in internal/alerts/engine.go
+- [x] T054 [US5] Call AlertStore.Acknowledge to persist acknowledgment in internal/alerts/engine.go
+- [x] T055 [US5] Handle AlertAcknowledgedMsg in DashboardView Update in internal/ui/views/dashboard.go
+- [x] T056 [US5] Update history view to show acknowledgment status (checkmark) in internal/ui/views/dashboard.go
+- [x] T057 [US5] Show acknowledgment status in active alert panel in internal/ui/components/alert_panel.go
 
 **Checkpoint**: User Stories 4 and 5 complete - P2 history and acknowledgment functional
 

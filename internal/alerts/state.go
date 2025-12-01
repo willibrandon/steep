@@ -122,3 +122,9 @@ func (s *State) Acknowledge() {
 	s.Acknowledged = true
 	s.AcknowledgedAt = time.Now()
 }
+
+// Unacknowledge removes the acknowledgment from the alert.
+func (s *State) Unacknowledge() {
+	s.Acknowledged = false
+	s.AcknowledgedAt = time.Time{}
+}
