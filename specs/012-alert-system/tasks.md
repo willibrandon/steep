@@ -173,14 +173,14 @@ Based on plan.md structure:
 
 ### Implementation for User Story 6
 
-- [ ] T058 [US6] Extend expression parser to handle binary operators (+, -, *, /) in internal/alerts/expression.go
-- [ ] T059 [US6] Implement Expression interface with Evaluate method in internal/alerts/expression.go
-- [ ] T060 [US6] Implement MetricRef expression type in internal/alerts/expression.go
-- [ ] T061 [US6] Implement BinaryOp expression type in internal/alerts/expression.go
-- [ ] T062 [US6] Implement Constant expression type in internal/alerts/expression.go
-- [ ] T063 [US6] Update Engine.evaluateRule to use parsed expressions in internal/alerts/engine.go
-- [ ] T064 [US6] Add expression validation in rule loading in internal/alerts/engine.go
-- [ ] T065 [US6] Handle expression parse errors gracefully (log warning, skip rule) in internal/alerts/engine.go
+- [x] T058 [US6] Extend expression parser to handle binary operators (+, -, *, /) in internal/alerts/expression.go
+- [x] T059 [US6] Implement Expression interface with Evaluate method in internal/alerts/expression.go
+- [x] T060 [US6] Implement MetricRef expression type in internal/alerts/expression.go
+- [x] T061 [US6] Implement BinaryOp expression type in internal/alerts/expression.go
+- [x] T062 [US6] Implement Constant expression type in internal/alerts/expression.go
+- [x] T063 [US6] Update Engine.evaluateRule to use parsed expressions in internal/alerts/engine.go
+- [x] T064 [US6] Add expression validation in rule loading in internal/alerts/engine.go
+- [x] T065 [US6] Handle expression parse errors gracefully (log warning, skip rule) in internal/alerts/engine.go
 
 **Checkpoint**: All user stories complete - Full alert system functional
 
