@@ -11,6 +11,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/alerts"
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/metrics"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
@@ -51,6 +52,12 @@ type DashboardView struct {
 	warningCount  int
 	criticalCount int
 	activeAlerts  []alerts.ActiveAlert
+
+	// Alert history overlay state
+	showHistory   bool
+	historyEvents []alerts.Event
+	historyIndex  int
+	alertStore    *sqlite.AlertStore
 }
 
 // NewDashboard creates a new dashboard view.
@@ -94,6 +101,12 @@ func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
 		d.alertPanel.SetAlerts(msg.ActiveAlerts)
 		d.updateMetricsPanelAlertStates(msg.ActiveAlerts)
 
+	case ui.AlertHistoryMsg:
+		if msg.Error == nil {
+			d.historyEvents = msg.Events
+			d.historyIndex = 0
+		}
+
 	case tea.WindowSizeMsg:
 		d.SetSize(msg.Width, msg.Height)
 
@@ -106,7 +119,40 @@ func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
 
 // handleKeyPress handles keyboard input for the dashboard.
 func (d *DashboardView) handleKeyPress(msg tea.KeyMsg) (ViewModel, tea.Cmd) {
+	// Handle history overlay navigation when visible
+	if d.showHistory {
+		switch msg.String() {
+		case "esc", "a", "q":
+			d.showHistory = false
+			return d, nil
+		case "j", "down":
+			if d.historyIndex < len(d.historyEvents)-1 {
+				d.historyIndex++
+			}
+			return d, nil
+		case "k", "up":
+			if d.historyIndex > 0 {
+				d.historyIndex--
+			}
+			return d, nil
+		case "g":
+			d.historyIndex = 0
+			return d, nil
+		case "G":
+			if len(d.historyEvents) > 0 {
+				d.historyIndex = len(d.historyEvents) - 1
+			}
+			return d, nil
+		}
+		return d, nil
+	}
+
 	switch msg.String() {
+	// Alert history toggle
+	case "a":
+		d.showHistory = true
+		return d, d.loadAlertHistory()
+
 	// Time window cycling
 	case "w":
 		d.cycleTimeWindow(true) // Forward
@@ -224,10 +270,207 @@ func (d *DashboardView) updateMetricsPanelAlertStates(activeAlerts []alerts.Acti
 	d.metricsPanel.SetCacheHitAlertState(cacheState)
 }
 
+// loadAlertHistory returns a command to fetch alert history from the store.
+func (d *DashboardView) loadAlertHistory() tea.Cmd {
+	return func() tea.Msg {
+		if d.alertStore == nil {
+			logger.Debug("loadAlertHistory: alertStore is nil")
+			return ui.AlertHistoryMsg{Events: nil, Error: nil}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		events, err := d.alertStore.GetHistory(ctx, 100)
+		logger.Debug("loadAlertHistory: fetched events", "count", len(events), "error", err)
+		return ui.AlertHistoryMsg{Events: events, Error: err}
+	}
+}
+
+// renderHistoryOverlay renders the alert history overlay.
+func (d *DashboardView) renderHistoryOverlay() string {
+	// Calculate overlay dimensions (80% of screen, centered)
+	overlayWidth := d.width * 80 / 100
+	overlayHeight := d.height * 80 / 100
+	if overlayWidth < 60 {
+		overlayWidth = min(60, d.width-4)
+	}
+	if overlayHeight < 15 {
+		overlayHeight = min(15, d.height-4)
+	}
+
+	// Title
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+	title := titleStyle.Render("Alert History")
+
+	// Help text
+	helpStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
+	helpText := helpStyle.Render("[j/k] Navigate  [g/G] Top/Bottom  [Esc] Close")
+
+	// Header
+	header := lipgloss.JoinVertical(lipgloss.Left, title, helpText, "")
+
+	// Content area height
+	contentHeight := overlayHeight - lipgloss.Height(header) - 4 // 4 for border/padding
+
+	// Render events list
+	var content string
+	if len(d.historyEvents) == 0 {
+		content = lipgloss.NewStyle().
+			Width(overlayWidth - 4).
+			Height(contentHeight).
+			Align(lipgloss.Center, lipgloss.Center).
+			Foreground(styles.ColorMuted).
+			Render("No alert history")
+	} else {
+		content = d.renderHistoryList(overlayWidth-4, contentHeight)
+	}
+
+	// Combine header and content
+	innerContent := lipgloss.JoinVertical(lipgloss.Left, header, content)
+
+	// Overlay box style
+	overlayStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.ColorAccent).
+		Padding(1, 2).
+		Width(overlayWidth).
+		Height(overlayHeight)
+
+	overlay := overlayStyle.Render(innerContent)
+
+	// Center the overlay
+	return lipgloss.Place(
+		d.width,
+		d.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		overlay,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(lipgloss.Color("0")),
+	)
+}
+
+// renderHistoryList renders the scrollable list of history events.
+func (d *DashboardView) renderHistoryList(width, height int) string {
+	var lines []string
+
+	// Calculate visible range (subtract 2 for header and separator)
+	visibleCount := height - 2
+	if visibleCount < 1 {
+		visibleCount = 1
+	}
+	startIdx := 0
+	if d.historyIndex >= visibleCount {
+		startIdx = d.historyIndex - visibleCount + 1
+	}
+	endIdx := startIdx + visibleCount
+	if endIdx > len(d.historyEvents) {
+		endIdx = len(d.historyEvents)
+	}
+
+	// Define column widths
+	const (
+		colTimestamp = 19 // "2006-01-02 15:04:05"
+		colState     = 5  // "CRIT ", "WARN ", "OK   "
+		colRule      = 20
+		colValue     = 8
+	)
+
+	// Column headers
+	headerStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted).Bold(true)
+	header := fmt.Sprintf("%-*s  %-*s   %-*s   %*s",
+		colTimestamp, "Timestamp",
+		colState, "State",
+		colRule, "Rule",
+		colValue, "Value")
+	lines = append(lines, headerStyle.Render(header))
+	lines = append(lines, headerStyle.Render(strings.Repeat("─", width)))
+
+	for i := startIdx; i < endIdx; i++ {
+		event := d.historyEvents[i]
+		selected := i == d.historyIndex
+
+		// Format timestamp
+		timestamp := event.TriggeredAt.Format("2006-01-02 15:04:05")
+
+		// State with color (pad to fixed width BEFORE coloring)
+		var stateText string
+		var stateColor lipgloss.Color
+		switch event.NewState {
+		case alerts.StateCritical:
+			stateText = "CRIT "
+			stateColor = styles.ColorAlertCritical
+		case alerts.StateWarning:
+			stateText = "WARN "
+			stateColor = styles.ColorAlertWarning
+		case alerts.StateNormal:
+			stateText = "OK   "
+			stateColor = styles.ColorAlertNormal
+		default:
+			stateText = fmt.Sprintf("%-5s", event.NewState)
+			stateColor = styles.ColorMuted
+		}
+
+		// Rule name (padded)
+		ruleName := fmt.Sprintf("%-*s", colRule, truncateString(event.RuleName, colRule))
+
+		// Value
+		value := fmt.Sprintf("%8.2f", event.MetricValue)
+
+		// Acknowledged indicator
+		ackStr := "  "
+		if event.IsAcknowledged() {
+			ackStr = " ✓"
+		}
+
+		// Build line without ANSI codes first for selection
+		if selected {
+			// For selected line, render without colors then apply selection style
+			plainLine := fmt.Sprintf("%s  %s   %s   %s%s", timestamp, stateText, ruleName, value, ackStr)
+			line := lipgloss.NewStyle().
+				Background(styles.ColorSelectedBg).
+				Foreground(styles.ColorSelectedFg).
+				Width(width).
+				Render(plainLine)
+			lines = append(lines, line)
+		} else {
+			// For non-selected, apply color to state only
+			coloredState := lipgloss.NewStyle().Foreground(stateColor).Render(stateText)
+			line := fmt.Sprintf("%s  %s   %s   %s%s", timestamp, coloredState, ruleName, value, ackStr)
+			lines = append(lines, line)
+		}
+	}
+
+	// Add scroll indicator if needed
+	if len(d.historyEvents) > visibleCount {
+		scrollInfo := fmt.Sprintf("(%d/%d)", d.historyIndex+1, len(d.historyEvents))
+		lines = append(lines, lipgloss.NewStyle().Foreground(styles.ColorMuted).Render(scrollInfo))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// truncateString truncates a string to maxLen with ellipsis.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
+}
+
 // View renders the dashboard view.
 func (d *DashboardView) View() string {
 	if !d.connected {
 		return styles.InfoStyle.Render("Connecting to database...")
+	}
+
+	// Show history overlay if active
+	if d.showHistory {
+		return d.renderHistoryOverlay()
 	}
 
 	return d.renderMain()
@@ -405,7 +648,7 @@ func (d *DashboardView) renderFooter() string {
 	}
 
 	// Dashboard-specific hints
-	dashboardHints := windowHint + " " + heatmapHint + " [?]Help"
+	dashboardHints := windowHint + " " + heatmapHint + " [a]History [?]Help"
 
 	// Navigation hints
 	navHints := "[1]Dashboard [2]Activity [3]Queries [4]Locks [5]Tables [6]Replication [7]SQL [8]Config [9]Logs [0]Roles"
@@ -442,7 +685,7 @@ func (d *DashboardView) SetConnectionInfo(info string) {
 
 // IsInputMode returns true if the dashboard is in an input mode.
 func (d *DashboardView) IsInputMode() bool {
-	return false
+	return d.showHistory
 }
 
 // SetReadOnly sets read-only mode (no-op for dashboard).
@@ -519,4 +762,9 @@ func (d *DashboardView) SetHeatmapVisible(visible bool) {
 	if visible {
 		d.updateHeatmapData()
 	}
+}
+
+// SetAlertStore sets the alert store for history data.
+func (d *DashboardView) SetAlertStore(store *sqlite.AlertStore) {
+	d.alertStore = store
 }

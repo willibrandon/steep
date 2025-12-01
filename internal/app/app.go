@@ -267,6 +267,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd := m.sqlEditorView.Update(msg)
 		return m, cmd
 
+	// Forward alert history messages to the dashboard
+	case ui.AlertHistoryMsg:
+		m.dashboard.Update(msg)
+		return m, nil
+
 	case tea.MouseMsg:
 		// Translate to relative coordinates for the view
 		// App header height is calculated from the actual rendered header
@@ -465,6 +470,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err := m.alertEngine.LoadRules(m.config.Alerts.Rules); err != nil {
 					logger.Warn("failed to load alert rules", "error", err.Error())
 				}
+				// Connect alert store to dashboard for history
+				m.dashboard.SetAlertStore(m.alertStore)
 			}
 
 		}

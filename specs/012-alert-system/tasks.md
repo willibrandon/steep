@@ -130,16 +130,16 @@ Based on plan.md structure:
 
 ### Implementation for User Story 4
 
-- [ ] T041 [US4] Add history overlay state to DashboardView (showHistory, historyEvents, historyIndex) in internal/ui/views/dashboard.go
-- [ ] T042 [US4] Handle 'a' key to toggle history overlay in DashboardView handleKeyPress in internal/ui/views/dashboard.go
-- [ ] T043 [US4] Implement loadAlertHistory command that fetches from AlertStore in internal/ui/views/dashboard.go
-- [ ] T044 [US4] Handle AlertHistoryMsg in DashboardView Update in internal/ui/views/dashboard.go
-- [ ] T045 [US4] Implement renderHistoryOverlay method in internal/ui/views/dashboard.go
-- [ ] T046 [US4] Implement j/k navigation in history overlay in internal/ui/views/dashboard.go
-- [ ] T047 [US4] Implement Esc to close history overlay in internal/ui/views/dashboard.go
-- [ ] T048 [US4] Persist state changes to AlertStore on each transition in internal/alerts/engine.go
-- [ ] T049 [US4] Add AlertStore reference to Engine struct in internal/alerts/engine.go
-- [ ] T050 [US4] Initialize AlertStore in app model and pass to Engine in internal/app/model.go
+- [x] T041 [US4] Add history overlay state to DashboardView (showHistory, historyEvents, historyIndex) in internal/ui/views/dashboard.go
+- [x] T042 [US4] Handle 'a' key to toggle history overlay in DashboardView handleKeyPress in internal/ui/views/dashboard.go
+- [x] T043 [US4] Implement loadAlertHistory command that fetches from AlertStore in internal/ui/views/dashboard.go
+- [x] T044 [US4] Handle AlertHistoryMsg in DashboardView Update in internal/ui/views/dashboard.go
+- [x] T045 [US4] Implement renderHistoryOverlay method in internal/ui/views/dashboard.go
+- [x] T046 [US4] Implement j/k navigation in history overlay in internal/ui/views/dashboard.go
+- [x] T047 [US4] Implement Esc to close history overlay in internal/ui/views/dashboard.go
+- [x] T048 [US4] Persist state changes to AlertStore on each transition in internal/alerts/engine.go
+- [x] T049 [US4] Add AlertStore reference to Engine struct in internal/alerts/engine.go
+- [x] T050 [US4] Initialize AlertStore in app model and pass to Engine in internal/app/model.go
 
 **Checkpoint**: Alert history persists and displays correctly
 
