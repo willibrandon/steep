@@ -478,6 +478,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Connect alert store and engine to dashboard for history and acknowledgment
 				m.dashboard.SetAlertStore(m.alertStore)
 				m.dashboard.SetAlertEngine(m.alertEngine)
+
+				// Start hourly prune goroutine for alert history
+				go m.startAlertHistoryPruner(m.config.Alerts.HistoryRetention)
 			}
 
 		}
@@ -1789,6 +1792,39 @@ func (m Model) createReplicationUser(username, password string) tea.Cmd {
 			Username: username,
 			Error:    nil,
 		}
+	}
+}
+
+// startAlertHistoryPruner runs hourly to prune old alert history entries.
+func (m *Model) startAlertHistoryPruner(retention time.Duration) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	// Run initial prune on startup
+	m.pruneAlertHistory(retention)
+
+	for range ticker.C {
+		m.pruneAlertHistory(retention)
+	}
+}
+
+// pruneAlertHistory removes old alert history entries.
+func (m *Model) pruneAlertHistory(retention time.Duration) {
+	if m.alertStore == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	deleted, err := m.alertStore.Prune(ctx, retention)
+	if err != nil {
+		logger.Warn("failed to prune alert history", "error", err.Error())
+		return
+	}
+
+	if deleted > 0 {
+		logger.Info("pruned alert history", "deleted", deleted, "retention", retention.String())
 	}
 }
 

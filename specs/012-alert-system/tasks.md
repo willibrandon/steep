@@ -190,14 +190,14 @@ Based on plan.md structure:
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T066 [P] Add help text for 'a' key in dashboard footer in internal/ui/views/dashboard.go
-- [ ] T067 [P] Add help text for history overlay in internal/ui/views/dashboard.go
-- [ ] T068 Implement hourly prune goroutine for alert history in internal/app/model.go
-- [ ] T069 [P] Ensure alert panel renders correctly at 80x24 minimum terminal in internal/ui/components/alert_panel.go
-- [ ] T070 Handle edge case: database connection lost during evaluation in internal/alerts/engine.go
-- [ ] T071 Handle edge case: unavailable metrics (graceful degradation) in internal/alerts/metrics.go
-- [ ] T072 Add example alert rules to default config template
-- [ ] T073 Run quickstart.md validation scenarios manually
+- [x] T066 [P] Add help text for 'a' key in dashboard footer in internal/ui/views/dashboard.go
+- [x] T067 [P] Add help text for history overlay in internal/ui/views/dashboard.go
+- [x] T068 Implement hourly prune goroutine for alert history in internal/app/model.go
+- [x] T069 [P] Ensure alert panel renders correctly at 80x24 minimum terminal in internal/ui/components/alert_panel.go
+- [x] T070 Handle edge case: database connection lost during evaluation in internal/alerts/engine.go
+- [x] T071 Handle edge case: unavailable metrics (graceful degradation) in internal/alerts/metrics.go
+- [x] T072 Add example alert rules to default config template
+- [x] T073 Run quickstart.md validation scenarios manually
 
 ---
 

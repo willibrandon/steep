@@ -332,6 +332,19 @@ These reference implementations are available for studying UI/UX patterns before
 - SQLite (~/.config/steep/steep.db) for alert history and acknowledgment persistence; YAML (~/.config/steep/config.yaml) for alert rule configuration (012-alert-system)
 
 ## Recent Changes
+- 012-alert-system: Threshold-based alerts with YAML config (alerts.rules in config.yaml)
+- 012-alert-system: Expression-based rules with binary operators (+, -, *, /), parentheses, and operator precedence
+- 012-alert-system: Available metrics: active_connections, max_connections, cache_hit_ratio, tps, database_size, replication_lag_bytes, longest_transaction_seconds, idle_in_transaction_seconds
+- 012-alert-system: Operators: >, <, >=, <=, ==, !=
+- 012-alert-system: Alert states: normal, warning, critical with color-coded indicators (yellow/red)
+- 012-alert-system: Alert panel in Dashboard showing active alerts with severity icons, current values, and thresholds
+- 012-alert-system: Alert counts in status bar (e.g., "2 CRIT 1 WARN")
+- 012-alert-system: Alert history overlay (a key) with j/k navigation, g/G jump to top/bottom
+- 012-alert-system: Alert acknowledgment (Enter key in history) persisted to SQLite
+- 012-alert-system: SQLite persistence for alert events (~/.config/steep/steep.db alert_events table)
+- 012-alert-system: Configurable history retention (alerts.history_retention, default 720h/30 days)
+- 012-alert-system: Hourly prune goroutine for automatic history cleanup
+- 012-alert-system: Graceful degradation when metrics unavailable during connection loss
 - 011-visualizations: Time-series graphs on Dashboard (TPS, connections, cache hit ratio) with configurable time windows (1m-24h)
 - 011-visualizations: TPS heatmap showing weekly activity patterns (24h × 7d grid) with RGB color gradient
 - 011-visualizations: Sparklines in Activity view (query duration trends) and Tables view (size trends)

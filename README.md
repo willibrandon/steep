@@ -202,9 +202,31 @@ connection:
 - Database overview statistics (TPS, active connections, cache hit ratio)
 - Time-series graphs for TPS, connections, and cache hit ratio
 - TPS heatmap showing weekly activity patterns (24h × 7d grid)
-- Time window selection: 1m, 5m, 15m, 1h, 24h (keys 1-5)
+- **Alert panel** showing active alerts with severity icons, values, and thresholds
+- **Alert counts** in status bar (e.g., "2 WARN 1 CRIT")
+- Time window selection: `w`/`W` to cycle through 1m, 5m, 15m, 1h, 24h
 - Toggle charts on/off with `V` key
 - Toggle heatmap with `H` key
+- Alert history overlay with `a` key
+
+**Dashboard Key Bindings:**
+
+| Key | Action |
+|-----|--------|
+| `w/W` | Cycle time window forward/backward |
+| `H` | Toggle TPS heatmap |
+| `V` | Toggle charts (global) |
+| `a` | Open alert history overlay |
+| `?` | Toggle help |
+
+**Alert History Overlay:**
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↓/↑` | Navigate up/down |
+| `g/G` | Jump to top/bottom |
+| `Enter` | Toggle acknowledgment |
+| `Esc` or `a` | Close overlay |
 
 #### Activity
 - Real-time connection monitoring with query duration sparklines
@@ -455,6 +477,63 @@ logs:
 - `filesystem`: Direct disk access (requires local log directory)
 - `pg_read_file`: Read via SQL (works with remote/containerized PostgreSQL, requires superuser or pg_read_server_files role)
 
+### Alerts Configuration
+
+Configure threshold-based alerts in `config.yaml`:
+
+```yaml
+alerts:
+  enabled: true                 # Master switch (default: true)
+  history_retention: 720h       # Keep history for 30 days (default)
+
+  rules:
+    # Simple threshold alert
+    - name: high_connections
+      metric: active_connections
+      operator: ">"
+      warning: 80               # Warn when > 80 connections
+      critical: 95              # Critical when > 95 connections
+      enabled: true
+
+    # Alert on low cache hit ratio
+    - name: low_cache_hit
+      metric: cache_hit_ratio
+      operator: "<"
+      warning: 0.95             # Warn when < 95%
+      critical: 0.90            # Critical when < 90%
+      enabled: true
+
+    # Expression-based rule (connection utilization ratio)
+    - name: connection_saturation
+      metric: active_connections / max_connections
+      operator: ">"
+      warning: 0.8              # Warn at 80% utilization
+      critical: 0.95            # Critical at 95% utilization
+      enabled: true
+```
+
+**Available Metrics:**
+
+| Metric | Description |
+|--------|-------------|
+| `active_connections` | Number of active database connections |
+| `max_connections` | Maximum allowed connections (from pg_settings) |
+| `cache_hit_ratio` | Buffer cache hit ratio (0-1, e.g., 0.99 = 99%) |
+| `tps` | Transactions per second |
+| `database_size` | Database size in bytes |
+| `replication_lag_bytes` | Replication lag in bytes |
+| `longest_transaction_seconds` | Duration of longest running transaction |
+| `idle_in_transaction_seconds` | Duration of longest idle-in-transaction |
+
+**Operators:** `>`, `<`, `>=`, `<=`, `==`, `!=`
+
+**Expressions:** Metrics can be combined with `+`, `-`, `*`, `/` operators and parentheses for complex conditions like `(active_connections / max_connections) * 100`.
+
+**Alert States:**
+- **Normal** - Metric is within acceptable range
+- **Warning** - Metric crossed warning threshold (yellow indicator)
+- **Critical** - Metric crossed critical threshold (red indicator)
+
 #### Roles
 - Browse database roles with attributes (superuser, login, create role, etc.)
 - Role details overlay with membership information
@@ -484,6 +563,7 @@ logs:
 The status bar displays:
 - Connection status indicator (●)
 - Database name
+- Alert counts when alerts are active (e.g., "2 CRIT 1 WARN")
 - Current timestamp
 - Active connections count
 - Reconnection status (when applicable)
@@ -663,7 +743,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] Log viewer
 - [x] Database operations (maintenance, permissions, roles)
 - [x] Advanced visualizations (time-series graphs, sparklines, bar charts, heatmaps)
+- [x] Alert system (threshold-based alerts, expression rules, history, acknowledgment)
 - [ ] Export metrics to Prometheus
-- [ ] Alert configuration
 - [ ] Light theme
 - [ ] Custom color schemes
