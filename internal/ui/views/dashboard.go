@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/willibrandon/steep/internal/alerts"
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/metrics"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
@@ -26,6 +27,7 @@ type DashboardView struct {
 	metricsPanel     *components.MetricsPanel
 	timeSeriesPanel  *components.TimeSeriesPanel
 	heatmapPanel     *components.HeatmapPanel
+	alertPanel       *components.AlertPanel
 
 	// Metrics collector for graph data
 	metricsCollector *metrics.Collector
@@ -48,6 +50,7 @@ type DashboardView struct {
 	// Alert state
 	warningCount  int
 	criticalCount int
+	activeAlerts  []alerts.ActiveAlert
 }
 
 // NewDashboard creates a new dashboard view.
@@ -59,6 +62,7 @@ func NewDashboard() *DashboardView {
 		metricsPanel:    components.NewMetricsPanel(),
 		timeSeriesPanel: components.NewTimeSeriesPanel(),
 		heatmapPanel:    components.NewHeatmapPanel(heatmapConfig),
+		alertPanel:      components.NewAlertPanel(),
 		chartsVisible:   true,
 		heatmapVisible:  false, // Hidden by default
 		timeWindow:      metrics.TimeWindow1h,
@@ -86,6 +90,8 @@ func (d *DashboardView) Update(msg tea.Msg) (ViewModel, tea.Cmd) {
 	case ui.AlertStateMsg:
 		d.warningCount = msg.WarningCount
 		d.criticalCount = msg.CriticalCount
+		d.activeAlerts = msg.ActiveAlerts
+		d.alertPanel.SetAlerts(msg.ActiveAlerts)
 
 	case tea.WindowSizeMsg:
 		d.SetSize(msg.Width, msg.Height)
@@ -216,6 +222,13 @@ func (d *DashboardView) renderMain() string {
 	metricsPanel := d.renderMetricsPanel()
 	footer := d.renderFooter()
 
+	// Calculate alert panel height if active
+	alertPanelHeight := 0
+	if d.alertPanel.HasAlerts() {
+		d.alertPanel.SetWidth(d.width - 2)
+		alertPanelHeight = d.alertPanel.Height()
+	}
+
 	// Calculate heatmap height if visible
 	heatmapHeight := 0
 	if d.heatmapVisible {
@@ -224,7 +237,7 @@ func (d *DashboardView) renderMain() string {
 
 	// Calculate remaining height for charts or placeholder
 	footerHeight := lipgloss.Height(footer)
-	chrome := lipgloss.Height(statusBar) + lipgloss.Height(metricsPanel) + footerHeight + heatmapHeight
+	chrome := lipgloss.Height(statusBar) + lipgloss.Height(metricsPanel) + footerHeight + heatmapHeight + alertPanelHeight
 	contentHeight := max(minPlaceholderHeight, d.height-chrome)
 
 	var content string
@@ -238,8 +251,14 @@ func (d *DashboardView) renderMain() string {
 	sections := []string{
 		statusBar,
 		metricsPanel,
-		content,
 	}
+
+	// Add alert panel if there are active alerts
+	if d.alertPanel.HasAlerts() {
+		sections = append(sections, d.alertPanel.View())
+	}
+
+	sections = append(sections, content)
 
 	// Add heatmap if visible
 	if d.heatmapVisible {
@@ -247,7 +266,7 @@ func (d *DashboardView) renderMain() string {
 		sections = append(sections, d.heatmapPanel.View())
 	}
 
-	// Top section (status bar, metrics, content, heatmap)
+	// Top section (status bar, metrics, alerts, content, heatmap)
 	topSection := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
 	// Push footer to bottom of view

@@ -108,15 +108,15 @@ Based on plan.md structure:
 
 ### Implementation for User Story 3
 
-- [ ] T032 [US3] Create AlertPanel component struct in internal/ui/components/alert_panel.go
-- [ ] T033 [US3] Implement AlertPanel.SetAlerts method in internal/ui/components/alert_panel.go
-- [ ] T034 [US3] Implement AlertPanel.View method with severity icons and formatting in internal/ui/components/alert_panel.go
-- [ ] T035 [US3] Implement severity sorting (Critical first) in AlertPanel in internal/ui/components/alert_panel.go
-- [ ] T036 [US3] Add alertPanel field to DashboardView in internal/ui/views/dashboard.go
-- [ ] T037 [US3] Initialize AlertPanel in NewDashboard in internal/ui/views/dashboard.go
-- [ ] T038 [US3] Update alertPanel.SetAlerts when AlertStateMsg received in internal/ui/views/dashboard.go
-- [ ] T039 [US3] Render alertPanel in renderMain only when alerts active in internal/ui/views/dashboard.go
-- [ ] T040 [US3] Handle message truncation for narrow terminals in internal/ui/components/alert_panel.go
+- [x] T032 [US3] Create AlertPanel component struct in internal/ui/components/alert_panel.go
+- [x] T033 [US3] Implement AlertPanel.SetAlerts method in internal/ui/components/alert_panel.go
+- [x] T034 [US3] Implement AlertPanel.View method with severity icons and formatting in internal/ui/components/alert_panel.go
+- [x] T035 [US3] Implement severity sorting (Critical first) in AlertPanel in internal/ui/components/alert_panel.go
+- [x] T036 [US3] Add alertPanel field to DashboardView in internal/ui/views/dashboard.go
+- [x] T037 [US3] Initialize AlertPanel in NewDashboard in internal/ui/views/dashboard.go
+- [x] T038 [US3] Update alertPanel.SetAlerts when AlertStateMsg received in internal/ui/views/dashboard.go
+- [x] T039 [US3] Render alertPanel in renderMain only when alerts active in internal/ui/views/dashboard.go
+- [x] T040 [US3] Handle message truncation for narrow terminals in internal/ui/components/alert_panel.go
 
 **Checkpoint**: User Stories 1, 2, and 3 complete - Core P1 alerting MVP functional
 
