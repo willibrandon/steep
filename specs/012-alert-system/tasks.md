@@ -29,13 +29,13 @@ Based on plan.md structure:
 
 **Purpose**: Create alert system package structure and types
 
-- [ ] T001 Create internal/alerts/ package directory structure
-- [ ] T002 [P] Define AlertState enum and constants in internal/alerts/types.go
-- [ ] T003 [P] Define Operator enum and constants in internal/alerts/types.go
-- [ ] T004 [P] Define Rule struct in internal/alerts/rule.go
-- [ ] T005 [P] Define State struct in internal/alerts/state.go
-- [ ] T006 [P] Define Event struct in internal/alerts/event.go
-- [ ] T007 [P] Define ActiveAlert struct in internal/alerts/active.go
+- [x] T001 Create internal/alerts/ package directory structure
+- [x] T002 [P] Define AlertState enum and constants in internal/alerts/types.go
+- [x] T003 [P] Define Operator enum and constants in internal/alerts/types.go
+- [x] T004 [P] Define Rule struct in internal/alerts/rule.go
+- [x] T005 [P] Define State struct in internal/alerts/state.go
+- [x] T006 [P] Define Event struct in internal/alerts/event.go
+- [x] T007 [P] Define ActiveAlert struct in internal/alerts/active.go
 
 ---
 
