@@ -12,6 +12,18 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// LogAccessMethod represents how to read PostgreSQL log files.
+type LogAccessMethod int
+
+const (
+	// LogAccessFileSystem reads logs directly from the file system.
+	LogAccessFileSystem LogAccessMethod = iota
+	// LogAccessPgReadFile reads logs via pg_read_file() function.
+	LogAccessPgReadFile
 )
 
 // Pre-compiled regexes for log parsing (compile once at startup)
@@ -71,6 +83,8 @@ type LogCollector struct {
 	lastQuery     string            // Query from most recent execute line
 	lineBuffer    string            // Buffer for multi-line log entries
 	store         PositionStore     // For persisting position across restarts
+	pool          *pgxpool.Pool     // Database pool for pg_read_file access
+	accessMethod  LogAccessMethod   // How to read log files
 }
 
 // isNewLogEntry checks if a line starts a new log entry (has timestamp prefix)
@@ -80,7 +94,7 @@ func isNewLogEntry(line string) bool {
 }
 
 // NewLogCollector creates a new LogCollector.
-func NewLogCollector(logDir, logPattern, logLinePrefix string, store PositionStore) *LogCollector {
+func NewLogCollector(logDir, logPattern, logLinePrefix string, store PositionStore, pool *pgxpool.Pool, accessMethod LogAccessMethod) *LogCollector {
 	return &LogCollector{
 		logDir:        logDir,
 		logPattern:    logPattern,
@@ -89,6 +103,8 @@ func NewLogCollector(logDir, logPattern, logLinePrefix string, store PositionSto
 		events:        make(chan QueryEvent, 100),
 		errors:        make(chan error, 10),
 		store:         store,
+		pool:          pool,
+		accessMethod:  accessMethod,
 	}
 }
 
@@ -113,6 +129,14 @@ func (c *LogCollector) loadPositions(ctx context.Context) {
 
 // findLogFiles returns all log files matching the pattern, sorted by modification time.
 func (c *LogCollector) findLogFiles() ([]string, error) {
+	if c.accessMethod == LogAccessPgReadFile {
+		return c.findLogFilesPgReadFile()
+	}
+	return c.findLogFilesFilesystem()
+}
+
+// findLogFilesFilesystem finds log files using the local filesystem.
+func (c *LogCollector) findLogFilesFilesystem() ([]string, error) {
 	pattern := filepath.Join(c.logDir, c.logPattern)
 	files, err := filepath.Glob(pattern)
 	if err != nil {
@@ -128,6 +152,57 @@ func (c *LogCollector) findLogFiles() ([]string, error) {
 		}
 		return statI.ModTime().Before(statJ.ModTime())
 	})
+
+	return files, nil
+}
+
+// findLogFilesPgReadFile finds log files using pg_ls_dir().
+func (c *LogCollector) findLogFilesPgReadFile() ([]string, error) {
+	if c.pool == nil {
+		return nil, fmt.Errorf("pg_read_file mode requires database pool")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// List files in log directory using pg_ls_dir
+	query := `SELECT pg_ls_dir($1) ORDER BY 1`
+	rows, err := c.pool.Query(ctx, query, c.logDir)
+	if err != nil {
+		if strings.Contains(err.Error(), "permission denied") ||
+			strings.Contains(err.Error(), "must be superuser") {
+			return nil, &LogCollectorError{
+				Err:      fmt.Errorf("pg_ls_dir requires superuser or pg_read_server_files role: %w", err),
+				Guidance: "Grant pg_read_server_files role to the database user",
+			}
+		}
+		return nil, fmt.Errorf("pg_ls_dir failed: %w", err)
+	}
+	defer rows.Close()
+
+	var files []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+
+		// Match against pattern
+		matched, err := filepath.Match(c.logPattern, name)
+		if err != nil {
+			continue
+		}
+		if matched {
+			files = append(files, filepath.Join(c.logDir, name))
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Sort by name (which for PostgreSQL log files includes timestamp)
+	sort.Strings(files)
 
 	return files, nil
 }
@@ -206,6 +281,14 @@ func (c *LogCollector) readAllFiles(ctx context.Context) error {
 
 // readFile reads new entries from a single log file.
 func (c *LogCollector) readFile(ctx context.Context, filePath string) error {
+	if c.accessMethod == LogAccessPgReadFile {
+		return c.readFilePgReadFile(ctx, filePath)
+	}
+	return c.readFileFilesystem(ctx, filePath)
+}
+
+// readFileFilesystem reads log entries using the local filesystem.
+func (c *LogCollector) readFileFilesystem(ctx context.Context, filePath string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -277,6 +360,113 @@ func (c *LogCollector) readFile(ctx context.Context, filePath string) error {
 		// Remove trailing newline for parsing
 		line = strings.TrimSuffix(line, "\n")
 		line = strings.TrimSuffix(line, "\r")
+
+		// Handle multi-line log entries
+		if isNewLogEntry(line) {
+			// Process previous buffered entry
+			if c.lineBuffer != "" {
+				event, ok := c.parseLine(c.lineBuffer)
+				if ok {
+					select {
+					case c.events <- event:
+					default:
+						// Channel full, skip event
+					}
+				}
+			}
+			// Start new buffer
+			c.lineBuffer = line
+		} else if c.lineBuffer != "" {
+			// Continuation line - append to buffer
+			c.lineBuffer += " " + strings.TrimSpace(line)
+		}
+	}
+
+	// Update position based on bytes actually read
+	newPosition := lastPosition + bytesRead
+	c.positions[filePath] = newPosition
+
+	// Persist position for next restart
+	if c.store != nil && bytesRead > 0 {
+		_ = c.store.SaveLogPosition(ctx, filePath, newPosition)
+	}
+
+	return nil
+}
+
+// readFilePgReadFile reads log entries using pg_read_file().
+func (c *LogCollector) readFilePgReadFile(ctx context.Context, filePath string) error {
+	if c.pool == nil {
+		return fmt.Errorf("pg_read_file mode requires database pool")
+	}
+
+	// Get file size using pg_stat_file
+	var fileSize int64
+	err := c.pool.QueryRow(ctx, `SELECT size FROM pg_stat_file($1)`, filePath).Scan(&fileSize)
+	if err != nil {
+		if strings.Contains(err.Error(), "does not exist") {
+			return nil // File may have been rotated away
+		}
+		if strings.Contains(err.Error(), "permission denied") ||
+			strings.Contains(err.Error(), "must be superuser") {
+			return &LogCollectorError{
+				Err:      fmt.Errorf("pg_stat_file requires superuser or pg_read_server_files role: %w", err),
+				Guidance: "Grant pg_read_server_files role to the database user",
+			}
+		}
+		return fmt.Errorf("pg_stat_file failed: %w", err)
+	}
+
+	// Get last position for this file
+	lastPosition := c.positions[filePath]
+
+	// If file is smaller than last position, it was rotated
+	if fileSize < lastPosition {
+		lastPosition = 0
+	}
+
+	// Nothing new to read
+	if lastPosition >= fileSize {
+		return nil
+	}
+
+	// Read new content using pg_read_file(filename, offset, length)
+	bytesToRead := fileSize - lastPosition
+	if bytesToRead > 1024*1024 { // Cap at 1MB per read
+		bytesToRead = 1024 * 1024
+	}
+
+	var content string
+	err = c.pool.QueryRow(ctx, `SELECT pg_read_file($1, $2, $3)`, filePath, lastPosition, bytesToRead).Scan(&content)
+	if err != nil {
+		if strings.Contains(err.Error(), "permission denied") ||
+			strings.Contains(err.Error(), "must be superuser") {
+			return &LogCollectorError{
+				Err:      fmt.Errorf("pg_read_file requires superuser or pg_read_server_files role: %w", err),
+				Guidance: "Grant pg_read_server_files role to the database user",
+			}
+		}
+		return fmt.Errorf("pg_read_file failed: %w", err)
+	}
+
+	// Trim content to last complete line to avoid parsing partial lines
+	if lastNewline := strings.LastIndex(content, "\n"); lastNewline >= 0 {
+		content = content[:lastNewline+1]
+	} else if len(content) > 0 {
+		// No complete line yet, wait for more data
+		return nil
+	}
+
+	// Parse each line
+	bytesRead := int64(0)
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		if line == "" {
+			bytesRead++ // Count the newline
+			continue
+		}
+
+		bytesRead += int64(len(line)) + 1 // +1 for newline
 
 		// Handle multi-line log entries
 		if isNewLogEntry(line) {

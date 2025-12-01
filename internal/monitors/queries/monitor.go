@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -71,9 +72,10 @@ type Monitor struct {
 	config      MonitorConfig
 
 	// State
-	status     MonitorStatus
-	dataSource DataSourceType
-	cancel     context.CancelFunc
+	status       MonitorStatus
+	dataSource   DataSourceType
+	accessMethod LogAccessMethod
+	cancel       context.CancelFunc
 }
 
 // NewMonitor creates a new query monitor.
@@ -101,14 +103,38 @@ func (m *Monitor) Start(ctx context.Context) error {
 		m.config.LogLinePrefix = status.LogLinePrefix
 	}
 
-	// Determine data source
+	// Determine data source and access method
 	if m.config.LogDir != "" && m.config.LogPattern != "" {
-		m.dataSource = DataSourceLogParsing
-		return m.startLogCollector(ctx)
+		// Try filesystem access first
+		if _, statErr := os.Stat(m.config.LogDir); statErr == nil {
+			m.dataSource = DataSourceLogParsing
+			m.accessMethod = LogAccessFileSystem
+			return m.startLogCollector(ctx)
+		}
+
+		// Filesystem not accessible, try pg_read_file
+		if pgErr := m.canUsePgReadFile(ctx, m.config.LogDir); pgErr == nil {
+			m.dataSource = DataSourceLogParsing
+			m.accessMethod = LogAccessPgReadFile
+			return m.startLogCollector(ctx)
+		}
+		// Neither access method works, fall through to sampling
 	}
 
 	m.dataSource = DataSourceSampling
 	return m.startSamplingCollector(ctx)
+}
+
+// canUsePgReadFile checks if pg_read_file is available and the user has permissions.
+func (m *Monitor) canUsePgReadFile(ctx context.Context, logDir string) error {
+	// Try to list the log directory using pg_ls_dir
+	query := `SELECT count(*) FROM (SELECT pg_ls_dir($1) LIMIT 1) AS dirs`
+	var count int
+	err := m.pool.QueryRow(ctx, query, logDir).Scan(&count)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // CheckLoggingStatus checks if PostgreSQL query logging is enabled and returns the log directory/pattern.
@@ -296,7 +322,7 @@ func (m *Monitor) startSamplingCollector(ctx context.Context) error {
 
 // startLogCollector starts collecting via log file parsing.
 func (m *Monitor) startLogCollector(ctx context.Context) error {
-	collector := NewLogCollector(m.config.LogDir, m.config.LogPattern, m.config.LogLinePrefix, m.store)
+	collector := NewLogCollector(m.config.LogDir, m.config.LogPattern, m.config.LogLinePrefix, m.store, m.pool, m.accessMethod)
 	if err := collector.Start(ctx); err != nil {
 		m.status = MonitorStatusError
 		return err
@@ -475,7 +501,7 @@ func (m *Monitor) ParseWithProgress(ctx context.Context, progressCallback func(c
 	}
 
 	// Create a temporary collector to parse files
-	collector := NewLogCollector(m.config.LogDir, m.config.LogPattern, m.config.LogLinePrefix, m.store)
+	collector := NewLogCollector(m.config.LogDir, m.config.LogPattern, m.config.LogLinePrefix, m.store, m.pool, m.accessMethod)
 
 	// Get list of log files
 	files, err := collector.findLogFiles()

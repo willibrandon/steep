@@ -47,7 +47,7 @@ alerts:
     - name: low_cache_hit
       metric: cache_hit_ratio
       operator: "<"
-      warning: 0.99    # Easy to trigger for testing
-      critical: 0.95
+      warning: 0.90
+      critical: 0.85
 
 debug: true
