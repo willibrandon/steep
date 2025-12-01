@@ -67,6 +67,63 @@ logs:
   # - pg_read_file: Read logs via SQL (works over network, requires superuser or pg_read_server_files role)
   access_method: auto
 
+# Alert system configuration
+alerts:
+  # Master switch to enable/disable alerting (default: true)
+  enabled: true
+
+  # How long to keep alert history (default: 720h = 30 days)
+  # Format: Go duration string (e.g., "720h", "168h" for 1 week)
+  history_retention: 720h
+
+  # Alert rules - each rule monitors a metric against thresholds
+  # Rules are evaluated on each refresh cycle (ui.refresh_interval)
+  rules:
+    # Example: Alert on high connection usage
+    - name: high_connections
+      metric: active_connections
+      operator: ">"
+      warning: 80      # Warn when > 80 connections
+      critical: 95     # Critical when > 95 connections
+      enabled: true
+
+    # Example: Alert on low cache hit ratio
+    - name: low_cache_hit
+      metric: cache_hit_ratio
+      operator: "<"
+      warning: 0.95    # Warn when < 95% (0.95)
+      critical: 0.90   # Critical when < 90% (0.90)
+      enabled: true
+
+    # Example: Alert on high TPS (potential load spike)
+    # - name: high_tps
+    #   metric: tps
+    #   operator: ">"
+    #   warning: 1000
+    #   critical: 5000
+    #   enabled: false
+
+    # Example: Expression-based rule (connection utilization ratio)
+    # - name: connection_saturation
+    #   metric: active_connections / max_connections
+    #   operator: ">"
+    #   warning: 0.8    # Warn at 80% utilization
+    #   critical: 0.95  # Critical at 95% utilization
+    #   enabled: true
+
+  # Available metrics:
+  #   active_connections  - Number of active database connections
+  #   max_connections     - Maximum allowed connections (from pg_settings)
+  #   cache_hit_ratio     - Buffer cache hit ratio (0-1, e.g., 0.99 = 99%)
+  #   tps                 - Transactions per second
+  #   database_size       - Database size in bytes
+  #   replication_lag_bytes       - Replication lag in bytes
+  #   longest_transaction_seconds - Duration of longest running transaction
+  #   idle_in_transaction_seconds - Duration of longest idle-in-transaction
+  #
+  # Operators: >, <, >=, <=, ==, !=
+  # Expressions: Metrics can be combined with +, -, *, / operators
+
 # Debug mode (default: false)
 # Can be overridden by STEEP_DEBUG=1 environment variable or -debug flag
 # When enabled, logs at Debug level

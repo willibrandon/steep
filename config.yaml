@@ -39,4 +39,15 @@ logs:
   # - pg_read_file: Read logs via SQL (works over network, requires superuser)
   access_method: auto
 
+# Alert system
+alerts:
+  enabled: true
+  history_retention: 720h
+  rules:
+    - name: low_cache_hit
+      metric: cache_hit_ratio
+      operator: "<"
+      warning: 0.99    # Easy to trigger for testing
+      critical: 0.95
+
 debug: true

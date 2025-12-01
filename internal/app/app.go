@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/willibrandon/steep/internal/ui/components/vimtea"
+	"github.com/willibrandon/steep/internal/alerts"
 	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/db"
 	"github.com/willibrandon/steep/internal/db/queries"
@@ -23,6 +23,7 @@ import (
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
+	"github.com/willibrandon/steep/internal/ui/components/vimtea"
 	"github.com/willibrandon/steep/internal/ui/styles"
 	"github.com/willibrandon/steep/internal/ui/views"
 	activityview "github.com/willibrandon/steep/internal/ui/views/activity"
@@ -120,6 +121,10 @@ type Model struct {
 
 	// Chart visibility (global toggle)
 	chartsVisible bool
+
+	// Alert system
+	alertEngine *alerts.Engine
+	alertStore  *sqlite.AlertStore
 }
 
 // New creates a new application model
@@ -452,6 +457,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.queriesView.SetLoggingDisabled()
 			}
 
+			// Initialize alert system
+			if m.config.Alerts.Enabled {
+				m.alertStore = sqlite.NewAlertStore(steepDB)
+				m.alertEngine = alerts.NewEngine()
+				m.alertEngine.SetStore(m.alertStore)
+				if err := m.alertEngine.LoadRules(m.config.Alerts.Rules); err != nil {
+					logger.Warn("failed to load alert rules", "error", err.Error())
+				}
+			}
+
 		}
 
 		// Fallback: create replication monitor without persistence if DB failed
@@ -555,6 +570,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update status bar active connections
 		m.activeConnections = msg.Metrics.ConnectionCount
 		m.statusBar.SetActiveConnections(msg.Metrics.ConnectionCount)
+
+		// Evaluate alert rules if engine is available
+		if m.alertEngine != nil && m.alertEngine.IsEnabled() {
+			metricsAdapter := alerts.NewMetricsAdapter(&msg.Metrics)
+			changes := m.alertEngine.Evaluate(metricsAdapter)
+
+			// Send alert state message to views
+			alertMsg := ui.AlertStateMsg{
+				ActiveAlerts:  m.alertEngine.GetActiveAlerts(),
+				Changes:       changes,
+				WarningCount:  m.alertEngine.WarningCount(),
+				CriticalCount: m.alertEngine.CriticalCount(),
+				LastEvaluated: msg.Metrics.Timestamp,
+			}
+			// Forward to dashboard for status bar display
+			m.dashboard.Update(alertMsg)
+		}
+
 		return m, nil
 
 	case dataTickMsg:

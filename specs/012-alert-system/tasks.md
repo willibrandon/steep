@@ -66,15 +66,15 @@ Based on plan.md structure:
 
 ### Implementation for User Story 1
 
-- [ ] T016 [US1] Implement rule validation logic in internal/alerts/rule.go (ValidateRule function)
-- [ ] T017 [US1] Implement simple expression parser in internal/alerts/expression.go (metric references only for US1)
-- [ ] T018 [US1] Implement MetricValues interface adapter in internal/alerts/metrics.go to extract values from models.Metrics
-- [ ] T019 [US1] Implement Engine struct in internal/alerts/engine.go with LoadRules, state map, and mutex
-- [ ] T020 [US1] Implement Evaluate method in internal/alerts/engine.go with threshold comparison logic
-- [ ] T021 [US1] Implement state transition logic in internal/alerts/state.go (Normal/Warning/Critical transitions)
-- [ ] T022 [US1] Initialize AlertEngine in internal/app/model.go New() function with config rules
-- [ ] T023 [US1] Integrate alert evaluation into MetricsDataMsg handler in internal/app/model.go Update()
-- [ ] T024 [US1] Add logging for rule validation warnings in internal/alerts/engine.go
+- [x] T016 [US1] Implement rule validation logic in internal/alerts/rule.go (ValidateRule function)
+- [x] T017 [US1] Implement simple expression parser in internal/alerts/expression.go (metric references only for US1)
+- [x] T018 [US1] Implement MetricValues interface adapter in internal/alerts/metrics.go to extract values from models.Metrics
+- [x] T019 [US1] Implement Engine struct in internal/alerts/engine.go with LoadRules, state map, and mutex
+- [x] T020 [US1] Implement Evaluate method in internal/alerts/engine.go with threshold comparison logic
+- [x] T021 [US1] Implement state transition logic in internal/alerts/state.go (Normal/Warning/Critical transitions)
+- [x] T022 [US1] Initialize AlertEngine in internal/app/model.go New() function with config rules
+- [x] T023 [US1] Integrate alert evaluation into MetricsDataMsg handler in internal/app/model.go Update()
+- [x] T024 [US1] Add logging for rule validation warnings in internal/alerts/engine.go
 
 **Checkpoint**: Alert rules load from config, evaluate on metrics refresh, state transitions work
 
