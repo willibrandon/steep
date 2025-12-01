@@ -45,14 +45,14 @@ Based on plan.md structure:
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T008 Add AlertsConfig struct to internal/config/alerts.go with Enabled, HistoryRetention, Rules fields
-- [ ] T009 Add Alerts field to Config struct in internal/config/config.go
-- [ ] T010 Add Viper defaults for alerts section in internal/config/config.go applyDefaults()
-- [ ] T011 Add alert config validation in internal/config/config.go ValidateConfig()
-- [ ] T012 Add alert_events table schema to internal/storage/sqlite/schema.go initSchema()
-- [ ] T013 Implement AlertStore interface in internal/storage/sqlite/alert_store.go (SaveEvent, GetHistory, Acknowledge, Prune)
-- [ ] T014 Define AlertStateMsg and AlertHistoryMsg in internal/ui/messages.go
-- [ ] T015 [P] Add alert-related styles (warning yellow, critical red) to internal/ui/styles/colors.go
+- [x] T008 Add AlertsConfig struct to internal/config/alerts.go with Enabled, HistoryRetention, Rules fields
+- [x] T009 Add Alerts field to Config struct in internal/config/config.go
+- [x] T010 Add Viper defaults for alerts section in internal/config/config.go applyDefaults()
+- [x] T011 Add alert config validation in internal/config/config.go ValidateConfig()
+- [x] T012 Add alert_events table schema to internal/storage/sqlite/schema.go initSchema()
+- [x] T013 Implement AlertStore interface in internal/storage/sqlite/alert_store.go (SaveEvent, GetHistory, Acknowledge, Prune)
+- [x] T014 Define AlertStateMsg and AlertHistoryMsg in internal/ui/messages.go
+- [x] T015 [P] Add alert-related styles (warning yellow, critical red) to internal/ui/styles/colors.go
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 

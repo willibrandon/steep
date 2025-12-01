@@ -131,6 +131,28 @@ func (db *DB) initSchema() error {
 
 	-- Index for time-based cleanup (doesn't reference key column for backwards compat)
 	CREATE INDEX IF NOT EXISTS idx_metrics_history_timestamp ON metrics_history(timestamp);
+
+	-- Alert events history table
+	CREATE TABLE IF NOT EXISTS alert_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		rule_name TEXT NOT NULL,
+		prev_state TEXT NOT NULL CHECK(prev_state IN ('normal', 'warning', 'critical')),
+		new_state TEXT NOT NULL CHECK(new_state IN ('normal', 'warning', 'critical')),
+		metric_value REAL NOT NULL,
+		threshold_value REAL,
+		triggered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		acknowledged_at DATETIME,
+		acknowledged_by TEXT
+	);
+
+	-- Index for history view (most recent first)
+	CREATE INDEX IF NOT EXISTS idx_alert_events_triggered ON alert_events(triggered_at DESC);
+
+	-- Index for rule-specific queries
+	CREATE INDEX IF NOT EXISTS idx_alert_events_rule ON alert_events(rule_name, triggered_at DESC);
+
+	-- Index for filtering by severity
+	CREATE INDEX IF NOT EXISTS idx_alert_events_state ON alert_events(new_state, triggered_at DESC);
 	`
 
 	_, err := db.conn.Exec(schema)

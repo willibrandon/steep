@@ -37,6 +37,12 @@ var (
 	// Lock blocking colors
 	ColorBlocked  = lipgloss.Color("9")   // Red - blocked queries (waiting)
 	ColorBlocking = lipgloss.Color("11")  // Yellow - blocking queries (holding lock)
+
+	// Alert severity colors
+	ColorAlertWarning  = lipgloss.Color("214") // Orange - warning alerts
+	ColorAlertCritical = lipgloss.Color("196") // Bright red - critical alerts
+	ColorAlertNormal   = lipgloss.Color("10")  // Green - resolved/normal
+	ColorAlertAck      = lipgloss.Color("8")   // Gray - acknowledged
 )
 
 // ConnectionStateColor returns the appropriate color for a connection state.

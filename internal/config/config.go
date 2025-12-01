@@ -16,6 +16,7 @@ type Config struct {
 	Queries     QueriesConfig     `mapstructure:"queries"`
 	Replication ReplicationConfig `mapstructure:"replication"`
 	Logs        LogsConfig        `mapstructure:"logs"`
+	Alerts      AlertsConfig      `mapstructure:"alerts"`
 	Debug       bool              `mapstructure:"debug"`
 	LogFile     string            `mapstructure:"log_file"`
 }
@@ -134,6 +135,11 @@ func createDefaultConfig() (*Config, error) {
 		Logs: LogsConfig{
 			AccessMethod: viper.GetString("logs.access_method"),
 		},
+		Alerts: AlertsConfig{
+			Enabled:          viper.GetBool("alerts.enabled"),
+			HistoryRetention: viper.GetDuration("alerts.history_retention"),
+			Rules:            []AlertRuleConfig{},
+		},
 		Debug:   viper.GetBool("debug"),
 		LogFile: viper.GetString("log_file"),
 	}
@@ -241,6 +247,58 @@ func ValidateConfig(cfg *Config) error {
 		return fmt.Errorf("logs.access_method must be one of: %v, got %s", validAccessMethods, cfg.Logs.AccessMethod)
 	}
 
+	// Validate alerts config
+	if err := validateAlertsConfig(&cfg.Alerts); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateAlertsConfig validates the alerts configuration.
+func validateAlertsConfig(cfg *AlertsConfig) error {
+	// Validate history retention
+	minRetention := time.Hour
+	maxRetention := 720 * time.Hour // 30 days
+	if cfg.HistoryRetention < minRetention || cfg.HistoryRetention > maxRetention {
+		return fmt.Errorf("alerts.history_retention must be between 1h and 720h (30d), got %v", cfg.HistoryRetention)
+	}
+
+	// Validate rules
+	ruleNames := make(map[string]bool)
+	for i, rule := range cfg.Rules {
+		// Check for duplicate names
+		if ruleNames[rule.Name] {
+			return fmt.Errorf("alerts.rules[%d]: duplicate rule name %q", i, rule.Name)
+		}
+		ruleNames[rule.Name] = true
+
+		// Validate rule name
+		if rule.Name == "" {
+			return fmt.Errorf("alerts.rules[%d]: name is required", i)
+		}
+
+		// Validate metric
+		if rule.Metric == "" {
+			return fmt.Errorf("alerts.rules[%d] %q: metric is required", i, rule.Name)
+		}
+
+		// Validate operator if provided
+		if rule.Operator != "" {
+			validOperators := []string{">", "<", ">=", "<=", "==", "!="}
+			validOp := false
+			for _, op := range validOperators {
+				if rule.Operator == op {
+					validOp = true
+					break
+				}
+			}
+			if !validOp {
+				return fmt.Errorf("alerts.rules[%d] %q: operator must be one of: %v, got %s", i, rule.Name, validOperators, rule.Operator)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -274,6 +332,10 @@ func applyDefaults() {
 
 	// Logs defaults
 	viper.SetDefault("logs.access_method", "auto")
+
+	// Alerts defaults
+	viper.SetDefault("alerts.enabled", true)
+	viper.SetDefault("alerts.history_retention", "720h") // 30 days
 
 	// Debug default
 	viper.SetDefault("debug", false)

@@ -4,6 +4,7 @@ package ui
 import (
 	"time"
 
+	"github.com/willibrandon/steep/internal/alerts"
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 )
@@ -290,4 +291,57 @@ type ReloadConfigMsg struct{}
 type ReloadConfigResultMsg struct {
 	Success bool
 	Error   error
+}
+
+// Alert system messages
+
+// AlertStateMsg carries current alert states to UI components.
+// Sent by AlertEngine after each evaluation cycle.
+type AlertStateMsg struct {
+	// ActiveAlerts contains all currently firing alerts.
+	ActiveAlerts []alerts.ActiveAlert
+
+	// Changes contains state transitions from this evaluation.
+	// Empty if no state changes occurred.
+	Changes []alerts.StateChange
+
+	// WarningCount is the number of alerts in Warning state.
+	WarningCount int
+
+	// CriticalCount is the number of alerts in Critical state.
+	CriticalCount int
+
+	// LastEvaluated is when the evaluation occurred.
+	LastEvaluated time.Time
+
+	// Error is set if evaluation failed.
+	Error error
+}
+
+// HasActiveAlerts returns true if any alerts are firing.
+func (m AlertStateMsg) HasActiveAlerts() bool {
+	return len(m.ActiveAlerts) > 0
+}
+
+// HasCritical returns true if any critical alerts are firing.
+func (m AlertStateMsg) HasCritical() bool {
+	return m.CriticalCount > 0
+}
+
+// HasChanges returns true if any state changes occurred.
+func (m AlertStateMsg) HasChanges() bool {
+	return len(m.Changes) > 0
+}
+
+// AlertHistoryMsg carries alert history for the history view.
+type AlertHistoryMsg struct {
+	Events []alerts.Event
+	Error  error
+}
+
+// AlertAcknowledgedMsg indicates an alert was acknowledged.
+type AlertAcknowledgedMsg struct {
+	RuleName string
+	EventID  int64
+	Error    error
 }

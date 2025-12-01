@@ -4,6 +4,16 @@ import (
 	"time"
 )
 
+// StateChange represents a state transition for notification.
+type StateChange struct {
+	RuleName    string
+	PrevState   AlertState
+	NewState    AlertState
+	MetricValue float64
+	Threshold   float64
+	Timestamp   time.Time
+}
+
 // State represents the current state of an alert rule (in-memory runtime state).
 type State struct {
 	// RuleName is a reference to the Rule.Name.
