@@ -371,9 +371,15 @@ connection:
 | `:repl` | Launch pgcli or psql (auto-detect) |
 | `:repl pgcli` | Launch pgcli specifically |
 | `:repl psql` | Launch psql specifically |
+| `:repl sqlite` | Launch SQLite REPL for steep.db |
+| `:repl litecli` | Launch litecli specifically |
+| `:repl sqlite3` | Launch sqlite3 specifically |
 | `:repl docker` | Force Docker (pgcli or psql) |
 | `:repl docker pgcli` | Force Docker pgcli |
 | `:repl docker psql` | Force Docker psql |
+| `:repl docker sqlite` | Force Docker (litecli or sqlite3) |
+| `:repl docker litecli` | Force Docker litecli |
+| `:repl docker sqlite3` | Force Docker sqlite3 |
 | `:clear` | Clear editor and results |
 
 #### Configuration

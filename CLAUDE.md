@@ -352,7 +352,9 @@ These reference implementations are available for studying UI/UX patterns before
 - 011-visualizations: Global chart toggle (V key) across Dashboard, Queries, and Tables views
 - 011-visualizations: Metrics collection infrastructure (internal/metrics package) with CircularBuffer and MetricsStore
 - 011-visualizations: Per-connection duration tracking for Activity view sparklines
-- 007-sql-editor: External REPL support via :repl command (pgcli, psql, with Docker fallback)
+- 007-sql-editor: External REPL support via :repl command (pgcli, psql, litecli, sqlite3 with Docker fallback)
+- 007-sql-editor: SQLite REPL for steep.db debugging (:repl sqlite, :repl litecli, :repl sqlite3)
+- 007-sql-editor: Multi-arch Docker image for litecli (willibrandon/litecli) supporting amd64 and arm64
 - 007-sql-editor: Multi-arch Docker image for pgcli (willibrandon/pgcli) supporting amd64 and arm64
 - 007-sql-editor: Windows Docker support with automatic host.docker.internal translation
 - 010-database-operations: Maintenance operations menu (VACUUM, VACUUM FULL, VACUUM ANALYZE, ANALYZE, REINDEX TABLE, REINDEX CONCURRENTLY)

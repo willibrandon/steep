@@ -22,12 +22,21 @@ type ReplExitedMsg struct {
 type ReplType string
 
 const (
+	// PostgreSQL REPLs
 	ReplPgcli       ReplType = "pgcli"
 	ReplPsql        ReplType = "psql"
 	ReplAuto        ReplType = "auto"   // Auto-detect best available
 	ReplDocker      ReplType = "docker" // Force Docker (auto-detect pgcli or psql)
 	ReplDockerPgcli ReplType = "docker-pgcli"
 	ReplDockerPsql  ReplType = "docker-psql"
+
+	// SQLite REPLs (for steep.db)
+	ReplSQLite        ReplType = "sqlite"         // Auto-detect: litecli -> sqlite3 -> Docker
+	ReplLitecli       ReplType = "litecli"        // Force litecli
+	ReplSQLite3       ReplType = "sqlite3"        // Force sqlite3
+	ReplDockerSQLite  ReplType = "docker-sqlite"  // Force Docker (auto-detect litecli or sqlite3)
+	ReplDockerLitecli ReplType = "docker-litecli" // Force Docker litecli
+	ReplDockerSQLite3 ReplType = "docker-sqlite3" // Force Docker sqlite3
 )
 
 // clearScreenExecCommand wraps an exec.Cmd to clear the screen before running.
@@ -77,7 +86,8 @@ func (v *SQLEditorView) replCmd(args []string) tea.Cmd {
 	}
 
 	// Determine which REPL to use
-	// Supports: :repl, :repl pgcli, :repl psql, :repl docker, :repl docker pgcli, :repl docker psql
+	// PostgreSQL: :repl, :repl pgcli, :repl psql, :repl docker [pgcli|psql]
+	// SQLite:     :repl sqlite, :repl litecli, :repl sqlite3, :repl docker sqlite
 	replType := ReplAuto
 	if len(args) > 0 {
 		switch args[0] {
@@ -85,14 +95,26 @@ func (v *SQLEditorView) replCmd(args []string) tea.Cmd {
 			replType = ReplPgcli
 		case "psql":
 			replType = ReplPsql
+		case "sqlite":
+			replType = ReplSQLite
+		case "litecli":
+			replType = ReplLitecli
+		case "sqlite3":
+			replType = ReplSQLite3
 		case "docker":
-			// :repl docker [pgcli|psql]
+			// :repl docker [pgcli|psql|sqlite|litecli|sqlite3]
 			if len(args) > 1 {
 				switch args[1] {
 				case "pgcli":
 					replType = ReplDockerPgcli
 				case "psql":
 					replType = ReplDockerPsql
+				case "sqlite":
+					replType = ReplDockerSQLite
+				case "litecli":
+					replType = ReplDockerLitecli
+				case "sqlite3":
+					replType = ReplDockerSQLite3
 				default:
 					replType = ReplDocker
 				}
@@ -199,6 +221,95 @@ func findRepl(replType ReplType, connString string) replResult {
 			return replResult{tool: "psql (docker)", cmd: cmd}
 		}
 		return replResult{err: dockerNotAvailableError()}
+
+	// SQLite REPLs
+	case ReplSQLite:
+		dbPath := getSteepDBPath()
+		if dbPath == "" {
+			return replResult{err: "Could not determine steep.db path"}
+		}
+		// Try local litecli first (preferred)
+		if path := findExecutable("litecli"); path != "" {
+			return replResult{tool: "litecli", cmd: exec.Command(path, dbPath)}
+		}
+		// Try local sqlite3
+		if path := findExecutable("sqlite3"); path != "" {
+			return replResult{tool: "sqlite3", cmd: exec.Command(path, dbPath)}
+		}
+		// Try Docker litecli
+		if cmd := tryDockerLitecli(dbPath); cmd != nil {
+			return replResult{tool: "litecli (docker)", cmd: cmd}
+		}
+		// Try Docker sqlite3
+		if cmd := tryDockerSQLite3(dbPath); cmd != nil {
+			return replResult{tool: "sqlite3 (docker)", cmd: cmd}
+		}
+		return replResult{err: noSQLiteReplAvailableError()}
+
+	case ReplLitecli:
+		dbPath := getSteepDBPath()
+		if dbPath == "" {
+			return replResult{err: "Could not determine steep.db path"}
+		}
+		// Try local litecli
+		if path := findExecutable("litecli"); path != "" {
+			return replResult{tool: "litecli", cmd: exec.Command(path, dbPath)}
+		}
+		// Try Docker litecli
+		if cmd := tryDockerLitecli(dbPath); cmd != nil {
+			return replResult{tool: "litecli (docker)", cmd: cmd}
+		}
+		return replResult{err: "litecli not found. Install with: pip install litecli\nOr install Docker to use containerized litecli"}
+
+	case ReplSQLite3:
+		dbPath := getSteepDBPath()
+		if dbPath == "" {
+			return replResult{err: "Could not determine steep.db path"}
+		}
+		// Try local sqlite3
+		if path := findExecutable("sqlite3"); path != "" {
+			return replResult{tool: "sqlite3", cmd: exec.Command(path, dbPath)}
+		}
+		// Try Docker sqlite3
+		if cmd := tryDockerSQLite3(dbPath); cmd != nil {
+			return replResult{tool: "sqlite3 (docker)", cmd: cmd}
+		}
+		return replResult{err: "sqlite3 not found. Install SQLite tools\nOr install Docker to use containerized sqlite3"}
+
+	case ReplDockerSQLite:
+		dbPath := getSteepDBPath()
+		if dbPath == "" {
+			return replResult{err: "Could not determine steep.db path"}
+		}
+		// Try Docker litecli first
+		if cmd := tryDockerLitecli(dbPath); cmd != nil {
+			return replResult{tool: "litecli (docker)", cmd: cmd}
+		}
+		// Try Docker sqlite3
+		if cmd := tryDockerSQLite3(dbPath); cmd != nil {
+			return replResult{tool: "sqlite3 (docker)", cmd: cmd}
+		}
+		return replResult{err: dockerNotAvailableError()}
+
+	case ReplDockerLitecli:
+		dbPath := getSteepDBPath()
+		if dbPath == "" {
+			return replResult{err: "Could not determine steep.db path"}
+		}
+		if cmd := tryDockerLitecli(dbPath); cmd != nil {
+			return replResult{tool: "litecli (docker)", cmd: cmd}
+		}
+		return replResult{err: dockerNotAvailableError()}
+
+	case ReplDockerSQLite3:
+		dbPath := getSteepDBPath()
+		if dbPath == "" {
+			return replResult{err: "Could not determine steep.db path"}
+		}
+		if cmd := tryDockerSQLite3(dbPath); cmd != nil {
+			return replResult{tool: "sqlite3 (docker)", cmd: cmd}
+		}
+		return replResult{err: dockerNotAvailableError()}
 	}
 
 	return replResult{err: "Unknown REPL type"}
@@ -225,6 +336,23 @@ func noReplAvailableError() string {
 		msg += "Docker is available but images may need to be pulled.\n"
 		msg += "Try: docker pull willibrandon/pgcli\n"
 		msg += " or: docker pull postgres:alpine"
+	}
+	return msg
+}
+
+// noSQLiteReplAvailableError returns a helpful error message when no SQLite REPL is available.
+func noSQLiteReplAvailableError() string {
+	var msg string
+	msg = "No SQLite REPL available.\n\n"
+	msg += "Install one of the following:\n"
+	msg += "  litecli (recommended): pip install litecli\n"
+	msg += "  sqlite3: Install SQLite tools\n\n"
+	if findExecutable("docker") == "" {
+		msg += "Docker not found. Install Docker for automatic fallback."
+	} else {
+		msg += "Docker is available but images may need to be pulled.\n"
+		msg += "Try: docker pull willibrandon/litecli\n"
+		msg += " or: docker pull keinos/sqlite3"
 	}
 	return msg
 }
@@ -297,4 +425,50 @@ func findExecutable(name string) string {
 		return ""
 	}
 	return path
+}
+
+// getSteepDBPath returns the path to steep.db.
+func getSteepDBPath() string {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/steep/steep.db", cacheDir)
+}
+
+// tryDockerLitecli attempts to create a Docker command for litecli.
+// Returns nil if Docker is not available.
+func tryDockerLitecli(dbPath string) *exec.Cmd {
+	dockerPath := findExecutable("docker")
+	if dockerPath == "" {
+		return nil
+	}
+
+	// Mount the db file into the container
+	// Use willibrandon/litecli image (multi-arch: amd64 + arm64)
+	return exec.Command(dockerPath,
+		"run", "--rm", "-it",
+		"-v", dbPath+":/data/steep.db:rw",
+		"willibrandon/litecli",
+		"/data/steep.db",
+	)
+}
+
+// tryDockerSQLite3 attempts to create a Docker command for sqlite3.
+// Returns nil if Docker is not available.
+func tryDockerSQLite3(dbPath string) *exec.Cmd {
+	dockerPath := findExecutable("docker")
+	if dockerPath == "" {
+		return nil
+	}
+
+	// Mount the db file into the container
+	// Use keinos/sqlite3 image (actively maintained, multi-arch)
+	// Note: keinos/sqlite3 uses tini as entrypoint, so we must explicitly call sqlite3
+	return exec.Command(dockerPath,
+		"run", "--rm", "-it",
+		"-v", dbPath+":/data/steep.db:rw",
+		"keinos/sqlite3",
+		"sqlite3", "/data/steep.db",
+	)
 }

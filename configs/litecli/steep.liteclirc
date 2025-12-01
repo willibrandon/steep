@@ -1,0 +1,35 @@
+# Steep Database litecli configuration
+#
+# To use these favorites, either:
+# 1. Copy the [favorite_queries] section to ~/.config/litecli/config
+# 2. Or run: litecli -c /path/to/steep.liteclirc ~/Library/Caches/steep/steep.db
+#
+# Usage:
+#   \f              - List all favorites
+#   \f alerts       - Run the 'alerts' query
+#   \fs name query  - Save a new favorite
+#   \fd name        - Delete a favorite
+
+[main]
+multi_line = True
+table_format = ascii
+syntax_style = monokai
+prompt = 'steep> '
+less_chatty = True
+auto_vertical_output = True
+
+[favorite_queries]
+alerts = "SELECT id, rule_name, prev_state || ' -> ' || new_state as transition, printf('%.2f', metric_value) as value, datetime(triggered_at, 'localtime') as triggered FROM alert_events ORDER BY triggered_at DESC LIMIT 50"
+critical = SELECT * FROM alert_events WHERE new_state = 'critical' ORDER BY triggered_at DESC LIMIT 20
+warnings = SELECT * FROM alert_events WHERE new_state = 'warning' ORDER BY triggered_at DESC LIMIT 20
+unacked = SELECT * FROM alert_events WHERE acknowledged_at IS NULL AND new_state != 'normal' ORDER BY triggered_at DESC
+slow = "SELECT fingerprint, calls, printf('%.1f', total_time_ms/1000.0) || 's' as total_time, substr(normalized_query, 1, 60) as query FROM query_stats ORDER BY total_time_ms DESC LIMIT 10"
+frequent = "SELECT fingerprint, calls, printf('%.1f', total_time_ms/calls) || 'ms' as avg_time, substr(normalized_query, 1, 60) as query FROM query_stats ORDER BY calls DESC LIMIT 10"
+history = "SELECT id, datetime(executed_at, 'localtime') as time, duration_ms || 'ms' as duration, substr(query, 1, 60) as query FROM query_history ORDER BY executed_at DESC LIMIT 20"
+deadlocks = "SELECT e.id, datetime(e.detected_at, 'localtime') as detected, e.database_name, e.resolved_by_pid FROM deadlock_events e ORDER BY e.detected_at DESC LIMIT 10"
+lag = "SELECT replica_name, printf('%.2f', byte_lag/1024.0/1024.0) || ' MB' as lag_mb, sync_state FROM replication_lag_history GROUP BY replica_name HAVING timestamp = MAX(timestamp)"
+metrics = "SELECT metric_name, key, printf('%.2f', value) as value FROM metrics_history GROUP BY metric_name, key HAVING timestamp = MAX(timestamp)"
+tps = "SELECT datetime(timestamp, 'localtime') as time, printf('%.1f', value) as tps FROM metrics_history WHERE metric_name = 'tps' ORDER BY timestamp DESC LIMIT 60"
+counts = "SELECT 'alert_events' as tbl, COUNT(*) as rows FROM alert_events UNION ALL SELECT 'query_stats', COUNT(*) FROM query_stats UNION ALL SELECT 'query_history', COUNT(*) FROM query_history UNION ALL SELECT 'deadlock_events', COUNT(*) FROM deadlock_events UNION ALL SELECT 'deadlock_processes', COUNT(*) FROM deadlock_processes UNION ALL SELECT 'replication_lag_history', COUNT(*) FROM replication_lag_history UNION ALL SELECT 'metrics_history', COUNT(*) FROM metrics_history UNION ALL SELECT 'log_positions', COUNT(*) FROM log_positions UNION ALL SELECT 'log_command_history', COUNT(*) FROM log_command_history UNION ALL SELECT 'log_search_history', COUNT(*) FROM log_search_history"
+
+[startup_commands]
