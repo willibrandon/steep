@@ -12,9 +12,10 @@ import (
 
 func TestLogCollector_ParseLine_Statement(t *testing.T) {
 	// Test standard statement format
-	logContent := `2025-11-21 18:25:26.182 PST [43293] LOG:  duration: 1.483 ms  statement: SELECT 1
+	// Note: Using SELECT 42 instead of SELECT 1 because SELECT 1 is filtered as a noise/health-check query
+	logContent := `2025-11-21 18:25:26.182 PST [43293] LOG:  duration: 1.483 ms  statement: SELECT 42
 `
-	testLogParsing(t, logContent, 1, "SELECT 1", 1.483)
+	testLogParsing(t, logContent, 1, "SELECT 42", 1.483)
 }
 
 func TestLogCollector_ParseLine_Execute(t *testing.T) {
@@ -66,7 +67,8 @@ func TestLogCollector_IncrementalReading(t *testing.T) {
 	logPath := filepath.Join(tmpDir, "postgresql.log")
 
 	// Write initial content
-	initialContent := `2025-11-21 18:25:26.182 PST [43293] LOG:  duration: 1.0 ms  statement: SELECT 1
+	// Note: Using SELECT 42 instead of SELECT 1 because SELECT 1 is filtered as a noise/health-check query
+	initialContent := `2025-11-21 18:25:26.182 PST [43293] LOG:  duration: 1.0 ms  statement: SELECT 42
 `
 	err := os.WriteFile(logPath, []byte(initialContent), 0644)
 	if err != nil {
@@ -89,8 +91,8 @@ func TestLogCollector_IncrementalReading(t *testing.T) {
 	// Get first event
 	select {
 	case event := <-collector.Events():
-		if event.Query != "SELECT 1" {
-			t.Errorf("Expected 'SELECT 1', got '%s'", event.Query)
+		if event.Query != "SELECT 42" {
+			t.Errorf("Expected 'SELECT 42', got '%s'", event.Query)
 		}
 	case <-time.After(2 * time.Second):
 		t.Error("Timeout waiting for first event")
@@ -127,7 +129,8 @@ func TestLogCollector_ImmediateRead(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "postgresql.log")
 
-	content := `2025-11-21 18:25:26.182 PST [43293] LOG:  duration: 1.0 ms  statement: SELECT 1
+	// Note: Using SELECT 42 instead of SELECT 1 because SELECT 1 is filtered as a noise/health-check query
+	content := `2025-11-21 18:25:26.182 PST [43293] LOG:  duration: 1.0 ms  statement: SELECT 42
 `
 	err := os.WriteFile(logPath, []byte(content), 0644)
 	if err != nil {
@@ -146,8 +149,8 @@ func TestLogCollector_ImmediateRead(t *testing.T) {
 	// Should get event very quickly (not after 1 second tick)
 	select {
 	case event := <-collector.Events():
-		if event.Query != "SELECT 1" {
-			t.Errorf("Expected 'SELECT 1', got '%s'", event.Query)
+		if event.Query != "SELECT 42" {
+			t.Errorf("Expected 'SELECT 42', got '%s'", event.Query)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Error("Collector did not read immediately on start")
