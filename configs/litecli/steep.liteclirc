@@ -2,7 +2,7 @@
 #
 # To use these favorites, either:
 # 1. Copy the [favorite_queries] section to ~/.config/litecli/config
-# 2. Or run: litecli -c /path/to/steep.liteclirc ~/Library/Caches/steep/steep.db
+# 2. Or run: litecli -c /path/to/steep.liteclirc ~/Library/"Application Support"/steep/steep.db
 #
 # Usage:
 #   \f              - List all favorites
@@ -30,6 +30,11 @@ deadlocks = "SELECT e.id, datetime(e.detected_at, 'localtime') as detected, e.da
 lag = "SELECT replica_name, printf('%.2f', byte_lag/1024.0/1024.0) || ' MB' as lag_mb, sync_state FROM replication_lag_history GROUP BY replica_name HAVING timestamp = MAX(timestamp)"
 metrics = "SELECT metric_name, key, printf('%.2f', value) as value FROM metrics_history GROUP BY metric_name, key HAVING timestamp = MAX(timestamp)"
 tps = "SELECT datetime(timestamp, 'localtime') as time, printf('%.1f', value) as tps FROM metrics_history WHERE metric_name = 'tps' ORDER BY timestamp DESC LIMIT 60"
-counts = "SELECT 'alert_events' as tbl, COUNT(*) as rows FROM alert_events UNION ALL SELECT 'query_stats', COUNT(*) FROM query_stats UNION ALL SELECT 'query_history', COUNT(*) FROM query_history UNION ALL SELECT 'deadlock_events', COUNT(*) FROM deadlock_events UNION ALL SELECT 'deadlock_processes', COUNT(*) FROM deadlock_processes UNION ALL SELECT 'replication_lag_history', COUNT(*) FROM replication_lag_history UNION ALL SELECT 'metrics_history', COUNT(*) FROM metrics_history UNION ALL SELECT 'log_positions', COUNT(*) FROM log_positions UNION ALL SELECT 'log_command_history', COUNT(*) FROM log_command_history UNION ALL SELECT 'log_search_history', COUNT(*) FROM log_search_history"
+counts = "SELECT 'alert_events' as tbl, COUNT(*) as rows FROM alert_events UNION ALL SELECT 'query_stats', COUNT(*) FROM query_stats UNION ALL SELECT 'query_history', COUNT(*) FROM query_history UNION ALL SELECT 'deadlock_events', COUNT(*) FROM deadlock_events UNION ALL SELECT 'deadlock_processes', COUNT(*) FROM deadlock_processes UNION ALL SELECT 'replication_lag_history', COUNT(*) FROM replication_lag_history UNION ALL SELECT 'metrics_history', COUNT(*) FROM metrics_history UNION ALL SELECT 'log_positions', COUNT(*) FROM log_positions UNION ALL SELECT 'log_command_history', COUNT(*) FROM log_command_history UNION ALL SELECT 'log_search_history', COUNT(*) FROM log_search_history UNION ALL SELECT 'activity_snapshots', COUNT(*) FROM activity_snapshots UNION ALL SELECT 'lock_snapshots', COUNT(*) FROM lock_snapshots UNION ALL SELECT 'agent_status', COUNT(*) FROM agent_status"
+
+# Agent tables
+agent = "SELECT pid, datetime(start_time, 'localtime') as started, datetime(last_collect, 'localtime') as heartbeat, version, error_count, last_error FROM agent_status"
+activity = "SELECT instance_name, datetime(timestamp, 'localtime') as time, total_connections as conns, active_connections as active, idle_connections as idle, idle_in_tx FROM activity_snapshots ORDER BY timestamp DESC LIMIT 20"
+locks = "SELECT instance_name, datetime(timestamp, 'localtime') as time, lock_count, blocking_count as blocking FROM lock_snapshots ORDER BY timestamp DESC LIMIT 20"
 
 [startup_commands]

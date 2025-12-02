@@ -3,8 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
+	"github.com/willibrandon/steep/internal/agent"
+	"github.com/willibrandon/steep/internal/config"
 )
 
 var (
@@ -66,11 +70,58 @@ func newRunCmd() *cobra.Command {
 		Short: "Run agent in foreground (for debugging)",
 		Long:  `Run the agent in foreground mode. Useful for debugging and testing.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: Implement in US1
-			fmt.Println("steep-agent run: not yet implemented (US1)")
-			return nil
+			return runForeground()
 		},
 	}
+}
+
+// runForeground runs the agent in foreground mode.
+func runForeground() error {
+	// Load configuration
+	var cfg *config.Config
+	var err error
+
+	if configPath != "" {
+		cfg, err = config.LoadConfigFromPath(configPath)
+	} else {
+		cfg, err = config.LoadConfig()
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		return err
+	}
+
+	// Create agent
+	a, err := agent.New(cfg, debug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating agent: %v\n", err)
+		return err
+	}
+
+	// Set version
+	agent.Version = version
+
+	// Start agent
+	if err := a.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error starting agent: %v\n", err)
+		return err
+	}
+
+	// Handle signals for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Wait for signal
+	sig := <-sigChan
+	fmt.Printf("\nReceived signal %v, shutting down...\n", sig)
+
+	// Stop agent gracefully
+	if err := a.Stop(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error stopping agent: %v\n", err)
+		return err
+	}
+
+	return nil
 }
 
 // newInstallCmd creates the install subcommand

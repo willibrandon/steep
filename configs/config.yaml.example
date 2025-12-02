@@ -41,6 +41,14 @@ connection:
   # Keeps pool warm for faster query execution
   pool_min_conns: 5
 
+# Data storage configuration
+storage:
+  # Directory for steep's data files (SQLite database, logs, etc.)
+  # Default: ~/.config/steep on Linux, ~/Library/Application Support/steep on macOS,
+  # %AppData%\steep on Windows
+  # Can be overridden by STEEP_STORAGE_DATA_PATH environment variable
+  # data_path: /custom/path/to/steep/data
+
 # User interface configuration
 ui:
   # Color theme: dark, light (default: dark)

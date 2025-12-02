@@ -9,7 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/willibrandon/steep/internal/agent/collectors"
 	"github.com/willibrandon/steep/internal/config"
+	"github.com/willibrandon/steep/internal/storage/sqlite"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -24,6 +26,16 @@ type Agent struct {
 
 	statusStore   *AgentStatusStore
 	instanceStore *AgentInstanceStore
+
+	// Pool manager for PostgreSQL connections
+	poolManager *PoolManager
+
+	// Collector coordinator
+	coordinator *CollectorCoordinator
+
+	// SQLite stores for data persistence
+	replicationStore *sqlite.ReplicationStore
+	queryStore       *sqlite.QueryStatsStore
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -61,7 +73,7 @@ func (a *Agent) Start() error {
 	a.logger.Println("Starting steep-agent...")
 
 	// Open SQLite database
-	dbPath := getDBPath()
+	dbPath := getDBPath(a.config)
 	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
@@ -79,6 +91,11 @@ func (a *Agent) Start() error {
 	if err := a.instanceStore.InitSchema(); err != nil {
 		return fmt.Errorf("failed to init agent_instances schema: %w", err)
 	}
+
+	// Initialize SQLite wrapper for stores that need it
+	sqliteDB := sqlite.WrapConn(db)
+	a.replicationStore = sqlite.NewReplicationStore(sqliteDB)
+	a.queryStore = sqlite.NewQueryStatsStore(sqliteDB)
 
 	// Write PID file
 	if err := WritePIDFile(a.pidFile); err != nil {
@@ -106,9 +123,89 @@ func (a *Agent) Start() error {
 		a.logger.Printf("Database: %s", dbPath)
 	}
 
-	// TODO: Start collectors (implemented in US1)
+	// Initialize pool manager and connect to PostgreSQL instances
+	a.poolManager = NewPoolManager(a.instanceStore, a.logger)
+
+	instances := a.getInstanceConfigs()
+	if err := a.poolManager.ConnectAll(a.ctx, instances); err != nil {
+		return fmt.Errorf("failed to connect to PostgreSQL: %w", err)
+	}
+
+	// Start health check goroutine
+	a.poolManager.StartHealthCheck(a.ctx, 30*time.Second)
+
+	// Start collectors
+	if err := a.startCollectors(); err != nil {
+		return fmt.Errorf("failed to start collectors: %w", err)
+	}
 
 	return nil
+}
+
+// getInstanceConfigs returns instance configurations from config or defaults.
+func (a *Agent) getInstanceConfigs() []InstanceConfig {
+	if len(a.config.Agent.Instances) > 0 {
+		instances := make([]InstanceConfig, len(a.config.Agent.Instances))
+		for i, inst := range a.config.Agent.Instances {
+			instances[i] = InstanceConfig{
+				Name:       inst.Name,
+				Connection: inst.Connection,
+			}
+		}
+		return instances
+	}
+
+	// Build default connection from main config
+	connStr := fmt.Sprintf("host=%s port=%d dbname=%s user=%s sslmode=%s",
+		a.config.Connection.Host,
+		a.config.Connection.Port,
+		a.config.Connection.Database,
+		a.config.Connection.User,
+		a.config.Connection.SSLMode,
+	)
+
+	return []InstanceConfig{{
+		Name:       "default",
+		Connection: connStr,
+	}}
+}
+
+// startCollectors initializes and starts all data collectors.
+func (a *Agent) startCollectors() error {
+	// Get default pool for single-instance mode
+	pool, ok := a.poolManager.GetDefault()
+	if !ok {
+		return fmt.Errorf("no PostgreSQL connection available")
+	}
+
+	intervals := a.config.Agent.Intervals
+	instanceName := "default"
+	if len(a.config.Agent.Instances) > 0 {
+		instanceName = a.config.Agent.Instances[0].Name
+	}
+
+	// Create collector coordinator
+	a.coordinator = NewCollectorCoordinator(pool, a.db, &a.config.Agent, a.statusStore, a.logger)
+
+	// Register collectors with configured intervals
+	a.coordinator.RegisterCollector(
+		collectors.NewActivityCollector(pool, a.db, intervals.Activity, instanceName),
+	)
+	a.coordinator.RegisterCollector(
+		collectors.NewQueriesCollector(pool, a.db, a.queryStore, intervals.Queries, instanceName),
+	)
+	a.coordinator.RegisterCollector(
+		collectors.NewReplicationCollector(pool, a.db, a.replicationStore, intervals.Replication, instanceName),
+	)
+	a.coordinator.RegisterCollector(
+		collectors.NewLocksCollector(pool, a.db, intervals.Locks, instanceName),
+	)
+	a.coordinator.RegisterCollector(
+		collectors.NewMetricsCollector(pool, a.db, intervals.Metrics, instanceName),
+	)
+
+	// Start all collectors
+	return a.coordinator.Start(a.ctx)
 }
 
 // Stop gracefully shuts down the agent.
@@ -117,6 +214,16 @@ func (a *Agent) Stop() error {
 
 	// Signal all goroutines to stop
 	a.cancel()
+
+	// Stop collector coordinator
+	if a.coordinator != nil {
+		a.coordinator.Stop()
+	}
+
+	// Close PostgreSQL connections
+	if a.poolManager != nil {
+		a.poolManager.Close()
+	}
 
 	// Wait for in-flight operations with timeout
 	done := make(chan struct{})
@@ -186,14 +293,9 @@ func (a *Agent) DB() *sql.DB {
 	return a.db
 }
 
-// getDBPath returns the path to the SQLite database.
-func getDBPath() string {
-	// Use the same database as the TUI
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "steep.db"
-	}
-	return fmt.Sprintf("%s/.config/steep/steep.db", homeDir)
+// getDBPath returns the path to the SQLite database using the config.
+func getDBPath(cfg *config.Config) string {
+	return fmt.Sprintf("%s/steep.db", cfg.Storage.GetDataPath())
 }
 
 // getPIDFilePath returns the path to the PID file.

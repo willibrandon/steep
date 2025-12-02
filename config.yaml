@@ -31,6 +31,11 @@ ui:
   date_format: "2006-01-02 15:04:05"
   query_timeout: 2m  # SQL Editor query timeout (default: 30s)
 
+# Data storage configuration
+storage:
+  data_path: ~/Library/Application Support/steep
+
+
 # Log viewer configuration
 logs:
   # How to read PostgreSQL log files: auto, filesystem, pg_read_file (default: auto)

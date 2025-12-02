@@ -57,19 +57,19 @@
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Implement collector coordinator in internal/agent/collector.go with goroutine management per research.md
-- [ ] T012 [P] [US1] Create activity collector goroutine in internal/agent/collectors/activity.go (reuse existing monitor)
-- [ ] T013 [P] [US1] Create queries collector goroutine in internal/agent/collectors/queries.go (reuse existing monitor)
-- [ ] T014 [P] [US1] Create replication collector goroutine in internal/agent/collectors/replication.go (reuse existing monitor)
-- [ ] T015 [P] [US1] Create locks collector goroutine in internal/agent/collectors/locks.go (reuse existing monitor)
-- [ ] T016 [P] [US1] Create metrics collector goroutine in internal/agent/collectors/metrics.go (reuse existing monitor)
-- [ ] T017 [US1] Implement PostgreSQL connection pooling with automatic reconnection in internal/agent/pool.go
-- [ ] T018 [US1] Implement configurable collection intervals per data type per cli-interface.md
-- [ ] T019 [US1] Update AgentStatus.last_collect timestamp on each successful collection cycle
-- [ ] T020 [US1] Implement `steep-agent run` command for foreground debugging in cmd/steep-agent/main.go
-- [ ] T021 [US1] Add --debug flag for verbose logging per cli-interface.md
-- [ ] T022 [US1] Add --config flag for custom config path per cli-interface.md
-- [ ] T023 [US1] Handle SIGINT/SIGTERM for clean foreground shutdown
+- [x] T011 [US1] Implement collector coordinator in internal/agent/collector.go with goroutine management per research.md
+- [x] T012 [P] [US1] Create activity collector goroutine in internal/agent/collectors/activity.go (reuse existing monitor)
+- [x] T013 [P] [US1] Create queries collector goroutine in internal/agent/collectors/queries.go (reuse existing monitor)
+- [x] T014 [P] [US1] Create replication collector goroutine in internal/agent/collectors/replication.go (reuse existing monitor)
+- [x] T015 [P] [US1] Create locks collector goroutine in internal/agent/collectors/locks.go (reuse existing monitor)
+- [x] T016 [P] [US1] Create metrics collector goroutine in internal/agent/collectors/metrics.go (reuse existing monitor)
+- [x] T017 [US1] Implement PostgreSQL connection pooling with automatic reconnection in internal/agent/pool.go
+- [x] T018 [US1] Implement configurable collection intervals per data type per cli-interface.md
+- [x] T019 [US1] Update AgentStatus.last_collect timestamp on each successful collection cycle
+- [x] T020 [US1] Implement `steep-agent run` command for foreground debugging in cmd/steep-agent/main.go
+- [x] T021 [US1] Add --debug flag for verbose logging per cli-interface.md
+- [x] T022 [US1] Add --config flag for custom config path per cli-interface.md
+- [x] T023 [US1] Handle SIGINT/SIGTERM for clean foreground shutdown
 
 **Checkpoint**: Agent can run in foreground and collect data continuously. Verify with `sqlite3 ~/.config/steep/steep.db "SELECT * FROM agent_status"`
 

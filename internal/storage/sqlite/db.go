@@ -68,3 +68,13 @@ func (db *DB) Conn() *sql.DB {
 func (db *DB) Path() string {
 	return db.path
 }
+
+// WrapConn wraps an existing sql.DB connection.
+// This is useful when the connection is managed externally.
+// Note: The caller is responsible for closing the connection.
+func WrapConn(conn *sql.DB) *DB {
+	return &DB{
+		conn: conn,
+		path: "",
+	}
+}

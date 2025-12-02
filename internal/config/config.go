@@ -12,6 +12,7 @@ import (
 // Config represents the root configuration structure
 type Config struct {
 	Connection  ConnectionConfig  `mapstructure:"connection"`
+	Storage     StorageConfig     `mapstructure:"storage"`
 	UI          UIConfig          `mapstructure:"ui"`
 	Queries     QueriesConfig     `mapstructure:"queries"`
 	Replication ReplicationConfig `mapstructure:"replication"`
@@ -20,6 +21,43 @@ type Config struct {
 	Agent       AgentConfig       `mapstructure:"agent"`
 	Debug       bool              `mapstructure:"debug"`
 	LogFile     string            `mapstructure:"log_file"`
+}
+
+// StorageConfig holds data storage configuration
+type StorageConfig struct {
+	// DataPath is the directory for steep's data files (SQLite database, etc.)
+	// Default: ~/.config/steep on Linux, ~/Library/Application Support/steep on macOS,
+	// %AppData%\steep on Windows
+	DataPath string `mapstructure:"data_path"`
+}
+
+// GetDataPath returns the configured data path, or the default if not set.
+func (c *StorageConfig) GetDataPath() string {
+	if c.DataPath != "" {
+		return expandTilde(c.DataPath)
+	}
+	return DefaultDataPath()
+}
+
+// expandTilde expands ~ to the user's home directory.
+func expandTilde(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return home + path[1:]
+	}
+	return path
+}
+
+// DefaultDataPath returns the platform-appropriate default data directory.
+func DefaultDataPath() string {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "."
+	}
+	return fmt.Sprintf("%s/steep", configDir)
 }
 
 // LogsConfig holds log viewer configuration
@@ -123,6 +161,9 @@ func createDefaultConfig() (*Config, error) {
 			SSLMode:      viper.GetString("connection.sslmode"),
 			PoolMaxConns: viper.GetInt("connection.pool_max_conns"),
 			PoolMinConns: viper.GetInt("connection.pool_min_conns"),
+		},
+		Storage: StorageConfig{
+			DataPath: viper.GetString("storage.data_path"),
 		},
 		UI: UIConfig{
 			Theme:           viper.GetString("ui.theme"),

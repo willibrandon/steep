@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/logger"
 )
 
@@ -429,11 +430,7 @@ func findExecutable(name string) string {
 
 // getSteepDBPath returns the path to steep.db.
 func getSteepDBPath() string {
-	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		return ""
-	}
-	return fmt.Sprintf("%s/steep/steep.db", cacheDir)
+	return fmt.Sprintf("%s/steep.db", config.DefaultDataPath())
 }
 
 // tryDockerLitecli attempts to create a Docker command for litecli.

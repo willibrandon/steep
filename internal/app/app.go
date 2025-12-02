@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -396,9 +395,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Initialize query stats storage
 		storagePath := m.config.Queries.StoragePath
 		if storagePath == "" {
-			// Use default cache directory
-			cacheDir, _ := os.UserCacheDir()
-			storagePath = fmt.Sprintf("%s/steep/steep.db", cacheDir)
+			// Use configured data path
+			storagePath = fmt.Sprintf("%s/steep.db", m.config.Storage.GetDataPath())
 		}
 		steepDB, err := sqlite.Open(storagePath)
 		if err != nil {
