@@ -474,8 +474,10 @@ func (v *SQLEditorView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				SortColumn:  -1, // No sort initially
 				SortAsc:     true,
 			}
-			v.selectedRow = -1 // No row selected initially
-			v.selectedCol = 0  // Default to first column when row is selected
+			// Pre-calculate column widths once (avoids O(rows*cols) lipgloss.Width calls on each render)
+			v.results.CalculateColWidths(32) // maxColWidth = 32
+			v.selectedRow = -1               // No row selected initially
+			v.selectedCol = 0                // Default to first column when row is selected
 			v.scrollOffset = 0
 			v.colScrollOffset = 0
 

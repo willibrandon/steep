@@ -2,40 +2,60 @@ package sqleditor
 
 import (
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
+	"unicode/utf8"
 )
 
 // padOrTruncate pads or truncates a string to the given display width.
-// Uses lipgloss.Width for proper unicode handling.
+// Uses rune count for width calculation (accurate for most Unicode).
 func padOrTruncate(s string, width int) string {
-	displayWidth := lipgloss.Width(s)
-	if displayWidth > width {
-		// Truncate by runes, not bytes
-		if width > 3 {
-			return truncateRunes(s, width-3) + "..."
+	// Fast path: ASCII-only strings can use byte length
+	if len(s) == utf8.RuneCountInString(s) {
+		// Pure ASCII
+		if len(s) > width {
+			if width > 3 {
+				return s[:width-3] + "..."
+			}
+			if width > 0 {
+				return s[:width]
+			}
+			return ""
 		}
-		return truncateRunes(s, width)
+		if len(s) < width {
+			return s + strings.Repeat(" ", width-len(s))
+		}
+		return s
 	}
-	return s + strings.Repeat(" ", width-displayWidth)
+
+	// Unicode path: use rune count
+	runeCount := utf8.RuneCountInString(s)
+	if runeCount > width {
+		// Truncate by runes
+		if width > 3 {
+			return truncateToRunes(s, width-3) + "..."
+		}
+		if width > 0 {
+			return truncateToRunes(s, width)
+		}
+		return ""
+	}
+	if runeCount < width {
+		return s + strings.Repeat(" ", width-runeCount)
+	}
+	return s
 }
 
-// truncateRunes truncates a string to n display characters.
-func truncateRunes(s string, n int) string {
+// truncateToRunes truncates a string to n runes.
+func truncateToRunes(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
 	runes := []rune(s)
-	width := 0
-	for i, r := range runes {
-		w := lipgloss.Width(string(r))
-		if width+w > n {
-			return string(runes[:i])
-		}
-		width += w
+	if len(runes) <= n {
+		return s
 	}
-	return s
+	return string(runes[:n])
 }
+
 
 // isSelectQuery checks if SQL is a SELECT-type query that returns rows.
 func isSelectQuery(sql string) bool {

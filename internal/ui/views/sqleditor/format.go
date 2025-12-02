@@ -61,11 +61,12 @@ func FormatValue(val any) string {
 
 	// Strings
 	case string:
-		return v
+		// Sanitize control characters that would break table layout
+		return sanitizeForDisplay(v)
 	case []byte:
 		// Check if it's printable text or binary
 		if isPrintable(v) {
-			return string(v)
+			return sanitizeForDisplay(string(v))
 		}
 		// Format as hex for binary data
 		return fmt.Sprintf("\\x%x", v)
@@ -155,7 +156,7 @@ func FormatValue(val any) string {
 	// Text types with explicit pgtype wrappers
 	case pgtype.Text:
 		if v.Valid {
-			return v.String
+			return sanitizeForDisplay(v.String)
 		}
 		return NullDisplayValue
 	case pgtype.Int2:
@@ -330,6 +331,44 @@ func isPrintable(b []byte) bool {
 		}
 	}
 	return true
+}
+
+// sanitizeForDisplay replaces control characters that would break table layout.
+// Newlines, tabs, and carriage returns are replaced with visible representations.
+func sanitizeForDisplay(s string) string {
+	// Fast path: if no control characters, return as-is
+	needsSanitize := false
+	for i := 0; i < len(s); i++ {
+		if s[i] < 32 {
+			needsSanitize = true
+			break
+		}
+	}
+	if !needsSanitize {
+		return s
+	}
+
+	// Replace control characters
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case '\n':
+			b.WriteString("↵")
+		case '\r':
+			// Skip carriage returns
+		case '\t':
+			b.WriteString(" ")
+		default:
+			if r < 32 {
+				// Replace other control chars with space
+				b.WriteString(" ")
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
 }
 
 // formatIntArray formats an int32 slice as PostgreSQL array.

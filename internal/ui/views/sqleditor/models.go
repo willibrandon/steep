@@ -24,6 +24,7 @@ type ResultSet struct {
 	ExecutionMs int64      // Query execution time in milliseconds
 	SortColumn  int        // Currently sorted column (-1 for none)
 	SortAsc     bool       // Sort direction (true = ascending)
+	ColWidths   []int      // Cached display widths for each column
 }
 
 // Column represents a result column.
@@ -77,6 +78,69 @@ func (r *ResultSet) EndRow() int {
 		end = r.TotalRows
 	}
 	return end
+}
+
+// CalculateColWidths calculates and caches display widths for all columns.
+// Uses rune count for accurate Unicode width calculation.
+// Should be called once when results are created, not on every render.
+// maxColWidth caps individual column widths to prevent excessive widths.
+func (r *ResultSet) CalculateColWidths(maxColWidth int) {
+	if len(r.Columns) == 0 {
+		r.ColWidths = nil
+		return
+	}
+
+	r.ColWidths = make([]int, len(r.Columns))
+
+	// Calculate header widths first
+	for i, col := range r.Columns {
+		// Build header text
+		headerText := col.Name
+		if col.TypeName != "" {
+			headerText = headerText + " (" + col.TypeName + ")"
+		}
+		// Add space for sort indicator
+		headerText += " ↑"
+		r.ColWidths[i] = runeCount(headerText)
+		if r.ColWidths[i] < 3 {
+			r.ColWidths[i] = 3
+		}
+	}
+
+	// Check all rows for max widths
+	for _, row := range r.Rows {
+		for i, val := range row {
+			w := runeCount(val)
+			if i < len(r.ColWidths) && w > r.ColWidths[i] {
+				r.ColWidths[i] = w
+			}
+		}
+	}
+
+	// Cap each column to maxColWidth
+	for i := range r.ColWidths {
+		if r.ColWidths[i] > maxColWidth {
+			r.ColWidths[i] = maxColWidth
+		}
+	}
+}
+
+// runeCount returns the rune count of a string.
+// Fast path for ASCII-only strings.
+func runeCount(s string) int {
+	n := len(s)
+	// Fast path: if byte length equals potential rune count, it's ASCII
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 128 {
+			// Contains non-ASCII, need to count runes
+			count := 0
+			for range s {
+				count++
+			}
+			return count
+		}
+	}
+	return n
 }
 
 // TransactionStateType represents the transaction state for display.

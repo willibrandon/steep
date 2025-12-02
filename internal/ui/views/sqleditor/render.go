@@ -82,7 +82,8 @@ func (v *SQLEditorView) View() string {
 	// Footer with key hints
 	sections = append(sections, v.renderFooter())
 
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	// Use strings.Join instead of lipgloss.JoinVertical for performance
+	return strings.Join(sections, "\n")
 }
 
 // renderTitle renders the view title (styled like other views).
@@ -119,9 +120,7 @@ func (v *SQLEditorView) renderEditor() string {
 
 // renderResults renders the query results table.
 func (v *SQLEditorView) renderResults() string {
-	resultsHeight := v.resultsHeight()
-
-	// Title bar
+	// Title bar (known to be 1 line)
 	title := "Results"
 	if v.focus == FocusResults {
 		title = styles.AccentStyle.Render("● ") + title
@@ -139,8 +138,7 @@ func (v *SQLEditorView) renderResults() string {
 	titleBar := styles.TitleStyle.Render(title)
 
 	// Calculate resultsHeaderHeight for mouse coordinate translation
-	// Title bar + content header (scroll info + header with border + separator)
-	titleBarHeight := lipgloss.Height(titleBar)
+	// Title bar (1) + content header (scroll info + header with border + separator)
 	contentHeaderHeight := 0
 	if v.results != nil && v.results.TotalRows > 0 && len(v.results.Columns) > 0 {
 		// Results table has: optional scroll info + header row (with bottom border = 2 lines) + separator
@@ -150,14 +148,13 @@ func (v *SQLEditorView) renderResults() string {
 			contentHeaderHeight++ // scroll info line ("Cols X-Y of Z")
 		}
 	}
-	v.resultsHeaderHeight = titleBarHeight + contentHeaderHeight
+	v.resultsHeaderHeight = 1 + contentHeaderHeight // titleBar is always 1 line
 
-	// Content
+	// Content - renderResultsTable already produces exact number of lines needed
 	var content string
 	if v.executing {
 		content = styles.ExecutingStyle.Render("Executing query...")
 	} else if v.lastError != nil {
-		// Use enhanced error formatting with position info
 		content = v.renderError()
 	} else if v.results == nil || v.results.TotalRows == 0 {
 		if v.executedQuery != "" {
@@ -173,34 +170,17 @@ func (v *SQLEditorView) renderResults() string {
 		content = v.renderResultsTable()
 	}
 
-	// Pagination footer (always reserve space if multiple pages)
-	var footer string
+	// Pagination footer
 	hasMultiplePages := v.results != nil && v.results.TotalPages() > 1
+
+	// Simple string concatenation instead of lipgloss.JoinVertical (much faster)
 	if hasMultiplePages {
-		footer = styles.PaginationStyle.Render(
+		footer := styles.PaginationStyle.Render(
 			fmt.Sprintf("Page %d/%d (n/p to navigate)",
 				v.results.CurrentPage, v.results.TotalPages()))
+		return titleBar + "\n" + content + "\n" + footer
 	}
-
-	// Calculate content height (reserve 1 line for footer if needed)
-	contentHeight := resultsHeight - 1 // -1 for title bar
-	if hasMultiplePages {
-		contentHeight-- // reserve line for pagination footer
-	}
-
-	// Constrain content to available height
-	constrainedContent := lipgloss.NewStyle().
-		Height(contentHeight).
-		MaxHeight(contentHeight).
-		Render(content)
-
-	// Combine with footer OUTSIDE the constrained area
-	result := lipgloss.JoinVertical(lipgloss.Left, titleBar, constrainedContent)
-	if footer != "" {
-		result = lipgloss.JoinVertical(lipgloss.Left, result, footer)
-	}
-
-	return result
+	return titleBar + "\n" + content
 }
 
 // renderResultsTable renders the results as a table.
@@ -213,39 +193,12 @@ func (v *SQLEditorView) renderResultsTable() string {
 
 	totalCols := len(v.results.Columns)
 
-	// Calculate column widths for ALL columns first (for stability)
-	allColWidths := make([]int, totalCols)
-	for i, col := range v.results.Columns {
-		// Build full header text to measure
-		headerText := col.Name
-		if col.TypeName != "" {
-			headerText = fmt.Sprintf("%s (%s)", col.Name, col.TypeName)
-		}
-		// Add sort indicator for sorted column
-		if v.results.SortColumn == i {
-			headerText += " ↑" // Use actual arrow to measure correctly
-		}
-		allColWidths[i] = lipgloss.Width(headerText)
-		if allColWidths[i] < 3 {
-			allColWidths[i] = 3
-		}
-	}
-
-	for _, row := range v.results.Rows {
-		for i, val := range row {
-			valWidth := lipgloss.Width(val)
-			if i < len(allColWidths) && valWidth > allColWidths[i] {
-				allColWidths[i] = valWidth
-			}
-		}
-	}
-
-	// Cap each column to a reasonable max width
-	maxColWidth := 32
-	for i := range allColWidths {
-		if allColWidths[i] > maxColWidth {
-			allColWidths[i] = maxColWidth
-		}
+	// Use pre-calculated column widths (calculated once when results arrive)
+	allColWidths := v.results.ColWidths
+	if len(allColWidths) == 0 {
+		// Fallback if not calculated (shouldn't happen, but safe)
+		v.results.CalculateColWidths(32)
+		allColWidths = v.results.ColWidths
 	}
 
 	// Apply horizontal scroll offset
