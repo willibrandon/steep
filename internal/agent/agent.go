@@ -33,6 +33,9 @@ type Agent struct {
 	// Collector coordinator
 	coordinator *CollectorCoordinator
 
+	// Retention manager for automatic data pruning
+	retentionManager *RetentionManager
+
 	// SQLite stores for data persistence
 	replicationStore *sqlite.ReplicationStore
 	queryStore       *sqlite.QueryStatsStore
@@ -139,6 +142,10 @@ func (a *Agent) Start() error {
 		return fmt.Errorf("failed to start collectors: %w", err)
 	}
 
+	// Start retention manager for automatic data pruning
+	a.retentionManager = NewRetentionManager(a.db, &a.config.Agent.Retention, a.logger, a.debug)
+	a.retentionManager.Start()
+
 	return nil
 }
 
@@ -214,6 +221,11 @@ func (a *Agent) Stop() error {
 
 	// Signal all goroutines to stop
 	a.cancel()
+
+	// Stop retention manager
+	if a.retentionManager != nil {
+		a.retentionManager.Stop()
+	}
 
 	// Stop collector coordinator
 	if a.coordinator != nil {

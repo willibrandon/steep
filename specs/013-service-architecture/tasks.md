@@ -128,12 +128,12 @@
 
 ### Implementation for User Story 4
 
-- [ ] T043 [US4] Implement retention manager in internal/agent/retention.go with hourly ticker per research.md
-- [ ] T044 [US4] Implement per-data-type pruning with DELETE LIMIT to avoid long transactions
-- [ ] T045 [US4] Add default retention periods (activity: 24h, queries: 7d, replication: 24h, locks: 24h, metrics: 24h)
-- [ ] T046 [US4] Parse retention configuration from config.yaml per cli-interface.md
-- [ ] T047 [US4] Run initial prune on agent startup for data exceeding retention
-- [ ] T048 [US4] Ensure pruning does not block concurrent TUI reads (WAL mode handles this)
+- [x] T043 [US4] Implement retention manager in internal/agent/retention.go with hourly ticker per research.md
+- [x] T044 [US4] Implement per-data-type pruning with DELETE LIMIT to avoid long transactions
+- [x] T045 [US4] Add default retention periods (activity: 24h, queries: 7d, replication: 24h, locks: 24h, metrics: 24h)
+- [x] T046 [US4] Parse retention configuration from config.yaml per cli-interface.md
+- [x] T047 [US4] Run initial prune on agent startup for data exceeding retention
+- [x] T048 [US4] Ensure pruning does not block concurrent TUI reads (WAL mode handles this)
 
 **Checkpoint**: Database size remains stable over time, old data automatically removed
 
