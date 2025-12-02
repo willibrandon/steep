@@ -378,9 +378,22 @@ func (se *SessionExecutor) executeStatement(ctx context.Context, sql string) (*E
 	}
 
 	if se.txState.Active && se.tx != nil {
+		// Enable logging for this query so it appears in query stats
+		// (Steep's connection pool disables logging to prevent feedback loop,
+		// but SQL editor queries should be logged for user visibility)
+		_, _ = se.tx.Exec(ctx, "SET log_min_duration_statement = 0")
 		rows, err = se.tx.Query(ctx, sql)
 	} else {
-		rows, err = se.pool.Query(ctx, sql)
+		// For non-transaction queries, acquire a connection and enable logging
+		conn, connErr := se.pool.Acquire(ctx)
+		if connErr != nil {
+			return &ExecutionResult{Error: connErr}, nil
+		}
+		defer conn.Release()
+
+		// Enable logging for this query
+		_, _ = conn.Exec(ctx, "SET log_min_duration_statement = 0")
+		rows, err = conn.Query(ctx, sql)
 	}
 
 	if err != nil {

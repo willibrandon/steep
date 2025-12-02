@@ -83,16 +83,16 @@
 
 ### Implementation for User Story 2
 
-- [ ] T024 [US2] Implement kardianos/service wrapper in internal/agent/service.go per research.md
-- [ ] T025 [US2] Implement service.Program interface (Start/Stop methods) in internal/agent/service.go
-- [ ] T026 [US2] Implement `steep-agent install` command with --user flag per cli-interface.md
-- [ ] T027 [US2] Implement `steep-agent uninstall` command per cli-interface.md
-- [ ] T028 [US2] Implement `steep-agent start` command per cli-interface.md
-- [ ] T029 [US2] Implement `steep-agent stop` command per cli-interface.md
-- [ ] T030 [US2] Implement `steep-agent restart` command per cli-interface.md
-- [ ] T031 [US2] Implement `steep-agent status` command with human-readable and --json output per cli-interface.md
-- [ ] T032 [US2] Configure automatic restart on crash via service manager (exponential backoff in service config)
-- [ ] T033 [US2] Implement proper exit codes per cli-interface.md (0=success, 1=permission denied, 2=service exists, etc.)
+- [x] T024 [US2] Implement kardianos/service wrapper in internal/agent/service.go per research.md
+- [x] T025 [US2] Implement service.Program interface (Start/Stop methods) in internal/agent/service.go
+- [x] T026 [US2] Implement `steep-agent install` command with --user flag per cli-interface.md
+- [x] T027 [US2] Implement `steep-agent uninstall` command per cli-interface.md
+- [x] T028 [US2] Implement `steep-agent start` command per cli-interface.md
+- [x] T029 [US2] Implement `steep-agent stop` command per cli-interface.md
+- [x] T030 [US2] Implement `steep-agent restart` command per cli-interface.md
+- [x] T031 [US2] Implement `steep-agent status` command with human-readable and --json output per cli-interface.md
+- [x] T032 [US2] Configure automatic restart on crash via service manager (exponential backoff in service config)
+- [x] T033 [US2] Implement proper exit codes per cli-interface.md (0=success, 1=permission denied, 2=service exists, etc.)
 
 **Checkpoint**: Service can be installed, started, stopped, and survives system reboot
 

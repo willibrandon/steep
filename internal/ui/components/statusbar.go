@@ -30,6 +30,10 @@ type StatusBar struct {
 
 	// Chart visibility
 	chartsVisible bool
+
+	// Agent mode (client mode)
+	agentMode       bool
+	agentLastCollect time.Time
 }
 
 // NewStatusBar creates a new status bar component
@@ -85,6 +89,17 @@ func (s *StatusBar) SetReadOnly(readOnly bool) {
 // SetChartsVisible sets the chart visibility state
 func (s *StatusBar) SetChartsVisible(visible bool) {
 	s.chartsVisible = visible
+}
+
+// SetAgentStatus sets the agent running status and last collection time
+func (s *StatusBar) SetAgentStatus(running bool, lastCollect time.Time) {
+	s.agentMode = running
+	s.agentLastCollect = lastCollect
+}
+
+// UpdateAgentLastCollect updates the last collection timestamp
+func (s *StatusBar) UpdateAgentLastCollect(lastCollect time.Time) {
+	s.agentLastCollect = lastCollect
 }
 
 // View renders the status bar
@@ -149,12 +164,21 @@ func (s *StatusBar) View() string {
 		chartsSection = " | " + styles.MutedStyle.Render("Charts OFF")
 	}
 
+	// Agent status indicator (always shown)
+	var agentSection string
+	if s.agentMode {
+		agentSection = " | " + styles.StatusConnectedStyle.Render("Agent: Running")
+	} else {
+		agentSection = " | " + styles.MutedStyle.Render("Agent: Stopped")
+	}
+
 	// Build status line
-	statusLine := fmt.Sprintf("%s | %s | %s%s%s%s%s",
+	statusLine := fmt.Sprintf("%s | %s | %s%s%s%s%s%s",
 		statusIndicator,
 		dbName,
 		timestamp,
 		metricsSection,
+		agentSection,
 		debugSection,
 		readOnlySection,
 		chartsSection,

@@ -53,21 +53,28 @@ func NewQueryStatsStore(db *DB) *QueryStatsStore {
 }
 
 // Upsert inserts a new query stat or updates an existing one.
-func (s *QueryStatsStore) Upsert(ctx context.Context, fingerprint uint64, query string, durationMs float64, rows int64, sampleParams string) error {
+// When calls > 0, it uses the provided value directly (from pg_stat_statements).
+// When calls == 0, it increments by 1 (for sampled queries from pg_stat_activity).
+func (s *QueryStatsStore) Upsert(ctx context.Context, fingerprint uint64, query string, calls int64, totalTimeMs float64, meanTimeMs float64, rows int64, sampleParams string) error {
 	// Convert uint64 to int64 for SQLite (preserves bit pattern)
 	fpInt := int64(fingerprint)
+
+	// Use a single SQL statement with CASE expressions to handle both modes:
+	// - calls > 0: use exact values from pg_stat_statements (absolute values)
+	// - calls = 0: increment by 1 and accumulate times (sampling mode)
 	_, err := s.db.conn.ExecContext(ctx, `
 		INSERT INTO query_stats (fingerprint, normalized_query, calls, total_time_ms, min_time_ms, max_time_ms, total_rows, last_seen, sample_params)
-		VALUES (?, ?, 1, ?, ?, ?, ?, datetime('now'), ?)
+		VALUES (?, ?, CASE WHEN ? > 0 THEN ? ELSE 1 END, ?, ?, ?, ?, datetime('now'), ?)
 		ON CONFLICT(fingerprint) DO UPDATE SET
-			calls = calls + 1,
-			total_time_ms = total_time_ms + excluded.total_time_ms,
-			min_time_ms = MIN(COALESCE(min_time_ms, excluded.min_time_ms), excluded.min_time_ms),
-			max_time_ms = MAX(COALESCE(max_time_ms, excluded.max_time_ms), excluded.max_time_ms),
-			total_rows = total_rows + excluded.total_rows,
+			calls = CASE WHEN ? > 0 THEN ? ELSE query_stats.calls + 1 END,
+			total_time_ms = CASE WHEN ? > 0 THEN ? ELSE query_stats.total_time_ms + excluded.total_time_ms END,
+			min_time_ms = MIN(COALESCE(query_stats.min_time_ms, excluded.min_time_ms), excluded.min_time_ms),
+			max_time_ms = MAX(COALESCE(query_stats.max_time_ms, excluded.max_time_ms), excluded.max_time_ms),
+			total_rows = CASE WHEN ? > 0 THEN ? ELSE query_stats.total_rows + excluded.total_rows END,
 			last_seen = datetime('now'),
-			sample_params = COALESCE(excluded.sample_params, sample_params)
-	`, fpInt, query, durationMs, durationMs, durationMs, rows, sampleParams)
+			sample_params = COALESCE(excluded.sample_params, query_stats.sample_params)
+	`, fpInt, query, calls, calls, totalTimeMs, meanTimeMs, meanTimeMs, rows, sampleParams,
+		calls, calls, calls, totalTimeMs, calls, rows)
 	return err
 }
 

@@ -41,6 +41,9 @@ type Model struct {
 	// Configuration
 	config *config.Config
 
+	// Agent status (refreshed periodically)
+	agentStatus *AgentStatusInfo
+
 	// Program reference for sending messages from goroutines
 	program *tea.Program
 
@@ -124,10 +127,19 @@ type Model struct {
 	// Alert system
 	alertEngine *alerts.Engine
 	alertStore  *sqlite.AlertStore
+
+}
+
+// AgentStatusInfo holds agent status for display in the status bar.
+type AgentStatusInfo struct {
+	Running     bool
+	PID         int
+	Version     string
+	LastCollect time.Time
 }
 
 // New creates a new application model
-func New(readonly bool, configPath string) (*Model, error) {
+func New(readonly bool, configPath string, agentStatus *AgentStatusInfo) (*Model, error) {
 	// Load configuration
 	cfg, err := config.LoadConfigFromPath(configPath)
 	if err != nil {
@@ -138,6 +150,11 @@ func New(readonly bool, configPath string) (*Model, error) {
 	statusBar.SetDatabase(cfg.Connection.Database)
 	statusBar.SetDateFormat(cfg.UI.DateFormat)
 	statusBar.SetReadOnly(readonly)
+
+	// Set agent status in status bar if provided
+	if agentStatus != nil {
+		statusBar.SetAgentStatus(agentStatus.Running, agentStatus.LastCollect)
+	}
 
 	// Initialize dashboard view
 	dashboard := views.NewDashboard()
@@ -202,6 +219,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 
 	return &Model{
 		config:            cfg,
+		agentStatus:       agentStatus,
 		keys:              ui.DefaultKeyMap(),
 		help:              components.NewHelp(),
 		statusBar:         statusBar,
@@ -240,14 +258,18 @@ func (m *Model) MetricsCollector() *metrics.Collector {
 // Init initializes the application
 func (m Model) Init() tea.Cmd {
 	logger.Debug("app: Init called - starting up")
-	return tea.Batch(
-		connectToDatabase(m.config),
+
+	// Initialize view components and connect to database
+	cmds := []tea.Cmd{
 		tickStatusBar(),
 		m.locksView.Init(),
 		m.queriesView.Init(),
 		m.tablesView.Init(),
 		m.sqlEditorView.Init(),
-	)
+		connectToDatabase(m.config),
+	}
+
+	return tea.Batch(cmds...)
 }
 
 // Update handles messages and updates the model
@@ -457,11 +479,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				RetentionDays:   m.config.Queries.RetentionDays,
 			}
 			m.queryMonitor = querymonitor.NewMonitor(msg.Pool, m.queryStatsStore, monitorConfig)
-			_ = m.queryMonitor.Start(context.Background())
+			// Configure monitor once (runs SHOW queries) - this sets loggingChecked=true
+			// so subsequent Start/Stop cycles won't re-run these queries
+			_ = m.queryMonitor.Configure(ctx)
 
-			// Check logging status and show dialog if disabled
-			status, err := m.queryMonitor.CheckLoggingStatus(ctx)
-			if err == nil && !status.Enabled {
+			// Only start collection if agent is not running (avoids double counting)
+			if !IsAgentHealthy(m.config, m.agentStatus) {
+				_ = m.queryMonitor.Start(context.Background())
+			} else {
+				logger.Info("app: agent is running and healthy, skipping TUI query collection")
+				m.queryMonitor.SetAgentMode()
+			}
+
+			// Check if logging is disabled and show dialog
+			if !m.queryMonitor.IsLoggingEnabled(ctx) {
 				m.queriesView.SetLoggingDisabled()
 			}
 
@@ -613,7 +644,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.configTickCounter++
 		m.deadlockTickCounter++
 
-		// Fetch all data together for synchronized updates
+		// Refresh agent status every tick to update "(Xs ago)" in status bar
+		if m.agentStatus != nil {
+			newStatus := CheckAgentStatus(m.config)
+			wasHealthy := IsAgentHealthy(m.config, m.agentStatus)
+			isHealthy := IsAgentHealthy(m.config, newStatus)
+			m.agentStatus = newStatus
+			m.statusBar.SetAgentStatus(newStatus.Running, newStatus.LastCollect)
+
+			// Start/stop TUI query monitor based on agent health changes
+			if m.queryMonitor != nil {
+				if wasHealthy && !isHealthy {
+					// Agent became unhealthy - TUI takes over collection
+					logger.Info("app: agent became unhealthy, starting TUI query collection")
+					_ = m.queryMonitor.Start(context.Background())
+				} else if !wasHealthy && isHealthy {
+					// Agent became healthy - TUI stops collection, switches to agent mode
+					logger.Info("app: agent became healthy, stopping TUI query collection")
+					m.queryMonitor.Stop()
+					m.queryMonitor.SetAgentMode()
+				}
+			}
+		}
+
+		// Fetch data from PostgreSQL
 		if m.connected && m.activityMonitor != nil && m.statsMonitor != nil {
 			cmds := []tea.Cmd{
 				fetchActivityData(m.activityMonitor),
@@ -761,8 +815,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case queriesview.EnableLoggingResultMsg:
 		// Forward to queries view and restart monitor
 		m.queriesView.Update(msg)
-		if msg.Success && m.queryMonitor != nil {
-			// Restart monitor to use log collector
+		if msg.Success && m.queryMonitor != nil && !IsAgentHealthy(m.config, m.agentStatus) {
+			// Restart monitor to use log collector (only if agent is not running)
 			m.queryMonitor.Stop()
 			_ = m.queryMonitor.Start(context.Background())
 		}

@@ -431,6 +431,8 @@ func fetchQueryStats(store *sqlite.QueryStatsStore, monitor *querymonitor.Monito
 			switch monitor.DataSource() {
 			case querymonitor.DataSourceLogParsing:
 				dataSource = queriesview.DataSourceLogParsing
+			case querymonitor.DataSourceAgent:
+				dataSource = queriesview.DataSourceAgent
 			default:
 				dataSource = queriesview.DataSourceSampling
 			}
@@ -614,3 +616,4 @@ func reloadConfig(pool *pgxpool.Pool) tea.Cmd {
 		}
 	}
 }
+

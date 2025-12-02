@@ -62,6 +62,7 @@ type DataSourceType int
 const (
 	DataSourceSampling DataSourceType = iota
 	DataSourceLogParsing
+	DataSourceAgent // Agent is collecting data, TUI just reads from SQLite
 )
 
 // QueriesDataMsg contains query stats data from the monitor.
@@ -978,9 +979,12 @@ func (v *QueriesView) renderStatusBar() string {
 
 	// Data source indicator
 	var dataSourceIndicator string
-	if v.dataSource == DataSourceLogParsing {
+	switch v.dataSource {
+	case DataSourceLogParsing:
 		dataSourceIndicator = styles.InfoStyle.Render(" [LOG]")
-	} else {
+	case DataSourceAgent:
+		dataSourceIndicator = styles.SuccessStyle.Render(" [AGENT]")
+	default:
 		dataSourceIndicator = styles.DimStyle.Render(" [SAMPLE]")
 	}
 

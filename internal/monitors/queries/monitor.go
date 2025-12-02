@@ -23,6 +23,7 @@ type DataSourceType int
 const (
 	DataSourceSampling DataSourceType = iota
 	DataSourceLogParsing
+	DataSourceAgent // Agent is collecting data, TUI just reads from SQLite
 )
 
 // MonitorStatus represents the current status of the monitor.
@@ -75,10 +76,11 @@ type Monitor struct {
 	config      MonitorConfig
 
 	// State
-	status       MonitorStatus
-	dataSource   DataSourceType
-	accessMethod LogAccessMethod
-	cancel       context.CancelFunc
+	status          MonitorStatus
+	dataSource      DataSourceType
+	accessMethod    LogAccessMethod
+	cancel          context.CancelFunc
+	loggingChecked  bool // Track if we've already checked logging status
 }
 
 // NewMonitor creates a new query monitor.
@@ -93,18 +95,29 @@ func NewMonitor(pool *pgxpool.Pool, store *sqlite.QueryStatsStore, config Monito
 	}
 }
 
-// Start begins monitoring queries.
-func (m *Monitor) Start(ctx context.Context) error {
-	ctx, m.cancel = context.WithCancel(ctx)
-	m.status = MonitorStatusRunning
-
-	// Check logging status and auto-detect log directory/pattern
+// Configure checks logging status and configures the monitor without starting collection.
+// Call this once at startup to avoid running SHOW queries on every Start/Stop cycle.
+func (m *Monitor) Configure(ctx context.Context) error {
+	if m.loggingChecked {
+		return nil
+	}
 	status, err := m.CheckLoggingStatus(ctx)
 	if err == nil && status.Enabled && status.LogDir != "" {
 		m.config.LogDir = status.LogDir
 		m.config.LogPattern = status.LogPattern
 		m.config.LogLinePrefix = status.LogLinePrefix
 	}
+	m.loggingChecked = true
+	return err
+}
+
+// Start begins monitoring queries.
+func (m *Monitor) Start(ctx context.Context) error {
+	ctx, m.cancel = context.WithCancel(ctx)
+	m.status = MonitorStatusRunning
+
+	// Configure if not already done (should be called separately at startup)
+	_ = m.Configure(ctx)
 
 	// Determine data source and access method
 	if m.config.LogDir != "" && m.config.LogPattern != "" {
@@ -311,6 +324,13 @@ func (m *Monitor) DataSource() DataSourceType {
 	return m.dataSource
 }
 
+// SetAgentMode sets the monitor to agent mode, indicating the steep-agent is
+// collecting data and the TUI should just read from SQLite without collecting.
+func (m *Monitor) SetAgentMode() {
+	m.dataSource = DataSourceAgent
+	m.status = MonitorStatusRunning
+}
+
 // startSamplingCollector starts collecting via pg_stat_activity polling.
 func (m *Monitor) startSamplingCollector(ctx context.Context) error {
 	collector := NewSamplingCollector(m.pool, m.config.RefreshInterval)
@@ -386,8 +406,8 @@ func (m *Monitor) processEvent(ctx context.Context, event QueryEvent) {
 		}
 	}
 
-	// Store in database
-	_ = m.store.Upsert(ctx, fingerprint, normalized, event.DurationMs, rows, sampleParams)
+	// Store in database (calls=0 triggers increment behavior for log-parsed queries)
+	_ = m.store.Upsert(ctx, fingerprint, normalized, 0, event.DurationMs, event.DurationMs, rows, sampleParams)
 }
 
 // estimateRows runs EXPLAIN to get estimated row count for a query.
@@ -734,12 +754,25 @@ func (m *Monitor) ResetPositions() {
 // ParseWithProgress parses log files with progress reporting via callback.
 // The callback is called with (currentFile, totalFiles) for each file processed.
 func (m *Monitor) ParseWithProgress(ctx context.Context, progressCallback func(current, total int)) {
+	// Determine access method if not already set (allows calling before Start)
+	accessMethod := m.accessMethod
 	if m.dataSource != DataSourceLogParsing {
-		return
+		// Check if we can use log parsing
+		if m.config.LogDir == "" || m.config.LogPattern == "" {
+			return
+		}
+		// Try filesystem access first
+		if _, statErr := os.Stat(m.config.LogDir); statErr == nil {
+			accessMethod = LogAccessFileSystem
+		} else if pgErr := m.canUsePgReadFile(ctx, m.config.LogDir); pgErr == nil {
+			accessMethod = LogAccessPgReadFile
+		} else {
+			return // Neither access method works
+		}
 	}
 
 	// Create a temporary collector to parse files
-	collector := NewLogCollector(m.config.LogDir, m.config.LogPattern, m.config.LogLinePrefix, m.store, m.pool, m.accessMethod)
+	collector := NewLogCollector(m.config.LogDir, m.config.LogPattern, m.config.LogLinePrefix, m.store, m.pool, accessMethod)
 
 	// Get list of log files
 	files, err := collector.findLogFiles()

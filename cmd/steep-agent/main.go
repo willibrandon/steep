@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/willibrandon/steep/internal/agent"
 	"github.com/willibrandon/steep/internal/config"
+	"github.com/willibrandon/steep/internal/logger"
 )
 
 var (
@@ -92,6 +93,14 @@ func runForeground() error {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 		os.Exit(agent.ExitConfigError)
 	}
+
+	// Initialize logger
+	logLevel := logger.LevelInfo
+	if debug {
+		logLevel = logger.LevelDebug
+	}
+	logger.InitLogger(logLevel, cfg.LogFile)
+	defer logger.Close()
 
 	// Create agent
 	a, err := agent.New(cfg, debug)

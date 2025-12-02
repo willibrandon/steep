@@ -3,19 +3,28 @@ package collectors
 import (
 	"context"
 	"database/sql"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/willibrandon/steep/internal/logger"
+	"github.com/willibrandon/steep/internal/monitors/queries"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 )
 
-// QueriesCollector collects query statistics using the existing query monitor infrastructure.
+// QueriesCollector collects query statistics using the same approach as the TUI.
+// It delegates to the queries.Monitor which uses log parsing or pg_stat_activity sampling.
 type QueriesCollector struct {
 	pool         *pgxpool.Pool
 	sqliteDB     *sql.DB
 	store        *sqlite.QueryStatsStore
 	interval     time.Duration
 	instanceName string
+
+	// The actual monitor that does the work (same as TUI uses)
+	monitor *queries.Monitor
+	started bool
+	mu      sync.Mutex
 }
 
 // NewQueriesCollector creates a new queries collector.
@@ -39,132 +48,42 @@ func (c *QueriesCollector) Interval() time.Duration {
 	return c.interval
 }
 
-// Collect fetches query statistics from pg_stat_statements if available.
-// This collector samples currently running queries and stores them for analysis.
+// Collect starts the query monitor on first call, then does nothing.
+// The monitor handles its own collection loop internally.
 func (c *QueriesCollector) Collect(ctx context.Context) error {
-	// Check if pg_stat_statements is available
-	if !c.hasPgStatStatements(ctx) {
-		// Fall back to sampling from pg_stat_activity
-		return c.collectFromActivity(ctx)
-	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	return c.collectFromStatStatements(ctx)
-}
+	// Start monitor on first call
+	if !c.started {
+		logger.Info("queries_collector: starting query monitor")
 
-// hasPgStatStatements checks if the pg_stat_statements extension is available.
-func (c *QueriesCollector) hasPgStatStatements(ctx context.Context) bool {
-	var count int
-	err := c.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM pg_extension WHERE extname = 'pg_stat_statements'
-	`).Scan(&count)
-	return err == nil && count > 0
-}
-
-// collectFromStatStatements collects from pg_stat_statements extension.
-func (c *QueriesCollector) collectFromStatStatements(ctx context.Context) error {
-	rows, err := c.pool.Query(ctx, `
-		SELECT
-			queryid,
-			query,
-			calls,
-			total_exec_time,
-			mean_exec_time,
-			rows,
-			shared_blks_hit,
-			shared_blks_read
-		FROM pg_stat_statements
-		WHERE query NOT LIKE '%pg_stat_statements%'
-		ORDER BY total_exec_time DESC
-		LIMIT 100
-	`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var (
-			queryID       int64
-			query         string
-			calls         int64
-			totalExecTime float64
-			meanExecTime  float64
-			rowCount      int64
-			blksHit       int64
-			blksRead      int64
-		)
-
-		err := rows.Scan(&queryID, &query, &calls, &totalExecTime, &meanExecTime, &rowCount, &blksHit, &blksRead)
-		if err != nil {
-			continue
+		// Create monitor config
+		config := queries.MonitorConfig{
+			RefreshInterval:   c.interval,
+			RetentionDays:     7,
+			AutoEnableLogging: false, // Don't prompt in agent mode
 		}
 
-		// Store the query stats
-		if c.store != nil {
-			fingerprint := formatQueryID(queryID)
-			_ = c.store.Upsert(ctx, fingerprint, query, meanExecTime, rowCount, "")
+		// Create the monitor (same as TUI uses)
+		c.monitor = queries.NewMonitor(c.pool, c.store, config)
+
+		// Configure first - exactly like TUI does
+		logger.Debug("queries_collector: calling Configure()")
+		_ = c.monitor.Configure(context.Background())
+
+		// Start monitoring - this loads saved positions and continues from where it left off
+		// (same as TUI normal startup, NOT the manual reset which uses ParseWithProgress)
+		logger.Debug("queries_collector: calling Start()")
+		if err := c.monitor.Start(context.Background()); err != nil {
+			logger.Error("queries_collector: Start() failed", "error", err)
+			return err
 		}
+		logger.Info("queries_collector: started successfully")
+		c.started = true
 	}
 
-	return rows.Err()
-}
-
-// collectFromActivity samples currently running queries from pg_stat_activity.
-func (c *QueriesCollector) collectFromActivity(ctx context.Context) error {
-	rows, err := c.pool.Query(ctx, `
-		SELECT
-			pid,
-			query,
-			EXTRACT(EPOCH FROM (now() - query_start)) * 1000 as duration_ms,
-			state
-		FROM pg_stat_activity
-		WHERE state = 'active'
-			AND query NOT LIKE '%pg_stat_activity%'
-			AND pid != pg_backend_pid()
-		ORDER BY query_start
-		LIMIT 50
-	`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var (
-			pid        int
-			query      string
-			durationMs float64
-			state      string
-		)
-
-		err := rows.Scan(&pid, &query, &durationMs, &state)
-		if err != nil {
-			continue
-		}
-
-		// Store sampled query
-		if c.store != nil && query != "" {
-			fingerprint := hashQuery(query)
-			_ = c.store.Upsert(ctx, fingerprint, query, durationMs, 0, "")
-		}
-	}
-
-	return rows.Err()
-}
-
-// formatQueryID converts a pg_stat_statements queryid to uint64 fingerprint.
-func formatQueryID(queryID int64) uint64 {
-	// queryID is already a unique hash from PostgreSQL
-	return uint64(queryID)
-}
-
-// hashQuery creates a simple hash for query fingerprinting.
-func hashQuery(query string) uint64 {
-	// Simple FNV-1a hash
-	var h uint64 = 14695981039346656037
-	for i := 0; i < len(query); i++ {
-		h ^= uint64(query[i])
-		h *= 1099511628211
-	}
-	return h
+	// The monitor handles its own collection loop internally.
+	// Nothing to do here on subsequent calls.
+	return nil
 }

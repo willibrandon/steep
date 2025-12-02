@@ -23,16 +23,16 @@ func TestQueryStatsStore_Cleanup(t *testing.T) {
 	store := sqlite.NewQueryStatsStore(db)
 	ctx := context.Background()
 
-	// Insert some query stats
-	err = store.Upsert(ctx, 1, "SELECT 1", 10.0, 1, "")
+	// Insert some query stats (calls=0 triggers increment behavior)
+	err = store.Upsert(ctx, 1, "SELECT 1", 0, 10.0, 10.0, 1, "")
 	if err != nil {
 		t.Fatalf("Failed to insert query 1: %v", err)
 	}
-	err = store.Upsert(ctx, 2, "SELECT 2", 20.0, 2, "")
+	err = store.Upsert(ctx, 2, "SELECT 2", 0, 20.0, 20.0, 2, "")
 	if err != nil {
 		t.Fatalf("Failed to insert query 2: %v", err)
 	}
-	err = store.Upsert(ctx, 3, "SELECT 3", 30.0, 3, "")
+	err = store.Upsert(ctx, 3, "SELECT 3", 0, 30.0, 30.0, 3, "")
 	if err != nil {
 		t.Fatalf("Failed to insert query 3: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestQueryStatsStore_Cleanup_NoOldRecords(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert fresh records
-	err = store.Upsert(ctx, 1, "SELECT 1", 10.0, 1, "")
+	err = store.Upsert(ctx, 1, "SELECT 1", 0, 10.0, 10.0, 1, "")
 	if err != nil {
 		t.Fatalf("Failed to insert: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestQueryStatsStore_Cleanup_BoundaryCondition(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert record
-	err = store.Upsert(ctx, 1, "SELECT 1", 10.0, 1, "")
+	err = store.Upsert(ctx, 1, "SELECT 1", 0, 10.0, 10.0, 1, "")
 	if err != nil {
 		t.Fatalf("Failed to insert: %v", err)
 	}

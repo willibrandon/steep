@@ -36,7 +36,7 @@ func TestPerformance_QueryExecution(t *testing.T) {
 		query := "SELECT * FROM table" + string(rune('A'+i%26)) + " WHERE id = $1"
 		duration := float64(i%100) + 1.0
 		rows := int64(i % 50)
-		if err := store.Upsert(ctx, fingerprint, query, duration, rows, ""); err != nil {
+		if err := store.Upsert(ctx, fingerprint, query, 0, duration, duration, rows, ""); err != nil {
 			t.Fatalf("Failed to insert test data: %v", err)
 		}
 	}
@@ -78,7 +78,7 @@ func TestPerformance_QueryExecution(t *testing.T) {
 	// Benchmark Upsert - should complete in <100ms
 	t.Run("Upsert", func(t *testing.T) {
 		start := time.Now()
-		err := store.Upsert(ctx, 9999, "SELECT 1", 10.0, 1, "")
+		err := store.Upsert(ctx, 9999, "SELECT 1", 0, 10.0, 10.0, 1, "")
 		elapsed := time.Since(start)
 
 		if err != nil {
@@ -208,7 +208,7 @@ func BenchmarkQueryStatsStore_GetTopQueries(b *testing.B) {
 	for i := range 1000 {
 		fingerprint := uint64(i + 1)
 		query := "SELECT * FROM table WHERE id = $1"
-		if err := store.Upsert(ctx, fingerprint, query, float64(i), int64(i%10), ""); err != nil {
+		if err := store.Upsert(ctx, fingerprint, query, 0, float64(i), float64(i), int64(i%10), ""); err != nil {
 			b.Fatalf("Failed to insert test data: %v", err)
 		}
 	}
@@ -240,7 +240,7 @@ func BenchmarkQueryStatsStore_Upsert(b *testing.B) {
 	for i := 0; b.Loop(); i++ {
 		fingerprint := uint64(i % 100)
 		query := "SELECT * FROM table WHERE id = $1"
-		if err := store.Upsert(ctx, fingerprint, query, float64(i), int64(i%10), ""); err != nil {
+		if err := store.Upsert(ctx, fingerprint, query, 0, float64(i), float64(i), int64(i%10), ""); err != nil {
 			b.Fatalf("Upsert failed: %v", err)
 		}
 	}
@@ -274,7 +274,7 @@ func BenchmarkQueryStatsStore_SearchQueries(b *testing.B) {
 		default:
 			query = "UPDATE products SET price = $1 WHERE id = $2"
 		}
-		if err := store.Upsert(ctx, fingerprint, query, float64(i), int64(i%10), ""); err != nil {
+		if err := store.Upsert(ctx, fingerprint, query, 0, float64(i), float64(i), int64(i%10), ""); err != nil {
 			b.Fatalf("Failed to insert test data: %v", err)
 		}
 	}

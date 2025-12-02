@@ -29,7 +29,7 @@ func NewSamplingCollector(pool *pgxpool.Pool, interval time.Duration) *SamplingC
 	return &SamplingCollector{
 		pool:          pool,
 		interval:      interval,
-		events:        make(chan QueryEvent, 100),
+		events:        make(chan QueryEvent, 10000),
 		activeQueries: make(map[int32]queryInfo),
 	}
 }
