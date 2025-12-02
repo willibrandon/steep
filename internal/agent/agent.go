@@ -59,7 +59,7 @@ func New(cfg *config.Config, debug bool) (*Agent, error) {
 		cancel:  cancel,
 		debug:   debug,
 		logger:  log.New(os.Stdout, "[steep-agent] ", log.LstdFlags),
-		pidFile: getPIDFilePath(),
+		pidFile: getPIDFilePath(cfg),
 	}
 
 	// Compute config hash for drift detection
@@ -298,13 +298,9 @@ func getDBPath(cfg *config.Config) string {
 	return fmt.Sprintf("%s/steep.db", cfg.Storage.GetDataPath())
 }
 
-// getPIDFilePath returns the path to the PID file.
-func getPIDFilePath() string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "steep-agent.pid"
-	}
-	return fmt.Sprintf("%s/.config/steep/steep-agent.pid", homeDir)
+// getPIDFilePath returns the path to the PID file using the config storage path.
+func getPIDFilePath(cfg *config.Config) string {
+	return fmt.Sprintf("%s/steep-agent.pid", cfg.Storage.GetDataPath())
 }
 
 // computeConfigHash generates a hash of the agent configuration for drift detection.

@@ -14,6 +14,7 @@ require (
 	github.com/guptarohit/asciigraph v0.7.3
 	github.com/hinshun/vt10x v0.0.0-20220301184237-5011da428d02
 	github.com/jackc/pgx/v5 v5.7.6
+	github.com/kardianos/service v1.2.4
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/mitchellh/go-wordwrap v1.0.1
