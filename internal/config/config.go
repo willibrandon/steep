@@ -17,6 +17,7 @@ type Config struct {
 	Replication ReplicationConfig `mapstructure:"replication"`
 	Logs        LogsConfig        `mapstructure:"logs"`
 	Alerts      AlertsConfig      `mapstructure:"alerts"`
+	Agent       AgentConfig       `mapstructure:"agent"`
 	Debug       bool              `mapstructure:"debug"`
 	LogFile     string            `mapstructure:"log_file"`
 }
@@ -140,6 +141,7 @@ func createDefaultConfig() (*Config, error) {
 			HistoryRetention: viper.GetDuration("alerts.history_retention"),
 			Rules:            []AlertRuleConfig{},
 		},
+		Agent:   DefaultAgentConfig(),
 		Debug:   viper.GetBool("debug"),
 		LogFile: viper.GetString("log_file"),
 	}
@@ -252,6 +254,11 @@ func ValidateConfig(cfg *Config) error {
 		return err
 	}
 
+	// Validate agent config
+	if err := ValidateAgentConfig(&cfg.Agent); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -342,4 +349,20 @@ func applyDefaults() {
 
 	// Log file default (empty = ~/.config/steep/steep.log)
 	viper.SetDefault("log_file", "")
+
+	// Agent defaults
+	viper.SetDefault("agent.enabled", true)
+	viper.SetDefault("agent.intervals.activity", "2s")
+	viper.SetDefault("agent.intervals.queries", "5s")
+	viper.SetDefault("agent.intervals.replication", "2s")
+	viper.SetDefault("agent.intervals.locks", "2s")
+	viper.SetDefault("agent.intervals.tables", "30s")
+	viper.SetDefault("agent.intervals.metrics", "1s")
+	viper.SetDefault("agent.retention.activity_history", "24h")
+	viper.SetDefault("agent.retention.query_stats", "168h") // 7 days
+	viper.SetDefault("agent.retention.replication_lag", "24h")
+	viper.SetDefault("agent.retention.lock_history", "24h")
+	viper.SetDefault("agent.retention.metrics", "24h")
+	viper.SetDefault("agent.alerts.enabled", false)
+	viper.SetDefault("agent.alerts.webhook_url", "")
 }

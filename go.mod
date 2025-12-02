@@ -19,6 +19,7 @@ require (
 	github.com/mitchellh/go-wordwrap v1.0.1
 	github.com/pganalyze/pg_query_go/v6 v6.1.0
 	github.com/sethvargo/go-password v0.3.1
+	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.18.2
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/xlab/treeprint v1.2.0
@@ -34,6 +35,7 @@ require (
 	atomicgo.dev/schedule v0.1.0 // indirect
 	github.com/containerd/console v1.0.5 // indirect
 	github.com/gookit/color v1.5.4 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/lithammer/fuzzysearch v1.1.8 // indirect
 )
 
@@ -104,7 +106,7 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/spf13/cast v1.6.0 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect

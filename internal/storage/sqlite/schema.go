@@ -176,5 +176,31 @@ func (db *DB) initSchema() error {
 	// Migration: drop deprecated keyed_metrics_history table if it exists
 	_, _ = db.conn.Exec("DROP TABLE IF EXISTS keyed_metrics_history")
 
+	// Migration: add instance_name column to tables for multi-instance agent support
+	// All existing data gets instance_name='default'
+	instanceNameMigrations := []string{
+		"ALTER TABLE query_stats ADD COLUMN instance_name TEXT NOT NULL DEFAULT 'default'",
+		"ALTER TABLE deadlock_events ADD COLUMN instance_name TEXT NOT NULL DEFAULT 'default'",
+		"ALTER TABLE replication_lag_history ADD COLUMN instance_name TEXT NOT NULL DEFAULT 'default'",
+		"ALTER TABLE metrics_history ADD COLUMN instance_name TEXT NOT NULL DEFAULT 'default'",
+		"ALTER TABLE alert_events ADD COLUMN instance_name TEXT NOT NULL DEFAULT 'default'",
+	}
+	for _, migration := range instanceNameMigrations {
+		// Ignore errors (column may already exist)
+		_, _ = db.conn.Exec(migration)
+	}
+
+	// Create indexes for efficient instance-based queries
+	instanceNameIndexes := []string{
+		"CREATE INDEX IF NOT EXISTS idx_query_stats_instance ON query_stats(instance_name)",
+		"CREATE INDEX IF NOT EXISTS idx_deadlock_events_instance_time ON deadlock_events(instance_name, detected_at DESC)",
+		"CREATE INDEX IF NOT EXISTS idx_replication_lag_instance_time ON replication_lag_history(instance_name, timestamp DESC)",
+		"CREATE INDEX IF NOT EXISTS idx_metrics_history_instance_time ON metrics_history(instance_name, timestamp)",
+		"CREATE INDEX IF NOT EXISTS idx_alert_events_instance_time ON alert_events(instance_name, triggered_at DESC)",
+	}
+	for _, idx := range instanceNameIndexes {
+		_, _ = db.conn.Exec(idx)
+	}
+
 	return nil
 }

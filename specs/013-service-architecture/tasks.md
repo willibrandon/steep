@@ -25,10 +25,10 @@
 
 **Purpose**: Project initialization and dependency management
 
-- [ ] T001 Add kardianos/service v1.2.x dependency via `go get github.com/kardianos/service`
-- [ ] T002 [P] Create cmd/steep-agent/ directory structure
-- [ ] T003 [P] Create internal/agent/ directory structure
-- [ ] T004 Update Makefile with `steep-agent` build target
+- [x] T001 Add kardianos/service v1.2.x dependency via `go get github.com/kardianos/service`
+- [x] T002 [P] Create cmd/steep-agent/ directory structure
+- [x] T003 [P] Create internal/agent/ directory structure
+- [x] T004 Update Makefile with `steep-agent` build target
 
 ---
 
@@ -38,12 +38,12 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Add agent configuration section parsing in internal/config/config.go (intervals, retention, instances, alerts)
-- [ ] T006 [P] Create AgentStatus entity and SQLite table in internal/agent/status.go per data-model.md
-- [ ] T007 [P] Create AgentInstance entity and SQLite table in internal/agent/instance.go per data-model.md
-- [ ] T008 Add instance_name column migration to existing tables (activity_snapshots, query_stats, replication_lag_history, lock_snapshots, deadlock_events, metrics_history, alert_events)
-- [ ] T009 Create base agent struct and lifecycle methods in internal/agent/agent.go (New, Start, Stop, Shutdown)
-- [ ] T010 Implement PID file management (create, read, remove) in internal/agent/pidfile.go
+- [x] T005 Add agent configuration section parsing in internal/config/config.go (intervals, retention, instances, alerts)
+- [x] T006 [P] Create AgentStatus entity and SQLite table in internal/agent/status.go per data-model.md
+- [x] T007 [P] Create AgentInstance entity and SQLite table in internal/agent/instance.go per data-model.md
+- [x] T008 Add instance_name column migration to existing tables (activity_snapshots, query_stats, replication_lag_history, lock_snapshots, deadlock_events, metrics_history, alert_events)
+- [x] T009 Create base agent struct and lifecycle methods in internal/agent/agent.go (New, Start, Stop, Shutdown)
+- [x] T010 Implement PID file management (create, read, remove) in internal/agent/pidfile.go
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 

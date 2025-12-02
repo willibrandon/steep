@@ -1,12 +1,13 @@
-.PHONY: build test test-short test-integration test-coverage bench clean run run-dev help
+.PHONY: build build-agent build-all test test-short test-integration test-coverage bench clean run run-dev run-agent help
 
 # Force cmd.exe on Windows to avoid shell inconsistencies
 ifeq ($(OS),Windows_NT)
     SHELL := cmd.exe
 endif
 
-# Binary name
+# Binary names
 BINARY_NAME=steep
+AGENT_BINARY_NAME=steep-agent
 
 # Build directory
 BUILD_DIR=bin
@@ -28,7 +29,7 @@ endif
 help: ## Display this help screen
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-build: ## Build the application
+build: ## Build the TUI application
 	@echo "Building $(BINARY_NAME)..."
 ifeq ($(OS),Windows_NT)
 	@if not exist $(BUILD_DIR) mkdir $(BUILD_DIR)
@@ -37,6 +38,18 @@ else
 endif
 	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) cmd/steep/main.go
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT)"
+
+build-agent: ## Build the agent daemon
+	@echo "Building $(AGENT_BINARY_NAME)..."
+ifeq ($(OS),Windows_NT)
+	@if not exist $(BUILD_DIR) mkdir $(BUILD_DIR)
+else
+	@mkdir -p $(BUILD_DIR)
+endif
+	$(GOBUILD) -o $(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) cmd/steep-agent/main.go
+	@echo "Build complete: $(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT)"
+
+build-all: build build-agent ## Build both TUI and agent
 
 test: ## Run all tests
 	@echo "Running tests..."
@@ -84,5 +97,9 @@ run: build ## Build and run the application
 run-dev: build ## Run with local config.yaml and debug (for Docker replication testing)
 	@echo "Running $(BINARY_NAME) with local config and debug..."
 	@PGPASSWORD=postgres $(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) --config ./config.yaml --debug
+
+run-agent: build-agent ## Run agent in foreground with debug
+	@echo "Running $(AGENT_BINARY_NAME) in foreground..."
+	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run --debug
 
 .DEFAULT_GOAL := help
