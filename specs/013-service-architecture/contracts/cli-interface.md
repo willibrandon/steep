@@ -151,40 +151,26 @@ Run agent in foreground (not as service). Useful for debugging.
 
 ---
 
-## steep TUI Flags (Additions)
+## steep TUI Agent Detection
 
-### `steep [flags]`
+The TUI automatically detects agent presence and coordinates data collection. No explicit flags are required.
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--standalone` | bool | false | Force standalone mode (ignore agent) |
-| `--client` | bool | false | Force client mode (require agent) |
-
-**Mode Detection Logic** (when neither flag provided):
+**Detection Logic**:
 1. Check for PID file at `~/.config/steep/steep-agent.pid`
 2. Verify process is running (kill -0 equivalent)
 3. Query `agent_status` table for `last_collect` freshness
-4. If agent healthy → client mode
-5. Otherwise → standalone mode
+4. If agent healthy (last_collect within 2x interval) → use agent data, stop TUI log collection
+5. Otherwise → TUI collects data directly via log parsing
 
-**Client Mode Behavior**:
-- No PostgreSQL connection pool created initially
-- Monitoring data read from SQLite only
-- SQL Editor and maintenance ops still connect to PostgreSQL on demand
-- Status bar shows "Agent: Connected" with last collect timestamp
+**Runtime Coordination**:
+- TUI periodically checks agent health (every 5 seconds)
+- When agent becomes healthy, TUI stops its own log collection
+- When agent stops, TUI resumes direct log collection
+- Transition is seamless with no user intervention required
 
-**Error Messages**:
-
-```
-# --client flag but agent not running
-Error: steep-agent is not running.
-
-To start the agent:
-  steep-agent start
-
-Or run in standalone mode:
-  steep --standalone
-```
+**Status Indicators**:
+- Status bar shows "Agent: Running" or "Agent: Stopped"
+- Queries view header shows data source: [AGENT], [LOG], or [SAMPLE]
 
 ---
 

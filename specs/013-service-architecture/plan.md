@@ -5,7 +5,7 @@
 
 ## Summary
 
-Implement a background daemon (steep-agent) that continuously collects PostgreSQL monitoring data and persists to SQLite, enabling 24/7 data collection independent of TUI runtime. The TUI gains dual-mode operation: standalone (current behavior) or client mode (reading from agent-maintained SQLite). Uses kardianos/service for cross-platform service management (Windows Services, systemd, launchd).
+Implement a background daemon (steep-agent) that continuously collects PostgreSQL monitoring data and persists to SQLite, enabling 24/7 data collection independent of TUI runtime. The TUI automatically detects the agent and coordinates data collection, switching seamlessly between direct log collection and agent-provided data. Uses kardianos/service for cross-platform service management (Windows Services, systemd, launchd).
 
 ## Technical Context
 
@@ -23,7 +23,7 @@ Implement a background daemon (steep-agent) that continuously collects PostgreSQ
 **Project Type**: Single project with new entry point (cmd/steep-agent/)
 **Performance Goals**:
 - Agent 99.9% uptime over 7-day period
-- TUI startup in client mode < 500ms
+- TUI startup with agent detection < 500ms
 - Graceful shutdown < 5 seconds
 - PostgreSQL reconnection < 30 seconds after outage
 
@@ -44,7 +44,7 @@ Implement a background daemon (steep-agent) that continuously collects PostgreSQ
 
 | Principle | Status | Notes |
 |-----------|--------|-------|
-| I. Real-Time First | ✅ PASS | Agent collects at configurable intervals (1-30s); TUI in client mode reads fresh SQLite data |
+| I. Real-Time First | ✅ PASS | Agent collects at configurable intervals (1-30s); TUI auto-detects agent and reads fresh SQLite data |
 | II. Keyboard-Driven Interface | ✅ PASS | No UI changes to keyboard navigation; status bar addition follows existing patterns |
 | III. Query Efficiency (NON-NEGOTIABLE) | ✅ PASS | Reuses existing optimized monitors; no new PostgreSQL queries |
 | IV. Incremental Delivery | ✅ PASS | 8 user stories with P1/P2/P3 priorities; P1 delivers core agent value independently |
@@ -71,8 +71,7 @@ specs/013-service-architecture/
 
 ```text
 cmd/
-├── steep/               # Existing TUI entry point
-│   └── main.go          # Modified: add --standalone, --client flags, agent detection
+├── steep/               # Existing TUI entry point (unchanged - agent detection in app.go)
 └── steep-agent/         # NEW: Agent daemon entry point
     └── main.go          # Cobra CLI: install, uninstall, start, stop, restart, status, run
 
@@ -84,7 +83,7 @@ internal/
 │   ├── config.go        # Agent-specific configuration parsing
 │   └── retention.go     # Data retention/pruning logic
 ├── app/
-│   └── app.go           # Modified: add client mode support, agent detection
+│   └── app.go           # Modified: add agent detection and collection coordination
 ├── monitors/            # REUSE: Existing monitors unchanged
 ├── storage/sqlite/      # REUSE: Existing SQLite stores unchanged
 ├── config/

@@ -11,7 +11,7 @@
 
 As a DBA, I want monitoring data to be collected continuously even when the TUI is not running, so I have historical data available when I open Steep.
 
-**Why this priority**: This is the core value proposition of the agent architecture. Without continuous collection, there's no benefit over the current standalone TUI mode. Historical data continuity enables better trend analysis, overnight issue detection, and complete metrics baselines.
+**Why this priority**: This is the core value proposition of the agent architecture. Without continuous collection, there's no benefit over the current TUI-only approach. Historical data continuity enables better trend analysis, overnight issue detection, and complete metrics baselines.
 
 **Independent Test**: Can be fully tested by running steep-agent in foreground mode, closing it, then verifying SQLite contains timestamped data from the collection period. Delivers immediate value by providing historical context when TUI opens.
 
@@ -41,21 +41,21 @@ As a DBA, I want to install steep-agent as a system service (systemd/launchd/Win
 
 ---
 
-### User Story 3 - Dual-Mode TUI Operation (Priority: P1)
+### User Story 3 - Automatic Agent/TUI Coordination (Priority: P1)
 
-As a DBA, I want the TUI to work in both standalone mode (current behavior) and client mode (reading from agent-maintained SQLite) so I can choose the deployment that fits my needs.
+As a DBA, I want the TUI to automatically detect when the agent is running and coordinate data collection to avoid conflicts, so I don't have to manually manage modes.
 
-**Why this priority**: Backward compatibility is essential. Users who prefer the current standalone behavior should not be forced to run an agent. The TUI must gracefully support both modes.
+**Why this priority**: Seamless coordination is essential for good user experience. The TUI should "just work" whether the agent is running or not, without requiring explicit flags or configuration.
 
-**Independent Test**: Can be tested by running TUI with `--standalone` flag (connects directly to PostgreSQL) and `--client` flag (reads from SQLite only). Both modes should display monitoring data appropriately.
+**Independent Test**: Start TUI alone (collects via log parsing), start agent, verify TUI switches to agent mode and stops its own collection. Stop agent, verify TUI resumes its own collection.
 
 **Acceptance Scenarios**:
 
-1. **Given** steep-agent is running, **When** I run `steep` without flags, **Then** the TUI auto-detects the agent and operates in client mode showing "Agent: Connected" in status bar
-2. **Given** steep-agent is not running, **When** I run `steep` without flags, **Then** the TUI falls back to standalone mode and connects directly to PostgreSQL
-3. **Given** I run `steep --standalone`, **When** steep-agent is running, **Then** the TUI ignores the agent and connects directly to PostgreSQL
-4. **Given** I run `steep --client`, **When** steep-agent is not running, **Then** the TUI displays a helpful error message explaining how to start the agent
-5. **Given** TUI is running in client mode, **When** I view the status bar, **Then** it shows "Agent: Connected" with last collection timestamp
+1. **Given** steep-agent is running, **When** I run `steep`, **Then** the TUI auto-detects the agent and shows "Agent: Running" in status bar
+2. **Given** steep-agent is not running, **When** I run `steep`, **Then** the TUI collects data directly via log parsing and shows "Agent: Stopped" in status bar
+3. **Given** TUI is running with agent healthy, **When** the agent stops, **Then** the TUI detects this within 10 seconds and resumes its own log collection
+4. **Given** TUI is collecting data directly, **When** the agent starts, **Then** the TUI detects this within 10 seconds and stops its own collection
+5. **Given** TUI is running with agent healthy, **When** I view the queries view header, **Then** it shows [AGENT] to indicate data source
 
 ---
 
@@ -133,7 +133,7 @@ As a DBA, I want to query steep-agent status and health from the TUI so I can ve
 
 **Acceptance Scenarios**:
 
-1. **Given** TUI is running in client mode, **When** I check the status bar, **Then** I see agent uptime and last collection timestamp
+1. **Given** TUI is running with agent healthy, **When** I check the status bar, **Then** I see agent uptime and last collection timestamp
 2. **Given** agent is experiencing collection errors, **When** I view agent health in TUI, **Then** I see error counts and most recent error messages
 3. **Given** agent is healthy, **When** I run `steep-agent status`, **Then** I see running state, PID, uptime, connected instances, and last successful collection time
 
@@ -168,10 +168,10 @@ As a DBA, I want to query steep-agent status and health from the TUI so I can ve
 - **FR-008**: Agent MUST implement graceful shutdown completing in-flight writes
 - **FR-009**: Agent MUST support monitoring multiple PostgreSQL instances from single daemon
 - **FR-010**: Agent MUST implement configurable data retention with automatic pruning
-- **FR-011**: TUI MUST support `--standalone` flag to force direct PostgreSQL connection
-- **FR-012**: TUI MUST support `--client` flag to force agent-dependent mode
-- **FR-013**: TUI MUST auto-detect agent presence when no mode flag is provided
-- **FR-014**: TUI MUST display agent connection status in status bar when in client mode
+- **FR-011**: TUI MUST auto-detect agent presence on startup and periodically during runtime
+- **FR-012**: TUI MUST switch between agent mode and direct log collection automatically based on agent health
+- **FR-013**: TUI MUST display agent status (Running/Stopped) in status bar
+- **FR-014**: TUI MUST display data source indicator ([AGENT]/[LOG]/[SAMPLE]) in queries view header
 - **FR-015**: Agent MUST support foreground run mode for debugging (`steep-agent run`)
 - **FR-016**: Agent MUST restart automatically on crash with exponential backoff
 - **FR-017**: Agent MUST log collection errors without crashing
@@ -190,7 +190,7 @@ As a DBA, I want to query steep-agent status and health from the TUI so I can ve
 ### Measurable Outcomes
 
 - **SC-001**: Agent maintains 99.9% uptime over a 7-day period under normal operating conditions
-- **SC-002**: TUI startup in client mode completes in under 500ms (no PostgreSQL connection required)
+- **SC-002**: TUI startup completes in under 500ms with agent health check
 - **SC-003**: Historical data is available for the configured retention period with no gaps longer than 2x collection interval
 - **SC-004**: Service installation completes successfully on all three platforms (Windows, macOS, Linux)
 - **SC-005**: Agent recovers from PostgreSQL outage within 30 seconds of connectivity restoration

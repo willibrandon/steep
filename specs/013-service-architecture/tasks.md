@@ -98,25 +98,25 @@
 
 ---
 
-## Phase 5: User Story 3 - Dual-Mode TUI Operation (Priority: P1)
+## Phase 5: User Story 3 - Automatic Agent/TUI Coordination (Priority: P1)
 
-**Goal**: TUI works in standalone mode (current) and client mode (reads from agent SQLite)
+**Goal**: TUI automatically detects agent presence and coordinates data collection to avoid conflicts
 
-**Independent Test**: Run TUI with --standalone (direct PG connection) and --client (SQLite only), both display data
+**Independent Test**: Start TUI alone (collects via log parsing), start agent, verify TUI switches to agent mode and stops its own collection
 
 ### Implementation for User Story 3
 
-- [ ] T034 [US3] Add --standalone and --client flags to cmd/steep/main.go per cli-interface.md
-- [ ] T035 [US3] Implement agent detection logic in internal/app/detection.go per research.md (PID file + process check + last_collect freshness)
-- [ ] T036 [US3] Implement client mode data provider in internal/app/client_provider.go (reads from SQLite only)
-- [ ] T037 [US3] Modify internal/app/app.go to support dual-mode initialization based on detection result
-- [ ] T038 [US3] Skip PostgreSQL connection pool creation in client mode (monitoring data only)
-- [ ] T039 [US3] Add "Agent: Connected" indicator to status bar in internal/ui/components/statusbar.go
-- [ ] T040 [US3] Display last collection timestamp in status bar when in client mode
-- [ ] T041 [US3] Implement helpful error message when --client used but agent not running per cli-interface.md
-- [ ] T042 [US3] Ensure SQL Editor still connects to PostgreSQL on-demand in client mode
+- [x] T034 [US3] Implement agent detection logic in internal/app/detection.go (PID file + process check + last_collect freshness)
+- [x] T035 [US3] Add IsAgentHealthy() and GetAgentStatus() functions for health checking
+- [x] T036 [US3] Modify internal/app/app.go to auto-switch between agent mode and direct log collection
+- [x] T037 [US3] TUI stops its own log collection when agent is healthy, resumes when agent stops
+- [x] T038 [US3] Add "Agent: Running/Stopped" indicator to bottom status bar
+- [x] T039 [US3] Add [AGENT]/[LOG]/[SAMPLE] data source indicator to queries view header
+- [x] T040 [US3] Fix log position persistence on context cancellation to prevent double-counting on mode switch
+- [x] T041 [US3] Strip LIMIT/OFFSET from query fingerprints for SQL editor pagination compatibility
+- [x] T042 [US3] Enable query logging for SQL editor queries via SET log_min_duration_statement
 
-**Checkpoint**: TUI correctly auto-detects agent presence and operates in appropriate mode
+**Checkpoint**: TUI correctly auto-detects agent presence and seamlessly switches collection modes
 
 ---
 
@@ -205,7 +205,7 @@
 ### Implementation for User Story 8
 
 - [ ] T067 [US8] Enhance `steep-agent status` to show connected instances, error counts, last errors
-- [ ] T068 [US8] Add agent uptime to status bar in TUI client mode
+- [ ] T068 [US8] Add agent uptime to status bar in TUI when agent is healthy
 - [ ] T069 [US8] Track and expose collection error counts in agent_status table
 - [ ] T070 [US8] Display most recent error message in status output
 - [ ] T071 [US8] Add health check endpoint in agent_status table (healthy if last_collect within 2x interval)

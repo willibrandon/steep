@@ -5,10 +5,10 @@
 
 ## Overview
 
-This feature adds a background daemon (`steep-agent`) that collects PostgreSQL monitoring data continuously, independent of whether the TUI is running. The TUI can operate in two modes:
+This feature adds a background daemon (`steep-agent`) that collects PostgreSQL monitoring data continuously, independent of whether the TUI is running. The TUI automatically detects the agent and coordinates data collection:
 
-- **Standalone Mode**: Current behavior - TUI connects directly to PostgreSQL
-- **Client Mode**: TUI reads from agent-maintained SQLite database
+- **Without Agent**: TUI collects data directly via log parsing (shows [LOG] indicator)
+- **With Agent**: TUI uses agent-collected data and stops its own collection (shows [AGENT] indicator)
 
 ## Prerequisites
 
@@ -83,25 +83,31 @@ log show --predicate 'subsystem == "steep-agent"' --last 1h  # macOS
 
 ## Usage Patterns
 
-### Standalone Mode (No Agent)
+### Without Agent
 
 ```bash
-# Explicit standalone (ignores running agent)
-./bin/steep --standalone
-
-# Auto-detect (uses standalone if no agent running)
+# TUI collects data directly via log parsing
+# Shows [LOG] indicator in queries view header
 ./bin/steep
 ```
 
-### Client Mode (With Agent)
+### With Agent
 
 ```bash
-# Require agent (fails if not running)
-./bin/steep --client
+# Start agent first
+./bin/steep-agent start
 
-# Auto-detect (uses client mode if agent healthy)
+# TUI auto-detects agent and uses its data
+# Shows [AGENT] indicator in queries view header
 ./bin/steep
 ```
+
+### Seamless Transitions
+
+The TUI automatically handles agent start/stop:
+- Start agent while TUI running → TUI switches to [AGENT] mode
+- Stop agent while TUI running → TUI resumes [LOG] mode
+- No manual intervention or restarts required
 
 ### Multi-Instance Monitoring
 
@@ -177,4 +183,4 @@ sqlite3 ~/.config/steep/steep.db "SELECT * FROM agent_instances"
 | `internal/agent/service.go` | kardianos/service integration |
 | `internal/agent/retention.go` | Data retention/pruning |
 | `internal/config/config.go` | Agent config parsing (modified) |
-| `internal/app/app.go` | TUI client mode support (modified) |
+| `internal/app/app.go` | TUI agent detection and coordination (modified) |

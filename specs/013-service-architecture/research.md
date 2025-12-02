@@ -85,11 +85,11 @@ type AgentStatus struct {
 ```
 
 **Detection Algorithm (TUI)**:
-1. Check if `--standalone` or `--client` flag provided → use explicit mode
-2. Read PID file → check if process exists (kill -0 or equivalent)
-3. If process exists, query `steep_agent_status` table for freshness
-4. If last_collect within 2x collection interval → agent healthy, use client mode
-5. Otherwise → fall back to standalone mode
+1. Read PID file → check if process exists (kill -0 or equivalent)
+2. If process exists, query `agent_status` table for freshness
+3. If last_collect within 2x collection interval → agent healthy, use agent data
+4. Otherwise → TUI collects data directly via log parsing
+5. Repeat check periodically (every 5 seconds) to handle agent start/stop
 
 **Alternatives Considered**:
 | Alternative | Rejected Because |
@@ -215,27 +215,29 @@ func (a *Agent) Shutdown() {
 
 ---
 
-### 6. Client Mode TUI Behavior
+### 6. TUI Agent Coordination Behavior
 
-**Decision**: Read-only SQLite access, no PostgreSQL connection required
+**Decision**: Automatic mode switching with seamless transitions
 
 **Rationale**:
-- Faster startup (no connection establishment)
-- Lower resource usage (no connection pool)
-- Agent handles all data collection
-- TUI becomes pure viewer of SQLite data
+- No explicit flags needed - "it just works"
+- Seamless transitions when agent starts/stops
+- TUI always maintains PostgreSQL connection for interactive features
+- Agent handles data collection when healthy, TUI resumes when agent stops
 
-**Behavior Changes in Client Mode**:
-| Feature | Standalone Mode | Client Mode |
-|---------|-----------------|-------------|
-| PostgreSQL connection | Required | Not required |
-| Data collection | TUI-driven | Agent-driven |
-| SQLite access | Read-write | Read-only |
-| Kill connection (x key) | Direct pg_cancel_backend | Via agent (future) or disabled |
-| SQL Editor | Direct execution | Direct execution (still needs PG) |
-| Maintenance ops | Direct execution | Direct execution (still needs PG) |
+**Behavior Based on Agent Health**:
+| Feature | Without Agent | With Agent |
+|---------|---------------|------------|
+| PostgreSQL connection | Required | Required |
+| Query data collection | TUI via log parsing | Agent (TUI stops collection) |
+| SQLite access | Read-write | Read-write |
+| Kill connection (x key) | Direct pg_cancel_backend | Direct pg_cancel_backend |
+| SQL Editor | Direct execution | Direct execution |
+| Maintenance ops | Direct execution | Direct execution |
+| Status bar indicator | "Agent: Stopped" | "Agent: Running" |
+| Query view indicator | [LOG] or [SAMPLE] | [AGENT] |
 
-**Note**: SQL Editor and maintenance operations still require PostgreSQL connection even in client mode. Only monitoring data comes from SQLite.
+**Note**: TUI always maintains PostgreSQL connection for SQL Editor, maintenance operations, and kill connection features. The only coordination is for query data collection.
 
 ---
 
@@ -250,4 +252,4 @@ All research topics resolved. No NEEDS CLARIFICATION items remain.
 | Multi-instance | instance_name column in tables |
 | Retention | Hourly prune with per-type config |
 | Graceful shutdown | Context cancellation + 5s timeout + WAL checkpoint |
-| Client mode | Read-only SQLite, optional PG for interactive ops |
+| Agent coordination | Automatic mode switching, TUI maintains PG connection |
