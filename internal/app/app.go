@@ -140,6 +140,7 @@ type AgentStatusInfo struct {
 	Running     bool
 	PID         int
 	Version     string
+	StartTime   time.Time      // Agent start time for uptime display (T070)
 	LastCollect time.Time
 	ConfigHash  string         // Agent's config hash for drift detection (T061)
 	Instances   []InstanceInfo // List of monitored instances (multi-instance support)
@@ -166,7 +167,7 @@ func New(readonly bool, configPath string, agentStatus *AgentStatusInfo) (*Model
 
 	// Set agent status in status bar if provided
 	if agentStatus != nil {
-		statusBar.SetAgentStatus(agentStatus.Running, agentStatus.LastCollect)
+		statusBar.SetAgentStatus(agentStatus.Running, agentStatus.StartTime, agentStatus.LastCollect)
 		// T054: Set instance information for multi-instance display
 		instances := make([]components.InstanceDisplayInfo, len(agentStatus.Instances))
 		for i, inst := range agentStatus.Instances {
@@ -731,7 +732,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			wasHealthy := IsAgentHealthy(m.config, m.agentStatus)
 			isHealthy := IsAgentHealthy(m.config, newStatus)
 			m.agentStatus = newStatus
-			m.statusBar.SetAgentStatus(newStatus.Running, newStatus.LastCollect)
+			m.statusBar.SetAgentStatus(newStatus.Running, newStatus.StartTime, newStatus.LastCollect)
 			// T054: Update instance information on each refresh
 			instances := make([]components.InstanceDisplayInfo, len(newStatus.Instances))
 			instanceNames := make([]string, len(newStatus.Instances))

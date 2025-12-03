@@ -208,11 +208,11 @@
 
 ### Implementation for User Story 8
 
-- [ ] T069 [US8] Enhance `steep-agent status` to show connected instances, error counts, last errors
-- [ ] T070 [US8] Add agent uptime to status bar in TUI when agent is healthy
-- [ ] T071 [US8] Track and expose collection error counts in agent_status table
-- [ ] T072 [US8] Display most recent error message in status output
-- [ ] T073 [US8] Add health check endpoint in agent_status table (healthy if last_collect within 2x interval)
+- [x] T069 [US8] Enhance `steep-agent status` to show connected instances, error counts, last errors
+- [x] T070 [US8] Add agent uptime to status bar in TUI when agent is healthy
+- [x] T071 [US8] Track and expose collection error counts in agent_status table
+- [x] T072 [US8] Display most recent error message in status output
+- [x] T073 [US8] Add health check endpoint in agent_status table (healthy if last_collect within 2x interval)
 
 **Checkpoint**: Agent health visible via CLI and TUI
 

@@ -54,6 +54,7 @@ func CheckAgentStatus(cfg *config.Config) *AgentStatusInfo {
 
 	if status != nil {
 		result.Version = status.Version
+		result.StartTime = status.StartTime // T070: Return agent start time for uptime display
 		result.LastCollect = status.LastCollect
 		result.ConfigHash = status.ConfigHash // T061: Return agent's config hash for drift detection
 	}

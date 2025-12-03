@@ -33,6 +33,7 @@ type StatusBar struct {
 
 	// Agent mode (client mode)
 	agentMode        bool
+	agentStartTime   time.Time // Agent start time for uptime display (T070)
 	agentLastCollect time.Time
 
 	// Multi-instance support (T054)
@@ -101,9 +102,10 @@ func (s *StatusBar) SetChartsVisible(visible bool) {
 	s.chartsVisible = visible
 }
 
-// SetAgentStatus sets the agent running status and last collection time
-func (s *StatusBar) SetAgentStatus(running bool, lastCollect time.Time) {
+// SetAgentStatus sets the agent running status, start time, and last collection time
+func (s *StatusBar) SetAgentStatus(running bool, startTime, lastCollect time.Time) {
 	s.agentMode = running
+	s.agentStartTime = startTime
 	s.agentLastCollect = lastCollect
 }
 
@@ -198,7 +200,11 @@ func (s *StatusBar) View() string {
 	// Agent status indicator (always shown)
 	var agentSection string
 	if s.agentMode {
-		agentSection = " | " + styles.StatusConnectedStyle.Render("Agent: Running")
+		uptimeStr := ""
+		if !s.agentStartTime.IsZero() {
+			uptimeStr = fmt.Sprintf(" (%s)", formatUptime(s.agentStartTime))
+		}
+		agentSection = " | " + styles.StatusConnectedStyle.Render("Agent: Running"+uptimeStr)
 	} else {
 		agentSection = " | " + styles.MutedStyle.Render("Agent: Stopped")
 	}
@@ -269,4 +275,21 @@ func (s *StatusBar) ShortView() string {
 		return styles.StatusConnectedStyle.Render("●") + " " + s.database
 	}
 	return styles.StatusDisconnectedStyle.Render("●") + " Disconnected"
+}
+
+// formatUptime formats a start time as a human-readable uptime string.
+func formatUptime(startTime time.Time) string {
+	d := time.Since(startTime)
+
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dm", minutes)
 }

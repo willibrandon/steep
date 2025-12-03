@@ -412,10 +412,13 @@ func printHumanStatus(status *agent.Status) {
 	}
 
 	// Errors
-	if len(status.Errors) > 0 {
-		fmt.Println("\nErrors:")
-		for _, e := range status.Errors {
-			fmt.Printf("  - %s\n", e)
+	if status.ErrorCount > 0 {
+		fmt.Printf("\nErrors: %d total\n", status.ErrorCount)
+		if len(status.Errors) > 0 {
+			fmt.Println("  Last error:")
+			for _, e := range status.Errors {
+				fmt.Printf("    %s\n", e)
+			}
 		}
 	} else {
 		fmt.Println("\nErrors: none")

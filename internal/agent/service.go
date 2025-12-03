@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/kardianos/service"
 	"github.com/willibrandon/steep/internal/config"
@@ -281,14 +282,16 @@ func Restart() error {
 
 // Status represents the service status.
 type Status struct {
-	State       string             `json:"state"`
-	PID         int                `json:"pid,omitempty"`
-	Uptime      string             `json:"uptime,omitempty"`
-	LastCollect string             `json:"last_collect,omitempty"`
+	State       string                  `json:"state"`
+	PID         int                     `json:"pid,omitempty"`
+	Uptime      string                  `json:"uptime,omitempty"`
+	StartTime   time.Time               `json:"start_time,omitempty"`
+	LastCollect string                  `json:"last_collect,omitempty"`
 	Instances   []ServiceInstanceStatus `json:"instances,omitempty"`
-	Errors      []string           `json:"errors,omitempty"`
-	Version     string             `json:"version,omitempty"`
-	ConfigHash  string             `json:"config_hash,omitempty"`
+	ErrorCount  int                     `json:"error_count,omitempty"`
+	Errors      []string                `json:"errors,omitempty"`
+	Version     string                  `json:"version,omitempty"`
+	ConfigHash  string                  `json:"config_hash,omitempty"`
 }
 
 // ServiceInstanceStatus represents a monitored instance status for service status output.
@@ -335,8 +338,10 @@ func GetStatus(cfg *config.Config) (*Status, error) {
 				status.LastCollect = agentStatus.LastCollect.Format("2006-01-02T15:04:05Z07:00")
 			}
 			if !agentStatus.StartTime.IsZero() {
+				status.StartTime = agentStatus.StartTime
 				status.Uptime = formatUptime(agentStatus.StartTime)
 			}
+			status.ErrorCount = agentStatus.ErrorCount
 			if agentStatus.ErrorCount > 0 && agentStatus.LastError != "" {
 				status.Errors = append(status.Errors, agentStatus.LastError)
 			}
