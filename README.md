@@ -6,16 +6,19 @@ A terminal-based PostgreSQL monitoring tool built with Go and [Bubbletea](https:
 
 - **Real-time Dashboard** - Monitor database metrics with time-series graphs, TPS heatmap, and server status
 - **Query Performance Monitoring** - Track slow queries, view EXPLAIN plans with tree visualization, search/filter by pattern
+- **Lock Monitoring** - Active locks, blocking query detection, lock dependency tree, deadlock history
+- **Replication Monitoring** - Lag metrics, topology visualization, slot management, setup wizards for physical/logical replication
+- **Table Statistics** - Schema browser, bloat detection, index usage, maintenance operations
 - **SQL Editor** - Interactive SQL editor with vim-style editing, syntax highlighting, transaction support, history, and snippets
+- **Log Viewer** - Real-time PostgreSQL log streaming with severity filtering, search, :level/:goto commands, and remote viewing
+- **Configuration Viewer** - Browse and modify PostgreSQL parameters with :set/:reset/:reload commands
+- **Alert System** - Threshold-based alerts with expression rules, history, and acknowledgment
 - **Database Operations** - Table maintenance (VACUUM, ANALYZE, REINDEX), permission management, role administration
 - **Background Agent** - `steep-agent` daemon for continuous data collection independent of TUI runtime
-- **Multiple Views** - Dashboard, Activity, Queries, Locks, Tables, Replication, SQL Editor, Configuration, Logs, and Roles
 - **Keyboard Navigation** - Vim-style and intuitive keyboard shortcuts
 - **Automatic Reconnection** - Resilient connection handling with exponential backoff
 - **Password Management** - Secure password handling via environment variables or commands
 - **SSL/TLS Support** - Full SSL/TLS configuration including certificate verification
-- **Structured Logging** - JSON-formatted logs for debugging
-- **Customizable Themes** - Dark and light themes (dark by default)
 
 ## Installation
 
