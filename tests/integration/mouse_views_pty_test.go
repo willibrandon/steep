@@ -5,28 +5,30 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/creack/pty"
 	"github.com/hinshun/vt10x"
 	"github.com/jackc/pgx/v5"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"github.com/willibrandon/steep/tests/integration/ptytest"
 )
 
 // testPTYHelper provides common PTY testing functionality
 type testPTYHelper struct {
 	t      *testing.T
-	ptmx   *os.File
+	ptmx   ptytest.PTY
 	term   vt10x.Terminal
 	termMu sync.Mutex
 }
 
-func newTestPTYHelper(t *testing.T, ptmx *os.File, term vt10x.Terminal) *testPTYHelper {
+func newTestPTYHelper(t *testing.T, ptmx ptytest.PTY, term vt10x.Terminal) *testPTYHelper {
 	h := &testPTYHelper{
 		t:    t,
 		ptmx: ptmx,
@@ -114,9 +116,15 @@ func setupTestContainer(t *testing.T, ctx context.Context) (testcontainers.Conta
 // buildSteep builds the steep binary in the given directory
 func buildSteep(t *testing.T, configDir string) string {
 	t.Log("Building steep binary...")
-	binaryPath := configDir + "/steep"
+	binaryPath := filepath.Join(configDir, "steep")
+	if runtime.GOOS == "windows" {
+		binaryPath += ".exe"
+	}
 	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/steep")
-	buildCmd.Dir = "/Users/brandon/src/steep"
+	// Get the project root directory dynamically from this test file's location
+	_, thisFile, _, _ := runtime.Caller(0)
+	projectRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	buildCmd.Dir = projectRoot
 	if output, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to build steep: %v\n%s", err, output)
 	}
@@ -125,7 +133,7 @@ func buildSteep(t *testing.T, configDir string) string {
 
 // createConfig creates a config file and returns its path
 func createConfig(t *testing.T, configDir, host, port string) string {
-	configPath := configDir + "/config.yaml"
+	configPath := filepath.Join(configDir, "config.yaml")
 	configContent := fmt.Sprintf(`
 connection:
   host: %s
@@ -159,13 +167,9 @@ func startSteepPTY(t *testing.T, binaryPath, configPath, host, port string) (*te
 		"PGSSLMODE=disable",
 	)
 
-	ptmx, err := pty.Start(cmd)
+	ptmx, err := ptytest.StartWithSize(cmd, &ptytest.Winsize{Rows: 30, Cols: 120})
 	if err != nil {
 		t.Fatalf("Failed to start PTY: %v", err)
-	}
-
-	if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 30, Cols: 120}); err != nil {
-		t.Fatalf("Failed to set PTY size: %v", err)
 	}
 
 	term := vt10x.New(vt10x.WithSize(120, 30))
@@ -173,8 +177,12 @@ func startSteepPTY(t *testing.T, binaryPath, configPath, host, port string) (*te
 
 	cleanup := func() {
 		ptmx.Close()
-		cmd.Process.Kill()
-		cmd.Wait()
+		// On Windows with ConPTY, Close() terminates the process
+		// On Unix, we need to explicitly kill
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+			cmd.Wait()
+		}
 	}
 
 	return helper, cmd, cleanup

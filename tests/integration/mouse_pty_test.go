@@ -6,16 +6,18 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/creack/pty"
 	"github.com/hinshun/vt10x"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"github.com/willibrandon/steep/tests/integration/ptytest"
 )
 
 // TestMouseClickPTY tests mouse click row selection using a real PTY and terminal emulator.
@@ -81,15 +83,22 @@ ui:
 
 	// Build the steep binary
 	t.Log("Building steep binary...")
-	buildCmd := exec.Command("go", "build", "-o", configDir+"/steep", "./cmd/steep")
-	buildCmd.Dir = "/Users/brandon/src/steep"
+	steepBinary := filepath.Join(configDir, "steep")
+	if runtime.GOOS == "windows" {
+		steepBinary += ".exe"
+	}
+	buildCmd := exec.Command("go", "build", "-o", steepBinary, "./cmd/steep")
+	// Get the project root directory dynamically from this test file's location
+	_, thisFile, _, _ := runtime.Caller(0)
+	projectRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	buildCmd.Dir = projectRoot
 	if output, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to build steep: %v\n%s", err, output)
 	}
 
 	// Run steep in a PTY
 	t.Log("Starting steep in PTY...")
-	cmd := exec.Command(configDir+"/steep", "--config", configPath)
+	cmd := exec.Command(steepBinary, "--config", configPath)
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
 		fmt.Sprintf("PGHOST=%s", host),
@@ -101,33 +110,36 @@ ui:
 	)
 
 	// Create PTY
-	ptmx, err := pty.Start(cmd)
+	ptmx, err := ptytest.StartWithSize(cmd, &ptytest.Winsize{Rows: 30, Cols: 120})
 	if err != nil {
 		t.Fatalf("Failed to start PTY: %v", err)
 	}
 	defer func() {
 		ptmx.Close()
-		cmd.Process.Kill()
-		cmd.Wait()
+		// On Windows with ConPTY, Close() terminates the process
+		// On Unix, we need to explicitly kill
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+			cmd.Wait()
+		}
 	}()
-
-	// Set terminal size
-	if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 30, Cols: 120}); err != nil {
-		t.Fatalf("Failed to set PTY size: %v", err)
-	}
 
 	// Create vt10x terminal emulator
 	term := vt10x.New(vt10x.WithSize(120, 30))
 
 	// Read from PTY and feed to vt10x
 	var termMu sync.Mutex
+	var totalRead int
 	go func() {
 		buf := make([]byte, 4096)
 		for {
 			n, err := ptmx.Read(buf)
 			if err != nil {
+				t.Logf("PTY read error after %d total bytes: %v", totalRead, err)
 				return
 			}
+			totalRead += n
+			t.Logf("PTY read %d bytes (total: %d): %q", n, totalRead, string(buf[:min(n, 100)]))
 			termMu.Lock()
 			term.Write(buf[:n])
 			termMu.Unlock()
