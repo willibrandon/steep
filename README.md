@@ -8,6 +8,7 @@ A terminal-based PostgreSQL monitoring tool built with Go and [Bubbletea](https:
 - **Query Performance Monitoring** - Track slow queries, view EXPLAIN plans with tree visualization, search/filter by pattern
 - **SQL Editor** - Interactive SQL editor with vim-style editing, syntax highlighting, transaction support, history, and snippets
 - **Database Operations** - Table maintenance (VACUUM, ANALYZE, REINDEX), permission management, role administration
+- **Background Agent** - `steep-agent` daemon for continuous data collection independent of TUI runtime
 - **Multiple Views** - Dashboard, Activity, Queries, Locks, Tables, Replication, SQL Editor, Configuration, Logs, and Roles
 - **Keyboard Navigation** - Vim-style and intuitive keyboard shortcuts
 - **Automatic Reconnection** - Resilient connection handling with exponential backoff
@@ -41,7 +42,8 @@ make build
 ### Build Options
 
 ```bash
-make build            # Build the steep binary
+make build            # Build the steep TUI binary
+make build-agent      # Build the steep-agent daemon
 make test             # Run all tests
 make test-short       # Run tests (skip integration)
 make test-integration # Run integration tests only
@@ -608,6 +610,112 @@ View logs in real-time:
 tail -f /tmp/steep.log | jq
 ```
 
+## Background Agent (steep-agent)
+
+The `steep-agent` is an optional background daemon that collects PostgreSQL monitoring data continuously, independent of whether the TUI is running. This enables historical data visibility when the TUI opens.
+
+### Deployment Modes
+
+**Without Agent (default):**
+- TUI collects data directly via log parsing
+- Shows `[LOG]` indicator in queries view header
+- Data collected only while TUI is running
+
+**With Agent:**
+- Agent collects data continuously in the background
+- TUI auto-detects agent and uses agent-collected data
+- Shows `[AGENT]` indicator in queries view header
+- Historical data available when TUI opens
+
+### Quick Setup
+
+```bash
+# Build the agent
+make build-agent
+
+# Test in foreground (for debugging)
+./bin/steep-agent run --debug
+
+# Install as service (macOS)
+./bin/steep-agent install --user
+./bin/steep-agent start
+
+# Install as service (Linux with systemd)
+sudo ./bin/steep-agent install
+sudo ./bin/steep-agent start
+
+# Check status
+./bin/steep-agent status
+```
+
+### Agent Commands
+
+| Command | Description |
+|---------|-------------|
+| `steep-agent install [--user]` | Install as system or user service |
+| `steep-agent uninstall` | Remove the service |
+| `steep-agent start` | Start the installed service |
+| `steep-agent stop` | Stop the running service |
+| `steep-agent restart` | Restart the service |
+| `steep-agent status [--json]` | Show service status and health |
+| `steep-agent run [--debug]` | Run in foreground (for debugging) |
+| `steep-agent logs [-f] [-e] [--clear]` | View aggregated logs |
+
+### Agent Configuration
+
+Add agent section to `~/.config/steep/config.yaml`:
+
+```yaml
+agent:
+  enabled: true
+
+  # Collection intervals per data type
+  intervals:
+    activity: 2s          # pg_stat_activity
+    queries: 5s           # Query stats
+    replication: 2s       # Replication lag
+    locks: 2s             # Lock monitoring
+    metrics: 1s           # Dashboard metrics
+
+  # Data retention periods
+  retention:
+    activity_history: 24h
+    query_stats: 168h     # 7 days
+    replication_lag: 24h
+    lock_history: 24h
+    metrics: 24h
+
+  # Multi-instance monitoring (optional)
+  instances:
+    - name: primary
+      connection: "host=localhost port=5432 dbname=postgres"
+    - name: replica1
+      connection: "host=replica1 port=5432 dbname=postgres"
+
+  # Background alerting (optional)
+  alerts:
+    enabled: false
+    webhook_url: ""       # Webhook URL for notifications
+```
+
+### TUI Auto-Detection
+
+The TUI automatically detects agent presence and coordinates data collection:
+
+- Start TUI alone → TUI collects data via log parsing (`[LOG]` mode)
+- Start agent → TUI switches to agent mode (`[AGENT]` mode)
+- Stop agent → TUI resumes log parsing automatically
+
+No manual intervention or TUI restarts required.
+
+### Platform Support
+
+| Platform | Service Manager | Installation |
+|----------|----------------|--------------|
+| macOS | launchd | `./bin/steep-agent install --user` |
+| Linux | systemd | `sudo ./bin/steep-agent install` |
+| Windows | SCM | `steep-agent.exe install` (as Administrator) |
+
 ## Error Handling
 
 Steep provides helpful error messages for common issues:
@@ -636,8 +744,15 @@ If the database connection is lost, Steep automatically attempts to reconnect wi
 
 ```
 steep/
-├── cmd/steep/          # Main application entry point
+├── cmd/
+│   ├── steep/          # TUI application entry point
+│   └── steep-agent/    # Background agent entry point
 ├── internal/
+│   ├── agent/          # Background agent implementation
+│   │   ├── collectors/ # Data collectors (activity, queries, etc.)
+│   │   ├── agent.go    # Agent orchestration
+│   │   ├── service.go  # kardianos/service integration
+│   │   └── retention.go # Data retention/pruning
 │   ├── app/            # Application model and message handlers
 │   ├── config/         # Configuration management
 │   ├── db/             # Database connection and operations
@@ -665,13 +780,6 @@ go test ./...
 # Run with race detector
 go run -race cmd/steep/main.go
 ```
-
-### Code Style
-
-- Follow [Effective Go](https://golang.org/doc/effective_go.html) guidelines
-- Use `gofmt` for formatting
-- Run `go vet` before committing
-- Write meaningful commit messages
 
 ## Troubleshooting
 
@@ -741,21 +849,7 @@ Contributions are welcome! Please:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- [Bubbletea](https://github.com/charmbracelet/bubbletea) - TUI framework
-- [Lipgloss](https://github.com/charmbracelet/lipgloss) - Terminal styling
-- [pgx](https://github.com/jackc/pgx) - PostgreSQL driver
-- [Viper](https://github.com/spf13/viper) - Configuration management
-- [gocmdpev](https://github.com/simon-engledew/gocmdpev) - EXPLAIN ANALYZE visualization
-
-## Support
-
-- **Issues:** [GitHub Issues](https://github.com/willibrandon/steep/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/willibrandon/steep/discussions)
-- **Documentation:** [docs/](docs/)
+MIT License - see [LICENSE](LICENSE) for details.
 
 ## Roadmap
 
@@ -769,6 +863,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] Database operations (maintenance, permissions, roles)
 - [x] Advanced visualizations (time-series graphs, sparklines, bar charts, heatmaps)
 - [x] Alert system (threshold-based alerts, expression rules, history, acknowledgment)
+- [x] Service architecture (steep-agent background daemon, multi-instance monitoring, TUI auto-detection)
 - [ ] Export metrics to Prometheus
 - [ ] Light theme
 - [ ] Custom color schemes

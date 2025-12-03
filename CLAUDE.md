@@ -60,12 +60,19 @@ The implementation roadmap is in `docs/GUIDE.md` with 12 planned features organi
 
 ## Architecture
 
-### Directory Structure (Planned)
+### Directory Structure
 
 ```
 steep/
-├── cmd/steep/              # Main application entry point
+├── cmd/
+│   ├── steep/             # TUI application entry point
+│   └── steep-agent/       # Background agent entry point
 ├── internal/
+│   ├── agent/             # Background agent implementation
+│   │   ├── collectors/    # Data collectors (activity, queries, etc.)
+│   │   ├── agent.go       # Agent orchestration
+│   │   ├── service.go     # kardianos/service integration
+│   │   └── retention.go   # Data retention/pruning
 │   ├── app/               # Application orchestration
 │   ├── config/            # Configuration management (Viper)
 │   ├── db/                # Database connection (pgx/pgxpool)
@@ -334,6 +341,16 @@ These reference implementations are available for studying UI/UX patterns before
 - SQLite (~/.config/steep/steep.db) with WAL mode for concurrent access (013-service-architecture)
 
 ## Recent Changes
+- 013-service-architecture: steep-agent background daemon for continuous data collection independent of TUI runtime
+- 013-service-architecture: Cross-platform service management via kardianos/service (macOS launchd, Linux systemd, Windows SCM)
+- 013-service-architecture: CLI commands: install, uninstall, start, stop, restart, status, run, logs
+- 013-service-architecture: TUI auto-detects agent and switches between [AGENT] and [LOG] collection modes
+- 013-service-architecture: Multi-instance PostgreSQL monitoring with configurable instances array
+- 013-service-architecture: Data collectors for activity, queries, replication, locks, and metrics
+- 013-service-architecture: Configurable collection intervals (agent.intervals) and retention periods (agent.retention)
+- 013-service-architecture: Background alerting via webhooks (agent.alerts.webhook_url)
+- 013-service-architecture: Automatic data retention with configurable pruning
+- 013-service-architecture: Graceful shutdown with WAL checkpoint, schema versioning, disk full detection
 - 012-alert-system: Threshold-based alerts with YAML config (alerts.rules in config.yaml)
 - 012-alert-system: Expression-based rules with binary operators (+, -, *, /), parentheses, and operator precedence
 - 012-alert-system: Available metrics: active_connections, max_connections, cache_hit_ratio, tps, database_size, replication_lag_bytes, longest_transaction_seconds, idle_in_transaction_seconds
