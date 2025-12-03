@@ -189,12 +189,12 @@
 
 ### Implementation for User Story 7
 
-- [ ] T063 [US7] Integrate existing alert engine (Feature 012) into agent in internal/agent/alerter.go
-- [ ] T064 [US7] Implement webhook delivery with HTTP POST in internal/agent/webhook.go
-- [ ] T065 [US7] Implement exponential backoff retry for failed webhook delivery
-- [ ] T066 [US7] Send resolution notification when alert condition clears
-- [ ] T067 [US7] Log webhook delivery success/failure without crashing agent
-- [ ] T068 [US7] Parse alerts.enabled and alerts.webhook_url from config.yaml
+- [x] T063 [US7] Integrate existing alert engine (Feature 012) into agent in internal/agent/alerter.go
+- [x] T064 [US7] Implement webhook delivery with HTTP POST in internal/agent/webhook.go
+- [x] T065 [US7] Implement exponential backoff retry for failed webhook delivery
+- [x] T066 [US7] Send resolution notification when alert condition clears
+- [x] T067 [US7] Log webhook delivery success/failure without crashing agent
+- [x] T068 [US7] Parse alerts.enabled and alerts.webhook_url from config.yaml
 
 **Checkpoint**: Agent sends webhook notifications for alert state changes
 

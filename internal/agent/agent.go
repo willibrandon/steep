@@ -36,6 +36,9 @@ type Agent struct {
 	// Retention manager for automatic data pruning
 	retentionManager *RetentionManager
 
+	// Alerter for background alerting via webhooks
+	alerter *Alerter
+
 	// SQLite stores for data persistence
 	replicationStore *sqlite.ReplicationStore
 	queryStore       *sqlite.QueryStatsStore
@@ -146,7 +149,38 @@ func (a *Agent) Start() error {
 	a.retentionManager = NewRetentionManager(a.db, &a.config.Agent.Retention, a.logger, a.debug)
 	a.retentionManager.Start()
 
+	// Start alerter for background alerting via webhooks (US7)
+	if a.config.Agent.Alerts.Enabled {
+		a.startAlerter()
+	}
+
 	return nil
+}
+
+// startAlerter initializes and starts the alerter for background alerting.
+func (a *Agent) startAlerter() {
+	// Get default pool for alerter
+	defaultPool, ok := a.poolManager.GetDefault()
+	if !ok {
+		a.logger.Println("Alerter: no default pool available, skipping")
+		return
+	}
+
+	// Get instance name (default or first configured)
+	instanceName := "default"
+	if len(a.config.Agent.Instances) > 0 {
+		instanceName = a.config.Agent.Instances[0].Name
+	}
+
+	alerterCfg := AlerterConfig{
+		Enabled:            a.config.Agent.Alerts.Enabled,
+		WebhookURL:         a.config.Agent.Alerts.WebhookURL,
+		EvaluationInterval: 5 * time.Second, // Fixed 5s evaluation interval
+		Rules:              a.config.Alerts.Rules,
+	}
+
+	a.alerter = NewAlerter(alerterCfg, defaultPool, instanceName, a.logger, a.debug)
+	a.alerter.Start()
 }
 
 // getInstanceConfigs returns instance configurations from config or defaults.
@@ -228,6 +262,11 @@ func (a *Agent) Stop() error {
 
 	// Signal all goroutines to stop
 	a.cancel()
+
+	// Stop alerter
+	if a.alerter != nil {
+		a.alerter.Stop()
+	}
 
 	// Stop retention manager
 	if a.retentionManager != nil {

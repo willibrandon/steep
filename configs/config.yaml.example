@@ -171,9 +171,17 @@ agent:
   #   - name: replica1
   #     connection: "host=replica1 port=5432 dbname=postgres user=postgres"
 
-  # Background alerting (P3 feature)
+  # Background alerting via webhooks (US7)
+  # When enabled, the agent sends HTTP POST webhook notifications
+  # when alert thresholds are breached or when conditions clear.
+  # Uses the same alert rules defined in the top-level 'alerts.rules' section.
   alerts:
+    # Enable/disable background webhook alerting (default: false)
     enabled: false
+
+    # Webhook endpoint URL for alert notifications
+    # Receives JSON payloads with alert details (name, metric, state, value, threshold)
+    # Example endpoints: Slack incoming webhook, PagerDuty, custom alerting service
     webhook_url: ""
 
 # Debug mode (default: false)

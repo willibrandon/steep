@@ -81,4 +81,9 @@ agent:
     - name: subscriber
       connection: "host=localhost port=15434 dbname=steep_test user=postgres password=postgres sslmode=disable"
 
+  # Background alerting via webhooks (US7)
+  alerts:
+    enabled: false
+    webhook_url: "https://webhook.site/65b0765a-a0ff-416f-8731-c2dbead54944"
+
 debug: true
