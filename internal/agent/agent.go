@@ -178,38 +178,45 @@ func (a *Agent) getInstanceConfigs() []InstanceConfig {
 }
 
 // startCollectors initializes and starts all data collectors.
+// T051: Iterates over all configured instances, creating a set of collectors per instance.
 func (a *Agent) startCollectors() error {
-	// Get default pool for single-instance mode
-	pool, ok := a.poolManager.GetDefault()
-	if !ok {
+	// Get all connected pools
+	allPools := a.poolManager.All()
+	if len(allPools) == 0 {
 		return fmt.Errorf("no PostgreSQL connection available")
 	}
 
 	intervals := a.config.Agent.Intervals
-	instanceName := "default"
-	if len(a.config.Agent.Instances) > 0 {
-		instanceName = a.config.Agent.Instances[0].Name
+
+	// Create collector coordinator (uses first pool for coordinator-level operations)
+	defaultPool, _ := a.poolManager.GetDefault()
+	a.coordinator = NewCollectorCoordinator(defaultPool, a.db, &a.config.Agent, a.statusStore, a.logger)
+
+	// Register collectors for EACH connected instance
+	// This enables multi-instance monitoring where data from each instance
+	// is tagged with the instance_name in SQLite tables.
+	for instanceName, pool := range allPools {
+		a.logger.Printf("Registering collectors for instance: %s", instanceName)
+
+		// Register all collector types for this instance
+		a.coordinator.RegisterCollector(
+			collectors.NewActivityCollector(pool, a.db, intervals.Activity, instanceName),
+		)
+		a.coordinator.RegisterCollector(
+			collectors.NewQueriesCollector(pool, a.db, a.queryStore, intervals.Queries, instanceName),
+		)
+		a.coordinator.RegisterCollector(
+			collectors.NewReplicationCollector(pool, a.db, a.replicationStore, intervals.Replication, instanceName),
+		)
+		a.coordinator.RegisterCollector(
+			collectors.NewLocksCollector(pool, a.db, intervals.Locks, instanceName),
+		)
+		a.coordinator.RegisterCollector(
+			collectors.NewMetricsCollector(pool, a.db, intervals.Metrics, instanceName),
+		)
 	}
 
-	// Create collector coordinator
-	a.coordinator = NewCollectorCoordinator(pool, a.db, &a.config.Agent, a.statusStore, a.logger)
-
-	// Register collectors with configured intervals
-	a.coordinator.RegisterCollector(
-		collectors.NewActivityCollector(pool, a.db, intervals.Activity, instanceName),
-	)
-	a.coordinator.RegisterCollector(
-		collectors.NewQueriesCollector(pool, a.db, a.queryStore, intervals.Queries, instanceName),
-	)
-	a.coordinator.RegisterCollector(
-		collectors.NewReplicationCollector(pool, a.db, a.replicationStore, intervals.Replication, instanceName),
-	)
-	a.coordinator.RegisterCollector(
-		collectors.NewLocksCollector(pool, a.db, intervals.Locks, instanceName),
-	)
-	a.coordinator.RegisterCollector(
-		collectors.NewMetricsCollector(pool, a.db, intervals.Metrics, instanceName),
-	)
+	a.logger.Printf("Total collectors registered: %d (across %d instances)", len(allPools)*5, len(allPools))
 
 	// Start all collectors
 	return a.coordinator.Start(a.ctx)

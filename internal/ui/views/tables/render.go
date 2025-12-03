@@ -1173,8 +1173,8 @@ func (v *TablesView) renderBarChart() string {
 // Returns a string of trendWidth characters showing the size trend over 24h.
 // When isSelected is true, colors are omitted to preserve selection highlight.
 func (v *TablesView) renderTableSparkline(schemaName, tableName string, trendWidth int, isSelected bool) string {
-	// Create the cache key matching what refreshTableSizeCache uses
-	key := fmt.Sprintf("%s.%s", schemaName, tableName)
+	// Create the cache key matching what refreshTableSizeCache uses (with instance prefix)
+	key := v.tableKey(schemaName, tableName)
 
 	// Check if cache is nil (SetMetricsStore not called yet)
 	if v.tableSizeCache == nil {

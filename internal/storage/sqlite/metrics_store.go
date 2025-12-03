@@ -104,19 +104,40 @@ func (s *MetricsStore) SaveBatchMultiKey(ctx context.Context, metricName string,
 // Use key="" for global metrics (dashboard), or key="schema.table" for entity-specific metrics.
 // Limited to prevent unbounded result sets.
 func (s *MetricsStore) GetHistory(ctx context.Context, metricName, key string, since time.Time, limit int) ([]metrics.DataPoint, error) {
+	return s.GetHistoryByInstance(ctx, metricName, key, "", since, limit)
+}
+
+// GetHistoryByInstance retrieves historical data for a metric filtered by instance.
+// If instance is empty, returns data from all instances.
+func (s *MetricsStore) GetHistoryByInstance(ctx context.Context, metricName, key, instance string, since time.Time, limit int) ([]metrics.DataPoint, error) {
 	if limit <= 0 {
 		limit = 10000
 	}
 
-	query := `
-		SELECT timestamp, value
-		FROM metrics_history
-		WHERE metric_name = ? AND key = ? AND timestamp >= ?
-		ORDER BY timestamp ASC
-		LIMIT ?
-	`
+	var query string
+	var args []interface{}
 
-	rows, err := s.db.conn.QueryContext(ctx, query, metricName, key, since.Format(time.RFC3339Nano), limit)
+	if instance != "" {
+		query = `
+			SELECT timestamp, value
+			FROM metrics_history
+			WHERE metric_name = ? AND key = ? AND instance_name = ? AND timestamp >= ?
+			ORDER BY timestamp ASC
+			LIMIT ?
+		`
+		args = []interface{}{metricName, key, instance, since.Format(time.RFC3339Nano), limit}
+	} else {
+		query = `
+			SELECT timestamp, value
+			FROM metrics_history
+			WHERE metric_name = ? AND key = ? AND timestamp >= ?
+			ORDER BY timestamp ASC
+			LIMIT ?
+		`
+		args = []interface{}{metricName, key, since.Format(time.RFC3339Nano), limit}
+	}
+
+	rows, err := s.db.conn.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query history: %w", err)
 	}
@@ -334,20 +355,45 @@ type HeatmapData struct {
 // Returns data suitable for rendering a 7x24 heatmap showing weekly patterns.
 // The since parameter limits how far back to look (typically 7 days).
 func (s *MetricsStore) GetHourlyAggregates(ctx context.Context, metricName, key string, since time.Time) (*HeatmapData, error) {
-	// SQLite strftime: %w = day of week (0-6, Sunday=0), %H = hour (00-23)
-	query := `
-		SELECT
-			CAST(strftime('%w', timestamp) AS INTEGER) as day_of_week,
-			CAST(strftime('%H', timestamp) AS INTEGER) as hour,
-			AVG(value) as avg_value,
-			COUNT(*) as cnt
-		FROM metrics_history
-		WHERE metric_name = ? AND key = ? AND timestamp >= ?
-		GROUP BY day_of_week, hour
-		ORDER BY day_of_week, hour
-	`
+	return s.GetHourlyAggregatesByInstance(ctx, metricName, key, "", since)
+}
 
-	rows, err := s.db.conn.QueryContext(ctx, query, metricName, key, since.Format(time.RFC3339Nano))
+// GetHourlyAggregatesByInstance retrieves aggregated metric data filtered by instance.
+// If instance is empty, returns data from all instances.
+func (s *MetricsStore) GetHourlyAggregatesByInstance(ctx context.Context, metricName, key, instance string, since time.Time) (*HeatmapData, error) {
+	var query string
+	var args []interface{}
+
+	// SQLite strftime: %w = day of week (0-6, Sunday=0), %H = hour (00-23)
+	if instance != "" {
+		query = `
+			SELECT
+				CAST(strftime('%w', timestamp) AS INTEGER) as day_of_week,
+				CAST(strftime('%H', timestamp) AS INTEGER) as hour,
+				AVG(value) as avg_value,
+				COUNT(*) as cnt
+			FROM metrics_history
+			WHERE metric_name = ? AND key = ? AND instance_name = ? AND timestamp >= ?
+			GROUP BY day_of_week, hour
+			ORDER BY day_of_week, hour
+		`
+		args = []interface{}{metricName, key, instance, since.Format(time.RFC3339Nano)}
+	} else {
+		query = `
+			SELECT
+				CAST(strftime('%w', timestamp) AS INTEGER) as day_of_week,
+				CAST(strftime('%H', timestamp) AS INTEGER) as hour,
+				AVG(value) as avg_value,
+				COUNT(*) as cnt
+			FROM metrics_history
+			WHERE metric_name = ? AND key = ? AND timestamp >= ?
+			GROUP BY day_of_week, hour
+			ORDER BY day_of_week, hour
+		`
+		args = []interface{}{metricName, key, since.Format(time.RFC3339Nano)}
+	}
+
+	rows, err := s.db.conn.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query hourly aggregates: %w", err)
 	}
@@ -407,6 +453,12 @@ func (s *MetricsStore) GetHourlyAggregates(ctx context.Context, metricName, key 
 // Returns [7][24]float64 where index [0] = Sunday and [6] = Saturday.
 // Cells with no data are set to -1.
 func (s *MetricsStore) GetHourlyAggregatesMatrix(ctx context.Context, metricName, key string, since time.Time) ([7][24]float64, float64, float64, error) {
+	return s.GetHourlyAggregatesMatrixByInstance(ctx, metricName, key, "", since)
+}
+
+// GetHourlyAggregatesMatrixByInstance returns a 7x24 matrix filtered by instance.
+// If instance is empty, returns data from all instances.
+func (s *MetricsStore) GetHourlyAggregatesMatrixByInstance(ctx context.Context, metricName, key, instance string, since time.Time) ([7][24]float64, float64, float64, error) {
 	var matrix [7][24]float64
 	// Initialize with -1 to indicate no data
 	for d := 0; d < 7; d++ {
@@ -415,7 +467,7 @@ func (s *MetricsStore) GetHourlyAggregatesMatrix(ctx context.Context, metricName
 		}
 	}
 
-	data, err := s.GetHourlyAggregates(ctx, metricName, key, since)
+	data, err := s.GetHourlyAggregatesByInstance(ctx, metricName, key, instance, since)
 	if err != nil {
 		return matrix, 0, 0, err
 	}
@@ -427,6 +479,32 @@ func (s *MetricsStore) GetHourlyAggregatesMatrix(ctx context.Context, metricName
 	}
 
 	return matrix, data.Min, data.Max, nil
+}
+
+// GetDistinctInstances returns unique instance names from metrics_history.
+// Useful for populating instance filter options.
+func (s *MetricsStore) GetDistinctInstances(ctx context.Context) ([]string, error) {
+	query := `SELECT DISTINCT instance_name FROM metrics_history ORDER BY instance_name`
+	rows, err := s.db.conn.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query distinct instances: %w", err)
+	}
+	defer rows.Close()
+
+	var instances []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("failed to scan instance name: %w", err)
+		}
+		instances = append(instances, name)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return instances, nil
 }
 
 // scanDataPoints scans rows into DataPoint slice.

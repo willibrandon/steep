@@ -25,6 +25,7 @@ type DeadlockMonitor struct {
 	logDir       string
 	logPattern   string
 	dbName       string
+	instanceName string // PostgreSQL instance name for multi-instance support
 }
 
 // NewDeadlockMonitor creates a new DeadlockMonitor.
@@ -216,8 +217,20 @@ func convertLogFilenameToGlob(pattern string) string {
 }
 
 // GetRecentDeadlocks returns recent deadlock summaries from storage.
+// Filters by the current instance name if set.
 func (m *DeadlockMonitor) GetRecentDeadlocks(ctx context.Context, days int, limit int) ([]sqlite.DeadlockSummary, error) {
-	return m.store.GetRecentEvents(ctx, days, limit)
+	return m.store.GetRecentEvents(ctx, days, limit, m.instanceName)
+}
+
+// SetInstanceName sets the instance name for multi-instance support.
+// This affects both storage (new deadlocks tagged with instance) and retrieval (filter by instance).
+func (m *DeadlockMonitor) SetInstanceName(name string) {
+	m.parserMu.Lock()
+	defer m.parserMu.Unlock()
+	m.instanceName = name
+	if m.parser != nil {
+		m.parser.SetInstanceName(name)
+	}
 }
 
 // GetDeadlockEvent returns a single deadlock event with all processes.

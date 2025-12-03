@@ -14,7 +14,8 @@ import (
 // This is used to show agent status in the TUI status bar.
 func CheckAgentStatus(cfg *config.Config) *AgentStatusInfo {
 	result := &AgentStatusInfo{
-		Running: false,
+		Running:   false,
+		Instances: []InstanceInfo{},
 	}
 
 	// Check if agent is running using the config's PID file path
@@ -54,6 +55,20 @@ func CheckAgentStatus(cfg *config.Config) *AgentStatusInfo {
 	if status != nil {
 		result.Version = status.Version
 		result.LastCollect = status.LastCollect
+	}
+
+	// Query agent_instances table for multi-instance monitoring (T054)
+	instanceStore := agent.NewAgentInstanceStore(db)
+	instances, err := instanceStore.List()
+	if err != nil {
+		logger.Debug("app: failed to get agent instances from database", "error", err)
+	} else {
+		for _, inst := range instances {
+			result.Instances = append(result.Instances, InstanceInfo{
+				Name:   inst.Name,
+				Status: string(inst.Status),
+			})
+		}
 	}
 
 	return result

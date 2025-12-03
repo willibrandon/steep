@@ -36,6 +36,9 @@ type DashboardView struct {
 	// Metrics store for heatmap data
 	metricsStore *sqlite.MetricsStore
 
+	// Instance filter (T054: multi-instance support)
+	instanceFilter string // "" = all instances
+
 	// State
 	connected        bool
 	connectionInfo   string
@@ -263,10 +266,12 @@ func (d *DashboardView) updateHeatmapData() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	matrix, minVal, maxVal, err := d.metricsStore.GetHourlyAggregatesMatrix(
+	// Use instance filter (T054: multi-instance support)
+	matrix, minVal, maxVal, err := d.metricsStore.GetHourlyAggregatesMatrixByInstance(
 		ctx,
 		string(metrics.MetricTPS),
 		"", // Global metric (no key)
+		d.instanceFilter,
 		since,
 	)
 	if err != nil {
@@ -858,4 +863,23 @@ func (d *DashboardView) SetAlertStore(store *sqlite.AlertStore) {
 // SetAlertEngine sets the alert engine for acknowledgment.
 func (d *DashboardView) SetAlertEngine(engine *alerts.Engine) {
 	d.alertEngine = engine
+}
+
+// SetInstanceFilter sets the instance filter and refreshes chart data (T054).
+func (d *DashboardView) SetInstanceFilter(instance string) {
+	d.instanceFilter = instance
+
+	// Clear time series charts when switching instances to prevent showing stale data
+	d.timeSeriesPanel.SetTPSData(nil)
+	d.timeSeriesPanel.SetConnectionsData(nil)
+	d.timeSeriesPanel.SetCacheHitData(nil)
+
+	if d.heatmapVisible {
+		d.updateHeatmapData()
+	}
+}
+
+// GetInstanceFilter returns the current instance filter.
+func (d *DashboardView) GetInstanceFilter() string {
+	return d.instanceFilter
 }

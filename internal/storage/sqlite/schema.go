@@ -1,11 +1,15 @@
 package sqlite
 
+import "strings"
+
 // initSchema creates the database schema if it doesn't exist.
 func (db *DB) initSchema() error {
 	schema := `
-	-- Query statistics table
+	-- Query statistics table (supports multi-instance monitoring)
+	-- Uses composite primary key (fingerprint, instance_name) so same query
+	-- can be tracked separately for each PostgreSQL instance
 	CREATE TABLE IF NOT EXISTS query_stats (
-		fingerprint INTEGER PRIMARY KEY,
+		fingerprint INTEGER NOT NULL,
 		normalized_query TEXT NOT NULL,
 		calls INTEGER NOT NULL DEFAULT 0,
 		total_time_ms REAL NOT NULL DEFAULT 0,
@@ -14,7 +18,9 @@ func (db *DB) initSchema() error {
 		total_rows INTEGER NOT NULL DEFAULT 0,
 		first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
 		last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-		sample_params TEXT
+		sample_params TEXT,
+		instance_name TEXT NOT NULL DEFAULT 'default',
+		PRIMARY KEY (fingerprint, instance_name)
 	);
 
 	-- Indexes for common queries
@@ -176,10 +182,9 @@ func (db *DB) initSchema() error {
 	// Migration: drop deprecated keyed_metrics_history table if it exists
 	_, _ = db.conn.Exec("DROP TABLE IF EXISTS keyed_metrics_history")
 
-	// Migration: add instance_name column to tables for multi-instance agent support
-	// All existing data gets instance_name='default'
+	// Migration: add instance_name column to other tables for multi-instance agent support
+	// (query_stats now has instance_name in the initial schema with composite PK)
 	instanceNameMigrations := []string{
-		"ALTER TABLE query_stats ADD COLUMN instance_name TEXT NOT NULL DEFAULT 'default'",
 		"ALTER TABLE deadlock_events ADD COLUMN instance_name TEXT NOT NULL DEFAULT 'default'",
 		"ALTER TABLE replication_lag_history ADD COLUMN instance_name TEXT NOT NULL DEFAULT 'default'",
 		"ALTER TABLE metrics_history ADD COLUMN instance_name TEXT NOT NULL DEFAULT 'default'",
@@ -202,5 +207,64 @@ func (db *DB) initSchema() error {
 		_, _ = db.conn.Exec(idx)
 	}
 
+	// Migration: Recreate query_stats table with composite primary key for multi-instance support
+	// This is needed for existing databases that have fingerprint as the sole PRIMARY KEY
+	// Check if query_stats has the old schema (fingerprint as INTEGER PRIMARY KEY)
+	var tableSQL string
+	err = db.conn.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='query_stats'").Scan(&tableSQL)
+	if err == nil && tableSQL != "" {
+		// If the table has "fingerprint INTEGER PRIMARY KEY" but not "PRIMARY KEY (fingerprint, instance_name)"
+		// we need to migrate it
+		if !containsCompositePK(tableSQL) {
+			// Add instance_name column if it doesn't exist (for very old databases)
+			_, _ = db.conn.Exec("ALTER TABLE query_stats ADD COLUMN instance_name TEXT NOT NULL DEFAULT 'default'")
+
+			// Recreate table with composite primary key
+			migrations := []string{
+				// Create new table with correct schema
+				`CREATE TABLE IF NOT EXISTS query_stats_new (
+					fingerprint INTEGER NOT NULL,
+					normalized_query TEXT NOT NULL,
+					calls INTEGER NOT NULL DEFAULT 0,
+					total_time_ms REAL NOT NULL DEFAULT 0,
+					min_time_ms REAL,
+					max_time_ms REAL,
+					total_rows INTEGER NOT NULL DEFAULT 0,
+					first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+					last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+					sample_params TEXT,
+					instance_name TEXT NOT NULL DEFAULT 'default',
+					PRIMARY KEY (fingerprint, instance_name)
+				)`,
+				// Copy data from old table
+				`INSERT OR IGNORE INTO query_stats_new
+					SELECT fingerprint, normalized_query, calls, total_time_ms, min_time_ms, max_time_ms,
+					       total_rows, first_seen, last_seen, sample_params,
+					       COALESCE(instance_name, 'default')
+					FROM query_stats`,
+				// Drop old table
+				`DROP TABLE query_stats`,
+				// Rename new table
+				`ALTER TABLE query_stats_new RENAME TO query_stats`,
+				// Recreate indexes
+				`CREATE INDEX IF NOT EXISTS idx_query_stats_total_time ON query_stats(total_time_ms DESC)`,
+				`CREATE INDEX IF NOT EXISTS idx_query_stats_calls ON query_stats(calls DESC)`,
+				`CREATE INDEX IF NOT EXISTS idx_query_stats_total_rows ON query_stats(total_rows DESC)`,
+				`CREATE INDEX IF NOT EXISTS idx_query_stats_last_seen ON query_stats(last_seen DESC)`,
+				`CREATE INDEX IF NOT EXISTS idx_query_stats_instance ON query_stats(instance_name)`,
+			}
+			for _, m := range migrations {
+				_, _ = db.conn.Exec(m)
+			}
+		}
+	}
+
 	return nil
+}
+
+// containsCompositePK checks if a CREATE TABLE SQL contains a composite primary key
+func containsCompositePK(sql string) bool {
+	// Look for PRIMARY KEY (fingerprint, instance_name) pattern
+	return strings.Contains(sql, "PRIMARY KEY (fingerprint, instance_name)") ||
+		strings.Contains(sql, "PRIMARY KEY(fingerprint, instance_name)")
 }

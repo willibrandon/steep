@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -66,6 +67,22 @@ func (pm *PoolManager) Connect(ctx context.Context, instance InstanceConfig) err
 	poolConfig.MaxConnLifetime = 30 * time.Minute
 	poolConfig.MaxConnIdleTime = 10 * time.Minute
 	poolConfig.HealthCheckPeriod = 30 * time.Second
+	poolConfig.ConnConfig.RuntimeParams["application_name"] = "steep-internal"
+
+	// Disable query logging for agent's connection to prevent feedback loop
+	// Use PrepareConn (runs on EVERY acquire) not AfterConnect (only new connections)
+	// This ensures logging is disabled even if a previous query enabled it
+	poolConfig.PrepareConn = func(ctx context.Context, conn *pgx.Conn) (bool, error) {
+		_, err := conn.Exec(ctx, "/* steep:internal */ SET log_statement = 'none'")
+		if err == nil {
+			_, err = conn.Exec(ctx, "/* steep:internal */ SET log_min_duration_statement = -1")
+		}
+		if err != nil {
+			// Non-fatal: user might not be superuser
+			pm.logger.Printf("Could not disable query logging (requires superuser): %v", err)
+		}
+		return true, nil // Connection is valid regardless of SET result
+	}
 
 	// Connect with timeout
 	connectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -243,11 +260,26 @@ func (pm *PoolManager) StartHealthCheck(ctx context.Context, interval time.Durat
 }
 
 // updateInstanceStatus updates the instance status in the store.
+// IMPORTANT: Caller must NOT hold pm.mu lock when calling this method.
 func (pm *PoolManager) updateInstanceStatus(name string, status InstanceStatus, errMsg string) {
-	if pm.instanceStore != nil {
-		_ = pm.instanceStore.UpdateStatus(name, status, errMsg)
+	if pm.instanceStore == nil {
+		return
 	}
+
+	// Upsert to ensure instance exists, then update status
+	now := time.Now()
+	instance := &AgentInstance{
+		Name:             name,
+		ConnectionString: "[configured]", // Don't store actual connection string
+		Status:           status,
+		ErrorMessage:     errMsg,
+	}
+	if status == InstanceStatusConnected {
+		instance.LastSeen = &now
+	}
+	_ = pm.instanceStore.Upsert(instance)
 }
+
 
 // InstanceNames returns the names of all configured instances.
 func (pm *PoolManager) InstanceNames() []string {

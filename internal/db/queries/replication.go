@@ -20,7 +20,7 @@ import (
 // IsPrimary returns true if connected to a primary server, false if standby.
 func IsPrimary(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
 	var isInRecovery bool
-	err := pool.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	err := pool.QueryRow(ctx, "/* steep:internal */ SELECT pg_is_in_recovery()").Scan(&isInRecovery)
 	if err != nil {
 		return false, fmt.Errorf("check recovery status: %w", err)
 	}
@@ -295,11 +295,14 @@ func getPublicationTables(ctx context.Context, pool *pgxpool.Pool, pubName strin
 // Handles version differences (PG12+ for pg_stat_subscription).
 func GetSubscriptions(ctx context.Context, pool *pgxpool.Pool) ([]models.Subscription, error) {
 	// Check PostgreSQL version for pg_stat_subscription (PG12+)
-	var pgVersion int
-	err := pool.QueryRow(ctx, "SHOW server_version_num").Scan(&pgVersion)
+	// SHOW returns text, so scan to string first then parse
+	var pgVersionStr string
+	err := pool.QueryRow(ctx, "SHOW server_version_num").Scan(&pgVersionStr)
 	if err != nil {
 		return nil, fmt.Errorf("get server version: %w", err)
 	}
+	var pgVersion int
+	fmt.Sscanf(pgVersionStr, "%d", &pgVersion)
 
 	var query string
 	if pgVersion >= 120000 {
@@ -476,18 +479,21 @@ func GetWALReceiverStatus(ctx context.Context, pool *pgxpool.Pool) (*models.WALR
 	}
 
 	// Check PostgreSQL version for sender_host/port columns (PG12+)
-	var pgVersion int
-	err = pool.QueryRow(ctx, "SHOW server_version_num").Scan(&pgVersion)
+	// SHOW returns text, so scan to string first then parse
+	var pgVersionStr string
+	err = pool.QueryRow(ctx, "SHOW server_version_num").Scan(&pgVersionStr)
 	if err != nil {
 		return nil, fmt.Errorf("get server version: %w", err)
 	}
+	var pgVersion int
+	fmt.Sscanf(pgVersionStr, "%d", &pgVersion)
 
 	var query string
 	if pgVersion >= 120000 {
 		query = `
 			SELECT
 				COALESCE(status, '') AS status,
-				COALESCE(received_lsn::text, '') AS received_lsn,
+				COALESCE(flushed_lsn::text, '') AS received_lsn,
 				COALESCE(sender_host, '') AS sender_host,
 				COALESCE(sender_port, 0) AS sender_port,
 				COALESCE(slot_name, '') AS slot_name,
@@ -499,7 +505,7 @@ func GetWALReceiverStatus(ctx context.Context, pool *pgxpool.Pool) (*models.WALR
 		query = `
 			SELECT
 				COALESCE(status, '') AS status,
-				COALESCE(received_lsn::text, '') AS received_lsn,
+				COALESCE(flushed_lsn::text, '') AS received_lsn,
 				'' AS sender_host,
 				0 AS sender_port,
 				COALESCE(slot_name, '') AS slot_name,

@@ -51,5 +51,17 @@ type ReconnectFailedMsg struct {
 	Err error
 }
 
+// InstanceConnectedMsg is sent when an additional instance connection is established
+type InstanceConnectedMsg struct {
+	Name string
+	Pool *pgxpool.Pool
+}
+
+// InstanceConnectionFailedMsg is sent when an additional instance connection fails
+type InstanceConnectionFailedMsg struct {
+	Name string
+	Err  error
+}
+
 // dataTickMsg triggers synchronized fetch of all data
 type dataTickMsg struct{}

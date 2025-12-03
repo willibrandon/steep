@@ -183,7 +183,7 @@ func TestIntegration_QueryStatsStore_FullWorkflow(t *testing.T) {
 	}
 
 	for _, q := range testQueries {
-		if err := store.Upsert(ctx, q.fingerprint, q.query, 0, q.duration, q.duration, q.rows, ""); err != nil {
+		if err := store.Upsert(ctx, q.fingerprint, q.query, 0, q.duration, q.duration, q.rows, "", ""); err != nil {
 			t.Fatalf("Upsert failed for fingerprint %d: %v", q.fingerprint, err)
 		}
 	}
@@ -198,7 +198,7 @@ func TestIntegration_QueryStatsStore_FullWorkflow(t *testing.T) {
 	}
 
 	// 3. Update existing query (should aggregate)
-	if err := store.Upsert(ctx, 100, "SELECT * FROM users WHERE id = $1", 0, 100.0, 100.0, 5, ""); err != nil {
+	if err := store.Upsert(ctx, 100, "SELECT * FROM users WHERE id = $1", 0, 100.0, 100.0, 5, "", ""); err != nil {
 		t.Fatalf("Second Upsert failed: %v", err)
 	}
 
@@ -355,7 +355,7 @@ func TestIntegration_ConcurrentAccess(t *testing.T) {
 				duration := float64(id*10 + j)
 				rows := int64(1)
 
-				if err := store.Upsert(ctx, fingerprint, query, 0, duration, duration, rows, ""); err != nil {
+				if err := store.Upsert(ctx, fingerprint, query, 0, duration, duration, rows, "", ""); err != nil {
 					t.Errorf("Concurrent Upsert failed: %v", err)
 				}
 			}

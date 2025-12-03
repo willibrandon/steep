@@ -39,16 +39,16 @@ func (f *Fingerprinter) Fingerprint(query string) (uint64, string, error) {
 		normalized = query
 	}
 
-	// Strip LIMIT/OFFSET from the normalized query for fingerprinting.
+	// Strip LIMIT/OFFSET from the normalized query for fingerprinting and display.
 	// This ensures that queries with pagination (e.g., from SQL editor) match
-	// the same fingerprint as queries without pagination.
-	// We keep the original normalized form for display purposes.
+	// the same fingerprint as queries without pagination, and display without
+	// the pagination clauses.
 	fingerprintQuery := stripLimitOffset(normalized)
 
 	// Generate fingerprint hash from the stripped query
 	fingerprint := pg_query.HashXXH3_64([]byte(fingerprintQuery), 0)
 
-	return fingerprint, normalized, nil
+	return fingerprint, fingerprintQuery, nil
 }
 
 // stripLimitOffset removes LIMIT and OFFSET clauses from a normalized query.

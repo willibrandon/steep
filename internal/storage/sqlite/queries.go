@@ -55,17 +55,25 @@ func NewQueryStatsStore(db *DB) *QueryStatsStore {
 // Upsert inserts a new query stat or updates an existing one.
 // When calls > 0, it uses the provided value directly (from pg_stat_statements).
 // When calls == 0, it increments by 1 (for sampled queries from pg_stat_activity).
-func (s *QueryStatsStore) Upsert(ctx context.Context, fingerprint uint64, query string, calls int64, totalTimeMs float64, meanTimeMs float64, rows int64, sampleParams string) error {
+// instanceName identifies which PostgreSQL instance this query came from.
+func (s *QueryStatsStore) Upsert(ctx context.Context, fingerprint uint64, query string, calls int64, totalTimeMs float64, meanTimeMs float64, rows int64, sampleParams string, instanceName string) error {
 	// Convert uint64 to int64 for SQLite (preserves bit pattern)
 	fpInt := int64(fingerprint)
+
+	// Default instance name for backwards compatibility
+	if instanceName == "" {
+		instanceName = "default"
+	}
 
 	// Use a single SQL statement with CASE expressions to handle both modes:
 	// - calls > 0: use exact values from pg_stat_statements (absolute values)
 	// - calls = 0: increment by 1 and accumulate times (sampling mode)
+	// Uses composite unique constraint on (fingerprint, instance_name)
 	_, err := s.db.conn.ExecContext(ctx, `
-		INSERT INTO query_stats (fingerprint, normalized_query, calls, total_time_ms, min_time_ms, max_time_ms, total_rows, last_seen, sample_params)
-		VALUES (?, ?, CASE WHEN ? > 0 THEN ? ELSE 1 END, ?, ?, ?, ?, datetime('now'), ?)
-		ON CONFLICT(fingerprint) DO UPDATE SET
+		INSERT INTO query_stats (fingerprint, normalized_query, calls, total_time_ms, min_time_ms, max_time_ms, total_rows, last_seen, sample_params, instance_name)
+		VALUES (?, ?, CASE WHEN ? > 0 THEN ? ELSE 1 END, ?, ?, ?, ?, datetime('now'), ?, ?)
+		ON CONFLICT(fingerprint, instance_name) DO UPDATE SET
+			normalized_query = excluded.normalized_query,
 			calls = CASE WHEN ? > 0 THEN ? ELSE query_stats.calls + 1 END,
 			total_time_ms = CASE WHEN ? > 0 THEN ? ELSE query_stats.total_time_ms + excluded.total_time_ms END,
 			min_time_ms = MIN(COALESCE(query_stats.min_time_ms, excluded.min_time_ms), excluded.min_time_ms),
@@ -73,13 +81,19 @@ func (s *QueryStatsStore) Upsert(ctx context.Context, fingerprint uint64, query 
 			total_rows = CASE WHEN ? > 0 THEN ? ELSE query_stats.total_rows + excluded.total_rows END,
 			last_seen = datetime('now'),
 			sample_params = COALESCE(excluded.sample_params, query_stats.sample_params)
-	`, fpInt, query, calls, calls, totalTimeMs, meanTimeMs, meanTimeMs, rows, sampleParams,
+	`, fpInt, query, calls, calls, totalTimeMs, meanTimeMs, meanTimeMs, rows, sampleParams, instanceName,
 		calls, calls, calls, totalTimeMs, calls, rows)
 	return err
 }
 
 // GetTopQueries returns top N queries sorted by the specified field.
 func (s *QueryStatsStore) GetTopQueries(ctx context.Context, sortBy SortField, sortAsc bool, limit int) ([]QueryStats, error) {
+	return s.GetTopQueriesByInstance(ctx, sortBy, sortAsc, limit, "")
+}
+
+// GetTopQueriesByInstance returns top N queries filtered by instance.
+// If instance is empty, returns data from all instances.
+func (s *QueryStatsStore) GetTopQueriesByInstance(ctx context.Context, sortBy SortField, sortAsc bool, limit int, instance string) ([]QueryStats, error) {
 	direction := "DESC"
 	if sortAsc {
 		direction = "ASC"
@@ -97,15 +111,31 @@ func (s *QueryStatsStore) GetTopQueries(ctx context.Context, sortBy SortField, s
 		orderBy = fmt.Sprintf("total_time_ms %s", direction)
 	}
 
-	query := fmt.Sprintf(`
-		SELECT fingerprint, normalized_query, calls, total_time_ms,
-			   min_time_ms, max_time_ms, total_rows, first_seen, last_seen
-		FROM query_stats
-		ORDER BY %s
-		LIMIT ?
-	`, orderBy)
+	var query string
+	var args []interface{}
 
-	rows, err := s.db.conn.QueryContext(ctx, query, limit)
+	if instance != "" {
+		query = fmt.Sprintf(`
+			SELECT fingerprint, normalized_query, calls, total_time_ms,
+				   min_time_ms, max_time_ms, total_rows, first_seen, last_seen
+			FROM query_stats
+			WHERE instance_name = ?
+			ORDER BY %s
+			LIMIT ?
+		`, orderBy)
+		args = []interface{}{instance, limit}
+	} else {
+		query = fmt.Sprintf(`
+			SELECT fingerprint, normalized_query, calls, total_time_ms,
+				   min_time_ms, max_time_ms, total_rows, first_seen, last_seen
+			FROM query_stats
+			ORDER BY %s
+			LIMIT ?
+		`, orderBy)
+		args = []interface{}{limit}
+	}
+
+	rows, err := s.db.conn.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +146,12 @@ func (s *QueryStatsStore) GetTopQueries(ctx context.Context, sortBy SortField, s
 
 // SearchQueries returns queries matching the regex pattern.
 func (s *QueryStatsStore) SearchQueries(ctx context.Context, pattern string, sortBy SortField, sortAsc bool, limit int) ([]QueryStats, error) {
+	return s.SearchQueriesByInstance(ctx, pattern, sortBy, sortAsc, limit, "")
+}
+
+// SearchQueriesByInstance returns queries matching the regex pattern filtered by instance.
+// If instance is empty, returns data from all instances.
+func (s *QueryStatsStore) SearchQueriesByInstance(ctx context.Context, pattern string, sortBy SortField, sortAsc bool, limit int, instance string) ([]QueryStats, error) {
 	// Validate regex pattern
 	_, err := regexp.Compile(pattern)
 	if err != nil {
@@ -140,14 +176,28 @@ func (s *QueryStatsStore) SearchQueries(ctx context.Context, pattern string, sor
 	}
 
 	// SQLite doesn't have native REGEXP, so we fetch all and filter in Go
-	query := fmt.Sprintf(`
-		SELECT fingerprint, normalized_query, calls, total_time_ms,
-			   min_time_ms, max_time_ms, total_rows, first_seen, last_seen
-		FROM query_stats
-		ORDER BY %s
-	`, orderBy)
+	var query string
+	var args []interface{}
 
-	rows, err := s.db.conn.QueryContext(ctx, query)
+	if instance != "" {
+		query = fmt.Sprintf(`
+			SELECT fingerprint, normalized_query, calls, total_time_ms,
+				   min_time_ms, max_time_ms, total_rows, first_seen, last_seen
+			FROM query_stats
+			WHERE instance_name = ?
+			ORDER BY %s
+		`, orderBy)
+		args = []interface{}{instance}
+	} else {
+		query = fmt.Sprintf(`
+			SELECT fingerprint, normalized_query, calls, total_time_ms,
+				   min_time_ms, max_time_ms, total_rows, first_seen, last_seen
+			FROM query_stats
+			ORDER BY %s
+		`, orderBy)
+	}
+
+	rows, err := s.db.conn.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

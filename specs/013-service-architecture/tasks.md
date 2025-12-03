@@ -147,12 +147,12 @@
 
 ### Implementation for User Story 5
 
-- [ ] T049 [US5] Parse instances configuration array from config.yaml per cli-interface.md
-- [ ] T050 [US5] Create connection pool per configured instance in internal/agent/pool.go
-- [ ] T051 [US5] Update collectors to iterate over all instances and tag data with instance_name
-- [ ] T052 [US5] Update AgentInstance table on connection state changes per data-model.md
-- [ ] T053 [US5] Handle partial failures (continue collecting from available instances)
-- [ ] T054 [US5] Add instance selector/filter to TUI views (identify which instance data came from)
+- [x] T049 [US5] Parse instances configuration array from config.yaml per cli-interface.md
+- [x] T050 [US5] Create connection pool per configured instance in internal/agent/pool.go
+- [x] T051 [US5] Update collectors to iterate over all instances and tag data with instance_name
+- [x] T052 [US5] Update AgentInstance table on connection state changes per data-model.md
+- [x] T053 [US5] Handle partial failures (continue collecting from available instances)
+- [x] T054 [US5] Add instance selector/filter to TUI views (identify which instance data came from)
 
 **Checkpoint**: Agent monitors multiple instances, TUI distinguishes data by instance
 

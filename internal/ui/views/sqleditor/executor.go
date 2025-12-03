@@ -381,7 +381,7 @@ func (se *SessionExecutor) executeStatement(ctx context.Context, sql string) (*E
 		// Enable logging for this query so it appears in query stats
 		// (Steep's connection pool disables logging to prevent feedback loop,
 		// but SQL editor queries should be logged for user visibility)
-		_, _ = se.tx.Exec(ctx, "SET log_min_duration_statement = 0")
+		_, _ = se.tx.Exec(ctx, "SET log_statement = 'all'; SET log_min_duration_statement = 0")
 		rows, err = se.tx.Query(ctx, sql)
 	} else {
 		// For non-transaction queries, acquire a connection and enable logging
@@ -391,8 +391,8 @@ func (se *SessionExecutor) executeStatement(ctx context.Context, sql string) (*E
 		}
 		defer conn.Release()
 
-		// Enable logging for this query
-		_, _ = conn.Exec(ctx, "SET log_min_duration_statement = 0")
+		// Enable logging for this query (restore both settings that pool disables)
+		_, _ = conn.Exec(ctx, "SET log_statement = 'all'; SET log_min_duration_statement = 0")
 		rows, err = conn.Query(ctx, sql)
 	}
 

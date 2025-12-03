@@ -68,6 +68,9 @@ func (c *QueriesCollector) Collect(ctx context.Context) error {
 		// Create the monitor (same as TUI uses)
 		c.monitor = queries.NewMonitor(c.pool, c.store, config)
 
+		// Set instance name for multi-instance support
+		c.monitor.SetInstanceName(c.instanceName)
+
 		// Configure first - exactly like TUI does
 		logger.Debug("queries_collector: calling Configure()")
 		_ = c.monitor.Configure(context.Background())

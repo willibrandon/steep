@@ -25,6 +25,7 @@ type CSVLogParser struct {
 	sessionCache *SessionCache
 	lastPosition map[string]int64
 	mu           sync.Mutex
+	instanceName string // PostgreSQL instance name for multi-instance support
 }
 
 // CSV column indices (PostgreSQL 18 format)
@@ -111,6 +112,14 @@ func (p *CSVLogParser) ResetPositions() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.lastPosition = make(map[string]int64)
+}
+
+// SetInstanceName sets the instance name for multi-instance support.
+// Deadlocks will be tagged with this instance name when saved.
+func (p *CSVLogParser) SetInstanceName(name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.instanceName = name
 }
 
 // parseFile parses a single CSV log file for deadlock events.
@@ -221,9 +230,10 @@ func (p *CSVLogParser) parseDeadlockRecord(record []string) (*sqlite.DeadlockEve
 	}
 
 	event := &sqlite.DeadlockEvent{
-		DetectedAt:   detectedAt,
-		DatabaseName: dbName,
+		DetectedAt:    detectedAt,
+		DatabaseName:  dbName,
 		ResolvedByPID: &pid,
+		InstanceName:  p.instanceName,
 	}
 
 	// Parse DETAIL for process info

@@ -137,6 +137,45 @@ alerts:
   # Operators: >, <, >=, <=, ==, !=
   # Expressions: Metrics can be combined with +, -, *, / operators
 
+# Agent configuration (steep-agent daemon)
+# The agent collects PostgreSQL monitoring data continuously in the background
+agent:
+  # Enable agent features (default: true)
+  enabled: true
+
+  # Collection intervals per data type
+  # All intervals must be >= 1s and <= 60s
+  intervals:
+    activity: 2s           # pg_stat_activity
+    queries: 5s            # Query stats
+    replication: 2s        # Replication lag
+    locks: 2s              # Lock monitoring
+    tables: 30s            # Table statistics
+    metrics: 1s            # Dashboard metrics
+
+  # Data retention periods
+  # All periods must be >= 1h and <= 720h (30 days)
+  retention:
+    activity_history: 24h  # Activity snapshots
+    query_stats: 168h      # 7 days
+    replication_lag: 24h   # Replication lag history
+    lock_history: 24h      # Lock snapshots
+    metrics: 24h           # Metrics history
+
+  # Multi-instance monitoring (optional)
+  # Configure multiple PostgreSQL instances for the agent to monitor
+  # If not specified, uses the default connection settings above
+  # instances:
+  #   - name: primary
+  #     connection: "host=localhost port=5432 dbname=postgres user=postgres"
+  #   - name: replica1
+  #     connection: "host=replica1 port=5432 dbname=postgres user=postgres"
+
+  # Background alerting (P3 feature)
+  alerts:
+    enabled: false
+    webhook_url: ""
+
 # Debug mode (default: false)
 # Can be overridden by STEEP_DEBUG=1 environment variable or -debug flag
 # When enabled, logs at Debug level

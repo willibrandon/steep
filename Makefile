@@ -1,4 +1,4 @@
-.PHONY: build build-agent build-all test test-short test-integration test-coverage bench clean run run-dev run-agent help
+.PHONY: build build-agent build-all test test-short test-integration test-coverage bench clean run run-dev run-agent run-agent-dev help
 
 # Force cmd.exe on Windows to avoid shell inconsistencies
 ifeq ($(OS),Windows_NT)
@@ -101,5 +101,9 @@ run-dev: build ## Run with local config.yaml and debug (for Docker replication t
 run-agent: build-agent ## Run agent in foreground with debug
 	@echo "Running $(AGENT_BINARY_NAME) in foreground..."
 	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run --debug
+
+run-agent-dev: build-agent ## Run agent with local config.yaml and debug (for Docker replication testing)
+	@echo "Running $(AGENT_BINARY_NAME) with local config and debug..."
+	@PGPASSWORD=postgres $(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run --config ./config.yaml --debug
 
 .DEFAULT_GOAL := help

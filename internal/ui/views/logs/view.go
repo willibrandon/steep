@@ -139,6 +139,34 @@ func (v *LogsView) SetPool(pool *pgxpool.Pool) {
 	v.pool = pool
 }
 
+// ResetForInstance resets the log viewer state for a new instance.
+// Call this when switching PostgreSQL instances. It clears the log buffer,
+// resets collectors, and prepares for re-checking logging configuration.
+// After calling this, trigger CheckLoggingStatus() to load logs from the new instance.
+func (v *LogsView) ResetForInstance(pool *pgxpool.Pool) {
+	v.pool = pool
+
+	// Clear log buffer
+	v.buffer.Clear()
+
+	// Reset collectors so they'll be recreated with new source
+	v.collector = nil
+	v.pgCollector = nil
+
+	// Reset log source
+	v.source = &monitors.LogSource{}
+
+	// Reset logging status flags to trigger re-check
+	v.loggingEnabled = false
+	v.loggingChecked = false
+
+	// Reset UI state
+	v.selectedIdx = 0
+	v.followMode = true
+	v.err = nil
+	v.invalidateCache()
+}
+
 // SetDB sets the SQLite database for history persistence.
 func (v *LogsView) SetDB(db *sqlite.DB) {
 	if db != nil {
@@ -263,17 +291,18 @@ func (v *LogsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				v.buffer.Add(logEntry)
 			}
 			v.lastUpdate = time.Now()
-			v.needsRebuild = true
-			v.rebuildViewport()
-			// In follow mode, keep selection at newest entry (use filtered count if filter active)
+
+			// In follow mode, keep selection at newest entry
 			if v.followMode {
 				count := v.getEntryCount()
 				if count > 0 {
 					v.selectedIdx = count - 1
 				}
-				v.needsRebuild = true
-				v.rebuildViewport()
 			}
+
+			// Single rebuild after all updates
+			v.needsRebuild = true
+			v.rebuildViewport()
 		}
 		return v, v.scheduleNextTick()
 	}
@@ -1251,9 +1280,9 @@ func (v *LogsView) rebuildViewport() {
 		bufferSize := v.buffer.Len()
 		bufferSeq := v.buffer.Seq()
 
-		// Cache miss if size changed OR buffer wrapped (seq changed)
-		if v.cacheSize != bufferSize || v.cacheSeq != bufferSeq {
-			// Rebuild cache - store entries to ensure consistency
+		// Check cache validity
+		if v.cacheSeq != bufferSeq {
+			// Buffer wrapped - need full rebuild (old entries overwritten)
 			v.cachedEntries = v.buffer.GetAll()
 			v.cachedLines = make([]string, len(v.cachedEntries))
 			for i, entry := range v.cachedEntries {
@@ -1261,6 +1290,20 @@ func (v *LogsView) rebuildViewport() {
 			}
 			v.cacheSize = bufferSize
 			v.cacheSeq = bufferSeq
+		} else if v.cacheSize != bufferSize {
+			// Size changed but no wrap - append new entries only
+			newCount := bufferSize - v.cacheSize
+			if newCount > 0 {
+				// Get only the new entries (from end of previous cache to current size)
+				newEntries := v.buffer.GetRange(v.cacheSize, newCount)
+				// Append to cached entries
+				v.cachedEntries = append(v.cachedEntries, newEntries...)
+				// Format only the new entries
+				for _, entry := range newEntries {
+					v.cachedLines = append(v.cachedLines, v.formatLogEntryWithHighlight(entry, false, false, false))
+				}
+				v.cacheSize = bufferSize
+			}
 		}
 
 		// Build output using cache, only format the selected entry
