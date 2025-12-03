@@ -322,15 +322,8 @@ func getPIDFilePath(cfg *config.Config) string {
 	return fmt.Sprintf("%s/steep-agent.pid", cfg.Storage.GetDataPath())
 }
 
-// computeConfigHash generates a hash of the agent configuration for drift detection.
+// computeConfigHash generates a SHA256 hash of the agent configuration for drift detection.
+// Uses the centralized config.ComputeAgentConfigHash function for consistency.
 func computeConfigHash(cfg *config.Config) string {
-	// Simple hash based on key config values
-	// In production, use a proper hash function
-	h := fmt.Sprintf("%v-%v-%v-%v",
-		cfg.Agent.Enabled,
-		cfg.Agent.Intervals,
-		cfg.Agent.Retention,
-		len(cfg.Agent.Instances),
-	)
-	return h
+	return config.ComputeAgentConfigHash(&cfg.Agent)
 }

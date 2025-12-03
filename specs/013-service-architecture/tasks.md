@@ -168,14 +168,14 @@
 
 ### Implementation for User Story 6
 
-- [ ] T055 [US6] Ensure agent uses existing config loader from internal/config/config.go
-- [ ] T056 [US6] Validate agent configuration on startup with clear error messages
-- [ ] T057 [US6] Implement interval validation (>= 1s, <= 60s) per cli-interface.md
-- [ ] T058 [US6] Implement retention validation (>= 1h, <= 720h) per cli-interface.md
-- [ ] T059 [US6] Implement instance name validation (alphanumeric, hyphens, underscores) per cli-interface.md
-- [ ] T060 [US6] Agent writes config_hash (SHA256 of agent section) to agent_status table on startup
-- [ ] T061 [US6] TUI computes its own config_hash and compares with agent_status.config_hash on agent health check
-- [ ] T062 [US6] Log warning to debug panel when TUI and agent config_hash differ ("Config mismatch detected: TUI and agent using different configurations")
+- [x] T055 [US6] Ensure agent uses existing config loader from internal/config/config.go
+- [x] T056 [US6] Validate agent configuration on startup with clear error messages
+- [x] T057 [US6] Implement interval validation (>= 1s, <= 60s) per cli-interface.md
+- [x] T058 [US6] Implement retention validation (>= 1h, <= 720h) per cli-interface.md
+- [x] T059 [US6] Implement instance name validation (alphanumeric, hyphens, underscores) per cli-interface.md
+- [x] T060 [US6] Agent writes config_hash (SHA256 of agent section) to agent_status table on startup
+- [x] T061 [US6] TUI computes its own config_hash and compares with agent_status.config_hash on agent health check
+- [x] T062 [US6] Log warning to debug panel when TUI and agent config_hash differ ("Config mismatch detected: TUI and agent using different configurations")
 
 **Checkpoint**: Agent and TUI can use different configs (user's choice) but mismatch is surfaced via debug panel warning. For best results, use the same config file for both components.
 

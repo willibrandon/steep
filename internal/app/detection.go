@@ -55,6 +55,7 @@ func CheckAgentStatus(cfg *config.Config) *AgentStatusInfo {
 	if status != nil {
 		result.Version = status.Version
 		result.LastCollect = status.LastCollect
+		result.ConfigHash = status.ConfigHash // T061: Return agent's config hash for drift detection
 	}
 
 	// Query agent_instances table for multi-instance monitoring (T054)
@@ -92,4 +93,43 @@ func IsAgentHealthy(cfg *config.Config, status *AgentStatusInfo) bool {
 
 	maxStaleness := 2 * interval
 	return time.Since(status.LastCollect) <= maxStaleness
+}
+
+// CheckConfigMismatch compares TUI's config hash with agent's config hash.
+// Returns true if configs differ, along with the TUI's computed hash.
+// T061: This implements config drift detection per the design decision.
+func CheckConfigMismatch(cfg *config.Config, agentStatus *AgentStatusInfo) (mismatch bool, tuiHash string) {
+	if !agentStatus.Running || agentStatus.ConfigHash == "" {
+		return false, ""
+	}
+
+	// Compute TUI's config hash using the same algorithm as the agent
+	tuiHash = config.ComputeAgentConfigHash(&cfg.Agent)
+
+	// Compare hashes
+	mismatch = tuiHash != agentStatus.ConfigHash
+	return mismatch, tuiHash
+}
+
+// configMismatchWarned tracks if we've already warned about config mismatch
+// to avoid spamming the debug panel on every refresh.
+var configMismatchWarned bool
+
+// LogConfigMismatchWarning logs a warning to the debug panel if configs differ.
+// T062: Logs "Config mismatch detected: TUI and agent using different configurations"
+func LogConfigMismatchWarning(cfg *config.Config, agentStatus *AgentStatusInfo) {
+	if configMismatchWarned {
+		return
+	}
+
+	mismatch, _ := CheckConfigMismatch(cfg, agentStatus)
+	if mismatch {
+		logger.Warn("Config mismatch detected: TUI and agent using different configurations")
+		configMismatchWarned = true
+	}
+}
+
+// ResetConfigMismatchWarning resets the warning flag (e.g., when agent restarts).
+func ResetConfigMismatchWarning() {
+	configMismatchWarned = false
 }

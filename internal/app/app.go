@@ -141,6 +141,7 @@ type AgentStatusInfo struct {
 	PID         int
 	Version     string
 	LastCollect time.Time
+	ConfigHash  string         // Agent's config hash for drift detection (T061)
 	Instances   []InstanceInfo // List of monitored instances (multi-instance support)
 }
 
@@ -175,6 +176,9 @@ func New(readonly bool, configPath string, agentStatus *AgentStatusInfo) (*Model
 			}
 		}
 		statusBar.SetInstances(instances)
+
+		// T061/T062: Check for config mismatch at startup
+		LogConfigMismatchWarning(cfg, agentStatus)
 	}
 
 	// Initialize dashboard view
@@ -747,11 +751,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Agent became unhealthy - TUI takes over collection
 					logger.Info("app: agent became unhealthy, starting TUI query collection")
 					_ = m.queryMonitor.Start(context.Background())
+					// Reset config mismatch warning when agent stops so we can warn again if it restarts
+					ResetConfigMismatchWarning()
 				} else if !wasHealthy && isHealthy {
 					// Agent became healthy - TUI stops collection, switches to agent mode
 					logger.Info("app: agent became healthy, stopping TUI query collection")
 					m.queryMonitor.Stop()
 					m.queryMonitor.SetAgentMode()
+					// T061/T062: Check for config mismatch when agent becomes healthy
+					LogConfigMismatchWarning(m.config, newStatus)
 				}
 			}
 		}

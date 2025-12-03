@@ -1,8 +1,11 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
+	"sort"
 	"time"
 )
 
@@ -188,4 +191,49 @@ func validateRetention(field string, value, min, max time.Duration) error {
 		return fmt.Errorf("%s must be between %v and %v, got %v", field, min, max, value)
 	}
 	return nil
+}
+
+// ComputeAgentConfigHash computes a SHA256 hash of the agent configuration section.
+// This is used for drift detection between agent and TUI configurations.
+// Both components should use this function to compute their config hash.
+func ComputeAgentConfigHash(cfg *AgentConfig) string {
+	// Build a deterministic string representation of the agent config
+	// We include all fields that affect agent behavior
+	h := sha256.New()
+
+	// Write enabled state
+	h.Write([]byte(fmt.Sprintf("enabled:%v\n", cfg.Enabled)))
+
+	// Write intervals in sorted order for determinism
+	h.Write([]byte(fmt.Sprintf("intervals.activity:%v\n", cfg.Intervals.Activity)))
+	h.Write([]byte(fmt.Sprintf("intervals.locks:%v\n", cfg.Intervals.Locks)))
+	h.Write([]byte(fmt.Sprintf("intervals.metrics:%v\n", cfg.Intervals.Metrics)))
+	h.Write([]byte(fmt.Sprintf("intervals.queries:%v\n", cfg.Intervals.Queries)))
+	h.Write([]byte(fmt.Sprintf("intervals.replication:%v\n", cfg.Intervals.Replication)))
+	h.Write([]byte(fmt.Sprintf("intervals.tables:%v\n", cfg.Intervals.Tables)))
+
+	// Write retention in sorted order for determinism
+	h.Write([]byte(fmt.Sprintf("retention.activity_history:%v\n", cfg.Retention.ActivityHistory)))
+	h.Write([]byte(fmt.Sprintf("retention.lock_history:%v\n", cfg.Retention.LockHistory)))
+	h.Write([]byte(fmt.Sprintf("retention.metrics:%v\n", cfg.Retention.Metrics)))
+	h.Write([]byte(fmt.Sprintf("retention.query_stats:%v\n", cfg.Retention.QueryStats)))
+	h.Write([]byte(fmt.Sprintf("retention.replication_lag:%v\n", cfg.Retention.ReplicationLag)))
+
+	// Write instance names in sorted order
+	instanceNames := make([]string, len(cfg.Instances))
+	for i, inst := range cfg.Instances {
+		instanceNames[i] = inst.Name
+	}
+	sort.Strings(instanceNames)
+	for _, name := range instanceNames {
+		h.Write([]byte(fmt.Sprintf("instance:%s\n", name)))
+	}
+
+	// Write alerts config
+	h.Write([]byte(fmt.Sprintf("alerts.enabled:%v\n", cfg.Alerts.Enabled)))
+	if cfg.Alerts.WebhookURL != "" {
+		h.Write([]byte(fmt.Sprintf("alerts.webhook_url:%s\n", cfg.Alerts.WebhookURL)))
+	}
+
+	return hex.EncodeToString(h.Sum(nil))
 }
