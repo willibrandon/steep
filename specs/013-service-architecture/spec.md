@@ -97,13 +97,16 @@ As a DBA, I want to configure steep-agent via the same YAML config file used by 
 
 **Why this priority**: Reduces operational complexity and prevents configuration drift between agent and TUI. Important for usability but not blocking for core functionality.
 
-**Independent Test**: Can be tested by modifying ~/.config/steep/config.yaml and verifying both steep-agent and steep TUI respect the changes. Delivers value by simplifying configuration management.
+**Design Decision**: Shared configuration is **recommended but not enforced**. Both components independently load their configured YAML file (defaulting to `~/.config/steep/config.yaml`). If configs differ, the TUI displays a warning in the debug panel. This follows the Docker daemon/CLI model where using different configs is considered user error rather than a system failure. For best results, users should run both components with the same config file.
+
+**Independent Test**: Can be tested by modifying ~/.config/steep/config.yaml and verifying both steep-agent and steep TUI respect the changes. Additionally, run agent with one config and TUI with another via `--config` flags, verify warning appears in TUI debug panel.
 
 **Acceptance Scenarios**:
 
 1. **Given** config.yaml contains agent.intervals.activity = 5s, **When** steep-agent starts, **Then** it collects activity data every 5 seconds
 2. **Given** config.yaml is modified while steep-agent is running, **When** I restart the agent, **Then** it uses the updated configuration
 3. **Given** TUI and agent use the same config file, **When** I change connection settings, **Then** both components use the new connection
+4. **Given** agent is running with config A and TUI is started with config B, **When** TUI detects the agent, **Then** a warning appears in the debug panel: "Config mismatch detected: TUI and agent using different configurations"
 
 ---
 

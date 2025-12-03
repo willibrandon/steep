@@ -16,10 +16,12 @@ Tracks the running agent's state for TUI detection and health monitoring.
 | start_time | TIMESTAMP | NOT NULL | Agent start time |
 | last_collect | TIMESTAMP | NOT NULL | Last successful collection |
 | version | TEXT | NOT NULL | Agent version string |
-| config_hash | TEXT | | Hash of config for drift detection |
+| config_hash | TEXT | | SHA256 hash of agent config section for drift detection |
 
 **Table**: `agent_status`
 **Lifecycle**: Created on agent start, updated each collection cycle, deleted on clean shutdown
+
+**Config Hash Purpose**: The `config_hash` field enables TUI to detect when it's using a different configuration than the agent. On agent startup, the agent computes SHA256 of its agent config section and writes it to this field. When TUI detects the agent, it computes its own config hash and compares. If different, TUI logs a warning to the debug panel. This is informational only - mismatched configs are not blocked (user's choice).
 
 ---
 

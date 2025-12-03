@@ -160,9 +160,11 @@
 
 ## Phase 8: User Story 6 - Shared Configuration (Priority: P2)
 
-**Goal**: Agent and TUI use same YAML config file
+**Goal**: Agent and TUI use same YAML config file with drift detection (non-enforced)
 
-**Independent Test**: Modify ~/.config/steep/config.yaml, verify both agent and TUI respect changes
+**Design Decision**: Shared configuration is recommended but not enforced. Both components independently load their configured YAML file. If configs differ, a warning appears in the TUI debug panel. This follows the Docker daemon/CLI model where mismatched configs are user error rather than a system failure.
+
+**Independent Test**: Modify ~/.config/steep/config.yaml, verify both agent and TUI respect changes. Run agent with one config and TUI with another, verify warning appears in debug panel.
 
 ### Implementation for User Story 6
 
@@ -171,9 +173,11 @@
 - [ ] T057 [US6] Implement interval validation (>= 1s, <= 60s) per cli-interface.md
 - [ ] T058 [US6] Implement retention validation (>= 1h, <= 720h) per cli-interface.md
 - [ ] T059 [US6] Implement instance name validation (alphanumeric, hyphens, underscores) per cli-interface.md
-- [ ] T060 [US6] Generate config_hash for drift detection in agent_status table
+- [ ] T060 [US6] Agent writes config_hash (SHA256 of agent section) to agent_status table on startup
+- [ ] T061 [US6] TUI computes its own config_hash and compares with agent_status.config_hash on agent health check
+- [ ] T062 [US6] Log warning to debug panel when TUI and agent config_hash differ ("Config mismatch detected: TUI and agent using different configurations")
 
-**Checkpoint**: Single config file controls both agent and TUI behavior
+**Checkpoint**: Agent and TUI can use different configs (user's choice) but mismatch is surfaced via debug panel warning. For best results, use the same config file for both components.
 
 ---
 
@@ -185,12 +189,12 @@
 
 ### Implementation for User Story 7
 
-- [ ] T061 [US7] Integrate existing alert engine (Feature 012) into agent in internal/agent/alerter.go
-- [ ] T062 [US7] Implement webhook delivery with HTTP POST in internal/agent/webhook.go
-- [ ] T063 [US7] Implement exponential backoff retry for failed webhook delivery
-- [ ] T064 [US7] Send resolution notification when alert condition clears
-- [ ] T065 [US7] Log webhook delivery success/failure without crashing agent
-- [ ] T066 [US7] Parse alerts.enabled and alerts.webhook_url from config.yaml
+- [ ] T063 [US7] Integrate existing alert engine (Feature 012) into agent in internal/agent/alerter.go
+- [ ] T064 [US7] Implement webhook delivery with HTTP POST in internal/agent/webhook.go
+- [ ] T065 [US7] Implement exponential backoff retry for failed webhook delivery
+- [ ] T066 [US7] Send resolution notification when alert condition clears
+- [ ] T067 [US7] Log webhook delivery success/failure without crashing agent
+- [ ] T068 [US7] Parse alerts.enabled and alerts.webhook_url from config.yaml
 
 **Checkpoint**: Agent sends webhook notifications for alert state changes
 
@@ -204,11 +208,11 @@
 
 ### Implementation for User Story 8
 
-- [ ] T067 [US8] Enhance `steep-agent status` to show connected instances, error counts, last errors
-- [ ] T068 [US8] Add agent uptime to status bar in TUI when agent is healthy
-- [ ] T069 [US8] Track and expose collection error counts in agent_status table
-- [ ] T070 [US8] Display most recent error message in status output
-- [ ] T071 [US8] Add health check endpoint in agent_status table (healthy if last_collect within 2x interval)
+- [ ] T069 [US8] Enhance `steep-agent status` to show connected instances, error counts, last errors
+- [ ] T070 [US8] Add agent uptime to status bar in TUI when agent is healthy
+- [ ] T071 [US8] Track and expose collection error counts in agent_status table
+- [ ] T072 [US8] Display most recent error message in status output
+- [ ] T073 [US8] Add health check endpoint in agent_status table (healthy if last_collect within 2x interval)
 
 **Checkpoint**: Agent health visible via CLI and TUI
 
@@ -218,13 +222,13 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T072 [P] Implement graceful shutdown with context cancellation and 5-second timeout per research.md
-- [ ] T073 [P] Add WAL checkpoint before exit (PRAGMA wal_checkpoint(TRUNCATE)) per research.md
-- [ ] T074 [P] Implement schema version check with migration path for upgrades
-- [ ] T075 [P] Add disk full detection and warning without crashing
-- [ ] T076 [P] Add SQLite corruption detection on startup with recreate option
-- [ ] T077 Update Makefile with full build, install, and test targets for steep-agent
-- [ ] T078 Run quickstart.md validation scenarios end-to-end
+- [ ] T074 [P] Implement graceful shutdown with context cancellation and 5-second timeout per research.md
+- [ ] T075 [P] Add WAL checkpoint before exit (PRAGMA wal_checkpoint(TRUNCATE)) per research.md
+- [ ] T076 [P] Implement schema version check with migration path for upgrades
+- [ ] T077 [P] Add disk full detection and warning without crashing
+- [ ] T078 [P] Add SQLite corruption detection on startup with recreate option
+- [ ] T079 Update Makefile with full build, install, and test targets for steep-agent
+- [ ] T080 Run quickstart.md validation scenarios end-to-end
 
 ---
 
@@ -276,7 +280,7 @@ T012 (activity) || T013 (queries) || T014 (replication) || T015 (locks) || T016 
 
 **Polish Phase:**
 ```
-T072 (graceful shutdown) || T073 (WAL checkpoint) || T074 (schema version) || T075 (disk full) || T076 (corruption detection)
+T074 (graceful shutdown) || T075 (WAL checkpoint) || T076 (schema version) || T077 (disk full) || T078 (corruption detection)
 ```
 
 ---
@@ -313,8 +317,8 @@ Single developer (13 hrs/day):
 2. Day 2: US1 Continuous Collection (T011-T023)
 3. Day 3: US2 Service Management (T024-T033)
 4. Day 4: US3 Dual-Mode TUI (T034-T042)
-5. Day 5: US4-US6 P2 Stories (T043-T060)
-6. Day 6: US7-US8 P3 Stories + Polish (T061-T078)
+5. Day 5: US4-US6 P2 Stories (T043-T062)
+6. Day 6: US7-US8 P3 Stories + Polish (T063-T080)
 
 ---
 
