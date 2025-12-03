@@ -78,13 +78,60 @@ func New(cfg *config.Config, debug bool) (*Agent, error) {
 func (a *Agent) Start() error {
 	a.logger.Println("Starting steep-agent...")
 
-	// Open SQLite database
+	// Ensure data directory exists
+	dataDir := a.config.Storage.GetDataPath()
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory %s: %w", dataDir, err)
+	}
+
 	dbPath := getDBPath(a.config)
+
+	// T077: Check disk space before starting
+	if err := CheckMinDiskSpace(dbPath); err != nil {
+		if diskErr, ok := err.(*DiskFullError); ok {
+			a.logger.Printf("WARNING: Low disk space - %d bytes available (minimum: %d bytes)",
+				diskErr.AvailableBytes, diskErr.RequiredBytes)
+			// Continue with warning - don't crash
+		}
+	}
+
+	// T078: Check database integrity on startup
+	if _, err := os.Stat(dbPath); err == nil {
+		if err := CheckDatabaseIntegrity(dbPath); err != nil {
+			if _, ok := err.(*CorruptionError); ok {
+				a.logger.Printf("ERROR: Database corruption detected: %v", err)
+				a.logger.Println("Attempting to recreate database...")
+
+				backupPath, recreateErr := RecreateDatabase(dbPath)
+				if recreateErr != nil {
+					return fmt.Errorf("database corrupted and could not be recreated: %w", recreateErr)
+				}
+
+				if backupPath != "" {
+					a.logger.Printf("Corrupted database backed up to: %s", backupPath)
+				}
+				a.logger.Println("Database will be recreated with fresh schema")
+			} else {
+				a.logger.Printf("Warning: Could not verify database integrity: %v", err)
+			}
+		}
+	}
+
+	// Open SQLite database
 	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
+		return fmt.Errorf("failed to open database %s: %w", dbPath, err)
 	}
 	a.db = db
+
+	// T076: Check schema version and run migrations
+	schemaManager := NewSchemaManager(db, a.debug)
+	if err := schemaManager.CheckAndMigrate(); err != nil {
+		return fmt.Errorf("schema migration failed for %s: %w", dbPath, err)
+	}
+	if a.debug {
+		a.logger.Printf("Schema version: %d", CurrentSchemaVersion)
+	}
 
 	// Initialize stores
 	a.statusStore = NewAgentStatusStore(db)
@@ -100,6 +147,12 @@ func (a *Agent) Start() error {
 
 	// Initialize SQLite wrapper for stores that need it
 	sqliteDB := sqlite.WrapConn(db)
+
+	// Initialize the SQLite schema (creates metrics_history, query_stats, etc.)
+	if err := sqliteDB.InitSchema(); err != nil {
+		return fmt.Errorf("failed to init SQLite schema: %w", err)
+	}
+
 	a.replicationStore = sqlite.NewReplicationStore(sqliteDB)
 	a.queryStore = sqlite.NewQueryStatsStore(sqliteDB)
 

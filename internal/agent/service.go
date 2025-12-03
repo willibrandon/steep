@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -230,11 +231,55 @@ func Start() error {
 		return fmt.Errorf("service already running")
 	}
 
+	// Try to start the service
 	if err := svc.Start(); err != nil {
-		return fmt.Errorf("failed to start service: %w", err)
+		// On macOS, if launchd throttled the service due to repeated failures,
+		// try to recover by unloading and reloading
+		if runtime.GOOS == "darwin" {
+			if recoverErr := recoverLaunchdService(); recoverErr == nil {
+				// Retry start after recovery
+				if retryErr := svc.Start(); retryErr != nil {
+					return fmt.Errorf("failed to start service after recovery: %w", retryErr)
+				}
+			} else {
+				return fmt.Errorf("failed to start service: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to start service: %w", err)
+		}
+	}
+
+	// Verify the service actually started
+	time.Sleep(500 * time.Millisecond)
+	status, err = svc.Status()
+	if err != nil || status != service.StatusRunning {
+		return fmt.Errorf("service failed to start (check logs: /var/log/steep-agent.err.log)")
 	}
 
 	return nil
+}
+
+// recoverLaunchdService attempts to recover a throttled launchd service.
+func recoverLaunchdService() error {
+	plistPath := "/Library/LaunchDaemons/steep-agent.plist"
+	if isUserServiceInstalled() {
+		home, _ := os.UserHomeDir()
+		plistPath = filepath.Join(home, "Library", "LaunchAgents", "steep-agent.plist")
+	}
+
+	// Try bootout first (modern launchctl)
+	domain := "system"
+	if isUserServiceInstalled() {
+		domain = fmt.Sprintf("gui/%d", os.Getuid())
+	}
+
+	// Bootout to clear throttle state
+	exec.Command("launchctl", "bootout", domain+"/steep-agent").Run()
+	time.Sleep(100 * time.Millisecond)
+
+	// Bootstrap to reload
+	cmd := exec.Command("launchctl", "bootstrap", domain, plistPath)
+	return cmd.Run()
 }
 
 // Stop stops the running service.

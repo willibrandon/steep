@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -55,7 +56,19 @@ func expandTilde(path string) string {
 func DefaultDataPath() string {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
-		return "."
+		// Fallback to system-wide paths when user config dir unavailable
+		// (e.g., running as root/SYSTEM daemon without HOME set)
+		switch runtime.GOOS {
+		case "darwin":
+			return "/Library/Application Support/steep"
+		case "windows":
+			if pd := os.Getenv("ProgramData"); pd != "" {
+				return pd + "\\steep"
+			}
+			return "C:\\ProgramData\\steep" // Last resort fallback
+		default:
+			return "/var/lib/steep"
+		}
 	}
 	return fmt.Sprintf("%s/steep", configDir)
 }

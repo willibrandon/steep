@@ -1,4 +1,4 @@
-.PHONY: build build-agent build-all test test-short test-integration test-coverage bench clean run run-dev run-agent run-agent-dev help
+.PHONY: build build-agent build-all test test-short test-integration test-agent test-coverage bench clean run run-dev run-agent run-agent-dev install-agent uninstall-agent start-agent stop-agent status-agent help
 
 # Force cmd.exe on Windows to avoid shell inconsistencies
 ifeq ($(OS),Windows_NT)
@@ -105,5 +105,30 @@ run-agent: build-agent ## Run agent in foreground with debug
 run-agent-dev: build-agent ## Run agent with local config.yaml and debug (for Docker replication testing)
 	@echo "Running $(AGENT_BINARY_NAME) with local config and debug..."
 	@PGPASSWORD=postgres $(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run --config ./config.yaml --debug
+
+test-agent: build-agent ## Run agent-specific tests
+	@echo "Running agent tests..."
+	$(GOTEST) -v -count=1 ./internal/agent/...
+
+install-agent: build-agent ## Install agent as a system service (user mode)
+	@echo "Installing $(AGENT_BINARY_NAME) as user service..."
+	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) install --user
+	@echo "Service installed. Start with: make start-agent"
+
+uninstall-agent: ## Uninstall agent service
+	@echo "Uninstalling $(AGENT_BINARY_NAME) service..."
+	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) uninstall
+	@echo "Service uninstalled"
+
+start-agent: ## Start the installed agent service
+	@echo "Starting $(AGENT_BINARY_NAME) service..."
+	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) start
+
+stop-agent: ## Stop the running agent service
+	@echo "Stopping $(AGENT_BINARY_NAME) service..."
+	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) stop
+
+status-agent: ## Show agent service status
+	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) status
 
 .DEFAULT_GOAL := help

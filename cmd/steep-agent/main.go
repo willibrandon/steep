@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 
@@ -58,6 +59,7 @@ Direct Run (for debugging):
 		newStopCmd(),
 		newRestartCmd(),
 		newStatusCmd(),
+		newLogsCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -363,6 +365,167 @@ func newStatusCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "output in JSON format")
 	return cmd
+}
+
+// newLogsCmd creates the logs subcommand
+func newLogsCmd() *cobra.Command {
+	var follow bool
+	var lines int
+	var errorsOnly bool
+	var clear bool
+
+	cmd := &cobra.Command{
+		Use:   "logs",
+		Short: "View aggregated logs from all sources",
+		Long: `View logs from all steep-agent log sources in one place:
+  - /var/log/steep-agent.out.log (stdout)
+  - /var/log/steep-agent.err.log (stderr)
+  - ~/Library/Application Support/steep/steep.log (app log)
+
+Use -f to follow (tail) logs in real-time.
+Use -e to show only error logs.
+Use --clear to truncate all log files.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if clear {
+				return clearLogs()
+			}
+			return showLogs(follow, lines, errorsOnly)
+		},
+	}
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "follow log output (like tail -f)")
+	cmd.Flags().IntVarP(&lines, "lines", "n", 50, "number of lines to show")
+	cmd.Flags().BoolVarP(&errorsOnly, "errors", "e", false, "show only error log")
+	cmd.Flags().BoolVar(&clear, "clear", false, "truncate all log files")
+	return cmd
+}
+
+// showLogs displays aggregated logs from all sources.
+func showLogs(follow bool, lines int, errorsOnly bool) error {
+	home, _ := os.UserHomeDir()
+
+	logFiles := []struct {
+		path  string
+		label string
+	}{
+		{"/var/log/steep-agent.err.log", "ERR"},
+		{"/var/log/steep-agent.out.log", "OUT"},
+		{home + "/Library/Application Support/steep/steep.log", "APP"},
+	}
+
+	if errorsOnly {
+		logFiles = logFiles[:1] // Only error log
+	}
+
+	if follow {
+		// Use tail -f on all log files
+		fmt.Println("Following logs (Ctrl+C to stop)...")
+		fmt.Println("---")
+
+		// Build tail command with all existing files
+		var existingFiles []string
+		for _, lf := range logFiles {
+			if _, err := os.Stat(lf.path); err == nil {
+				existingFiles = append(existingFiles, lf.path)
+			}
+		}
+
+		if len(existingFiles) == 0 {
+			fmt.Println("No log files found")
+			return nil
+		}
+
+		// Execute tail -f
+		tailArgs := append([]string{"-f"}, existingFiles...)
+		tailCmd := exec.Command("tail", tailArgs...)
+		tailCmd.Stdout = os.Stdout
+		tailCmd.Stderr = os.Stderr
+		return tailCmd.Run()
+	}
+
+	// Show last N lines from each file
+	for _, lf := range logFiles {
+		data, err := os.ReadFile(lf.path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			fmt.Printf("=== %s (%s) ===\n", lf.label, lf.path)
+			fmt.Printf("Error reading: %v\n\n", err)
+			continue
+		}
+
+		// Get last N lines
+		content := string(data)
+		logLines := splitLines(content)
+		start := len(logLines) - lines
+		if start < 0 {
+			start = 0
+		}
+
+		if len(logLines[start:]) > 0 {
+			fmt.Printf("=== %s (%s) ===\n", lf.label, lf.path)
+			for _, line := range logLines[start:] {
+				fmt.Println(line)
+			}
+			fmt.Println()
+		}
+	}
+
+	return nil
+}
+
+// splitLines splits a string into lines, handling different line endings.
+func splitLines(s string) []string {
+	var lines []string
+	var current string
+	for _, r := range s {
+		if r == '\n' {
+			lines = append(lines, current)
+			current = ""
+		} else if r != '\r' {
+			current += string(r)
+		}
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return lines
+}
+
+// clearLogs truncates all log files.
+func clearLogs() error {
+	home, _ := os.UserHomeDir()
+
+	logFiles := []string{
+		"/var/log/steep-agent.err.log",
+		"/var/log/steep-agent.out.log",
+		home + "/Library/Application Support/steep/steep.log",
+	}
+
+	var cleared int
+	for _, path := range logFiles {
+		// Check if file exists
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		}
+
+		// Truncate the file
+		if err := os.Truncate(path, 0); err != nil {
+			fmt.Printf("Failed to clear %s: %v\n", path, err)
+			continue
+		}
+
+		fmt.Printf("Cleared: %s\n", path)
+		cleared++
+	}
+
+	if cleared == 0 {
+		fmt.Println("No log files found to clear")
+	} else {
+		fmt.Printf("\nCleared %d log file(s)\n", cleared)
+	}
+
+	return nil
 }
 
 // printHumanStatus prints the status in human-readable format.

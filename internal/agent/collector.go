@@ -130,7 +130,13 @@ func (c *CollectorCoordinator) recordError(collectorName string, err error) {
 	c.lastError = collectorName + ": " + err.Error()
 	c.mu.Unlock()
 
-	c.logger.Printf("Collector %s error: %v", collectorName, err)
+	// T077: Check for disk full errors - log warning but don't crash
+	if IsDiskFullError(err) {
+		c.logger.Printf("WARNING: Disk full detected during %s collection - data may not be persisted", collectorName)
+		c.logger.Printf("Consider freeing disk space or adjusting retention settings")
+	} else {
+		c.logger.Printf("Collector %s error: %v", collectorName, err)
+	}
 
 	// Update error count in status store
 	if c.statusStore != nil {

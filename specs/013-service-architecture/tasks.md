@@ -222,13 +222,13 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T074 [P] Implement graceful shutdown with context cancellation and 5-second timeout per research.md
-- [ ] T075 [P] Add WAL checkpoint before exit (PRAGMA wal_checkpoint(TRUNCATE)) per research.md
-- [ ] T076 [P] Implement schema version check with migration path for upgrades
-- [ ] T077 [P] Add disk full detection and warning without crashing
-- [ ] T078 [P] Add SQLite corruption detection on startup with recreate option
-- [ ] T079 Update Makefile with full build, install, and test targets for steep-agent
-- [ ] T080 Run quickstart.md validation scenarios end-to-end
+- [x] T074 [P] Implement graceful shutdown with context cancellation and 5-second timeout per research.md
+- [x] T075 [P] Add WAL checkpoint before exit (PRAGMA wal_checkpoint(TRUNCATE)) per research.md
+- [x] T076 [P] Implement schema version check with migration path for upgrades
+- [x] T077 [P] Add disk full detection and warning without crashing
+- [x] T078 [P] Add SQLite corruption detection on startup with recreate option
+- [x] T079 Update Makefile with full build, install, and test targets for steep-agent
+- [x] T080 Run quickstart.md validation scenarios end-to-end
 
 ---
 
