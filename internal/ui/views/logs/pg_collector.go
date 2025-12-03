@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -112,7 +113,10 @@ func (c *PgCollector) findLogFiles(ctx context.Context) ([]string, error) {
 			continue
 		}
 		if matched {
-			files = append(files, filepath.Join(c.source.LogDir, name))
+			// Use path.Join (forward slashes) for paths sent to PostgreSQL server.
+			// filepath.Join uses client OS separators which breaks when client
+			// OS differs from server OS (e.g., Windows client, Linux server).
+			files = append(files, path.Join(c.source.LogDir, name))
 		}
 	}
 

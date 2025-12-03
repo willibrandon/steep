@@ -59,12 +59,12 @@ type LogsView struct {
 	needsRebuild  bool // Whether viewport content needs rebuilding
 
 	// Rendering state
-	filteredLineCount int      // Count of lines after filtering (for status bar)
-	targetLine        int      // Target line to scroll to (-1 = none, use normal scroll)
-	cachedLines       []string // Pre-formatted lines (without selection) for performance
+	filteredLineCount int               // Count of lines after filtering (for status bar)
+	targetLine        int               // Target line to scroll to (-1 = none, use normal scroll)
+	cachedLines       []string          // Pre-formatted lines (without selection) for performance
 	cachedEntries     []models.LogEntry // Cached entries to ensure consistency with cachedLines
-	cacheSize         int      // Buffer size when cache was built
-	cacheSeq          uint64   // Buffer sequence when cache was built (detects wraps)
+	cacheSize         int               // Buffer size when cache was built
+	cacheSeq          uint64            // Buffer sequence when cache was built (detects wraps)
 
 	// Follow mode (auto-scroll to newest)
 	followMode bool
@@ -191,12 +191,12 @@ type CheckLoggingStatusMsg struct{}
 
 // LoggingStatusMsg contains the current logging status.
 type LoggingStatusMsg struct {
-	Enabled       bool
-	LogDir        string
-	LogPattern    string
-	LogFormat     monitors.LogFormat
-	AccessMethod  monitors.AccessMethod
-	Error         error
+	Enabled      bool
+	LogDir       string
+	LogPattern   string
+	LogFormat    monitors.LogFormat
+	AccessMethod monitors.AccessMethod
+	Error        error
 }
 
 // EnableLoggingMsg requests enabling log collection.
@@ -646,9 +646,10 @@ func (v *LogsView) executeCommand(cmd string) {
 
 // executeLevelCommand handles :level <level> [timestamp] command.
 // Supports optional timestamp with same syntax as :goto:
-//   :level error 14:30     - errors closest to 14:30
-//   :level warn+ >14:30    - warnings+ at/after 14:30
-//   :level error+ -1h      - errors+ from the last hour
+//
+//	:level error 14:30     - errors closest to 14:30
+//	:level warn+ >14:30    - warnings+ at/after 14:30
+//	:level error+ -1h      - errors+ from the last hour
 func (v *LogsView) executeLevelCommand(args []string) {
 	if len(args) == 0 {
 		// Show current level
@@ -1473,11 +1474,6 @@ func normalizeMessage(msg string) string {
 		lines = lines[:len(lines)-1]
 	}
 	return strings.Join(lines, "\n")
-}
-
-// formatLogEntry formats a log entry for display.
-func (v *LogsView) formatLogEntry(entry models.LogEntry) string {
-	return v.formatLogEntryWithHighlight(entry, false, false, false)
 }
 
 // formatLogEntryWithHighlight formats a log entry with optional search highlighting.

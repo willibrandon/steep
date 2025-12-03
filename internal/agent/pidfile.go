@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 // ErrAgentRunning is returned when another agent instance is already running.
@@ -93,23 +92,7 @@ func CheckPIDFile(path string) (int, error) {
 	return pid, nil
 }
 
-// isProcessRunning checks if a process with the given PID is running.
-func isProcessRunning(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-
-	// Send signal 0 to check if process exists
-	// This works on Unix-like systems
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-
-	// On Unix, FindProcess always succeeds, so we need to signal
-	err = process.Signal(syscall.Signal(0))
-	return err == nil
-}
+// isProcessRunning is implemented in pidfile_unix.go and pidfile_windows.go
 
 // DefaultPIDFilePath returns the default PID file path.
 func DefaultPIDFilePath() string {

@@ -96,7 +96,7 @@ run: build ## Build and run the application
 
 run-dev: build ## Run with local config.yaml and debug (for Docker replication testing)
 	@echo "Running $(BINARY_NAME) with local config and debug..."
-	@PGPASSWORD=postgres $(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) --config ./config.yaml --debug
+	@$(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) --config ./config.yaml --debug
 
 run-agent: build-agent ## Run agent in foreground with debug
 	@echo "Running $(AGENT_BINARY_NAME) in foreground..."
@@ -104,7 +104,7 @@ run-agent: build-agent ## Run agent in foreground with debug
 
 run-agent-dev: build-agent ## Run agent with local config.yaml and debug (for Docker replication testing)
 	@echo "Running $(AGENT_BINARY_NAME) with local config and debug..."
-	@PGPASSWORD=postgres $(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run --config ./config.yaml --debug
+	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run --config ./config.yaml --debug
 
 test-agent: build-agent ## Run agent-specific tests
 	@echo "Running agent tests..."

@@ -137,7 +137,16 @@ func LoadConfigFromPath(configPath string) (*Config, error) {
 		// Set config file details for default search
 		viper.SetConfigName("config")
 		viper.SetConfigType("yaml")
-		viper.AddConfigPath("$HOME/.config/steep")
+
+		// Add platform-specific config directory
+		// Windows: %AppData%\steep, macOS: ~/Library/Application Support/steep, Linux: ~/.config/steep
+		if configDir, err := os.UserConfigDir(); err == nil {
+			viper.AddConfigPath(configDir + "/steep")
+		}
+		// Fallback to $HOME/.config/steep for Unix systems
+		if home, err := os.UserHomeDir(); err == nil {
+			viper.AddConfigPath(home + "/.config/steep")
+		}
 		viper.AddConfigPath(".")
 	}
 

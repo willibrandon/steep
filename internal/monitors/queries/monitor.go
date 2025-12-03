@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -201,9 +202,13 @@ func (m *Monitor) CheckLoggingStatus(ctx context.Context) (*LoggingStatus, error
 	// -1 means disabled, any other value means enabled
 	enabled := logMinDuration != "-1"
 
-	// Resolve log directory path
-	if !filepath.IsAbs(logDir) {
-		logDir = filepath.Join(dataDir, logDir)
+	// Resolve log directory path.
+	// Check both Unix-style (starts with /) and Windows-style absolute paths,
+	// since the path comes from the PostgreSQL server which may be a different OS.
+	isAbsolute := strings.HasPrefix(logDir, "/") || filepath.IsAbs(logDir)
+	if !isAbsolute {
+		// Use path.Join for server paths to avoid OS-specific separator issues
+		logDir = path.Join(dataDir, logDir)
 	}
 
 	// Convert log_filename pattern to glob pattern

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -68,7 +69,10 @@ func (h *PgHistoricalLoader) DiscoverLogFiles(ctx context.Context) ([]LogFileInf
 			continue
 		}
 
-		fullPath := filepath.Join(h.logDir, name)
+		// Use path.Join (forward slashes) for paths sent to PostgreSQL server.
+		// filepath.Join uses client OS separators which breaks when client
+		// OS differs from server OS (e.g., Windows client, Linux server).
+		fullPath := path.Join(h.logDir, name)
 
 		// Get file info via pg_stat_file
 		var size int64

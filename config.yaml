@@ -33,7 +33,7 @@ ui:
 
 # Data storage configuration
 storage:
-  data_path: ~/Library/Application Support/steep
+  data_path: C:\Users\willi\AppData\Roaming\steep
 
 
 # Log viewer configuration

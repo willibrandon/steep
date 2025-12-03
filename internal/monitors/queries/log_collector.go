@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -254,7 +255,10 @@ func (c *LogCollector) findLogFilesPgReadFile() ([]string, error) {
 			continue
 		}
 		if matched {
-			files = append(files, filepath.Join(c.logDir, name))
+			// Use path.Join (forward slashes) for paths sent to PostgreSQL server.
+			// filepath.Join uses client OS separators which breaks when client
+			// OS differs from server OS (e.g., Windows client, Linux server).
+			files = append(files, path.Join(c.logDir, name))
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -430,7 +431,7 @@ func findExecutable(name string) string {
 
 // getSteepDBPath returns the path to steep.db.
 func getSteepDBPath() string {
-	return fmt.Sprintf("%s/steep.db", config.DefaultDataPath())
+	return filepath.Join(config.DefaultDataPath(), "steep.db")
 }
 
 // tryDockerLitecli attempts to create a Docker command for litecli.
