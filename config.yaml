@@ -31,6 +31,11 @@ ui:
   date_format: "2006-01-02 15:04:05"
   query_timeout: 2m  # SQL Editor query timeout (default: 30s)
 
+# Data storage configuration
+storage:
+  data_path: ~/Library/Application Support/steep
+
+
 # Log viewer configuration
 logs:
   # How to read PostgreSQL log files: auto, filesystem, pg_read_file (default: auto)
@@ -50,5 +55,35 @@ alerts:
       warning: 0.90
       critical: 0.85
       message: "Cache hit ratio: {{.ValueFmt}}% (threshold: {{.ThreshFmt}}%)"
+
+# Agent configuration (steep-agent daemon)
+agent:
+  enabled: true
+  intervals:
+    activity: 2s
+    queries: 5s
+    replication: 2s
+    locks: 2s
+    tables: 30s
+    metrics: 1s
+  retention:
+    activity_history: 24h
+    query_stats: 168h      # 7 days
+    replication_lag: 24h
+    lock_history: 24h
+    metrics: 24h
+  # Multi-instance monitoring - configured for replication test environment
+  instances:
+    - name: primary
+      connection: "host=localhost port=15432 dbname=steep_test user=postgres password=postgres sslmode=disable"
+    - name: replica1
+      connection: "host=localhost port=15433 dbname=steep_test user=postgres password=postgres sslmode=disable"
+    - name: subscriber
+      connection: "host=localhost port=15434 dbname=steep_test user=postgres password=postgres sslmode=disable"
+
+  # Background alerting via webhooks (US7)
+  alerts:
+    enabled: false
+    webhook_url: "https://webhook.site/65b0765a-a0ff-416f-8731-c2dbead54944"
 
 debug: true

@@ -23,6 +23,7 @@ type DataSourceType int
 const (
 	DataSourceSampling DataSourceType = iota
 	DataSourceLogParsing
+	DataSourceAgent // Agent is collecting data, TUI just reads from SQLite
 )
 
 // MonitorStatus represents the current status of the monitor.
@@ -75,10 +76,14 @@ type Monitor struct {
 	config      MonitorConfig
 
 	// State
-	status       MonitorStatus
-	dataSource   DataSourceType
-	accessMethod LogAccessMethod
-	cancel       context.CancelFunc
+	status          MonitorStatus
+	dataSource      DataSourceType
+	accessMethod    LogAccessMethod
+	cancel          context.CancelFunc
+	loggingChecked  bool // Track if we've already checked logging status
+
+	// Instance name for multi-instance support
+	instanceName string
 }
 
 // NewMonitor creates a new query monitor.
@@ -93,18 +98,29 @@ func NewMonitor(pool *pgxpool.Pool, store *sqlite.QueryStatsStore, config Monito
 	}
 }
 
-// Start begins monitoring queries.
-func (m *Monitor) Start(ctx context.Context) error {
-	ctx, m.cancel = context.WithCancel(ctx)
-	m.status = MonitorStatusRunning
-
-	// Check logging status and auto-detect log directory/pattern
+// Configure checks logging status and configures the monitor without starting collection.
+// Call this once at startup to avoid running SHOW queries on every Start/Stop cycle.
+func (m *Monitor) Configure(ctx context.Context) error {
+	if m.loggingChecked {
+		return nil
+	}
 	status, err := m.CheckLoggingStatus(ctx)
 	if err == nil && status.Enabled && status.LogDir != "" {
 		m.config.LogDir = status.LogDir
 		m.config.LogPattern = status.LogPattern
 		m.config.LogLinePrefix = status.LogLinePrefix
 	}
+	m.loggingChecked = true
+	return err
+}
+
+// Start begins monitoring queries.
+func (m *Monitor) Start(ctx context.Context) error {
+	ctx, m.cancel = context.WithCancel(ctx)
+	m.status = MonitorStatusRunning
+
+	// Configure if not already done (should be called separately at startup)
+	_ = m.Configure(ctx)
 
 	// Determine data source and access method
 	if m.config.LogDir != "" && m.config.LogPattern != "" {
@@ -131,7 +147,7 @@ func (m *Monitor) Start(ctx context.Context) error {
 // canUsePgReadFile checks if pg_read_file is available and the user has permissions.
 func (m *Monitor) canUsePgReadFile(ctx context.Context, logDir string) error {
 	// Try to list the log directory using pg_ls_dir
-	query := `SELECT count(*) FROM (SELECT pg_ls_dir($1) LIMIT 1) AS dirs`
+	query := `/* steep:internal */ SELECT count(*) FROM (SELECT pg_ls_dir($1) LIMIT 1) AS dirs`
 	var count int
 	err := m.pool.QueryRow(ctx, query, logDir).Scan(&count)
 	if err != nil {
@@ -311,6 +327,24 @@ func (m *Monitor) DataSource() DataSourceType {
 	return m.dataSource
 }
 
+// SetAgentMode sets the monitor to agent mode, indicating the steep-agent is
+// collecting data and the TUI should just read from SQLite without collecting.
+func (m *Monitor) SetAgentMode() {
+	m.dataSource = DataSourceAgent
+	m.status = MonitorStatusRunning
+}
+
+// SetInstanceName sets the instance name for multi-instance support.
+// Query stats will be tagged with this name in SQLite.
+func (m *Monitor) SetInstanceName(name string) {
+	m.instanceName = name
+}
+
+// InstanceName returns the current instance name.
+func (m *Monitor) InstanceName() string {
+	return m.instanceName
+}
+
 // startSamplingCollector starts collecting via pg_stat_activity polling.
 func (m *Monitor) startSamplingCollector(ctx context.Context) error {
 	collector := NewSamplingCollector(m.pool, m.config.RefreshInterval)
@@ -365,6 +399,17 @@ func (m *Monitor) processEvents(ctx context.Context, events <-chan QueryEvent) {
 
 // processEvent processes a single query event.
 func (m *Monitor) processEvent(ctx context.Context, event QueryEvent) {
+	// Skip internal steep queries by application_name
+	// Internal monitoring uses "steep-internal", user queries use "steep"
+	if event.ApplicationName == "steep-internal" {
+		return
+	}
+
+	// Also skip if query has the steep:internal comment (fallback for text logs)
+	if strings.Contains(event.Query, "/* steep:internal */") {
+		return
+	}
+
 	// Generate fingerprint
 	fingerprint, normalized, err := m.fingerprint.Fingerprint(event.Query)
 	if err != nil {
@@ -386,8 +431,8 @@ func (m *Monitor) processEvent(ctx context.Context, event QueryEvent) {
 		}
 	}
 
-	// Store in database
-	_ = m.store.Upsert(ctx, fingerprint, normalized, event.DurationMs, rows, sampleParams)
+	// Store in database (calls=0 triggers increment behavior for log-parsed queries)
+	_ = m.store.Upsert(ctx, fingerprint, normalized, 0, event.DurationMs, event.DurationMs, rows, sampleParams, m.instanceName)
 }
 
 // estimateRows runs EXPLAIN to get estimated row count for a query.
@@ -734,12 +779,25 @@ func (m *Monitor) ResetPositions() {
 // ParseWithProgress parses log files with progress reporting via callback.
 // The callback is called with (currentFile, totalFiles) for each file processed.
 func (m *Monitor) ParseWithProgress(ctx context.Context, progressCallback func(current, total int)) {
+	// Determine access method if not already set (allows calling before Start)
+	accessMethod := m.accessMethod
 	if m.dataSource != DataSourceLogParsing {
-		return
+		// Check if we can use log parsing
+		if m.config.LogDir == "" || m.config.LogPattern == "" {
+			return
+		}
+		// Try filesystem access first
+		if _, statErr := os.Stat(m.config.LogDir); statErr == nil {
+			accessMethod = LogAccessFileSystem
+		} else if pgErr := m.canUsePgReadFile(ctx, m.config.LogDir); pgErr == nil {
+			accessMethod = LogAccessPgReadFile
+		} else {
+			return // Neither access method works
+		}
 	}
 
 	// Create a temporary collector to parse files
-	collector := NewLogCollector(m.config.LogDir, m.config.LogPattern, m.config.LogLinePrefix, m.store, m.pool, m.accessMethod)
+	collector := NewLogCollector(m.config.LogDir, m.config.LogPattern, m.config.LogLinePrefix, m.store, m.pool, accessMethod)
 
 	// Get list of log files
 	files, err := collector.findLogFiles()

@@ -3,6 +3,7 @@ package queries
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,7 +15,19 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/willibrandon/steep/internal/logger"
 )
+
+// jsonLogEntry represents a PostgreSQL JSON log entry.
+type jsonLogEntry struct {
+	Timestamp       string `json:"timestamp"`
+	User            string `json:"user"`
+	Dbname          string `json:"dbname"`
+	PID             int    `json:"pid"`
+	Message         string `json:"message"`
+	Detail          string `json:"detail"`
+	ApplicationName string `json:"application_name"`
+}
 
 // LogAccessMethod represents how to read PostgreSQL log files.
 type LogAccessMethod int
@@ -38,17 +51,19 @@ var (
 	dbRe            = regexp.MustCompile(`db=(\w+)`)
 	tsRe            = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})`)
 	paramRe         = regexp.MustCompile(`\$(\d+)\s*=\s*'([^']*)'`)
+	pidRe           = regexp.MustCompile(`\[(\d+)\]`) // Extract PID from log line
 )
 
 // QueryEvent represents a single query execution from log or sample.
 type QueryEvent struct {
-	Query      string
-	DurationMs float64
-	Rows       int64
-	Timestamp  time.Time
-	Database   string
-	User       string
-	Params     map[string]string // Captured bound parameters ($1 -> value)
+	Query           string
+	DurationMs      float64
+	Rows            int64
+	Timestamp       time.Time
+	Database        string
+	User            string
+	Params          map[string]string // Captured bound parameters ($1 -> value)
+	ApplicationName string            // Application name from log entry
 }
 
 // LogCollectorError represents an error from the log collector with guidance.
@@ -79,12 +94,13 @@ type LogCollector struct {
 	positions     map[string]int64  // Position per file
 	events        chan QueryEvent
 	errors        chan error
-	lastParams    map[string]string // Parameters from most recent DETAIL line
-	lastQuery     string            // Query from most recent execute line
-	lineBuffer    string            // Buffer for multi-line log entries
-	store         PositionStore     // For persisting position across restarts
-	pool          *pgxpool.Pool     // Database pool for pg_read_file access
-	accessMethod  LogAccessMethod   // How to read log files
+	lastParams    map[string]map[string]string // Parameters per PID from most recent DETAIL line
+	lastQuery     map[string]string            // Query per PID from most recent execute line
+	lineBuffer    string                       // Buffer for multi-line log entries
+	store         PositionStore                // For persisting position across restarts
+	pool          *pgxpool.Pool                // Database pool for pg_read_file access
+	accessMethod  LogAccessMethod              // How to read log files
+	seenEvents    map[string]time.Time         // Deduplication: key is timestamp+query hash, value is when we saw it
 }
 
 // isNewLogEntry checks if a line starts a new log entry (has timestamp prefix)
@@ -100,11 +116,56 @@ func NewLogCollector(logDir, logPattern, logLinePrefix string, store PositionSto
 		logPattern:    logPattern,
 		logLinePrefix: logLinePrefix,
 		positions:     make(map[string]int64),
-		events:        make(chan QueryEvent, 100),
+		events:        make(chan QueryEvent, 10000),
 		errors:        make(chan error, 10),
+		lastParams:    make(map[string]map[string]string),
+		lastQuery:     make(map[string]string),
 		store:         store,
 		pool:          pool,
 		accessMethod:  accessMethod,
+		seenEvents:    make(map[string]time.Time),
+	}
+}
+
+// eventKey generates a deduplication key for a query event.
+// Events with the same timestamp and query are considered duplicates.
+func (c *LogCollector) eventKey(event QueryEvent) string {
+	// Use timestamp (to second precision) + query text as the key
+	// This ensures the same query execution from different log formats
+	// (e.g., .log and .json) is only counted once
+	return event.Timestamp.Format("2006-01-02 15:04:05") + "|" + event.Query
+}
+
+// isDuplicate checks if we've already seen this event.
+func (c *LogCollector) isDuplicate(event QueryEvent) bool {
+	key := c.eventKey(event)
+	_, exists := c.seenEvents[key]
+	return exists
+}
+
+// markSeen marks an event as seen for deduplication.
+func (c *LogCollector) markSeen(event QueryEvent) {
+	key := c.eventKey(event)
+	c.seenEvents[key] = time.Now()
+}
+
+// cleanupSeenEvents removes old entries from the seenEvents map to prevent memory growth.
+// Also cleans up stale per-PID query and params entries.
+func (c *LogCollector) cleanupSeenEvents() {
+	cutoff := time.Now().Add(-5 * time.Minute)
+	for key, seenAt := range c.seenEvents {
+		if seenAt.Before(cutoff) {
+			delete(c.seenEvents, key)
+		}
+	}
+	// Clean up stale per-PID entries (connections that ended without completing their query)
+	// Keep the maps small by clearing them periodically - any incomplete queries
+	// are stale after 5 minutes anyway
+	if len(c.lastQuery) > 1000 {
+		c.lastQuery = make(map[string]string)
+	}
+	if len(c.lastParams) > 1000 {
+		c.lastParams = make(map[string]map[string]string)
 	}
 }
 
@@ -166,7 +227,7 @@ func (c *LogCollector) findLogFilesPgReadFile() ([]string, error) {
 	defer cancel()
 
 	// List files in log directory using pg_ls_dir
-	query := `SELECT pg_ls_dir($1) ORDER BY 1`
+	query := `/* steep:internal */ SELECT pg_ls_dir($1) ORDER BY 1`
 	rows, err := c.pool.Query(ctx, query, c.logDir)
 	if err != nil {
 		if strings.Contains(err.Error(), "permission denied") ||
@@ -241,6 +302,9 @@ func (c *LogCollector) run(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	cleanupTicker := time.NewTicker(1 * time.Minute)
+	defer cleanupTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -251,6 +315,8 @@ func (c *LogCollector) run(ctx context.Context) {
 			if err := c.readAllFiles(ctx); err != nil {
 				c.sendError(err)
 			}
+		case <-cleanupTicker.C:
+			c.cleanupSeenEvents()
 		}
 	}
 }
@@ -334,6 +400,12 @@ func (c *LogCollector) readFileFilesystem(ctx context.Context, filePath string) 
 	for {
 		select {
 		case <-ctx.Done():
+			// Save position before exiting to avoid re-reading on next start
+			newPosition := lastPosition + bytesRead
+			c.positions[filePath] = newPosition
+			if c.store != nil && bytesRead > 0 {
+				_ = c.store.SaveLogPosition(context.Background(), filePath, newPosition)
+			}
 			return ctx.Err()
 		default:
 		}
@@ -343,11 +415,12 @@ func (c *LogCollector) readFileFilesystem(ctx context.Context, filePath string) 
 			// EOF reached - process any remaining buffered entry
 			if c.lineBuffer != "" {
 				event, ok := c.parseLine(c.lineBuffer)
-				if ok {
+				if ok && !c.isDuplicate(event) {
+					c.markSeen(event)
 					select {
 					case c.events <- event:
 					default:
-						// Channel full, skip event
+						logger.Warn("log_collector: events channel full, dropping event")
 					}
 				}
 				c.lineBuffer = ""
@@ -366,11 +439,12 @@ func (c *LogCollector) readFileFilesystem(ctx context.Context, filePath string) 
 			// Process previous buffered entry
 			if c.lineBuffer != "" {
 				event, ok := c.parseLine(c.lineBuffer)
-				if ok {
+				if ok && !c.isDuplicate(event) {
+					c.markSeen(event)
 					select {
 					case c.events <- event:
 					default:
-						// Channel full, skip event
+						logger.Warn("log_collector: events channel full, dropping event")
 					}
 				}
 			}
@@ -403,7 +477,7 @@ func (c *LogCollector) readFilePgReadFile(ctx context.Context, filePath string) 
 
 	// Get file size using pg_stat_file
 	var fileSize int64
-	err := c.pool.QueryRow(ctx, `SELECT size FROM pg_stat_file($1)`, filePath).Scan(&fileSize)
+	err := c.pool.QueryRow(ctx, `/* steep:internal */ SELECT size FROM pg_stat_file($1)`, filePath).Scan(&fileSize)
 	if err != nil {
 		if strings.Contains(err.Error(), "does not exist") {
 			return nil // File may have been rotated away
@@ -438,7 +512,7 @@ func (c *LogCollector) readFilePgReadFile(ctx context.Context, filePath string) 
 	}
 
 	var content string
-	err = c.pool.QueryRow(ctx, `SELECT pg_read_file($1, $2, $3)`, filePath, lastPosition, bytesToRead).Scan(&content)
+	err = c.pool.QueryRow(ctx, `/* steep:internal */ SELECT pg_read_file($1, $2, $3)`, filePath, lastPosition, bytesToRead).Scan(&content)
 	if err != nil {
 		if strings.Contains(err.Error(), "permission denied") ||
 			strings.Contains(err.Error(), "must be superuser") {
@@ -459,26 +533,25 @@ func (c *LogCollector) readFilePgReadFile(ctx context.Context, filePath string) 
 	}
 
 	// Parse each line
-	bytesRead := int64(0)
+	// Use len(content) directly for bytesRead since we already trimmed to last complete line
+	bytesRead := int64(len(content))
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		if line == "" {
-			bytesRead++ // Count the newline
 			continue
 		}
-
-		bytesRead += int64(len(line)) + 1 // +1 for newline
 
 		// Handle multi-line log entries
 		if isNewLogEntry(line) {
 			// Process previous buffered entry
 			if c.lineBuffer != "" {
 				event, ok := c.parseLine(c.lineBuffer)
-				if ok {
+				if ok && !c.isDuplicate(event) {
+					c.markSeen(event)
 					select {
 					case c.events <- event:
 					default:
-						// Channel full, skip event
+						logger.Warn("log_collector: events channel full, dropping event")
 					}
 				}
 			}
@@ -513,6 +586,7 @@ func (c *LogCollector) sendError(err error) {
 
 // parseLine parses a PostgreSQL log line into a QueryEvent.
 // Also captures bound parameters from DETAIL lines.
+// Supports both text format and JSON format log lines.
 //
 // Format with %m [%p] %i:
 //
@@ -521,26 +595,39 @@ func (c *LogCollector) sendError(err error) {
 //	2025-01-01 12:00:00.000 UTC [1234] UPDATE 10  duration: 1.234 ms  execute stmtcache_xxx: UPDATE table ...
 //	2025-01-01 12:00:00.000 UTC [1234] DETAIL:  parameters: $1 = '500', $2 = 'text'
 func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
-	// Check for DETAIL line with parameters - store for association
-	if strings.Contains(line, "DETAIL:") && strings.Contains(strings.ToLower(line), "parameters:") {
-		c.lastParams = c.parseParams(line)
-		return QueryEvent{}, false
+	// Check if this is a JSON log line
+	if strings.HasPrefix(strings.TrimSpace(line), "{") {
+		return c.parseJSONLine(line)
+	}
+	// Extract PID from log line - critical for correlating statement with duration
+	// when multiple connections are interleaved in the log
+	pid := ""
+	if pidMatch := pidRe.FindStringSubmatch(line); pidMatch != nil {
+		pid = pidMatch[1]
 	}
 
-	// Check for statement line (query without duration) - store for association
-	if stmtMatch := statementOnlyRe.FindStringSubmatch(line); stmtMatch != nil {
-		query := strings.TrimSpace(stmtMatch[1])
-		if query != "" && !strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") {
-			c.lastQuery = query
+	// Check for DETAIL line with parameters - store for association (per PID)
+	if strings.Contains(line, "DETAIL:") && strings.Contains(strings.ToLower(line), "parameters:") {
+		if pid != "" {
+			c.lastParams[pid] = c.parseParams(line)
 		}
 		return QueryEvent{}, false
 	}
 
-	// Check for execute/bind line (query without duration) - store for association
+	// Check for statement line (query without duration) - store for association (per PID)
+	if stmtMatch := statementOnlyRe.FindStringSubmatch(line); stmtMatch != nil {
+		query := strings.TrimSpace(stmtMatch[1])
+		if query != "" && !strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") && pid != "" {
+			c.lastQuery[pid] = query
+		}
+		return QueryEvent{}, false
+	}
+
+	// Check for execute/bind line (query without duration) - store for association (per PID)
 	if executeMatch := executeRe.FindStringSubmatch(line); executeMatch != nil {
 		query := strings.TrimSpace(executeMatch[1])
-		if query != "" && !strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") {
-			c.lastQuery = query
+		if query != "" && !strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") && pid != "" {
+			c.lastQuery[pid] = query
 		}
 		return QueryEvent{}, false
 	}
@@ -556,14 +643,14 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 		return QueryEvent{}, false
 	}
 
-	// Try to get query from same line (old format) or from stored lastQuery (new format)
+	// Try to get query from same line (old format) or from stored lastQuery (new format, per PID)
 	var query string
 	if statementMatch := statementRe.FindStringSubmatch(line); statementMatch != nil {
 		query = strings.TrimSpace(statementMatch[1])
-	} else if c.lastQuery != "" {
-		// Use stored query from previous execute line
-		query = c.lastQuery
-		c.lastQuery = ""
+	} else if pid != "" && c.lastQuery[pid] != "" {
+		// Use stored query from previous execute line for this PID
+		query = c.lastQuery[pid]
+		delete(c.lastQuery, pid)
 	}
 
 	if query == "" {
@@ -572,22 +659,28 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 
 	// Filter out steep's internal EXPLAIN queries
 	if strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") {
-		c.lastQuery = ""
-		c.lastParams = nil
+		if pid != "" {
+			delete(c.lastQuery, pid)
+			delete(c.lastParams, pid)
+		}
 		return QueryEvent{}, false
 	}
 
 	// Filter out comment-only queries (e.g., "-- ping" health checks)
 	if isCommentOnly(query) {
-		c.lastQuery = ""
-		c.lastParams = nil
+		if pid != "" {
+			delete(c.lastQuery, pid)
+			delete(c.lastParams, pid)
+		}
 		return QueryEvent{}, false
 	}
 
 	// Filter out noise queries that aren't useful for performance analysis
 	if isNoiseQuery(query) {
-		c.lastQuery = ""
-		c.lastParams = nil
+		if pid != "" {
+			delete(c.lastQuery, pid)
+			delete(c.lastParams, pid)
+		}
 		return QueryEvent{}, false
 	}
 
@@ -626,9 +719,12 @@ func (c *LogCollector) parseLine(line string) (QueryEvent, bool) {
 		}
 	}
 
-	// Capture params and clear for next query
-	params := c.lastParams
-	c.lastParams = nil
+	// Capture params and clear for next query (per PID)
+	var params map[string]string
+	if pid != "" {
+		params = c.lastParams[pid]
+		delete(c.lastParams, pid)
+	}
 
 	return QueryEvent{
 		Query:      query,
@@ -749,6 +845,128 @@ func isCommentOnly(query string) bool {
 	}
 
 	return true
+}
+
+// parseJSONLine parses a PostgreSQL JSON log line into a QueryEvent.
+// JSON log format includes fields like timestamp, user, dbname, pid, message, application_name.
+// The query and duration are extracted from the message field.
+func (c *LogCollector) parseJSONLine(line string) (QueryEvent, bool) {
+	var entry jsonLogEntry
+	if err := json.Unmarshal([]byte(line), &entry); err != nil {
+		return QueryEvent{}, false
+	}
+
+	// Parse timestamp
+	timestamp, _ := time.Parse("2006-01-02 15:04:05.000 MST", entry.Timestamp)
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+
+	// Extract duration from message
+	// Format: "duration: X.XXX ms ..." or "duration: X.XXX ms  statement: ..." or "duration: X.XXX ms  execute stmtcache_xxx: ..."
+	durationMatch := durationRe.FindStringSubmatch(entry.Message)
+	if durationMatch == nil {
+		// No duration in this log line - it's not a query completion log
+		// Check if it's an execute/bind line that we should track for later
+		if executeMatch := executeRe.FindStringSubmatch(entry.Message); executeMatch != nil {
+			query := strings.TrimSpace(executeMatch[1])
+			pid := fmt.Sprintf("%d", entry.PID)
+			if query != "" && !strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") && pid != "" {
+				c.lastQuery[pid] = query
+			}
+		} else if stmtMatch := statementOnlyRe.FindStringSubmatch(entry.Message); stmtMatch != nil {
+			query := strings.TrimSpace(stmtMatch[1])
+			pid := fmt.Sprintf("%d", entry.PID)
+			if query != "" && !strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") && pid != "" {
+				c.lastQuery[pid] = query
+			}
+		}
+		// Check for DETAIL line with parameters
+		if strings.Contains(entry.Message, "parameters:") || strings.Contains(entry.Detail, "parameters:") {
+			pid := fmt.Sprintf("%d", entry.PID)
+			detailText := entry.Detail
+			if detailText == "" {
+				detailText = entry.Message
+			}
+			c.lastParams[pid] = c.parseParams(detailText)
+		}
+		return QueryEvent{}, false
+	}
+
+	durationMs, err := strconv.ParseFloat(durationMatch[1], 64)
+	if err != nil {
+		return QueryEvent{}, false
+	}
+
+	// Extract query from message - it comes after "statement:" or "execute stmtcache_xxx:" or "bind stmtcache_xxx:"
+	var query string
+	pid := fmt.Sprintf("%d", entry.PID)
+
+	if statementMatch := statementRe.FindStringSubmatch(entry.Message); statementMatch != nil {
+		query = strings.TrimSpace(statementMatch[1])
+	} else if pid != "" && c.lastQuery[pid] != "" {
+		// Use stored query from previous execute line for this PID
+		query = c.lastQuery[pid]
+		delete(c.lastQuery, pid)
+	}
+
+	if query == "" {
+		return QueryEvent{}, false
+	}
+
+	// Filter out steep's internal queries (marked with /* steep:internal */ comment)
+	if strings.Contains(query, "/* steep:internal */") {
+		if pid != "" {
+			delete(c.lastQuery, pid)
+			delete(c.lastParams, pid)
+		}
+		return QueryEvent{}, false
+	}
+
+	// Filter out steep's internal EXPLAIN queries
+	if strings.HasPrefix(strings.ToUpper(query), "EXPLAIN (FORMAT JSON)") {
+		if pid != "" {
+			delete(c.lastQuery, pid)
+			delete(c.lastParams, pid)
+		}
+		return QueryEvent{}, false
+	}
+
+	// Filter out comment-only queries
+	if isCommentOnly(query) {
+		if pid != "" {
+			delete(c.lastQuery, pid)
+			delete(c.lastParams, pid)
+		}
+		return QueryEvent{}, false
+	}
+
+	// Filter out noise queries
+	if isNoiseQuery(query) {
+		if pid != "" {
+			delete(c.lastQuery, pid)
+			delete(c.lastParams, pid)
+		}
+		return QueryEvent{}, false
+	}
+
+	// Capture params and clear for next query (per PID)
+	var params map[string]string
+	if pid != "" {
+		params = c.lastParams[pid]
+		delete(c.lastParams, pid)
+	}
+
+	return QueryEvent{
+		Query:           query,
+		DurationMs:      durationMs,
+		Rows:            0, // JSON logs don't include row counts
+		Timestamp:       timestamp,
+		Database:        entry.Dbname,
+		User:            entry.User,
+		Params:          params,
+		ApplicationName: entry.ApplicationName,
+	}, true
 }
 
 // parseParams extracts parameters from a DETAIL line.

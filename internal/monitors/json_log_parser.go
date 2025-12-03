@@ -25,6 +25,7 @@ type JSONLogParser struct {
 	sessionCache *SessionCache
 	lastPosition map[string]int64
 	mu           sync.Mutex
+	instanceName string // PostgreSQL instance name for multi-instance support
 }
 
 // JSONLogEntry represents a single JSON log entry from PostgreSQL.
@@ -133,6 +134,14 @@ func (p *JSONLogParser) ResetPositions() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.lastPosition = make(map[string]int64)
+}
+
+// SetInstanceName sets the instance name for multi-instance support.
+// Deadlocks will be tagged with this instance name when saved.
+func (p *JSONLogParser) SetInstanceName(name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.instanceName = name
 }
 
 // parseFile parses a single JSON log file for deadlock events.
@@ -310,6 +319,7 @@ func (p *JSONLogParser) saveDeadlock(ctx context.Context, state *jsonDeadlockSta
 		DatabaseName:    state.dbName,
 		ResolvedByPID:   state.resolvedByPID,
 		DetectionTimeMs: state.detectionTimeMs,
+		InstanceName:    p.instanceName,
 	}
 
 	for _, proc := range state.processes {

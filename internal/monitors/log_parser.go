@@ -36,6 +36,10 @@ type LogParser interface {
 
 	// ResetPositions clears all file positions to start fresh.
 	ResetPositions()
+
+	// SetInstanceName sets the instance name for multi-instance support.
+	// Deadlocks will be tagged with this instance name when saved.
+	SetInstanceName(name string)
 }
 
 // NewLogParser creates a log parser based on the detected format.

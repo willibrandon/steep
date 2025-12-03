@@ -30,6 +30,21 @@ type StatusBar struct {
 
 	// Chart visibility
 	chartsVisible bool
+
+	// Agent mode (client mode)
+	agentMode        bool
+	agentStartTime   time.Time // Agent start time for uptime display (T070)
+	agentLastCollect time.Time
+
+	// Multi-instance support (T054)
+	instances       []InstanceDisplayInfo
+	currentInstance string // Name of currently selected instance ("" = all)
+}
+
+// InstanceDisplayInfo holds instance information for status bar display.
+type InstanceDisplayInfo struct {
+	Name   string
+	Status string // connected, disconnected, error, unknown
 }
 
 // NewStatusBar creates a new status bar component
@@ -85,6 +100,39 @@ func (s *StatusBar) SetReadOnly(readOnly bool) {
 // SetChartsVisible sets the chart visibility state
 func (s *StatusBar) SetChartsVisible(visible bool) {
 	s.chartsVisible = visible
+}
+
+// SetAgentStatus sets the agent running status, start time, and last collection time
+func (s *StatusBar) SetAgentStatus(running bool, startTime, lastCollect time.Time) {
+	s.agentMode = running
+	s.agentStartTime = startTime
+	s.agentLastCollect = lastCollect
+}
+
+// UpdateAgentLastCollect updates the last collection timestamp
+func (s *StatusBar) UpdateAgentLastCollect(lastCollect time.Time) {
+	s.agentLastCollect = lastCollect
+}
+
+// SetInstances sets the list of monitored instances (T054: multi-instance support).
+func (s *StatusBar) SetInstances(instances []InstanceDisplayInfo) {
+	s.instances = instances
+}
+
+// SetCurrentInstance sets the currently selected instance filter.
+// Empty string means show data from all instances.
+func (s *StatusBar) SetCurrentInstance(name string) {
+	s.currentInstance = name
+}
+
+// GetCurrentInstance returns the currently selected instance filter.
+func (s *StatusBar) GetCurrentInstance() string {
+	return s.currentInstance
+}
+
+// GetInstances returns the list of monitored instances.
+func (s *StatusBar) GetInstances() []InstanceDisplayInfo {
+	return s.instances
 }
 
 // View renders the status bar
@@ -149,12 +197,60 @@ func (s *StatusBar) View() string {
 		chartsSection = " | " + styles.MutedStyle.Render("Charts OFF")
 	}
 
+	// Agent status indicator (always shown)
+	var agentSection string
+	if s.agentMode {
+		uptimeStr := ""
+		if !s.agentStartTime.IsZero() {
+			uptimeStr = fmt.Sprintf(" (%s)", formatUptime(s.agentStartTime))
+		}
+		agentSection = " | " + styles.StatusConnectedStyle.Render("Agent: Running"+uptimeStr)
+	} else {
+		agentSection = " | " + styles.MutedStyle.Render("Agent: Stopped")
+	}
+
+	// Instance indicator (T054: multi-instance support)
+	// Only show when agent is running and there are instances to display
+	var instanceSection string
+	if s.agentMode && len(s.instances) > 0 {
+		if len(s.instances) == 1 {
+			// Single instance - just show the name
+			inst := s.instances[0]
+			if inst.Status == "connected" {
+				instanceSection = " | " + styles.SuccessStyle.Render(fmt.Sprintf("[%s]", inst.Name))
+			} else {
+				instanceSection = " | " + styles.WarningStyle.Render(fmt.Sprintf("[%s: %s]", inst.Name, inst.Status))
+			}
+		} else {
+			// Multiple instances - show filter or count
+			if s.currentInstance != "" {
+				// Filtering by specific instance - use accent color to highlight current selection
+				instanceSection = " | " + styles.AccentStyle.Render(fmt.Sprintf("[%s]", s.currentInstance))
+			} else {
+				// Show instance count with health summary
+				connectedCount := 0
+				for _, inst := range s.instances {
+					if inst.Status == "connected" {
+						connectedCount++
+					}
+				}
+				if connectedCount == len(s.instances) {
+					instanceSection = " | " + styles.SuccessStyle.Render(fmt.Sprintf("[%d instances]", len(s.instances)))
+				} else {
+					instanceSection = " | " + styles.WarningStyle.Render(fmt.Sprintf("[%d/%d instances]", connectedCount, len(s.instances)))
+				}
+			}
+		}
+	}
+
 	// Build status line
-	statusLine := fmt.Sprintf("%s | %s | %s%s%s%s%s",
+	statusLine := fmt.Sprintf("%s | %s | %s%s%s%s%s%s%s",
 		statusIndicator,
 		dbName,
 		timestamp,
 		metricsSection,
+		agentSection,
+		instanceSection,
 		debugSection,
 		readOnlySection,
 		chartsSection,
@@ -179,4 +275,21 @@ func (s *StatusBar) ShortView() string {
 		return styles.StatusConnectedStyle.Render("●") + " " + s.database
 	}
 	return styles.StatusDisconnectedStyle.Render("●") + " Disconnected"
+}
+
+// formatUptime formats a start time as a human-readable uptime string.
+func formatUptime(startTime time.Time) string {
+	d := time.Since(startTime)
+
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dm", minutes)
 }

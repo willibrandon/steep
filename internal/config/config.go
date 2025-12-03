@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -12,13 +13,64 @@ import (
 // Config represents the root configuration structure
 type Config struct {
 	Connection  ConnectionConfig  `mapstructure:"connection"`
+	Storage     StorageConfig     `mapstructure:"storage"`
 	UI          UIConfig          `mapstructure:"ui"`
 	Queries     QueriesConfig     `mapstructure:"queries"`
 	Replication ReplicationConfig `mapstructure:"replication"`
 	Logs        LogsConfig        `mapstructure:"logs"`
 	Alerts      AlertsConfig      `mapstructure:"alerts"`
+	Agent       AgentConfig       `mapstructure:"agent"`
 	Debug       bool              `mapstructure:"debug"`
 	LogFile     string            `mapstructure:"log_file"`
+}
+
+// StorageConfig holds data storage configuration
+type StorageConfig struct {
+	// DataPath is the directory for steep's data files (SQLite database, etc.)
+	// Default: ~/.config/steep on Linux, ~/Library/Application Support/steep on macOS,
+	// %AppData%\steep on Windows
+	DataPath string `mapstructure:"data_path"`
+}
+
+// GetDataPath returns the configured data path, or the default if not set.
+func (c *StorageConfig) GetDataPath() string {
+	if c.DataPath != "" {
+		return expandTilde(c.DataPath)
+	}
+	return DefaultDataPath()
+}
+
+// expandTilde expands ~ to the user's home directory.
+func expandTilde(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return home + path[1:]
+	}
+	return path
+}
+
+// DefaultDataPath returns the platform-appropriate default data directory.
+func DefaultDataPath() string {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		// Fallback to system-wide paths when user config dir unavailable
+		// (e.g., running as root/SYSTEM daemon without HOME set)
+		switch runtime.GOOS {
+		case "darwin":
+			return "/Library/Application Support/steep"
+		case "windows":
+			if pd := os.Getenv("ProgramData"); pd != "" {
+				return pd + "\\steep"
+			}
+			return "C:\\ProgramData\\steep" // Last resort fallback
+		default:
+			return "/var/lib/steep"
+		}
+	}
+	return fmt.Sprintf("%s/steep", configDir)
 }
 
 // LogsConfig holds log viewer configuration
@@ -123,6 +175,9 @@ func createDefaultConfig() (*Config, error) {
 			PoolMaxConns: viper.GetInt("connection.pool_max_conns"),
 			PoolMinConns: viper.GetInt("connection.pool_min_conns"),
 		},
+		Storage: StorageConfig{
+			DataPath: viper.GetString("storage.data_path"),
+		},
 		UI: UIConfig{
 			Theme:           viper.GetString("ui.theme"),
 			RefreshInterval: viper.GetDuration("ui.refresh_interval"),
@@ -140,6 +195,7 @@ func createDefaultConfig() (*Config, error) {
 			HistoryRetention: viper.GetDuration("alerts.history_retention"),
 			Rules:            []AlertRuleConfig{},
 		},
+		Agent:   DefaultAgentConfig(),
 		Debug:   viper.GetBool("debug"),
 		LogFile: viper.GetString("log_file"),
 	}
@@ -252,6 +308,11 @@ func ValidateConfig(cfg *Config) error {
 		return err
 	}
 
+	// Validate agent config
+	if err := ValidateAgentConfig(&cfg.Agent); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -342,4 +403,20 @@ func applyDefaults() {
 
 	// Log file default (empty = ~/.config/steep/steep.log)
 	viper.SetDefault("log_file", "")
+
+	// Agent defaults
+	viper.SetDefault("agent.enabled", true)
+	viper.SetDefault("agent.intervals.activity", "2s")
+	viper.SetDefault("agent.intervals.queries", "5s")
+	viper.SetDefault("agent.intervals.replication", "2s")
+	viper.SetDefault("agent.intervals.locks", "2s")
+	viper.SetDefault("agent.intervals.tables", "30s")
+	viper.SetDefault("agent.intervals.metrics", "1s")
+	viper.SetDefault("agent.retention.activity_history", "24h")
+	viper.SetDefault("agent.retention.query_stats", "168h") // 7 days
+	viper.SetDefault("agent.retention.replication_lag", "24h")
+	viper.SetDefault("agent.retention.lock_history", "24h")
+	viper.SetDefault("agent.retention.metrics", "24h")
+	viper.SetDefault("agent.alerts.enabled", false)
+	viper.SetDefault("agent.alerts.webhook_url", "")
 }

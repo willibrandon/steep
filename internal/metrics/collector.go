@@ -44,6 +44,9 @@ type Collector struct {
 	wg       sync.WaitGroup
 	capacity int
 
+	// Current instance for per-instance data separation
+	currentInstance string
+
 	// Configuration
 	persistInterval time.Duration
 	pruneInterval   time.Duration
@@ -268,6 +271,32 @@ func (c *Collector) MetricNames() []string {
 	return names
 }
 
+// SetInstance sets the current instance and clears all in-memory buffers if instance changed.
+// This ensures each instance has its own isolated metrics data.
+func (c *Collector) SetInstance(instance string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.currentInstance == instance {
+		return // No change
+	}
+
+	// Clear all in-memory buffers when switching instances
+	for _, series := range c.series {
+		series.Buffer.Clear()
+	}
+
+	c.currentInstance = instance
+	logger.Debug("metrics: switched instance", "instance", instance)
+}
+
+// GetInstance returns the current instance name.
+func (c *Collector) GetInstance() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.currentInstance
+}
+
 // persistLoop periodically persists buffered data to storage.
 func (c *Collector) persistLoop() {
 	defer c.wg.Done()
@@ -317,7 +346,9 @@ func (c *Collector) persistAll() {
 		points := series.Buffer.GetSince(since)
 
 		if len(points) > 0 {
-			if err := c.store.SaveBatch(ctx, name, "", points); err != nil {
+			// Use current instance as key to separate data per instance
+			instanceKey := c.currentInstance
+			if err := c.store.SaveBatch(ctx, name, instanceKey, points); err != nil {
 				logger.Debug("metrics: failed to persist batch", "metric", name, "points", len(points), "error", err)
 			}
 		}
@@ -369,11 +400,14 @@ func (c *Collector) getMergedValues(metricName string, window TimeWindow) []floa
 	var points []DataPoint
 	var err error
 
+	// Use current instance as key to filter data
+	instanceKey := c.currentInstance
+
 	// For 24h window, use aggregated data
 	if window == TimeWindow24h {
-		points, err = c.store.GetAggregated(ctx, metricName, "", since, int(granularity.Seconds()))
+		points, err = c.store.GetAggregated(ctx, metricName, instanceKey, since, int(granularity.Seconds()))
 	} else {
-		points, err = c.store.GetHistory(ctx, metricName, "", since, 10000)
+		points, err = c.store.GetHistory(ctx, metricName, instanceKey, since, 10000)
 	}
 
 	if err != nil {
@@ -419,16 +453,19 @@ func (c *Collector) getMergedDataPoints(metricName string, window TimeWindow) []
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
+	// Use current instance as key to filter data
+	instanceKey := c.currentInstance
+
 	// For 24h window, use aggregated data
 	if window == TimeWindow24h {
-		points, err := c.store.GetAggregated(ctx, metricName, "", since, int(granularity.Seconds()))
+		points, err := c.store.GetAggregated(ctx, metricName, instanceKey, since, int(granularity.Seconds()))
 		if err != nil {
 			logger.Debug("metrics: failed to get aggregated data points", "metric", metricName, "error", err)
 		}
 		return points
 	}
 
-	points, err := c.store.GetHistory(ctx, metricName, "", since, 10000)
+	points, err := c.store.GetHistory(ctx, metricName, instanceKey, since, 10000)
 	if err != nil {
 		logger.Debug("metrics: failed to get history data points", "metric", metricName, "error", err)
 	}

@@ -397,7 +397,8 @@ func enableLogsLogging(pool *pgxpool.Pool) tea.Cmd {
 }
 
 // fetchQueryStats creates a command to fetch query statistics
-func fetchQueryStats(store *sqlite.QueryStatsStore, monitor *querymonitor.Monitor, sortCol queriesview.SortColumn, sortAsc bool, filter string) tea.Cmd {
+// instance is the instance filter for multi-instance support (T054). Empty string means all instances.
+func fetchQueryStats(store *sqlite.QueryStatsStore, monitor *querymonitor.Monitor, sortCol queriesview.SortColumn, sortAsc bool, filter, instance string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
@@ -420,9 +421,9 @@ func fetchQueryStats(store *sqlite.QueryStatsStore, monitor *querymonitor.Monito
 		var err error
 
 		if filter != "" {
-			stats, err = store.SearchQueries(ctx, filter, storeSort, sortAsc, 100)
+			stats, err = store.SearchQueriesByInstance(ctx, filter, storeSort, sortAsc, 100, instance)
 		} else {
-			stats, err = store.GetTopQueries(ctx, storeSort, sortAsc, 100)
+			stats, err = store.GetTopQueriesByInstance(ctx, storeSort, sortAsc, 100, instance)
 		}
 
 		// Get data source from monitor
@@ -431,6 +432,8 @@ func fetchQueryStats(store *sqlite.QueryStatsStore, monitor *querymonitor.Monito
 			switch monitor.DataSource() {
 			case querymonitor.DataSourceLogParsing:
 				dataSource = queriesview.DataSourceLogParsing
+			case querymonitor.DataSourceAgent:
+				dataSource = queriesview.DataSourceAgent
 			default:
 				dataSource = queriesview.DataSourceSampling
 			}
@@ -614,3 +617,4 @@ func reloadConfig(pool *pgxpool.Pool) tea.Cmd {
 		}
 	}
 }
+

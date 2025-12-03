@@ -92,7 +92,7 @@ func (c *PgCollector) findLogFiles(ctx context.Context) ([]string, error) {
 	}
 
 	// List files in log directory
-	query := `SELECT pg_ls_dir($1) ORDER BY 1`
+	query := `/* steep:internal */ SELECT pg_ls_dir($1) ORDER BY 1`
 	rows, err := c.pool.Query(ctx, query, c.source.LogDir)
 	if err != nil {
 		return nil, fmt.Errorf("pg_ls_dir failed: %w", err)
@@ -122,7 +122,7 @@ func (c *PgCollector) findLogFiles(ctx context.Context) ([]string, error) {
 // getFileSize gets the size of a file using pg_stat_file.
 func (c *PgCollector) getFileSize(ctx context.Context, path string) (int64, error) {
 	var size int64
-	query := `SELECT size FROM pg_stat_file($1)`
+	query := `/* steep:internal */ SELECT size FROM pg_stat_file($1)`
 	err := c.pool.QueryRow(ctx, query, path).Scan(&size)
 	if err != nil {
 		return 0, err
@@ -159,7 +159,7 @@ func (c *PgCollector) readNewEntries(ctx context.Context, file string) ([]LogEnt
 
 	// Read the new content
 	// pg_read_file(filename, offset, length) - length of -1 reads to end
-	query := `SELECT pg_read_file($1, $2, $3)`
+	query := `/* steep:internal */ SELECT pg_read_file($1, $2, $3)`
 	var content string
 	bytesToRead := fileSize - pos
 	if bytesToRead > 1024*1024 { // Cap at 1MB per read
@@ -412,7 +412,7 @@ func parseJSON(data []byte, v interface{}) error {
 // CanUsePgReadFile checks if pg_read_file is available and the user has permissions.
 func CanUsePgReadFile(ctx context.Context, pool *pgxpool.Pool, logDir string) error {
 	// Try to list the log directory
-	query := `SELECT count(*) FROM (SELECT pg_ls_dir($1)) AS dirs`
+	query := `/* steep:internal */ SELECT count(*) FROM (SELECT pg_ls_dir($1)) AS dirs`
 	var count int
 	err := pool.QueryRow(ctx, query, logDir).Scan(&count)
 	if err != nil {

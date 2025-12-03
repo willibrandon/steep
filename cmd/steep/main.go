@@ -69,9 +69,17 @@ func main() {
 	}
 	defer logger.Close()
 
+	// Check if agent is running (for status bar indicator)
+	agentStatus := app.CheckAgentStatus(cfg)
+	if agentStatus.Running {
+		logger.Debug("Agent is running", "pid", agentStatus.PID, "lastCollect", agentStatus.LastCollect)
+	} else {
+		logger.Debug("Agent is not running")
+	}
+
 	// Create the application model
 	logger.Debug("Creating application model")
-	model, err := app.New(*readonlyFlag, *configPath)
+	model, err := app.New(*readonlyFlag, *configPath, agentStatus)
 	if err != nil {
 		logger.Error("Failed to create application", "error", err)
 		log.Fatalf("Failed to create application: %v\n", err)

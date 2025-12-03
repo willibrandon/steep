@@ -41,6 +41,14 @@ connection:
   # Keeps pool warm for faster query execution
   pool_min_conns: 5
 
+# Data storage configuration
+storage:
+  # Directory for steep's data files (SQLite database, logs, etc.)
+  # Default: ~/.config/steep on Linux, ~/Library/Application Support/steep on macOS,
+  # %AppData%\steep on Windows
+  # Can be overridden by STEEP_STORAGE_DATA_PATH environment variable
+  # data_path: /custom/path/to/steep/data
+
 # User interface configuration
 ui:
   # Color theme: dark, light (default: dark)
@@ -128,6 +136,53 @@ alerts:
   #
   # Operators: >, <, >=, <=, ==, !=
   # Expressions: Metrics can be combined with +, -, *, / operators
+
+# Agent configuration (steep-agent daemon)
+# The agent collects PostgreSQL monitoring data continuously in the background
+agent:
+  # Enable agent features (default: true)
+  enabled: true
+
+  # Collection intervals per data type
+  # All intervals must be >= 1s and <= 60s
+  intervals:
+    activity: 2s           # pg_stat_activity
+    queries: 5s            # Query stats
+    replication: 2s        # Replication lag
+    locks: 2s              # Lock monitoring
+    tables: 30s            # Table statistics
+    metrics: 1s            # Dashboard metrics
+
+  # Data retention periods
+  # All periods must be >= 1h and <= 720h (30 days)
+  retention:
+    activity_history: 24h  # Activity snapshots
+    query_stats: 168h      # 7 days
+    replication_lag: 24h   # Replication lag history
+    lock_history: 24h      # Lock snapshots
+    metrics: 24h           # Metrics history
+
+  # Multi-instance monitoring (optional)
+  # Configure multiple PostgreSQL instances for the agent to monitor
+  # If not specified, uses the default connection settings above
+  # instances:
+  #   - name: primary
+  #     connection: "host=localhost port=5432 dbname=postgres user=postgres"
+  #   - name: replica1
+  #     connection: "host=replica1 port=5432 dbname=postgres user=postgres"
+
+  # Background alerting via webhooks (US7)
+  # When enabled, the agent sends HTTP POST webhook notifications
+  # when alert thresholds are breached or when conditions clear.
+  # Uses the same alert rules defined in the top-level 'alerts.rules' section.
+  alerts:
+    # Enable/disable background webhook alerting (default: false)
+    enabled: false
+
+    # Webhook endpoint URL for alert notifications
+    # Receives JSON payloads with alert details (name, metric, state, value, threshold)
+    # Example endpoints: Slack incoming webhook, PagerDuty, custom alerting service
+    webhook_url: ""
 
 # Debug mode (default: false)
 # Can be overridden by STEEP_DEBUG=1 environment variable or -debug flag

@@ -45,7 +45,7 @@ func (h *PgHistoricalLoader) DiscoverLogFiles(ctx context.Context) ([]LogFileInf
 	}
 
 	// List files in log directory
-	query := `SELECT pg_ls_dir($1) ORDER BY 1`
+	query := `/* steep:internal */ SELECT pg_ls_dir($1) ORDER BY 1`
 	rows, err := h.pool.Query(ctx, query, h.logDir)
 	if err != nil {
 		return nil, fmt.Errorf("pg_ls_dir failed: %w", err)
@@ -73,7 +73,7 @@ func (h *PgHistoricalLoader) DiscoverLogFiles(ctx context.Context) ([]LogFileInf
 		// Get file info via pg_stat_file
 		var size int64
 		var modTime time.Time
-		statQuery := `SELECT size, modification FROM pg_stat_file($1)`
+		statQuery := `/* steep:internal */ SELECT size, modification FROM pg_stat_file($1)`
 		err = h.pool.QueryRow(ctx, statQuery, fullPath).Scan(&size, &modTime)
 		if err != nil {
 			continue
@@ -171,7 +171,7 @@ func (h *PgHistoricalLoader) readFileTimestampRange(ctx context.Context, path st
 
 // readFileChunk reads a chunk of a file using pg_read_file.
 func (h *PgHistoricalLoader) readFileChunk(ctx context.Context, path string, offset, length int64) (string, error) {
-	query := `SELECT pg_read_file($1, $2, $3)`
+	query := `/* steep:internal */ SELECT pg_read_file($1, $2, $3)`
 	var content string
 	err := h.pool.QueryRow(ctx, query, path, offset, length).Scan(&content)
 	return content, err

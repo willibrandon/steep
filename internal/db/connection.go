@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/willibrandon/steep/internal/config"
 	"github.com/willibrandon/steep/internal/logger"
@@ -63,10 +64,21 @@ func NewConnectionPool(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, 
 	poolConfig.MaxConnLifetime = time.Hour
 	poolConfig.MaxConnIdleTime = 30 * time.Minute
 	poolConfig.HealthCheckPeriod = time.Minute
-	poolConfig.ConnConfig.RuntimeParams["application_name"] = "steep"
+	poolConfig.ConnConfig.RuntimeParams["application_name"] = "steep-internal"
+
 	// Disable query logging for steep's connection to prevent feedback loop
-	// (steep queries → logged → LogCollector parses → more CPU)
-	poolConfig.ConnConfig.RuntimeParams["log_min_duration_statement"] = "-1"
+	// Use PrepareConn (runs on EVERY acquire) not AfterConnect (only new connections)
+	// This ensures logging is disabled even if a previous query (like SQL editor) enabled it
+	poolConfig.PrepareConn = func(ctx context.Context, conn *pgx.Conn) (bool, error) {
+		_, err := conn.Exec(ctx, "/* steep:internal */ SET log_statement = 'none'")
+		if err == nil {
+			_, err = conn.Exec(ctx, "/* steep:internal */ SET log_min_duration_statement = -1")
+		}
+		if err != nil {
+			logger.Warn("PrepareConn: failed to disable query logging", "error", err)
+		}
+		return true, nil // Connection is valid regardless of SET result
+	}
 
 	logger.Debug("Connection pool configuration",
 		"max_conns", cfg.Connection.PoolMaxConns,

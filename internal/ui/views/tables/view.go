@@ -287,9 +287,12 @@ type TablesView struct {
 	// Metrics store for sparklines (keyed metrics for table sizes)
 	metricsStore *sqlite.MetricsStore
 
-	// Sparkline cache: key="schema.table" -> size history
+	// Sparkline cache: key="instance:schema.table" -> size history
 	tableSizeCache   map[string][]metrics.DataPoint
 	lastMetricsFetch time.Time
+
+	// Current instance for per-instance data separation
+	currentInstance string
 
 	// Bar chart visibility (global toggle from app)
 	chartsVisible bool
@@ -493,6 +496,26 @@ func (v *TablesView) SetMetricsStore(store *sqlite.MetricsStore) {
 	v.tableSizeCache = make(map[string][]metrics.DataPoint)
 }
 
+// SetInstance sets the current instance and clears the table size cache.
+// This ensures each instance has its own isolated sparkline data.
+func (v *TablesView) SetInstance(instance string) {
+	if v.currentInstance == instance {
+		return // No change
+	}
+	v.currentInstance = instance
+	// Clear cache when switching instances
+	v.tableSizeCache = make(map[string][]metrics.DataPoint)
+	logger.Debug("tables: switched instance", "instance", instance)
+}
+
+// tableKey creates an instance-prefixed key for table size metrics.
+func (v *TablesView) tableKey(schemaName, tableName string) string {
+	if v.currentInstance == "" {
+		return fmt.Sprintf("%s.%s", schemaName, tableName)
+	}
+	return fmt.Sprintf("%s:%s.%s", v.currentInstance, schemaName, tableName)
+}
+
 // recordTableSizes saves current table sizes to the keyed metrics store.
 // Called after table data is refreshed.
 func (v *TablesView) recordTableSizes() {
@@ -505,10 +528,10 @@ func (v *TablesView) recordTableSizes() {
 		return
 	}
 
-	// Build keyed data points for all tables
+	// Build keyed data points for all tables (with instance prefix)
 	keyValues := make(map[string]float64, len(v.tables))
 	for _, t := range v.tables {
-		key := fmt.Sprintf("%s.%s", t.SchemaName, t.Name)
+		key := v.tableKey(t.SchemaName, t.Name)
 		keyValues[key] = float64(t.TotalSize)
 	}
 
@@ -530,10 +553,10 @@ func (v *TablesView) refreshTableSizeCache() {
 		return
 	}
 
-	// Collect keys for visible tables
+	// Collect keys for visible tables (with instance prefix)
 	keys := make([]string, 0, len(v.tables))
 	for _, t := range v.tables {
-		key := fmt.Sprintf("%s.%s", t.SchemaName, t.Name)
+		key := v.tableKey(t.SchemaName, t.Name)
 		keys = append(keys, key)
 	}
 
@@ -547,7 +570,8 @@ func (v *TablesView) refreshTableSizeCache() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	history, err := v.metricsStore.GetHistoryBatch(ctx, "table_size", keys, since, 100)
+	// Use high limit to capture all variation - sparkline resamples to display width anyway
+	history, err := v.metricsStore.GetHistoryBatch(ctx, "table_size", keys, since, 10000)
 	if err != nil {
 		logger.Debug("tables: failed to fetch table size history", "error", err)
 		return

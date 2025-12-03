@@ -102,10 +102,11 @@ func (v *SQLEditorView) executeQueryCmd() tea.Cmd {
 			var queryErr error
 
 			// COUNT query in parallel goroutine
+			// Use /* steep:internal */ comment so log parser can filter it out
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS _cnt", baseSQL)
+				countSQL := fmt.Sprintf("/* steep:internal */ SELECT COUNT(*) FROM (%s) AS _cnt", baseSQL)
 				countCtx, countCancel := context.WithTimeout(ctx, 30*time.Second)
 				defer countCancel()
 				_ = executor.pool.QueryRow(countCtx, countSQL).Scan(&totalCount)

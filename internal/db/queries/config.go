@@ -3,7 +3,6 @@ package queries
 
 import (
 	"context"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -147,11 +146,10 @@ WHERE name = $1`
 // AlterSystemSet changes a configuration parameter using ALTER SYSTEM SET.
 // The value will be written to postgresql.auto.conf.
 func AlterSystemSet(ctx context.Context, pool *pgxpool.Pool, parameter, value string) error {
-	// ALTER SYSTEM doesn't support parameterized queries, so we must construct
-	// the SQL with the value as a properly quoted string literal.
-	// Escape single quotes by doubling them for PostgreSQL string literals.
-	escapedValue := strings.ReplaceAll(value, "'", "''")
-	query := "ALTER SYSTEM SET " + pgx.Identifier{parameter}.Sanitize() + " = '" + escapedValue + "'"
+	// Use ALTER SYSTEM SET ... TO syntax without quoting the value.
+	// PostgreSQL will handle the quoting when writing to postgresql.auto.conf.
+	// This avoids double-quoting issues with comma-separated list values.
+	query := "ALTER SYSTEM SET " + parameter + " TO " + value
 	_, err := pool.Exec(ctx, query)
 	return err
 }

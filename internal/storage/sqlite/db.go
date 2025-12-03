@@ -68,3 +68,21 @@ func (db *DB) Conn() *sql.DB {
 func (db *DB) Path() string {
 	return db.path
 }
+
+// WrapConn wraps an existing sql.DB connection.
+// This is useful when the connection is managed externally.
+// Note: The caller is responsible for closing the connection.
+// IMPORTANT: After calling WrapConn, you must call InitSchema() to ensure
+// all required tables exist.
+func WrapConn(conn *sql.DB) *DB {
+	return &DB{
+		conn: conn,
+		path: "",
+	}
+}
+
+// InitSchema initializes the database schema, creating all required tables.
+// This must be called after WrapConn() to ensure tables exist.
+func (db *DB) InitSchema() error {
+	return db.initSchema()
+}

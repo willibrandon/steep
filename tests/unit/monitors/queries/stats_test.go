@@ -64,8 +64,8 @@ func TestQueryStatsStore_Upsert(t *testing.T) {
 	store := sqlite.NewQueryStatsStore(db)
 	ctx := context.Background()
 
-	// First insert
-	err = store.Upsert(ctx, 12345, "SELECT * FROM users WHERE id = $1", 100.0, 1, "")
+	// First insert (calls=0 triggers increment behavior)
+	err = store.Upsert(ctx, 12345, "SELECT * FROM users WHERE id = $1", 0, 100.0, 100.0, 1, "", "")
 	if err != nil {
 		t.Fatalf("First Upsert failed: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestQueryStatsStore_Upsert(t *testing.T) {
 	}
 
 	// Second insert (should update)
-	err = store.Upsert(ctx, 12345, "SELECT * FROM users WHERE id = $1", 200.0, 5, "")
+	err = store.Upsert(ctx, 12345, "SELECT * FROM users WHERE id = $1", 0, 200.0, 200.0, 5, "", "")
 	if err != nil {
 		t.Fatalf("Second Upsert failed: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestQueryStatsStore_GetTopQueries(t *testing.T) {
 	}
 
 	for _, d := range testData {
-		if err := store.Upsert(ctx, d.fingerprint, d.query, d.duration, d.rows, ""); err != nil {
+		if err := store.Upsert(ctx, d.fingerprint, d.query, 0, d.duration, d.duration, d.rows, "", ""); err != nil {
 			t.Fatalf("Upsert failed: %v", err)
 		}
 	}
@@ -176,7 +176,7 @@ func TestQueryStatsStore_Reset(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert data
-	if err := store.Upsert(ctx, 1, "SELECT 1", 100, 1, ""); err != nil {
+	if err := store.Upsert(ctx, 1, "SELECT 1", 0, 100, 100, 1, "", ""); err != nil {
 		t.Fatalf("Upsert failed: %v", err)
 	}
 
@@ -230,7 +230,7 @@ func TestQueryStatsStore_SearchQueries(t *testing.T) {
 	}
 
 	for _, d := range testData {
-		if err := store.Upsert(ctx, d.fingerprint, d.query, 100, 1, ""); err != nil {
+		if err := store.Upsert(ctx, d.fingerprint, d.query, 0, 100, 100, 1, "", ""); err != nil {
 			t.Fatalf("Upsert failed: %v", err)
 		}
 	}

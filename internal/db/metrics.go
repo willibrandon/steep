@@ -15,9 +15,10 @@ type DatabaseMetrics struct {
 }
 
 // QueryActiveConnections queries the number of active connections from pg_stat_activity
+// Excludes steep's own connections (application_name = 'steep-internal')
 func QueryActiveConnections(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	var count int
-	query := "SELECT COUNT(*) FROM pg_stat_activity WHERE state = 'active'"
+	query := "/* steep:internal */ SELECT COUNT(*) FROM pg_stat_activity WHERE state = 'active' AND application_name != 'steep-internal'"
 
 	err := pool.QueryRow(ctx, query).Scan(&count)
 	if err != nil {
@@ -28,9 +29,10 @@ func QueryActiveConnections(ctx context.Context, pool *pgxpool.Pool) (int, error
 }
 
 // QueryTotalConnections queries the total number of connections from pg_stat_activity
+// Excludes steep's own connections (application_name = 'steep-internal')
 func QueryTotalConnections(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	var count int
-	query := "SELECT COUNT(*) FROM pg_stat_activity"
+	query := "/* steep:internal */ SELECT COUNT(*) FROM pg_stat_activity WHERE application_name != 'steep-internal'"
 
 	err := pool.QueryRow(ctx, query).Scan(&count)
 	if err != nil {

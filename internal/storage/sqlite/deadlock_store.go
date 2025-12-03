@@ -17,6 +17,7 @@ type DeadlockEvent struct {
 	ResolvedByPID   *int
 	DetectionTimeMs *int
 	CreatedAt       time.Time
+	InstanceName    string // PostgreSQL instance name for multi-instance support
 	Processes       []DeadlockProcess
 }
 
@@ -66,11 +67,17 @@ func (s *DeadlockStore) InsertEvent(ctx context.Context, event *DeadlockEvent) (
 	}
 	defer tx.Rollback()
 
+	// Use default instance_name if not set
+	instanceName := event.InstanceName
+	if instanceName == "" {
+		instanceName = "default"
+	}
+
 	// Insert event
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO deadlock_events (detected_at, database_name, resolved_by_pid, detection_time_ms)
-		VALUES (?, ?, ?, ?)
-	`, event.DetectedAt.Format("2006-01-02 15:04:05"), event.DatabaseName, event.ResolvedByPID, event.DetectionTimeMs)
+		INSERT INTO deadlock_events (detected_at, database_name, resolved_by_pid, detection_time_ms, instance_name)
+		VALUES (?, ?, ?, ?, ?)
+	`, event.DetectedAt.Format("2006-01-02 15:04:05"), event.DatabaseName, event.ResolvedByPID, event.DetectionTimeMs, instanceName)
 	if err != nil {
 		return 0, err
 	}
@@ -120,26 +127,52 @@ func (s *DeadlockStore) InsertEvent(ctx context.Context, event *DeadlockEvent) (
 }
 
 // GetRecentEvents returns recent deadlock events with summary info.
-func (s *DeadlockStore) GetRecentEvents(ctx context.Context, days int, limit int) ([]DeadlockSummary, error) {
-	query := `
-		SELECT
-			de.id,
-			de.detected_at,
-			de.database_name,
-			COUNT(dp.id) as process_count,
-			GROUP_CONCAT(DISTINCT dp.relation_name) as tables,
-			de.detection_time_ms
-		FROM deadlock_events de
-		LEFT JOIN deadlock_processes dp ON dp.event_id = de.id
-		WHERE de.detected_at > datetime('now', ?)
-		GROUP BY de.id
-		ORDER BY de.detected_at DESC
-		LIMIT ?
-	`
-
+// If instanceName is empty, returns events for all instances.
+func (s *DeadlockStore) GetRecentEvents(ctx context.Context, days int, limit int, instanceName string) ([]DeadlockSummary, error) {
+	var query string
+	var args []interface{}
 	daysArg := fmt.Sprintf("-%d days", days)
 
-	rows, err := s.db.conn.QueryContext(ctx, query, daysArg, limit)
+	if instanceName == "" {
+		// No filtering - return all instances
+		query = `
+			SELECT
+				de.id,
+				de.detected_at,
+				de.database_name,
+				COUNT(dp.id) as process_count,
+				GROUP_CONCAT(DISTINCT dp.relation_name) as tables,
+				de.detection_time_ms
+			FROM deadlock_events de
+			LEFT JOIN deadlock_processes dp ON dp.event_id = de.id
+			WHERE de.detected_at > datetime('now', ?)
+			GROUP BY de.id
+			ORDER BY de.detected_at DESC
+			LIMIT ?
+		`
+		args = []interface{}{daysArg, limit}
+	} else {
+		// Filter by instance_name
+		query = `
+			SELECT
+				de.id,
+				de.detected_at,
+				de.database_name,
+				COUNT(dp.id) as process_count,
+				GROUP_CONCAT(DISTINCT dp.relation_name) as tables,
+				de.detection_time_ms
+			FROM deadlock_events de
+			LEFT JOIN deadlock_processes dp ON dp.event_id = de.id
+			WHERE de.detected_at > datetime('now', ?)
+			  AND de.instance_name = ?
+			GROUP BY de.id
+			ORDER BY de.detected_at DESC
+			LIMIT ?
+		`
+		args = []interface{}{daysArg, instanceName, limit}
+	}
+
+	rows, err := s.db.conn.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -445,4 +478,23 @@ func (s *DeadlockStore) SaveLogPosition(ctx context.Context, filePath string, po
 			updated_at = CURRENT_TIMESTAMP
 	`, filePath, position)
 	return err
+}
+
+// MigrateDefaultInstance updates all records with instance_name='default' to use the specified instance name.
+// This is used to migrate legacy data when transitioning to multi-instance support.
+func (s *DeadlockStore) MigrateDefaultInstance(ctx context.Context, newInstanceName string) (int64, error) {
+	if newInstanceName == "" || newInstanceName == "default" {
+		return 0, nil // Nothing to migrate
+	}
+
+	result, err := s.db.conn.ExecContext(ctx, `
+		UPDATE deadlock_events
+		SET instance_name = ?
+		WHERE instance_name = 'default'
+	`, newInstanceName)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
 }

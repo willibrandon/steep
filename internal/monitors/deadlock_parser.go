@@ -25,6 +25,7 @@ type DeadlockParser struct {
 	sessionCache *SessionCache
 	lastPosition map[string]int64 // Track position in each log file
 	mu           sync.Mutex       // Protects lastPosition
+	instanceName string           // PostgreSQL instance name for multi-instance support
 }
 
 // NewDeadlockParser creates a new deadlock log parser.
@@ -97,6 +98,13 @@ func (p *DeadlockParser) ResetPositions() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.lastPosition = make(map[string]int64)
+}
+
+// SetInstanceName sets the instance name for multi-instance support.
+func (p *DeadlockParser) SetInstanceName(name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.instanceName = name
 }
 
 // parseFile parses a single log file for deadlock events.
@@ -282,6 +290,7 @@ func (p *DeadlockParser) saveDeadlock(ctx context.Context, state *deadlockState)
 		DatabaseName:    state.dbName,
 		ResolvedByPID:   state.resolvedByPID,
 		DetectionTimeMs: state.detectionTimeMs,
+		InstanceName:    p.instanceName,
 	}
 
 	for _, proc := range state.processes {

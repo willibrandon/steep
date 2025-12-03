@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -41,6 +40,9 @@ import (
 type Model struct {
 	// Configuration
 	config *config.Config
+
+	// Agent status (refreshed periodically)
+	agentStatus *AgentStatusInfo
 
 	// Program reference for sending messages from goroutines
 	program *tea.Program
@@ -125,10 +127,33 @@ type Model struct {
 	// Alert system
 	alertEngine *alerts.Engine
 	alertStore  *sqlite.AlertStore
+
+	// Multi-instance support (T054)
+	currentInstance  string                        // Name of currently selected instance
+	instanceNames    []string                      // Available instance names for cycling
+	instancePools    map[string]*pgxpool.Pool      // Connection pool per instance
+	instanceConfigs  []config.AgentInstanceConfig  // Instance connection configs
+}
+
+// AgentStatusInfo holds agent status for display in the status bar.
+type AgentStatusInfo struct {
+	Running     bool
+	PID         int
+	Version     string
+	StartTime   time.Time      // Agent start time for uptime display (T070)
+	LastCollect time.Time
+	ConfigHash  string         // Agent's config hash for drift detection (T061)
+	Instances   []InstanceInfo // List of monitored instances (multi-instance support)
+}
+
+// InstanceInfo holds information about a monitored PostgreSQL instance.
+type InstanceInfo struct {
+	Name   string
+	Status string // connected, disconnected, error, unknown
 }
 
 // New creates a new application model
-func New(readonly bool, configPath string) (*Model, error) {
+func New(readonly bool, configPath string, agentStatus *AgentStatusInfo) (*Model, error) {
 	// Load configuration
 	cfg, err := config.LoadConfigFromPath(configPath)
 	if err != nil {
@@ -139,6 +164,23 @@ func New(readonly bool, configPath string) (*Model, error) {
 	statusBar.SetDatabase(cfg.Connection.Database)
 	statusBar.SetDateFormat(cfg.UI.DateFormat)
 	statusBar.SetReadOnly(readonly)
+
+	// Set agent status in status bar if provided
+	if agentStatus != nil {
+		statusBar.SetAgentStatus(agentStatus.Running, agentStatus.StartTime, agentStatus.LastCollect)
+		// T054: Set instance information for multi-instance display
+		instances := make([]components.InstanceDisplayInfo, len(agentStatus.Instances))
+		for i, inst := range agentStatus.Instances {
+			instances[i] = components.InstanceDisplayInfo{
+				Name:   inst.Name,
+				Status: inst.Status,
+			}
+		}
+		statusBar.SetInstances(instances)
+
+		// T061/T062: Check for config mismatch at startup
+		LogConfigMismatchWarning(cfg, agentStatus)
+	}
 
 	// Initialize dashboard view
 	dashboard := views.NewDashboard()
@@ -203,6 +245,7 @@ func New(readonly bool, configPath string) (*Model, error) {
 
 	return &Model{
 		config:            cfg,
+		agentStatus:       agentStatus,
 		keys:              ui.DefaultKeyMap(),
 		help:              components.NewHelp(),
 		statusBar:         statusBar,
@@ -225,6 +268,8 @@ func New(readonly bool, configPath string) (*Model, error) {
 		readOnly:          readonly,
 		chartsVisible:     true, // Charts visible by default
 		connectionMetrics: connectionMetrics,
+		instancePools:     make(map[string]*pgxpool.Pool),
+		instanceConfigs:   cfg.Agent.Instances,
 	}, nil
 }
 
@@ -241,14 +286,18 @@ func (m *Model) MetricsCollector() *metrics.Collector {
 // Init initializes the application
 func (m Model) Init() tea.Cmd {
 	logger.Debug("app: Init called - starting up")
-	return tea.Batch(
-		connectToDatabase(m.config),
+
+	// Initialize view components and connect to database
+	cmds := []tea.Cmd{
 		tickStatusBar(),
 		m.locksView.Init(),
 		m.queriesView.Init(),
 		m.tablesView.Init(),
 		m.sqlEditorView.Init(),
-	)
+		connectToDatabase(m.config),
+	}
+
+	return tea.Batch(cmds...)
 }
 
 // Update handles messages and updates the model
@@ -354,6 +403,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dbPool = msg.Pool
 		m.serverVersion = msg.Version
 		m.connectionErr = nil
+
+		// Set up multi-instance support
+		// If no instances configured, use "default" as the instance name
+		var additionalInstancesCmd tea.Cmd
+		if len(m.instanceConfigs) == 0 {
+			m.instanceNames = []string{"default"}
+			m.currentInstance = "default"
+			m.instancePools["default"] = msg.Pool
+		} else {
+			// Use configured instances - connect to first one initially
+			m.instanceNames = make([]string, len(m.instanceConfigs))
+			for i, inst := range m.instanceConfigs {
+				m.instanceNames[i] = inst.Name
+			}
+			// First configured instance is the current one
+			m.currentInstance = m.instanceConfigs[0].Name
+			m.instancePools[m.currentInstance] = msg.Pool
+
+			// Connect to additional instances in background
+			additionalInstancesCmd = m.connectToAdditionalInstances()
+		}
+		m.statusBar.SetCurrentInstance(m.currentInstance)
+
 		m.statusBar.SetConnected(true)
 		m.dashboard.SetConnected(true)
 		m.dashboard.SetServerVersion(msg.Version)
@@ -396,9 +468,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Initialize query stats storage
 		storagePath := m.config.Queries.StoragePath
 		if storagePath == "" {
-			// Use default cache directory
-			cacheDir, _ := os.UserCacheDir()
-			storagePath = fmt.Sprintf("%s/steep/steep.db", cacheDir)
+			// Use configured data path
+			storagePath = fmt.Sprintf("%s/steep.db", m.config.Storage.GetDataPath())
 		}
 		steepDB, err := sqlite.Open(storagePath)
 		if err != nil {
@@ -418,6 +489,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				logger.Debug("failed to start metrics collector", "error", err)
 			}
 
+			// Set initial instance for metrics separation
+			m.metricsCollector.SetInstance(m.currentInstance)
+
 			// Connect metrics collector to stats monitor
 			m.statsMonitor.SetMetricsRecorder(m.metricsCollector)
 
@@ -429,6 +503,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Connect metrics store to tables view for sparklines
 			m.tablesView.SetMetricsStore(m.metricsStore)
+			m.tablesView.SetInstance(m.currentInstance)
 
 			// Initialize deadlock store (shares same DB)
 			m.deadlockStore = sqlite.NewDeadlockStore(steepDB)
@@ -452,6 +527,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Initialize deadlock monitor
 			ctx := context.Background()
 			m.deadlockMonitor, _ = monitors.NewDeadlockMonitor(ctx, msg.Pool, m.deadlockStore, 30*time.Second)
+			// Set instance name for multi-instance support
+			if m.deadlockMonitor != nil {
+				m.deadlockMonitor.SetInstanceName(m.currentInstance)
+			}
+			// Migrate legacy 'default' records to current instance name
+			if m.deadlockStore != nil && m.currentInstance != "" {
+				if count, err := m.deadlockStore.MigrateDefaultInstance(ctx, m.currentInstance); err == nil && count > 0 {
+					logger.Debug("migrated deadlock records from 'default' to instance", "instance", m.currentInstance, "count", count)
+				}
+			}
 
 			// Initialize query monitor
 			monitorConfig := querymonitor.MonitorConfig{
@@ -459,11 +544,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				RetentionDays:   m.config.Queries.RetentionDays,
 			}
 			m.queryMonitor = querymonitor.NewMonitor(msg.Pool, m.queryStatsStore, monitorConfig)
-			_ = m.queryMonitor.Start(context.Background())
+			// Set instance name for multi-instance support
+			m.queryMonitor.SetInstanceName(m.currentInstance)
+			// Configure monitor once (runs SHOW queries) - this sets loggingChecked=true
+			// so subsequent Start/Stop cycles won't re-run these queries
+			_ = m.queryMonitor.Configure(ctx)
 
-			// Check logging status and show dialog if disabled
-			status, err := m.queryMonitor.CheckLoggingStatus(ctx)
-			if err == nil && !status.Enabled {
+			// Only start collection if agent is not running (avoids double counting)
+			if !IsAgentHealthy(m.config, m.agentStatus) {
+				_ = m.queryMonitor.Start(context.Background())
+			} else {
+				logger.Info("app: agent is running and healthy, skipping TUI query collection")
+				m.queryMonitor.SetAgentMode()
+			}
+
+			// Check if logging is disabled and show dialog
+			if !m.queryMonitor.IsLoggingEnabled(ctx) {
 				m.queriesView.SetLoggingDisabled()
 			}
 
@@ -535,10 +631,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		// Also fetch query stats if store is available
 		if m.queryStatsStore != nil {
-			cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queryMonitor, m.queriesView.GetSortColumn(), m.queriesView.GetSortAsc(), m.queriesView.GetFilter()))
+			cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queryMonitor, m.queriesView.GetSortColumn(), m.queriesView.GetSortAsc(), m.queriesView.GetFilter(), m.currentInstance))
 		}
 		// Check logging status for logs view
 		cmds = append(cmds, checkLogsLoggingStatus(msg.Pool, m.config.Logs))
+		// Add command to connect to additional instances if configured
+		if additionalInstancesCmd != nil {
+			cmds = append(cmds, additionalInstancesCmd)
+		}
 		return m, tea.Batch(cmds...)
 
 	case ConnectionFailedMsg:
@@ -550,6 +650,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reconnecting = true
 			return m, attemptReconnection(m.config, m.reconnectionState)
 		}
+		return m, nil
+
+	case InstanceConnectedMsg:
+		// Store the new instance pool
+		m.instancePools[msg.Name] = msg.Pool
+		logger.Info("app: additional instance connected", "instance", msg.Name)
+		return m, nil
+
+	case InstanceConnectionFailedMsg:
+		// Log the failure but continue - the instance simply won't be available
+		logger.Warn("app: additional instance connection failed", "instance", msg.Name, "error", msg.Err)
 		return m, nil
 
 	case StatusBarTickMsg:
@@ -615,7 +726,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.configTickCounter++
 		m.deadlockTickCounter++
 
-		// Fetch all data together for synchronized updates
+		// Refresh agent status every tick to update "(Xs ago)" in status bar
+		if m.agentStatus != nil {
+			newStatus := CheckAgentStatus(m.config)
+			wasHealthy := IsAgentHealthy(m.config, m.agentStatus)
+			isHealthy := IsAgentHealthy(m.config, newStatus)
+			m.agentStatus = newStatus
+			m.statusBar.SetAgentStatus(newStatus.Running, newStatus.StartTime, newStatus.LastCollect)
+			// T054: Update instance information on each refresh
+			instances := make([]components.InstanceDisplayInfo, len(newStatus.Instances))
+			instanceNames := make([]string, len(newStatus.Instances))
+			for i, inst := range newStatus.Instances {
+				instances[i] = components.InstanceDisplayInfo{
+					Name:   inst.Name,
+					Status: inst.Status,
+				}
+				instanceNames[i] = inst.Name
+			}
+			m.statusBar.SetInstances(instances)
+			m.instanceNames = instanceNames
+
+			// Start/stop TUI query monitor based on agent health changes
+			if m.queryMonitor != nil {
+				if wasHealthy && !isHealthy {
+					// Agent became unhealthy - TUI takes over collection
+					logger.Info("app: agent became unhealthy, starting TUI query collection")
+					_ = m.queryMonitor.Start(context.Background())
+					// Reset config mismatch warning when agent stops so we can warn again if it restarts
+					ResetConfigMismatchWarning()
+				} else if !wasHealthy && isHealthy {
+					// Agent became healthy - TUI stops collection, switches to agent mode
+					logger.Info("app: agent became healthy, stopping TUI query collection")
+					m.queryMonitor.Stop()
+					m.queryMonitor.SetAgentMode()
+					// T061/T062: Check for config mismatch when agent becomes healthy
+					LogConfigMismatchWarning(m.config, newStatus)
+				}
+			}
+		}
+
+		// Fetch data from PostgreSQL
 		if m.connected && m.activityMonitor != nil && m.statsMonitor != nil {
 			cmds := []tea.Cmd{
 				fetchActivityData(m.activityMonitor),
@@ -637,7 +787,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Also fetch query stats if store is available
 			if m.queryStatsStore != nil {
-				cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queryMonitor, m.queriesView.GetSortColumn(), m.queriesView.GetSortAsc(), m.queriesView.GetFilter()))
+				cmds = append(cmds, fetchQueryStats(m.queryStatsStore, m.queryMonitor, m.queriesView.GetSortColumn(), m.queriesView.GetSortAsc(), m.queriesView.GetFilter(), m.currentInstance))
 			}
 			// Fetch config data every 60 ticks (~60 seconds if refresh is 1s)
 			if m.configMonitor != nil && m.configTickCounter >= 60 {
@@ -703,7 +853,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case queriesview.RefreshQueriesMsg:
 		// Fetch query stats from SQLite store
 		if m.queryStatsStore != nil {
-			return m, fetchQueryStats(m.queryStatsStore, m.queryMonitor, msg.SortColumn, msg.SortAsc, msg.Filter)
+			return m, fetchQueryStats(m.queryStatsStore, m.queryMonitor, msg.SortColumn, msg.SortAsc, msg.Filter, m.currentInstance)
 		}
 		return m, nil
 
@@ -763,8 +913,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case queriesview.EnableLoggingResultMsg:
 		// Forward to queries view and restart monitor
 		m.queriesView.Update(msg)
-		if msg.Success && m.queryMonitor != nil {
-			// Restart monitor to use log collector
+		if msg.Success && m.queryMonitor != nil && !IsAgentHealthy(m.config, m.agentStatus) {
+			// Restart monitor to use log collector (only if agent is not running)
 			m.queryMonitor.Stop()
 			_ = m.queryMonitor.Start(context.Background())
 		}
@@ -1249,6 +1399,21 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Instance filter cycling with '<' and '>' (T054: multi-instance support)
+	// Only available when agent is running with multiple instances
+	if !inInputMode && len(m.instanceNames) > 1 {
+		switch msg.String() {
+		case "<", ",":
+			m.cycleInstance(-1)
+			// Refresh instance-specific data for the new instance
+			return m, m.refreshInstanceData()
+		case ">", ".":
+			m.cycleInstance(1)
+			// Refresh instance-specific data for the new instance
+			return m, m.refreshInstanceData()
+		}
+	}
+
 	// Check for view jumping (1-9, 0) - but not when in input mode (editing fields)
 	if !inInputMode {
 		switch msg.String() {
@@ -1394,6 +1559,186 @@ func (m *Model) fetchForCurrentView() tea.Cmd {
 	default:
 		return nil
 	}
+}
+
+// cycleInstance cycles through available instances and switches the active connection.
+// direction: -1 for previous, +1 for next
+func (m *Model) cycleInstance(direction int) {
+	if len(m.instanceNames) == 0 {
+		return
+	}
+
+	// Find current index
+	currentIdx := 0
+	for i, name := range m.instanceNames {
+		if name == m.currentInstance {
+			currentIdx = i
+			break
+		}
+	}
+
+	// Cycle through instances (no "all" option - we're switching connections)
+	newIdx := (currentIdx + direction + len(m.instanceNames)) % len(m.instanceNames)
+	newInstance := m.instanceNames[newIdx]
+
+	// Don't switch if same instance
+	if newInstance == m.currentInstance {
+		return
+	}
+
+	// Get pool for new instance
+	pool, ok := m.instancePools[newInstance]
+	if !ok || pool == nil {
+		logger.Warn("app: no pool available for instance", "instance", newInstance)
+		return
+	}
+
+	// Switch to new instance
+	m.currentInstance = newInstance
+	m.dbPool = pool
+
+	// Update status bar
+	m.statusBar.SetCurrentInstance(m.currentInstance)
+
+	// Update connection info in header for all views
+	connectionInfo := m.getConnectionInfoForInstance(m.currentInstance)
+	m.updateConnectionInfoForAllViews(connectionInfo)
+
+	// Update all views with new pool
+	m.tablesView.SetPool(pool)
+	m.tablesView.SetInstance(m.currentInstance) // Clear sparkline cache for new instance
+	m.sqlEditorView.SetPool(pool)
+	m.logsView.ResetForInstance(pool) // Full reset for log viewer (different log dirs per instance)
+	m.rolesView.SetPool(pool)
+
+	// Update dashboard instance filter for SQLite queries
+	m.dashboard.SetInstanceFilter(m.currentInstance)
+
+	// Update query monitor instance name (for TUI-based collection when not in agent mode)
+	if m.queryMonitor != nil {
+		m.queryMonitor.SetInstanceName(m.currentInstance)
+	}
+
+	// Update deadlock monitor instance name (filters retrieval by instance)
+	if m.deadlockMonitor != nil {
+		m.deadlockMonitor.SetInstanceName(m.currentInstance)
+	}
+
+	// Recreate monitors with new pool
+	refreshInterval := m.config.UI.RefreshInterval
+	if refreshInterval == 0 {
+		refreshInterval = 2 * time.Second
+	}
+
+	m.activityMonitor = monitors.NewActivityMonitor(pool, refreshInterval)
+	m.statsMonitor = monitors.NewStatsMonitor(pool, refreshInterval)
+	m.locksMonitor = monitors.NewLocksMonitor(pool, 2*time.Second)
+	m.configMonitor = monitors.NewConfigMonitor(pool, 60*time.Second)
+
+	// Connect the new statsMonitor to the metricsCollector and set the current instance
+	if m.metricsCollector != nil {
+		m.metricsCollector.SetInstance(m.currentInstance)
+		m.statsMonitor.SetMetricsRecorder(m.metricsCollector)
+	}
+
+	if m.replicationStore != nil {
+		m.replicationMonitor = monitors.NewReplicationMonitor(pool, 2*time.Second, m.replicationStore)
+	} else {
+		m.replicationMonitor = monitors.NewReplicationMonitor(pool, 2*time.Second, nil)
+	}
+
+	logger.Debug("app: switched instance connection", "instance", m.currentInstance)
+}
+
+// refreshInstanceData returns batched commands to refresh all instance-specific data.
+// This is called after cycling instances to ensure immediate data refresh.
+func (m *Model) refreshInstanceData() tea.Cmd {
+	var cmds []tea.Cmd
+
+	// Refresh deadlock history
+	if m.deadlockMonitor != nil {
+		cmds = append(cmds, fetchDeadlockHistory(m.deadlockMonitor, m.program))
+	}
+
+	// Refresh table data
+	cmds = append(cmds, m.tablesView.FetchTablesData())
+
+	// Refresh configuration data
+	if m.configMonitor != nil {
+		cmds = append(cmds, fetchConfigData(m.configMonitor))
+	}
+
+	// Refresh logs data (triggers logging status check for new instance)
+	cmds = append(cmds, m.logsView.CheckLoggingStatus())
+
+	// Refresh roles data
+	cmds = append(cmds, m.rolesView.FetchRolesData())
+
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+// connectToAdditionalInstances returns a command that connects to all configured
+// instances beyond the first one (which is already connected via the main connection).
+func (m *Model) connectToAdditionalInstances() tea.Cmd {
+	if len(m.instanceConfigs) <= 1 {
+		return nil
+	}
+
+	// Connect to instances starting from index 1 (first one is already connected)
+	var cmds []tea.Cmd
+	for _, inst := range m.instanceConfigs[1:] {
+		instName := inst.Name
+		connStr := inst.Connection
+		cmds = append(cmds, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			// Parse config so we can set RuntimeParams
+			poolConfig, err := pgxpool.ParseConfig(connStr)
+			if err != nil {
+				logger.Warn("app: failed to parse instance config", "instance", instName, "error", err)
+				return InstanceConnectionFailedMsg{Name: instName, Err: err}
+			}
+
+			// Set RuntimeParams
+			poolConfig.ConnConfig.RuntimeParams["application_name"] = "steep-internal"
+
+			// Disable query logging for steep's connection to prevent feedback loop
+			// Use PrepareConn (runs on EVERY acquire) not AfterConnect (only new connections)
+			// This ensures logging is disabled even if a previous query (like SQL editor) enabled it
+			poolConfig.PrepareConn = func(ctx context.Context, conn *pgx.Conn) (bool, error) {
+				_, err := conn.Exec(ctx, "/* steep:internal */ SET log_statement = 'none'")
+				if err == nil {
+					_, err = conn.Exec(ctx, "/* steep:internal */ SET log_min_duration_statement = -1")
+				}
+				if err != nil {
+					logger.Warn("app: PrepareConn: failed to disable query logging", "instance", instName, "error", err)
+				}
+				return true, nil // Connection is valid regardless of SET result
+			}
+
+			pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+			if err != nil {
+				logger.Warn("app: failed to connect to instance", "instance", instName, "error", err)
+				return InstanceConnectionFailedMsg{Name: instName, Err: err}
+			}
+
+			// Verify connection
+			if err := pool.Ping(ctx); err != nil {
+				pool.Close()
+				logger.Warn("app: failed to ping instance", "instance", instName, "error", err)
+				return InstanceConnectionFailedMsg{Name: instName, Err: err}
+			}
+
+			logger.Info("app: connected to additional instance", "instance", instName)
+			return InstanceConnectedMsg{Name: instName, Pool: pool}
+		})
+	}
+
+	return tea.Batch(cmds...)
 }
 
 // currentViewIsInputMode returns true if the current view is in input mode.
@@ -1542,8 +1887,26 @@ func (m *Model) Cleanup() {
 	if m.steepDB != nil {
 		m.steepDB.Close()
 	}
+	// Close all instance pools (includes the main dbPool if stored in the map)
+	for name, pool := range m.instancePools {
+		if pool != nil {
+			pool.Close()
+			logger.Debug("app: closed instance pool", "instance", name)
+		}
+	}
+	// Also close dbPool if it wasn't in the map (edge case)
 	if m.dbPool != nil {
-		m.dbPool.Close()
+		// Check if dbPool is in instancePools to avoid double-close
+		found := false
+		for _, pool := range m.instancePools {
+			if pool == m.dbPool {
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.dbPool.Close()
+		}
 	}
 }
 
@@ -1857,4 +2220,48 @@ func (m Model) dropReplicationSlot(slotName string) tea.Cmd {
 			Error:    nil,
 		}
 	}
+}
+
+// getConnectionInfoForInstance returns a formatted connection string for an instance.
+// Format: "steep - user@host:port/dbname"
+func (m *Model) getConnectionInfoForInstance(instanceName string) string {
+	// Find the instance config
+	for _, inst := range m.instanceConfigs {
+		if inst.Name == instanceName {
+			// Parse DSN to extract connection details
+			poolConfig, err := pgxpool.ParseConfig(inst.Connection)
+			if err != nil {
+				logger.Debug("app: failed to parse instance connection", "instance", instanceName, "error", err)
+				return fmt.Sprintf("steep - %s", instanceName)
+			}
+
+			connConfig := poolConfig.ConnConfig
+			return fmt.Sprintf("steep - %s@%s:%d/%s",
+				connConfig.User,
+				connConfig.Host,
+				connConfig.Port,
+				connConfig.Database)
+		}
+	}
+
+	// Fallback to default config connection
+	return fmt.Sprintf("steep - %s@%s:%d/%s",
+		m.config.Connection.User,
+		m.config.Connection.Host,
+		m.config.Connection.Port,
+		m.config.Connection.Database)
+}
+
+// updateConnectionInfoForAllViews updates the connection info displayed in all views.
+func (m *Model) updateConnectionInfoForAllViews(connectionInfo string) {
+	m.dashboard.SetConnectionInfo(connectionInfo)
+	m.activityView.SetConnectionInfo(connectionInfo)
+	m.queriesView.SetConnectionInfo(connectionInfo)
+	m.locksView.SetConnectionInfo(connectionInfo)
+	m.tablesView.SetConnectionInfo(connectionInfo)
+	m.replicationView.SetConnectionInfo(connectionInfo)
+	m.sqlEditorView.SetConnectionInfo(connectionInfo)
+	m.configView.SetConnectionInfo(connectionInfo)
+	m.logsView.SetConnectionInfo(connectionInfo)
+	m.rolesView.SetConnectionInfo(connectionInfo)
 }
