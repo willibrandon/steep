@@ -32,29 +32,29 @@ This guide provides the complete sequence of `/speckit.specify` commands to buil
 
 ## Overview
 
-Bidirectional replication is implemented through **9 features** covering all 20 sections of the design document:
+Bidirectional replication is implemented through **9 features** covering all 22 sections of the design document:
 
 | Feature | Branch | Design Doc Sections | Priority |
 |---------|--------|---------------------|----------|
-| 014-a | `014-a-foundation` | 2, 3, 11, 12 | P1 |
-| 014-b | `014-b-node-init` | 5, 15.4 | P1 |
-| 014-c | `014-c-identity-ranges` | 4 | P1 |
-| 014-d | `014-d-conflict-resolution` | 8, 15.1, 15.2, 15.3, 15.5 | P1 |
-| 014-e | `014-e-ddl-replication` | 9 | P2 |
-| 014-f | `014-f-filtering` | 6 | P2 |
-| 014-g | `014-g-topology` | 10 | P2 |
-| 014-h | `014-h-monitoring` | 7, 13 | P2 |
-| 014-i | `014-i-production` | 17, 18, 19, 20 | P3 |
+| 014-a | `014-a-foundation` | 2, 4, 13, 14 | P1 |
+| 014-b | `014-b-node-init` | 6, 17.4 | P1 |
+| 014-c | `014-c-identity-ranges` | 5 | P1 |
+| 014-d | `014-d-conflict-resolution` | 10, 17.1, 17.2, 17.3, 17.5 | P1 |
+| 014-e | `014-e-ddl-replication` | 11 | P2 |
+| 014-f | `014-f-filtering` | 7 | P2 |
+| 014-g | `014-g-topology` | 12 | P2 |
+| 014-h | `014-h-monitoring` | 8, 15 | P2 |
+| 014-i | `014-i-production` | 19, 20, 21, 22 | P3 |
 
-**Sections 1, 14, 16**: Context/reference only (Executive Summary, Implementation Phases, References)
+**Sections 1, 3, 16, 18**: Context/reference only (Executive Summary, PostgreSQL Version Requirements, Implementation Phases, References)
 
 ---
 
 ## Prerequisites
 
 1. **Steep core features complete**: Features 001-013 implemented
-2. **PostgreSQL 18**: Required for native conflict logging
-3. **PostgreSQL 15+**: Required for row/column filtering (Section 6)
+2. **PostgreSQL 17 or 18**: Required (18 recommended for native conflict logging)
+3. **PostgreSQL 17+**: Required for row/column filtering (Section 7)
 4. **Rust/pgrx environment**: For steep_repl extension
    - Rust toolchain (MSVC on Windows)
    - `cargo install cargo-pgrx`
@@ -71,29 +71,35 @@ Every section from `BIDIRECTIONAL_REPLICATION.md` must be covered:
 |---------|-------|------------|
 | 1 | Executive Summary | Context (all features) |
 | 2 | Architecture Overview | 014-a |
-| 3 | Cross-Platform Compatibility | 014-a |
-| 4 | Identity Range Management | 014-c |
-| **5** | **Node Initialization and Snapshots** | **014-b** |
-| 6 | Filtering and Selective Replication | 014-f |
-| 7 | Monitoring and Health Checks | 014-h |
-| 8 | Conflict Detection and Resolution | 014-d |
-| 9 | DDL Replication | 014-e |
-| 10 | Topology Management | 014-g |
-| 11 | steep_repl Extension Schema | 014-a |
-| 12 | steep-repl Daemon | 014-a |
-| 13 | Steep TUI Integration | 014-h |
-| 14 | Implementation Phases | Reference only |
-| 15.1 | Coordinator Availability | 014-d |
-| 15.2 | Clock Synchronization | 014-d |
-| 15.3 | Large Transactions | 014-d |
-| 15.4 | Schema Versioning | 014-b |
-| 15.5 | Conflict Resolution Rollback | 014-d |
-| 16 | References | Reference only |
-| 17 | Production Readiness | 014-i |
-| 18 | Networking | 014-i |
-| 19 | Security | 014-i |
-| 20 | Operations Runbook | 014-i |
-| **21** | **Testing Requirements** | **All features** |
+| 3 | PostgreSQL Version Requirements | Reference only |
+| 4 | Cross-Platform Compatibility | 014-a |
+| **5** | **Identity Range Management** | **014-c** |
+| 5.8 | Composite Primary Keys | 014-c |
+| **6** | **Node Initialization and Snapshots** | **014-b** |
+| 6.8 | Initial Sync with Existing Data | 014-b |
+| 7 | Filtering and Selective Replication | 014-f |
+| 8 | Monitoring and Health Checks | 014-h |
+| 9 | Conflict Detection and Resolution | 014-d |
+| 10 | DDL Replication | 014-e |
+| 10.6 | Application Trigger Behavior | 014-e |
+| 11 | Topology Management | 014-g |
+| 12 | steep_repl Extension Schema | 014-a |
+| 13 | steep-repl Daemon | 014-a |
+| 14 | Steep TUI Integration | 014-h |
+| 15 | Implementation Phases | Reference only |
+| 16.1 | Coordinator Availability | 014-d |
+| 16.2 | Clock Synchronization | 014-d |
+| 16.3 | Large Transactions | 014-d |
+| 16.4 | Schema Versioning | 014-b |
+| 16.5 | Conflict Resolution Rollback | 014-d |
+| 17 | References | Reference only |
+| 18 | Production Readiness | 014-i |
+| 19 | Networking | 014-i |
+| 19.7 | Extension Upgrade Strategy | 014-i |
+| 20 | Security | 014-i |
+| 21 | Operations Runbook | 014-i |
+| 21.4 | Slot Cleanup on Node Removal | 014-i |
+| **22** | **Testing Requirements** | **All features** |
 
 ---
 
@@ -135,25 +141,25 @@ Every section from `BIDIRECTIONAL_REPLICATION.md` must be covered:
 
 | Order | Feature | Branch | Sections | Scope |
 |-------|---------|--------|----------|-------|
-| 1 | 014-a | `014-a-foundation` | 2, 3, 11, 12 | Extension, daemon, IPC |
-| 2 | 014-b | `014-b-node-init` | 5, 15.4 | Snapshots, manual init, schema sync |
-| 3 | 014-c | `014-c-identity-ranges` | 4 | Range allocation, constraints |
-| 4 | 014-d | `014-d-conflict-resolution` | 8, 15.1-3, 15.5 | Detection, strategies, resolution |
+| 1 | 014-a | `014-a-foundation` | 2, 4, 13, 14 | Extension, daemon, IPC |
+| 2 | 014-b | `014-b-node-init` | 6, 17.4 | Snapshots, manual init, schema sync |
+| 3 | 014-c | `014-c-identity-ranges` | 5 | Range allocation, constraints |
+| 4 | 014-d | `014-d-conflict-resolution` | 10, 17.1-3, 17.5 | Detection, strategies, resolution |
 
 ### Phase 2: Advanced Features (P2)
 
 | Order | Feature | Branch | Sections | Scope |
 |-------|---------|--------|----------|-------|
-| 5 | 014-e | `014-e-ddl-replication` | 9 | ProcessUtility hook, queue |
-| 6 | 014-f | `014-f-filtering` | 6 | Table/row/column filters |
-| 7 | 014-g | `014-g-topology` | 10 | Multi-node, election |
-| 8 | 014-h | `014-h-monitoring` | 7, 13 | Health, alerts, TUI |
+| 5 | 014-e | `014-e-ddl-replication` | 11 | ProcessUtility hook, queue |
+| 6 | 014-f | `014-f-filtering` | 7 | Table/row/column filters |
+| 7 | 014-g | `014-g-topology` | 12 | Multi-node, election |
+| 8 | 014-h | `014-h-monitoring` | 8, 15 | Health, alerts, TUI |
 
 ### Phase 3: Production (P3)
 
 | Order | Feature | Branch | Sections | Scope |
 |-------|---------|--------|----------|-------|
-| 9 | 014-i | `014-i-production` | 17, 18, 19, 20 | Validation, networking, security, runbook |
+| 9 | 014-i | `014-i-production` | 19, 20, 21, 22 | Validation, networking, security, runbook |
 
 ---
 
@@ -167,9 +173,9 @@ Every section from `BIDIRECTIONAL_REPLICATION.md` must be covered:
 
 **Design Document Sections**:
 - Section 2: Architecture Overview
-- Section 3: Cross-Platform Compatibility (3.1-3.9)
-- Section 11: steep_repl Extension Schema (11.1-11.2)
-- Section 12: steep-repl Daemon (12.1-12.4)
+- Section 4: Cross-Platform Compatibility (4.1-4.9)
+- Section 13: steep_repl Extension Schema (13.1-13.2)
+- Section 14: steep-repl Daemon (14.1-14.4)
 
 **Purpose**: Establish core infrastructure including the steep_repl PostgreSQL extension and steep-repl daemon with cross-platform support (Windows first).
 
@@ -177,7 +183,7 @@ Every section from `BIDIRECTIONAL_REPLICATION.md` must be covered:
 
 | Priority | Story |
 |----------|-------|
-| P1 | As a DBA, I want to install the steep_repl extension on PostgreSQL 16/17/18 |
+| P1 | As a DBA, I want to install the steep_repl extension on PostgreSQL 17/18 |
 | P1 | As a DBA, I want to install steep-repl daemon as a system service (Windows SCM, Linux systemd, macOS launchd) |
 | P1 | As a DBA, I want steep-repl to connect to PostgreSQL via pgx connection pooling |
 | P2 | As a DBA, I want Steep TUI to communicate with steep-repl via IPC (named pipes on Windows, Unix sockets on Linux/macOS) |
@@ -186,7 +192,7 @@ Every section from `BIDIRECTIONAL_REPLICATION.md` must be covered:
 
 #### Technical Scope
 
-**steep_repl Extension (Rust/pgrx)** - Section 11:
+**steep_repl Extension (Rust/pgrx)** - Section 13:
 ```sql
 -- Schema and core tables
 CREATE SCHEMA steep_repl;
@@ -229,7 +235,7 @@ CREATE TABLE steep_repl.audit_log (
 -- steep_repl.schema_fingerprints (014-b)
 ```
 
-**Cross-Platform IPC** - Section 3.2:
+**Cross-Platform IPC** - Section 4.2:
 ```go
 // internal/repl/ipc/listener.go
 func NewListener(name string) (net.Listener, error) {
@@ -240,7 +246,7 @@ func NewListener(name string) (net.Listener, error) {
 }
 ```
 
-**Service Management** - Section 3.3:
+**Service Management** - Section 4.3:
 ```go
 // kardianos/service for cross-platform
 svcConfig := &service.Config{
@@ -267,7 +273,7 @@ steep/
         └── src/
 ```
 
-**Platform Specifics** - Sections 3.4, 3.8:
+**Platform Specifics** - Sections 4.4, 4.8:
 | Platform | Config Path | IPC | Service |
 |----------|-------------|-----|---------|
 | Windows | `%APPDATA%\steep` | Named pipe `\\.\pipe\steep-repl` | SCM |
@@ -281,7 +287,7 @@ steep/
 
 #### Acceptance Criteria
 
-- [ ] Extension installs on PostgreSQL 16, 17, 18 (Windows, Linux, macOS)
+- [ ] Extension installs on PostgreSQL 17, 18 (Windows, Linux, macOS)
 - [ ] Daemon installs and runs as service on all platforms
 - [ ] `steep-repl status` shows connection to PostgreSQL
 - [ ] `steep-repl health` returns JSON health status
@@ -293,7 +299,7 @@ steep/
 #### Spec-Kit Command
 
 ```bash
-/speckit.specify Build foundation infrastructure for Steep bidirectional replication. Create PostgreSQL extension (steep_repl) using Rust/pgrx with schema tables for nodes, coordinator_state, and audit_log. Implement Go daemon (steep-repl) using kardianos/service for cross-platform service management. The daemon connects to PostgreSQL via pgx, exposes gRPC for node-to-node communication, and provides IPC via named pipes (Windows) or Unix sockets (Linux/macOS). Include HTTP health endpoint. Windows is primary target. Reference: BIDIRECTIONAL_REPLICATION.md sections 2, 3, 11, 12.
+/speckit.specify Build foundation infrastructure for Steep bidirectional replication. Create PostgreSQL extension (steep_repl) using Rust/pgrx with schema tables for nodes, coordinator_state, and audit_log. Implement Go daemon (steep-repl) using kardianos/service for cross-platform service management. The daemon connects to PostgreSQL via pgx, exposes gRPC for node-to-node communication, and provides IPC via named pipes (Windows) or Unix sockets (Linux/macOS). Include HTTP health endpoint. Windows is primary target. Reference: BIDIRECTIONAL_REPLICATION.md sections 2, 4, 13, 14.
 ```
 
 ---
@@ -303,8 +309,8 @@ steep/
 **Branch**: `014-b-node-init`
 
 **Design Document Sections**:
-- Section 5: Node Initialization and Snapshots (5.1-5.7)
-- Section 15.4: Schema Versioning
+- Section 6: Node Initialization and Snapshots (6.1-6.8)
+- Section 17.4: Schema Versioning
 
 **Purpose**: Initialize nodes for replication via automatic snapshots or manual backups. This is typically the first operation after installing the extension and daemon.
 
@@ -322,14 +328,14 @@ steep/
 
 #### Technical Scope
 
-**Initialization Methods** - Section 5.1:
+**Initialization Methods** - Section 6.1:
 | Method | Use Case | How |
 |--------|----------|-----|
 | Snapshot (automatic) | Small/medium DBs | `CREATE SUBSCRIPTION ... WITH (copy_data = true)` |
 | Manual (backup) | Large DBs (multi-TB) | User provides pg_dump/pg_basebackup, steep-repl completes |
 | Reinitialization | Recovery | Partial or full table reinit |
 
-**Snapshot Initialization** - Section 5.2:
+**Snapshot Initialization** - Section 6.2:
 ```yaml
 replication:
   initialization:
@@ -340,7 +346,7 @@ replication:
     large_table_method: pg_dump   # pg_dump | copy | basebackup
 ```
 
-**Manual Initialization** - Section 5.3:
+**Manual Initialization** - Section 6.3:
 ```bash
 # Step 1: Prepare on source
 steep-repl init prepare --node node_a --slot steep_init_slot
@@ -355,7 +361,7 @@ steep-repl init complete --node node_b \
     --source-lsn 0/1234ABCD
 ```
 
-**Reinitialization** - Section 5.4:
+**Reinitialization** - Section 6.4:
 ```bash
 # Reinitialize specific tables
 steep-repl reinit --node node_b --tables orders,line_items
@@ -367,7 +373,7 @@ steep-repl reinit --node node_b --schema sales
 steep-repl reinit --node node_b --full
 ```
 
-**Schema Fingerprinting** - Section 15.4:
+**Schema Fingerprinting** - Section 17.4:
 ```sql
 CREATE TABLE steep_repl.schema_fingerprints (
     table_schema TEXT NOT NULL,
@@ -394,7 +400,7 @@ CREATE FUNCTION steep_repl.compare_schemas(
 ) RETURNS TABLE (table_name TEXT, status TEXT, difference TEXT);
 ```
 
-**Schema Sync Modes** - Section 5.5:
+**Schema Sync Modes** - Section 6.5:
 ```yaml
 replication:
   initialization:
@@ -405,7 +411,7 @@ replication:
       # manual: Warn but allow user to fix
 ```
 
-**Initialization States** - Section 5.6:
+**Initialization States** - Section 6.6:
 ```
 UNINITIALIZED → PREPARING → COPYING → CATCHING_UP → SYNCHRONIZED
       │             │           │            │
@@ -418,7 +424,7 @@ UNINITIALIZED → PREPARING → COPYING → CATCHING_UP → SYNCHRONIZED
       └────────► REINITIALIZING ◄───────────┘
 ```
 
-**Progress Tracking UI** - Section 5.7:
+**Progress Tracking UI** - Section 6.7:
 ```
 ┌─ Node Initialization ─────────────────────────────────────────────┐
 │                                                                   │
@@ -455,7 +461,7 @@ UNINITIALIZED → PREPARING → COPYING → CATCHING_UP → SYNCHRONIZED
 #### Spec-Kit Command
 
 ```bash
-/speckit.specify Implement node initialization and snapshots for Steep bidirectional replication. Support automatic snapshot initialization using PostgreSQL's copy_data=true and manual initialization from user-provided pg_dump/pg_basebackup. Track initialization progress (% complete, rows/sec, ETA) in TUI. Implement reinitialization for diverged/corrupted nodes (partial by table or full). Create schema fingerprinting (SHA256 of column definitions) to detect drift before initialization. Support schema sync modes (strict/auto/manual). Track initialization states (UNINITIALIZED, PREPARING, COPYING, CATCHING_UP, SYNCHRONIZED, DIVERGED, FAILED, REINITIALIZING). Reference: BIDIRECTIONAL_REPLICATION.md sections 5, 15.4.
+/speckit.specify Implement node initialization and snapshots for Steep bidirectional replication. Support automatic snapshot initialization using PostgreSQL's copy_data=true and manual initialization from user-provided pg_dump/pg_basebackup. Track initialization progress (% complete, rows/sec, ETA) in TUI. Implement reinitialization for diverged/corrupted nodes (partial by table or full). Create schema fingerprinting (SHA256 of column definitions) to detect drift before initialization. Support schema sync modes (strict/auto/manual). Track initialization states (UNINITIALIZED, PREPARING, COPYING, CATCHING_UP, SYNCHRONIZED, DIVERGED, FAILED, REINITIALIZING). Handle initial sync with existing data on both nodes (Section 6.8). Reference: BIDIRECTIONAL_REPLICATION.md sections 6, 17.4.
 ```
 
 ---
@@ -465,7 +471,7 @@ UNINITIALIZED → PREPARING → COPYING → CATCHING_UP → SYNCHRONIZED
 **Branch**: `014-c-identity-ranges`
 
 **Design Document Sections**:
-- Section 4: Identity Range Management (4.1-4.7)
+- Section 5: Identity Range Management (5.1-5.8)
 
 **Purpose**: Prevent primary key collisions by allocating non-overlapping ID ranges to each node, following SQL Server merge replication patterns.
 
@@ -483,7 +489,7 @@ UNINITIALIZED → PREPARING → COPYING → CATCHING_UP → SYNCHRONIZED
 
 #### Technical Scope
 
-**Range Mechanism** - Section 4.2:
+**Range Mechanism** - Section 5.2:
 ```sql
 -- Node A: Allocated range 1-10000
 ALTER TABLE orders ADD CONSTRAINT steep_range_orders
@@ -496,7 +502,7 @@ ALTER TABLE orders ADD CONSTRAINT steep_range_orders
 ALTER SEQUENCE orders_order_id_seq RESTART WITH 10001;
 ```
 
-**Range Tracking** - Section 11.1:
+**Range Tracking** - Section 13.1:
 ```sql
 CREATE TABLE steep_repl.identity_ranges (
     id BIGSERIAL PRIMARY KEY,
@@ -511,7 +517,7 @@ CREATE TABLE steep_repl.identity_ranges (
 );
 ```
 
-**Range Functions** - Section 11.2:
+**Range Functions** - Section 13.2:
 ```sql
 CREATE FUNCTION steep_repl.allocate_range(
     p_table_schema TEXT, p_table_name TEXT, p_range_size BIGINT DEFAULT 10000
@@ -526,7 +532,7 @@ CREATE FUNCTION steep_repl.apply_range_constraint(
 ) RETURNS BOOLEAN;
 ```
 
-**Bypass Mode** - Section 4.6:
+**Bypass Mode** - Section 5.6:
 ```sql
 -- Custom GUC for session bypass
 SELECT pg_catalog.set_config('steep_repl.bypass_range_check', 'off', false);
@@ -553,7 +559,7 @@ COPY orders FROM '/path/to/data.csv';
 SET steep_repl.bypass_range_check = 'off';
 ```
 
-**Configuration** - Section 4.4:
+**Configuration** - Section 5.4:
 ```yaml
 replication:
   identity_ranges:
@@ -567,7 +573,7 @@ replication:
         enabled: false        # Uses UUIDs
 ```
 
-**Range Monitoring UI** - Section 4.7:
+**Range Monitoring UI** - Section 5.7:
 ```
 ┌─ Identity Ranges ─────────────────────────────────────────────────┐
 │                                                                   │
@@ -597,7 +603,7 @@ replication:
 #### Spec-Kit Command
 
 ```bash
-/speckit.specify Implement identity range management for Steep bidirectional replication to prevent primary key collisions. Allocate non-overlapping ID ranges per table per node using CHECK constraints. Implement range allocation functions, threshold monitoring (80%), and automatic expansion. Support bypass mode for bulk imports with session GUC (steep_repl.bypass_range_check) and audit logging. Create TUI view showing range utilization (%) with color coding. Follows SQL Server merge replication patterns. Reference: BIDIRECTIONAL_REPLICATION.md section 4.
+/speckit.specify Implement identity range management for Steep bidirectional replication to prevent primary key collisions. Allocate non-overlapping ID ranges per table per node using CHECK constraints. Implement range allocation functions, threshold monitoring (80%), and automatic expansion. Support bypass mode for bulk imports with session GUC (steep_repl.bypass_range_check) and audit logging. Create TUI view showing range utilization (%) with color coding. Handle composite primary keys (Section 5.8) where child tables with FK to parent tables inherit range partitioning. Follows SQL Server merge replication patterns. Reference: BIDIRECTIONAL_REPLICATION.md section 5.
 ```
 
 ---
@@ -607,11 +613,11 @@ replication:
 **Branch**: `014-d-conflict-resolution`
 
 **Design Document Sections**:
-- Section 8: Conflict Detection and Resolution (8.1, 6.2-6.5)
-- Section 15.1: Coordinator Availability
-- Section 15.2: Clock Synchronization
-- Section 15.3: Large Transactions
-- Section 15.5: Conflict Resolution Rollback
+- Section 10: Conflict Detection and Resolution (10.1-10.5)
+- Section 17.1: Coordinator Availability
+- Section 17.2: Clock Synchronization
+- Section 17.3: Large Transactions
+- Section 17.5: Conflict Resolution Rollback
 
 **Purpose**: Detect and resolve conflicts using PostgreSQL 18's native conflict logging with configurable resolution strategies.
 
@@ -630,14 +636,14 @@ replication:
 
 #### Technical Scope
 
-**Conflict Types** - Section 8.1:
+**Conflict Types** - Section 10.1:
 | Type | Description |
 |------|-------------|
 | INSERT-INSERT | Same PK inserted on both nodes |
 | UPDATE-UPDATE | Same row updated on both nodes |
 | UPDATE-DELETE | Row updated on one, deleted on other |
 
-**Resolution Strategies** - Section 6.3:
+**Resolution Strategies** - Section 10.3:
 | Strategy | Description |
 |----------|-------------|
 | `last_write_wins` | Higher timestamp wins (default) |
@@ -647,7 +653,7 @@ replication:
 | `apply_remote` | Remote always wins |
 | `manual` | Queue for human resolution |
 
-**Conflict Log** - Section 6.2:
+**Conflict Log** - Section 10.2:
 ```sql
 CREATE TABLE steep_repl.conflict_log (
     id BIGSERIAL PRIMARY KEY,
@@ -669,7 +675,7 @@ CREATE TABLE steep_repl.conflict_log (
 );
 ```
 
-**Clock Synchronization** - Section 15.2:
+**Clock Synchronization** - Section 17.2:
 ```yaml
 replication:
   clock_sync:
@@ -679,7 +685,7 @@ replication:
     tie_breaker: node_priority    # When timestamps equal
 ```
 
-**Bulk Resolution** - Section 15.3:
+**Bulk Resolution** - Section 17.3:
 ```sql
 CREATE FUNCTION steep_repl.resolve_conflicts_bulk(
     p_resolution TEXT,
@@ -690,7 +696,7 @@ CREATE FUNCTION steep_repl.resolve_conflicts_bulk(
 ) RETURNS INTEGER;
 ```
 
-**Revert Resolution** - Section 15.5:
+**Revert Resolution** - Section 17.5:
 ```sql
 CREATE FUNCTION steep_repl.revert_resolution(
     p_conflict_id BIGINT,
@@ -698,7 +704,7 @@ CREATE FUNCTION steep_repl.revert_resolution(
 ) RETURNS BIGINT;  -- Returns new conflict_id for the revert
 ```
 
-**Coordinator Failover** - Section 15.1:
+**Coordinator Failover** - Section 17.1:
 ```
 2-Node: Simple failover (no Raft)
 - One node is coordinator (highest priority)
@@ -706,7 +712,7 @@ CREATE FUNCTION steep_repl.revert_resolution(
 - State in steep_repl.coordinator_state (PostgreSQL)
 ```
 
-**Manual Resolution UI** - Section 6.5:
+**Manual Resolution UI** - Section 10.5:
 ```
 ┌─ Pending Conflicts ───────────────────────────────────────────────┐
 │                                                                   │
@@ -724,7 +730,7 @@ CREATE FUNCTION steep_repl.revert_resolution(
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-**Bulk Resolution UI** - Section 15.3:
+**Bulk Resolution UI** - Section 17.3:
 ```
 ┌─ Pending Conflicts (grouped by transaction) ──────────────────────┐
 │                                                                   │
@@ -765,7 +771,7 @@ replication:
 #### Spec-Kit Command
 
 ```bash
-/speckit.specify Implement conflict detection and resolution for Steep bidirectional replication. Integrate with PostgreSQL 18 conflict logging. Create conflict_log table storing local/remote tuples and timestamps. Implement resolution strategies: last_write_wins (default), first_write_wins, node_priority, keep_local, apply_remote, manual. Build TUI for manual resolution with side-by-side comparison. Support bulk resolution by transaction ID for large transactions. Include revert capability. Require NTP clock sync with startup validation. Implement simple coordinator failover (no Raft) with state in PostgreSQL. Reference: BIDIRECTIONAL_REPLICATION.md sections 8, 15.1, 15.2, 15.3, 15.5.
+/speckit.specify Implement conflict detection and resolution for Steep bidirectional replication. Integrate with PostgreSQL 17/18 conflict logging (native in 18). Create conflict_log table storing local/remote tuples and timestamps. Implement resolution strategies: last_write_wins (default), first_write_wins, node_priority, keep_local, apply_remote, manual. Build TUI for manual resolution with side-by-side comparison. Support bulk resolution by transaction ID for large transactions. Include revert capability. Require NTP clock sync with startup validation. Implement simple coordinator failover (no Raft) with state in PostgreSQL. Reference: BIDIRECTIONAL_REPLICATION.md sections 10, 17.1, 17.2, 17.3, 17.5.
 ```
 
 ---
@@ -775,7 +781,7 @@ replication:
 **Branch**: `014-e-ddl-replication`
 
 **Design Document Sections**:
-- Section 9: DDL Replication (9.1-9.6)
+- Section 11: DDL Replication (11.1-11.6)
 
 **Purpose**: Capture and replicate DDL changes via PostgreSQL ProcessUtility hook to prevent schema drift.
 
@@ -792,7 +798,7 @@ replication:
 
 #### Technical Scope
 
-**Captured DDL** - Section 9.2:
+**Captured DDL** - Section 11.2:
 | DDL Type | Captured | Notes |
 |----------|----------|-------|
 | CREATE TABLE | Yes | Including constraints |
@@ -805,7 +811,7 @@ replication:
 | CREATE/DROP TRIGGER | Configurable | Excluded by default |
 | TRUNCATE | Yes | Requires approval |
 
-**DDL Queue** - Section 9.3:
+**DDL Queue** - Section 11.3:
 ```sql
 CREATE TABLE steep_repl.ddl_queue (
     id BIGSERIAL PRIMARY KEY,
@@ -824,7 +830,7 @@ CREATE TABLE steep_repl.ddl_queue (
 );
 ```
 
-**ProcessUtility Hook** - Section 9.4:
+**ProcessUtility Hook** - Section 11.4:
 ```rust
 // extensions/steep_repl/src/hooks.rs
 #[pg_guard]
@@ -849,7 +855,7 @@ pub unsafe extern "C" fn steep_process_utility_hook(...) {
 }
 ```
 
-**Configuration** - Section 9.5:
+**Configuration** - Section 11.5:
 ```yaml
 replication:
   ddl:
@@ -867,7 +873,7 @@ replication:
       - CREATE TRIGGER
 ```
 
-**DDL Queue UI** - Section 9.6:
+**DDL Queue UI** - Section 11.6:
 ```
 ┌─ DDL Queue ───────────────────────────────────────────────────────┐
 │                                                                   │
@@ -900,7 +906,7 @@ replication:
 #### Spec-Kit Command
 
 ```bash
-/speckit.specify Implement DDL replication for Steep using PostgreSQL ProcessUtility hook in steep_repl extension (Rust/pgrx). Capture CREATE TABLE, ALTER TABLE, CREATE INDEX, DROP operations. Store DDL in ddl_queue table with schema fingerprints. Auto-apply non-destructive DDL, require approval for destructive (DROP TABLE, DROP COLUMN, TRUNCATE). Include loop prevention to avoid re-capturing replicated DDL. Build TUI view showing DDL queue with approve/reject actions. Reference: BIDIRECTIONAL_REPLICATION.md section 9.
+/speckit.specify Implement DDL replication for Steep using PostgreSQL ProcessUtility hook in steep_repl extension (Rust/pgrx). Capture CREATE TABLE, ALTER TABLE, CREATE INDEX, DROP operations. Store DDL in ddl_queue table with schema fingerprints. Auto-apply non-destructive DDL, require approval for destructive (DROP TABLE, DROP COLUMN, TRUNCATE). Include loop prevention to avoid re-capturing replicated DDL. Handle application trigger behavior (Section 11.6 - ENABLE ALWAYS TRIGGER). Build TUI view showing DDL queue with approve/reject actions. Reference: BIDIRECTIONAL_REPLICATION.md section 11.
 ```
 
 ---
@@ -910,7 +916,7 @@ replication:
 **Branch**: `014-f-filtering`
 
 **Design Document Sections**:
-- Section 6: Filtering and Selective Replication (6.1-6.4)
+- Section 7: Filtering and Selective Replication (7.1-7.4)
 
 **Purpose**: Configure what data replicates using PostgreSQL's native publication filtering (tables, rows, columns).
 
@@ -924,11 +930,11 @@ replication:
 | P2 | As a DBA, I want to view active filters in Steep TUI |
 | P3 | As a DBA, I want schema-level exclusions |
 
-**Note**: Row and column filtering require PostgreSQL 15+.
+**Note**: Row and column filtering require PostgreSQL 17+.
 
 #### Technical Scope
 
-**Table-Level Filtering** - Section 6.1:
+**Table-Level Filtering** - Section 7.1:
 ```sql
 -- Include specific tables
 CREATE PUBLICATION steep_pub FOR TABLE orders, customers, products;
@@ -938,7 +944,7 @@ CREATE PUBLICATION steep_pub FOR ALL TABLES
     WHERE (schemaname NOT IN ('audit', 'temp', 'staging'));
 ```
 
-**Row-Level Filtering** - Section 6.2 (PG15+):
+**Row-Level Filtering** - Section 7.2 (PG17+):
 ```sql
 CREATE PUBLICATION steep_pub FOR TABLE orders
     WHERE (region IN ('US', 'EU'));
@@ -955,7 +961,7 @@ CREATE PUBLICATION steep_pub FOR TABLE customers
 | UPDATE changes match | Row effectively deleted if no longer matches |
 | Bidirectional complexity | Can cause INSERT-INSERT conflicts |
 
-**Column Filtering** - Section 6.3 (PG15+):
+**Column Filtering** - Section 7.3 (PG17+):
 ```sql
 CREATE PUBLICATION steep_pub FOR TABLE customers (id, name, email, created_at);
 -- Excludes: ssn, credit_card, password_hash
@@ -993,7 +999,7 @@ replication:
         # OR exclude: [ssn, credit_card, password_hash]
 ```
 
-**Filtering UI** - Section 6.4:
+**Filtering UI** - Section 7.4:
 ```
 ┌─ Replication Filters ─────────────────────────────────────────────┐
 │                                                                   │
@@ -1013,8 +1019,8 @@ replication:
 #### Acceptance Criteria
 
 - [ ] Table include/exclude via publication
-- [ ] Row filters applied (PG15+)
-- [ ] Column filters applied (PG15+)
+- [ ] Row filters applied (PG17+)
+- [ ] Column filters applied (PG17+)
 - [ ] Schema-level exclusions
 - [ ] TUI displays active filters
 - [ ] Warnings for filter limitations
@@ -1023,7 +1029,7 @@ replication:
 #### Spec-Kit Command
 
 ```bash
-/speckit.specify Implement filtering for Steep bidirectional replication using PostgreSQL native publication features. Support table-level filtering (include/exclude), row-level filtering with WHERE clauses (PG15+), and column-level filtering (PG15+). Document limitations (replica identity columns required, UPDATE changing filter match, bidirectional conflicts). Create TUI view showing active filters per table. Reference: BIDIRECTIONAL_REPLICATION.md section 6.
+/speckit.specify Implement filtering for Steep bidirectional replication using PostgreSQL native publication features. Support table-level filtering (include/exclude), row-level filtering with WHERE clauses (PG17+), and column-level filtering (PG17+). Document limitations (replica identity columns required, UPDATE changing filter match, bidirectional conflicts). Create TUI view showing active filters per table. Reference: BIDIRECTIONAL_REPLICATION.md section 7.
 ```
 
 ---
@@ -1033,7 +1039,7 @@ replication:
 **Branch**: `014-g-topology`
 
 **Design Document Sections**:
-- Section 10: Topology Management (10.1-10.3)
+- Section 12: Topology Management (12.1-12.3)
 
 **Purpose**: Manage multi-node topologies (star or mesh) with coordinator election and health monitoring.
 
@@ -1051,7 +1057,7 @@ replication:
 
 #### Technical Scope
 
-**Topologies** - Section 10.1:
+**Topologies** - Section 12.1:
 ```
 STAR (Hub-Spoke)              MESH (Peer-to-Peer)
 
@@ -1064,7 +1070,7 @@ STAR (Hub-Spoke)              MESH (Peer-to-Peer)
  └───┘└───┘└───┘              └───┘       └───┘
 ```
 
-**Configuration** - Section 10.2:
+**Configuration** - Section 12.2:
 ```yaml
 replication:
   topology:
@@ -1083,7 +1089,7 @@ replication:
       unhealthy_threshold: 3
 ```
 
-**Coordinator Election** - Section 10.3:
+**Coordinator Election** - Section 12.3:
 ```
 1. All nodes start as followers
 2. Highest priority node with quorum becomes coordinator
@@ -1126,7 +1132,7 @@ replication:
 #### Spec-Kit Command
 
 ```bash
-/speckit.specify Implement topology management for Steep multi-node bidirectional replication. Support star (hub-spoke) and mesh topologies. Create topology manager for node registration, discovery, and health monitoring. Implement priority-based coordinator election with automatic failover. Store state in PostgreSQL. Build TUI topology view showing node status and coordinator role. Provide CLI for adding/removing nodes. Implement quorum for N>2 nodes. Reference: BIDIRECTIONAL_REPLICATION.md section 10.
+/speckit.specify Implement topology management for Steep multi-node bidirectional replication. Support star (hub-spoke) and mesh topologies. Create topology manager for node registration, discovery, and health monitoring. Implement priority-based coordinator election with automatic failover. Store state in PostgreSQL. Build TUI topology view showing node status and coordinator role. Provide CLI for adding/removing nodes. Implement quorum for N>2 nodes. Reference: BIDIRECTIONAL_REPLICATION.md section 12.
 ```
 
 ---
@@ -1136,8 +1142,8 @@ replication:
 **Branch**: `014-h-monitoring`
 
 **Design Document Sections**:
-- Section 7: Monitoring and Health Checks (7.1-7.6)
-- Section 13: Steep TUI Integration (13.1-13.2)
+- Section 8: Monitoring and Health Checks (8.1-8.6)
+- Section 15: Steep TUI Integration (15.1-15.2)
 
 **Purpose**: Integrate bidirectional replication monitoring into Steep's dashboard and provide health endpoints.
 
@@ -1154,7 +1160,7 @@ replication:
 
 #### Technical Scope
 
-**Health Metrics** - Section 7.1:
+**Health Metrics** - Section 8.1:
 | Metric | Source | Alert Threshold |
 |--------|--------|-----------------|
 | Replication lag (bytes) | pg_stat_replication | 100MB |
@@ -1165,7 +1171,7 @@ replication:
 | Range utilization | identity_ranges | > 80% |
 | Node health | steep-repl | Any not SYNCHRONIZED |
 
-**Health Endpoints** - Section 7.2:
+**Health Endpoints** - Section 8.2:
 ```bash
 steep-repl health --json
 ```
@@ -1184,7 +1190,7 @@ steep-repl health --json
 }
 ```
 
-**Alerts** - Section 7.3:
+**Alerts** - Section 8.3:
 ```yaml
 alerts:
   rules:
@@ -1202,7 +1208,7 @@ alerts:
       critical: 95
 ```
 
-**Dashboard Panel** - Section 7.4:
+**Dashboard Panel** - Section 8.4:
 ```
 ┌─ Bidirectional Replication ───────────────────────────────────────┐
 │                                                                   │
@@ -1218,7 +1224,7 @@ alerts:
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-**TUI Views** - Section 13.1:
+**TUI Views** - Section 15.1:
 | Location | Addition |
 |----------|----------|
 | Replication View | New "Bidirectional" tab |
@@ -1228,7 +1234,7 @@ alerts:
 | Dashboard | Conflict count in alert panel |
 | Status Bar | Replication health indicator |
 
-**Key Bindings** - Section 13.2:
+**Key Bindings** - Section 15.2:
 | Key | Action |
 |-----|--------|
 | Tab | Cycle subtabs |
@@ -1238,7 +1244,7 @@ alerts:
 | L/R | Local/Remote wins (conflicts) |
 | A/X | Approve/Reject (DDL) |
 
-**Structured Logging** - Section 7.6:
+**Structured Logging** - Section 8.6:
 ```json
 {"level":"info","ts":"2025-12-03T14:32:00Z","msg":"conflict detected","table":"orders","pk":"50432","type":"UPDATE_UPDATE","resolution":"last_write_wins"}
 {"level":"warn","ts":"2025-12-03T14:32:01Z","msg":"range threshold exceeded","table":"line_items","utilization":87.5}
@@ -1257,7 +1263,7 @@ alerts:
 #### Spec-Kit Command
 
 ```bash
-/speckit.specify Implement monitoring and TUI integration for Steep bidirectional replication. Add health endpoint (CLI and HTTP) returning JSON status for PostgreSQL, extension, peers, lag, conflicts, and ranges. Integrate alerts for replication_lag, conflict_rate, range_utilization using existing alert system. Add "Bidirectional" tab to Replication view with subtabs for Overview, Conflicts, DDL Queue, Ranges. Show conflict count in status bar. Add key bindings per spec. Enable structured JSON logging. Reference: BIDIRECTIONAL_REPLICATION.md sections 7, 13.
+/speckit.specify Implement monitoring and TUI integration for Steep bidirectional replication. Add health endpoint (CLI and HTTP) returning JSON status for PostgreSQL, extension, peers, lag, conflicts, and ranges. Integrate alerts for replication_lag, conflict_rate, range_utilization using existing alert system. Add "Bidirectional" tab to Replication view with subtabs for Overview, Conflicts, DDL Queue, Ranges. Show conflict count in status bar. Add key bindings per spec. Enable structured JSON logging. Reference: BIDIRECTIONAL_REPLICATION.md sections 8, 15.
 ```
 
 ---
@@ -1267,10 +1273,10 @@ alerts:
 **Branch**: `014-i-production`
 
 **Design Document Sections**:
-- Section 17: Production Readiness (17.1-17.6)
-- Section 18: Networking (18.1-18.6)
-- Section 19: Security (19.1-19.6)
-- Section 20: Operations Runbook (20.1-20.3)
+- Section 19: Production Readiness (19.1-19.6)
+- Section 20: Networking (20.1-20.7)
+- Section 21: Security (21.1-21.6)
+- Section 22: Operations Runbook (22.1-22.4)
 
 **Purpose**: Production-ready features including data validation, Tailscale networking, security hardening, and operational procedures.
 
@@ -1290,7 +1296,7 @@ alerts:
 
 #### Technical Scope
 
-**Data Validation** - Section 17.1:
+**Data Validation** - Section 19.1:
 ```sql
 -- Level 1: Row count (fast, frequent)
 CREATE FUNCTION steep_repl.validate_row_counts(p_peer_node TEXT)
@@ -1328,7 +1334,13 @@ replication:
 | Windows | w32time | `w32tm /query /status` |
 | Linux | chrony | `chronyc tracking` |
 
-**Failover/Failback** - Section 17.3:
+**Clock Synchronization (Production)** - Section 19.2:
+See Section 17.2 for clock sync requirements. Additional production considerations:
+- Recommended NTP sync interval: 60 seconds
+- Maximum allowed drift before warning: 100ms
+- Maximum allowed drift before error: 1000ms
+
+**Failover/Failback** - Section 19.3:
 ```bash
 # Failover (HQ down, promote Cloud)
 steep-repl failover --promote cloud
@@ -1340,7 +1352,7 @@ steep-repl failback --validate
 steep-repl failback --complete
 ```
 
-**Backup Coordination** - Section 17.4:
+**Backup Coordination** - Section 19.4:
 ```bash
 steep-repl backup prepare --all-nodes
 steep-repl backup snapshot    # Returns LSN
@@ -1348,7 +1360,7 @@ steep-repl backup snapshot    # Returns LSN
 steep-repl backup complete --backup-id bk_...
 ```
 
-**Notifications** - Section 17.5:
+**Notifications** - Section 19.5:
 ```yaml
 replication:
   notifications:
@@ -1364,7 +1376,7 @@ replication:
       conflict_pending_manual: [slack, email]
 ```
 
-**WAL Retention** - Section 17.6:
+**WAL Retention** - Section 19.6:
 ```yaml
 replication:
   wal_retention:
@@ -1375,7 +1387,7 @@ replication:
       max_slot_wal_keep_size: "20GB"
 ```
 
-**Tailscale Integration** - Section 18.3:
+**Tailscale Integration** - Section 20.3:
 ```yaml
 replication:
   networking:
@@ -1388,7 +1400,7 @@ replication:
         port: 5432
 ```
 
-**Tailscale ACLs** - Section 18.3:
+**Tailscale ACLs** - Section 20.3:
 ```json
 {
   "acls": [{
@@ -1399,7 +1411,7 @@ replication:
 }
 ```
 
-**Manual Networking** - Section 18.4:
+**Manual Networking** - Section 20.4:
 ```yaml
 replication:
   networking:
@@ -1410,7 +1422,7 @@ replication:
       key_file: /etc/steep/certs/server.key
 ```
 
-**Security Model** - Section 19.1:
+**Security Model** - Section 21.1:
 ```
 Layer 1: NETWORK - Tailscale/WireGuard encryption
 Layer 2: TRANSPORT - TLS 1.3 for gRPC
@@ -1419,7 +1431,7 @@ Layer 4: AUTHORIZATION - RBAC for operations
 Layer 5: AUDIT - All actions logged
 ```
 
-**Credential Management** - Section 19.2:
+**Credential Management** - Section 21.2:
 ```yaml
 replication:
   credentials:
@@ -1430,7 +1442,7 @@ replication:
       password_command: "pass show postgres/hq"
 ```
 
-**RBAC** - Section 19.4:
+**RBAC** - Section 21.4:
 ```yaml
 replication:
   rbac:
@@ -1443,7 +1455,7 @@ replication:
       steep_ops: operator
 ```
 
-**Audit Logging** - Section 19.5:
+**Audit Logging** - Section 21.5:
 | Action | Logged |
 |--------|--------|
 | conflict_resolved | Old/new resolution, who |
@@ -1451,21 +1463,22 @@ replication:
 | bypass_enabled | Duration, reason, who |
 | failover_initiated | Nodes, trigger |
 
-**Operations Runbook** - Section 20:
+**Operations Runbook** - Section 22:
 | Scenario | Section |
 |----------|---------|
-| High conflict rate | 20.1 |
-| Node unreachable | 20.1 |
-| Range exhaustion | 20.1 |
-| Replication lag growing | 20.1 |
-| DDL stuck in queue | 20.1 |
-| Data validation failed | 20.1 |
-| Weekly maintenance | 20.2 |
-| Adding/removing nodes | 20.2 |
-| Upgrading steep-repl | 20.2 |
-| Emergency stop | 20.3 |
-| Force failover | 20.3 |
-| Bypass range constraints | 20.3 |
+| High conflict rate | 22.1 |
+| Node unreachable | 22.1 |
+| Range exhaustion | 22.1 |
+| Replication lag growing | 22.1 |
+| DDL stuck in queue | 22.1 |
+| Data validation failed | 22.1 |
+| Weekly maintenance | 22.2 |
+| Adding/removing nodes | 22.2 |
+| Upgrading steep-repl | 22.2 |
+| Slot cleanup on node removal | 22.4 |
+| Emergency stop | 22.3 |
+| Force failover | 22.3 |
+| Bypass range constraints | 22.3 |
 
 **Validation UI**:
 ```
@@ -1516,7 +1529,7 @@ replication:
 #### Spec-Kit Command
 
 ```bash
-/speckit.specify Implement production hardening for Steep bidirectional replication. Create data validation: row counts (frequent), checksums (periodic with sampling), full compare with repair SQL. Integrate Tailscale for zero-config networking (Windows + Linux). Implement failover (manual/automatic) with identity range expansion and failback procedure. Add RBAC for operations. Support credentials via env vars and password commands. Integrate notifications (Slack, email, PagerDuty). Add backup coordination. Validate clock sync on startup. Create operational runbook procedures. Reference: BIDIRECTIONAL_REPLICATION.md sections 17, 18, 19, 20.
+/speckit.specify Implement production hardening for Steep bidirectional replication. Create data validation: row counts (frequent), checksums (periodic with sampling), full compare with repair SQL. Integrate Tailscale for zero-config networking (Windows + Linux). Implement failover (manual/automatic) with identity range expansion and failback procedure. Add RBAC for operations. Support credentials via env vars and password commands. Integrate notifications (Slack, email, PagerDuty). Add backup coordination. Validate clock sync on startup. Include extension upgrade strategy (Section 20.7) and slot cleanup on node removal (Section 22.4). Create operational runbook procedures. Reference: BIDIRECTIONAL_REPLICATION.md sections 19, 20, 21, 22.
 ```
 
 ---
@@ -1529,35 +1542,41 @@ After implementation, verify ALL design document sections are covered:
 |---------|-------|---------|----------|
 | 1 | Executive Summary | Context | [ ] |
 | 2 | Architecture Overview | 014-a | [ ] |
-| 3 | Cross-Platform Compatibility | 014-a | [ ] |
-| 4 | Identity Range Management | 014-c | [ ] |
-| 5 | Node Initialization and Snapshots | 014-b | [ ] |
-| 6 | Filtering and Selective Replication | 014-f | [ ] |
-| 7 | Monitoring and Health Checks | 014-h | [ ] |
-| 8 | Conflict Detection and Resolution | 014-d | [ ] |
-| 9 | DDL Replication | 014-e | [ ] |
-| 10 | Topology Management | 014-g | [ ] |
-| 11 | steep_repl Extension Schema | 014-a | [ ] |
-| 12 | steep-repl Daemon | 014-a | [ ] |
-| 13 | Steep TUI Integration | 014-h | [ ] |
-| 14 | Implementation Phases | Reference | [ ] |
-| 15.1 | Coordinator Availability | 014-d | [ ] |
-| 15.2 | Clock Synchronization | 014-d | [ ] |
-| 15.3 | Large Transactions | 014-d | [ ] |
-| 15.4 | Schema Versioning | 014-b | [ ] |
-| 15.5 | Conflict Resolution Rollback | 014-d | [ ] |
-| 16 | References | Reference | [ ] |
-| 17 | Production Readiness | 014-i | [ ] |
-| 18 | Networking | 014-i | [ ] |
-| 19 | Security | 014-i | [ ] |
-| 20 | Operations Runbook | 014-i | [ ] |
-| 21 | Testing Requirements | All | [ ] |
+| 3 | PostgreSQL Version Requirements | Reference | [ ] |
+| 4 | Cross-Platform Compatibility | 014-a | [ ] |
+| 5 | Identity Range Management | 014-c | [ ] |
+| 5.8 | Composite Primary Keys | 014-c | [ ] |
+| 6 | Node Initialization and Snapshots | 014-b | [ ] |
+| 6.8 | Initial Sync with Existing Data | 014-b | [ ] |
+| 7 | Filtering and Selective Replication | 014-f | [ ] |
+| 8 | Monitoring and Health Checks | 014-h | [ ] |
+| 9 | Conflict Detection and Resolution | 014-d | [ ] |
+| 10 | DDL Replication | 014-e | [ ] |
+| 10.6 | Application Trigger Behavior | 014-e | [ ] |
+| 11 | Topology Management | 014-g | [ ] |
+| 12 | steep_repl Extension Schema | 014-a | [ ] |
+| 13 | steep-repl Daemon | 014-a | [ ] |
+| 14 | Steep TUI Integration | 014-h | [ ] |
+| 15 | Implementation Phases | Reference | [ ] |
+| 16.1 | Coordinator Availability | 014-d | [ ] |
+| 16.2 | Clock Synchronization | 014-d | [ ] |
+| 16.3 | Large Transactions | 014-d | [ ] |
+| 16.4 | Schema Versioning | 014-b | [ ] |
+| 16.5 | Conflict Resolution Rollback | 014-d | [ ] |
+| 17 | References | Reference | [ ] |
+| 18 | Production Readiness | 014-i | [ ] |
+| 19 | Networking | 014-i | [ ] |
+| 19.7 | Extension Upgrade Strategy | 014-i | [ ] |
+| 20 | Security | 014-i | [ ] |
+| 21 | Operations Runbook | 014-i | [ ] |
+| 21.4 | Slot Cleanup on Node Removal | 014-i | [ ] |
+| 22 | Testing Requirements | All | [ ] |
 
 ---
 
 ## Testing Requirements
 
-**Reference**: `docs/BIDIRECTIONAL_REPLICATION.md` Section 21
+**Reference**: `docs/BIDIRECTIONAL_REPLICATION.md` Section 22
 
 ### Core Principles
 
@@ -1613,7 +1632,7 @@ Each feature MUST include:
 // Required test setup for every replication test
 func SetupTwoNodeTopology(t *testing.T) *TwoNodeTopology {
     // 1. Create Docker network
-    // 2. Start two PostgreSQL 18 containers with wal_level=logical
+    // 2. Start two PostgreSQL 17 or 18 containers with wal_level=logical
     // 3. Install steep_repl extension on both
     // 4. Create test schema on both
     // 5. Start steep-repl daemons
@@ -1648,7 +1667,7 @@ test-coverage:     # Coverage report with 70% threshold check
 
 Every feature's acceptance criteria includes:
 
-- [ ] Integration tests pass with real PostgreSQL 16, 17, 18
+- [ ] Integration tests pass with real PostgreSQL 17, 18
 - [ ] Topology tests pass with two-node replication
 - [ ] Extension tests pass via `cargo pgrx test`
 - [ ] Coverage meets package-specific threshold
@@ -1658,7 +1677,7 @@ Every feature's acceptance criteria includes:
 
 ## References
 
-- **Design Document**: `docs/BIDIRECTIONAL_REPLICATION.md` v0.9
+- **Design Document**: `docs/BIDIRECTIONAL_REPLICATION.md` v1.0
 - **Constitution**: `.specify/memory/constitution.md`
 - **pgrx**: https://github.com/pgcentralfoundation/pgrx
 - **kardianos/service**: https://github.com/kardianos/service

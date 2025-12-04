@@ -129,9 +129,46 @@ Deployment Options:
 
 ---
 
-## 3. Cross-Platform Compatibility
+## 3. PostgreSQL Version Requirements
 
-### 3.1 Overview
+### 3.1 Supported Versions
+
+**Supported**: PostgreSQL 17 and 18 only.
+
+| Feature | PostgreSQL 17 | PostgreSQL 18 |
+|---------|---------------|---------------|
+| Core logical replication | ✓ | ✓ |
+| Row-level filtering | ✓ | ✓ |
+| Column-level filtering | ✓ | ✓ |
+| Parallel apply workers | ✓ | ✓ |
+| Native conflict logging | - | ✓ |
+| `track_commit_timestamp` | ✓ | ✓ |
+
+**Recommended**: PostgreSQL 18 for native conflict logging. On PostgreSQL 17, conflicts are detected via the steep_repl extension with slightly higher overhead.
+
+### 3.2 Version Validation
+
+steep-repl validates PostgreSQL version on startup:
+
+```bash
+steep-repl start
+[INFO] PostgreSQL version: 18.0
+[INFO] Native conflict logging: available
+[INFO] Version check: PASSED
+```
+
+```bash
+steep-repl start
+[ERROR] PostgreSQL version 16.4 is not supported.
+[ERROR] Steep bidirectional replication requires PostgreSQL 17 or 18.
+[ERROR] Please upgrade PostgreSQL before continuing.
+```
+
+---
+
+## 4. Cross-Platform Compatibility
+
+### 4.1 Overview
 
 The entire system must run on Windows, Linux, and macOS. **Windows is the first deployment target.**
 
@@ -143,7 +180,7 @@ The entire system must run on Windows, Linux, and macOS. **Windows is the first 
 | steep_repl extension | ✓ DLL | ✓ .so | ✓ .dylib |
 | PostgreSQL | ✓ Native | ✓ Native | ✓ Native |
 
-### 3.2 IPC: Named Pipes vs Unix Sockets
+### 4.2 IPC: Named Pipes vs Unix Sockets
 
 Unix sockets don't exist on Windows. We use **named pipes** on Windows and Unix sockets elsewhere:
 
@@ -165,7 +202,7 @@ func NewListener(name string) (net.Listener, error) {
 
 **Library**: Use `github.com/Microsoft/go-winio` for Windows named pipes (already used by Docker, containerd).
 
-### 3.3 Service Management
+### 4.3 Service Management
 
 steep-repl uses `kardianos/service` (same as steep-agent) for cross-platform service management:
 
@@ -184,7 +221,7 @@ svcConfig := &service.Config{
 | Linux | systemd | `sudo steep-repl install` |
 | macOS | launchd | `steep-repl install --user` |
 
-### 3.4 File Paths
+### 4.4 File Paths
 
 Use platform-appropriate paths:
 
@@ -211,7 +248,7 @@ func DataDir() string {
 }
 ```
 
-### 3.5 steep_repl Extension (pgrx)
+### 4.5 steep_repl Extension (pgrx)
 
 pgrx supports Windows, but requires careful setup:
 
@@ -254,7 +291,7 @@ strategy:
     pg: [16, 17, 18]
 ```
 
-### 3.6 gRPC Cross-Platform
+### 4.6 gRPC Cross-Platform
 
 gRPC works identically across platforms. Use TLS for node-to-node communication:
 
@@ -266,7 +303,7 @@ grpc.Dial(
 )
 ```
 
-### 3.7 Testing Strategy
+### 4.7 Testing Strategy
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -305,7 +342,7 @@ grpc.Dial(
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.8 Windows-Specific Considerations
+### 4.8 Windows-Specific Considerations
 
 | Issue | Solution |
 |-------|----------|
@@ -317,7 +354,7 @@ grpc.Dial(
 | Long paths | Enable long path support in manifest or use `\\?\` prefix |
 | Firewall | Document port 5433 requirement for gRPC |
 
-### 3.9 Docker Support (Optional)
+### 4.9 Docker Support (Optional)
 
 For users who prefer containers, provide multi-arch images:
 
@@ -340,9 +377,9 @@ Note: Windows containers are possible but not prioritized; native Windows instal
 
 ---
 
-## 4. Identity Range Management
+## 5. Identity Range Management
 
-### 4.1 Overview
+### 5.1 Overview
 
 Identity ranges prevent primary key collisions in bidirectional replication by ensuring each node generates IDs from a non-overlapping range. This approach is borrowed directly from SQL Server merge replication.
 
@@ -554,11 +591,86 @@ steep-repl bypass --table orders --duration 30m
 └───────────────────────────────────────────────────────────────────┘
 ```
 
+### 5.8 Composite Primary Keys
+
+Tables with composite primary keys are handled based on their structure:
+
+#### Parent-Child Relationships (Automatic)
+
+When a composite PK includes a foreign key to a parent table that has range management, the child table **automatically inherits** range partitioning:
+
+```sql
+-- Parent table with single-column PK and range management
+CREATE TABLE orders (
+    order_id BIGINT PRIMARY KEY,  -- Range-managed: 1-10000 (node A), 10001-20000 (node B)
+    customer_id BIGINT,
+    order_date TIMESTAMP
+);
+
+-- Child table with composite PK including FK to parent
+CREATE TABLE order_lines (
+    order_id BIGINT REFERENCES orders(order_id),  -- Inherits range from parent
+    line_number INT,
+    product_id BIGINT,
+    quantity INT,
+    PRIMARY KEY (order_id, line_number)
+);
+```
+
+In this case, `order_lines` automatically partitions by `order_id`:
+- Node A creates order_lines for orders 1-10000
+- Node B creates order_lines for orders 10001-20000
+- No additional range constraint needed on `order_lines`
+
+#### Orphan Composite Keys
+
+Tables with composite PKs that don't reference a range-managed parent fall back to **conflict resolution only**:
+
+```sql
+-- Example: composite PK with no FK to parent
+CREATE TABLE sensor_readings (
+    device_id VARCHAR(50),
+    reading_timestamp TIMESTAMP,
+    value NUMERIC,
+    PRIMARY KEY (device_id, reading_timestamp)
+);
+```
+
+For these tables:
+- No range constraints are applied
+- Conflict detection uses the full composite key
+- Resolution follows configured policy (last-writer-wins, priority, etc.)
+
+#### Detection During Setup
+
+steep-repl analyzes table structures during `steep-repl add-table`:
+
+```bash
+steep-repl add-table sensor_readings
+
+[INFO] Table: sensor_readings
+[INFO] Primary key: (device_id, reading_timestamp)
+[INFO] No FK to range-managed parent detected
+[WARN] This table will use conflict resolution only (no range partitioning)
+[INFO] Recommended: Use last-writer-wins or priority-based resolution
+
+Continue? [y/N]:
+```
+
+#### Table Classification Summary
+
+| Table Structure | Range Management | Conflict Handling |
+|----------------|------------------|-------------------|
+| Single-column SERIAL/IDENTITY PK | ✓ CHECK constraint | Rare (range violation only) |
+| Composite PK with FK to range-managed parent | ✓ Inherited from parent | Rare (follows parent) |
+| Composite PK without FK to parent | ✗ None | Standard resolution policies |
+| No PK (REPLICA IDENTITY FULL) | ✗ None | Standard resolution policies |
+
 ---
 
-## 5. Node Initialization and Snapshots
+## 6. Node Initialization and Snapshots
 
-### 5.1 Overview
+### 6.1 Overview
 
 Before replication can begin, nodes must be synchronized to a common baseline. This can happen through:
 
@@ -811,15 +923,136 @@ States:
 └───────────────────────────────────────────────────────────────────┘
 ```
 
+### 6.8 Initial Sync with Existing Data on Both Nodes
+
+When setting up bidirectional replication between nodes that **both already contain data**, special handling is required to avoid conflicts during initial sync.
+
+#### Scenario
+
+```
+┌──────────────────┐         ┌──────────────────┐
+│      Node A      │         │      Node B      │
+│  (10,000 rows)   │◄───────►│  (8,000 rows)    │
+│                  │         │  (some overlap)  │
+└──────────────────┘         └──────────────────┘
+```
+
+Both nodes have existing data, potentially with overlapping primary keys or conflicting row values.
+
+#### Setup Procedure
+
+**Step 1: Quiesce Writes**
+
+Stop application writes on both nodes before setup:
+
+```bash
+steep-repl init --mode=bidirectional-merge --quiesce-writes
+[INFO] Pausing application writes on Node A...
+[INFO] Pausing application writes on Node B...
+[INFO] Waiting for in-flight transactions to complete...
+```
+
+**Step 2: Analyze Data Overlap**
+
+steep-repl analyzes both nodes to identify:
+- Matching rows (same PK, same data) - no action needed
+- Conflicting rows (same PK, different data) - need resolution
+- Unique rows (PK exists on one node only) - need replication
+
+```bash
+steep-repl analyze-overlap --tables=orders,customers
+
+[INFO] Analyzing data overlap between nodes...
+
+Table: orders
+├── Matching rows:        5,234
+├── Conflicting rows:       847  ⚠
+└── Unique to Node A:     4,766
+└── Unique to Node B:     2,153
+
+Table: customers
+├── Matching rows:        2,891
+├── Conflicting rows:       156  ⚠
+└── Unique to Node A:     1,109
+└── Unique to Node B:       544
+```
+
+**Step 3: Resolve Pre-Existing Conflicts**
+
+Before enabling bidirectional replication, resolve conflicts using one of:
+
+```bash
+# Option 1: Node A wins (use Node A's data for conflicts)
+steep-repl resolve-overlap --strategy=prefer-node-a
+
+# Option 2: Node B wins (use Node B's data for conflicts)
+steep-repl resolve-overlap --strategy=prefer-node-b
+
+# Option 3: Timestamp-based (use most recently modified)
+steep-repl resolve-overlap --strategy=last-modified
+
+# Option 4: Manual review (interactive)
+steep-repl resolve-overlap --strategy=manual
+```
+
+**Step 4: Assign Identity Ranges**
+
+After conflict resolution, assign non-overlapping ranges based on existing data:
+
+```bash
+steep-repl assign-ranges --analyze-existing
+
+[INFO] Analyzing existing ID distribution...
+[INFO] orders: Node A max_id=15234, Node B max_id=12847
+[INFO] Assigning ranges:
+       Node A: 1-20000 (existing), 40001-50000 (new inserts)
+       Node B: 20001-40000 (new inserts)
+```
+
+**Step 5: Enable Bidirectional Replication**
+
+```bash
+steep-repl enable --skip-initial-sync
+
+[INFO] Skipping initial data sync (data already reconciled)
+[INFO] Creating subscriptions with copy_data = false...
+[INFO] Bidirectional replication enabled
+[INFO] Resuming application writes...
+```
+
+#### Data Reconciliation Report
+
+steep-repl generates a reconciliation report for audit:
+
+```bash
+steep-repl reconciliation-report --output=reconciliation_2024-01-15.json
+```
+
+```json
+{
+  "timestamp": "2024-01-15T10:30:00Z",
+  "strategy": "prefer-node-a",
+  "tables": {
+    "orders": {
+      "conflicts_resolved": 847,
+      "resolution_breakdown": {
+        "node_a_selected": 847,
+        "node_b_selected": 0
+      }
+    }
+  }
+}
+```
+
 ---
 
-## 6. Filtering and Selective Replication
+## 7. Filtering and Selective Replication
 
 Leverage PostgreSQL's native publication filtering as much as possible.
 
 **Note**: Row-level and column-level filtering require **PostgreSQL 15+**. Table-level filtering works on all supported versions.
 
-### 6.1 Table-Level Filtering
+### 7.1 Table-Level Filtering
 
 ```sql
 -- PostgreSQL native: Specify tables in publication
@@ -942,9 +1175,9 @@ replication:
 
 ---
 
-## 7. Monitoring and Health Checks
+## 8. Monitoring and Health Checks
 
-### 7.1 Replication Health Metrics
+### 8.1 Replication Health Metrics
 
 Extend Steep's existing replication monitoring for bidirectional:
 
@@ -1100,9 +1333,9 @@ Structured logging for troubleshooting:
 
 ---
 
-## 8. Conflict Detection and Resolution
+## 9. Conflict Detection and Resolution
 
-### 8.1 Conflict Types
+### 9.1 Conflict Types
 
 | Type | Description | Example |
 |------|-------------|---------|
@@ -1241,11 +1474,97 @@ replication:
 └───────────────────────────────────────────────────────────────────┘
 ```
 
+### 9.6 Application Trigger Behavior
+
+Tables with application-defined triggers require special consideration in bidirectional replication.
+
+#### Trigger Firing on Replicated Changes
+
+By default, PostgreSQL **does not fire triggers** for changes applied via logical replication. This is intentional to prevent:
+- Cascading trigger effects across nodes
+- Duplicate side effects (e.g., audit log entries on both nodes)
+- Infinite loops (trigger on A → replicate to B → trigger on B → replicate to A)
+
+```sql
+-- This trigger fires for local INSERTs but NOT for replicated rows
+CREATE TRIGGER audit_orders
+    AFTER INSERT ON orders
+    FOR EACH ROW EXECUTE FUNCTION log_order_change();
+```
+
+#### When Triggers Need to Fire
+
+Some triggers must execute on replicated data:
+
+| Trigger Type | Should Fire? | Reason |
+|--------------|--------------|--------|
+| Audit logging | ❌ No | Would duplicate entries |
+| Materialized view refresh | ✓ Yes | Local view needs updating |
+| Derived column calculation | ✓ Yes | Computed fields need values |
+| Cache invalidation | ✓ Yes | Local cache must be cleared |
+| External notification | ❌ No | Would send duplicate alerts |
+
+#### Enabling Triggers for Replicated Data
+
+Use `ALTER TABLE ... ENABLE ALWAYS TRIGGER` for triggers that must fire on replicated changes:
+
+```sql
+-- Trigger that SHOULD fire on replicated data
+CREATE TRIGGER update_order_total
+    AFTER INSERT OR UPDATE ON order_lines
+    FOR EACH ROW EXECUTE FUNCTION recalculate_order_total();
+
+-- Enable for ALL changes including replication
+ALTER TABLE order_lines ENABLE ALWAYS TRIGGER update_order_total;
+```
+
+#### Configuration in steep-repl
+
+steep-repl provides commands to manage trigger behavior:
+
+```bash
+# List triggers and their replica status
+steep-repl triggers --table=orders
+
+Table: orders
+├── audit_orders         REPLICA (fires on replicated: NO)
+├── update_totals        ALWAYS  (fires on replicated: YES)
+└── send_notification    ORIGIN  (fires on replicated: NO)
+
+# Enable a trigger for replicated data
+steep-repl trigger enable-always --table=orders --trigger=update_cache
+
+# Revert to default behavior
+steep-repl trigger enable-replica --table=orders --trigger=update_cache
+```
+
+#### Trigger Audit Report
+
+steep-repl can audit triggers before enabling bidirectional replication:
+
+```bash
+steep-repl audit-triggers
+
+[WARN] Found 3 triggers that may need review:
+
+orders.audit_orders (AFTER INSERT/UPDATE/DELETE)
+  Status: REPLICA (default - won't fire on replicated data)
+  Recommendation: Keep as REPLICA to avoid duplicate audit entries
+
+order_lines.recalc_total (AFTER INSERT/UPDATE)
+  Status: REPLICA (default - won't fire on replicated data)
+  Recommendation: Change to ALWAYS if order totals need updating
+
+inventory.send_low_stock_alert (AFTER UPDATE)
+  Status: REPLICA (default - won't fire on replicated data)
+  Recommendation: Keep as REPLICA to avoid duplicate alerts
+```
+
 ---
 
-## 9. DDL Replication
+## 10. DDL Replication
 
-### 9.1 Overview
+### 10.1 Overview
 
 DDL (Data Definition Language) changes must be coordinated across nodes to prevent schema drift. The steep_repl extension captures DDL via PostgreSQL's ProcessUtility hook.
 
@@ -1370,9 +1689,9 @@ replication:
 
 ---
 
-## 10. Topology Management
+## 11. Topology Management
 
-### 10.1 Supported Topologies
+### 11.1 Supported Topologies
 
 ```
 STAR (Hub-Spoke)              MESH (Peer-to-Peer)
@@ -1431,9 +1750,9 @@ Election uses node priority as tie-breaker:
 
 ---
 
-## 11. steep_repl Extension Schema
+## 12. steep_repl Extension Schema
 
-### 11.1 Tables
+### 12.1 Tables
 
 ```sql
 -- Extension schema
@@ -1511,9 +1830,9 @@ CREATE FUNCTION steep_repl.apply_range_constraint(
 
 ---
 
-## 12. steep-repl Daemon
+## 13. steep-repl Daemon
 
-### 12.1 Overview
+### 13.1 Overview
 
 The steep-repl daemon is a **separate** Go service dedicated to bidirectional replication coordination. It is distinct from steep-agent and has its own lifecycle.
 
@@ -1605,9 +1924,9 @@ func main() {
 
 ---
 
-## 13. Steep TUI Integration
+## 14. Steep TUI Integration
 
-### 13.1 New Views/Tabs
+### 14.1 New Views/Tabs
 
 | Location | Addition |
 |----------|----------|
@@ -1632,7 +1951,7 @@ func main() {
 
 ---
 
-## 14. Implementation Phases
+## 15. Implementation Phases
 
 ### Phase 1: Foundation (Weeks 1-2)
 - [ ] Set up pgrx development environment
@@ -1673,11 +1992,11 @@ func main() {
 
 ---
 
-## 15. Design Decisions
+## 16. Design Decisions
 
 This section documents decisions on previously open questions.
 
-### 15.1 Coordinator Availability
+### 16.1 Coordinator Availability
 
 **Question**: Single coordinator is SPOF. Implement Raft consensus?
 
@@ -2073,7 +2392,7 @@ steep-repl conflict revert 1042 --dry-run
 
 ---
 
-## 16. References
+## 17. References
 
 - [PostgreSQL 18 Logical Replication](https://www.postgresql.org/docs/18/logical-replication.html)
 - [SQL Server Merge Replication Identity Ranges](https://docs.microsoft.com/en-us/sql/relational-databases/replication/merge/parameterized-filters-optimize-for-precomputed-partitions)
@@ -2083,11 +2402,11 @@ steep-repl conflict revert 1042 --dry-run
 
 ---
 
-## 17. Production Readiness
+## 18. Production Readiness
 
 This section addresses requirements for running bidirectional replication in production environments, including mixed-platform deployments (e.g., Windows on-premises ↔ Linux cloud).
 
-### 17.1 Data Validation
+### 18.1 Data Validation
 
 Replication can silently diverge due to bugs, network issues, or operational errors. Periodic validation is **mandatory** for production.
 
@@ -2676,11 +2995,109 @@ replication:
       max_slot_wal_keep_size: "20GB"
 ```
 
+### 18.7 Extension Upgrade Strategy
+
+The steep_repl PostgreSQL extension requires careful upgrade planning to maintain replication continuity.
+
+#### Version Compatibility
+
+| Extension Version | PostgreSQL 17 | PostgreSQL 18 | steep-repl (Go) |
+|-------------------|---------------|---------------|-----------------|
+| 1.0.x             | ✓             | ✓             | 1.0.x - 1.2.x   |
+| 1.1.x             | ✓             | ✓             | 1.1.x - 1.3.x   |
+| 1.2.x             | -             | ✓             | 1.2.x+          |
+
+The extension and Go daemon maintain backward compatibility within minor versions.
+
+#### Rolling Upgrade Procedure
+
+Upgrade one node at a time to maintain replication availability:
+
+```bash
+# Step 1: Check current versions on all nodes
+steep-repl version --all-nodes
+
+Node       Extension    Daemon     PostgreSQL
+────────────────────────────────────────────
+node_a     1.0.2        1.0.5      17.2
+node_b     1.0.2        1.0.5      18.1
+node_c     1.0.2        1.0.5      17.4
+
+# Step 2: Verify upgrade compatibility
+steep-repl upgrade-check --target-version=1.1.0
+
+[OK] Extension 1.1.0 compatible with all nodes
+[OK] Daemon 1.1.0 compatible with extension 1.0.2 (mixed-version support)
+[INFO] Recommended upgrade order: node_c, node_a, node_b
+
+# Step 3: Upgrade first node (pause replication to this node)
+steep-repl pause --node=node_c
+steep-repl upgrade --node=node_c --version=1.1.0
+
+[INFO] Stopping steep-repl daemon on node_c...
+[INFO] Upgrading extension: ALTER EXTENSION steep_repl UPDATE TO '1.1.0';
+[INFO] Restarting steep-repl daemon...
+[INFO] Resuming replication...
+
+# Step 4: Verify and continue
+steep-repl health --node=node_c
+[OK] node_c: healthy (extension 1.1.0, daemon 1.1.0)
+
+# Step 5: Repeat for remaining nodes
+steep-repl upgrade --node=node_a --version=1.1.0
+steep-repl upgrade --node=node_b --version=1.1.0
+```
+
+#### Extension Schema Migrations
+
+Major extension versions may include schema migrations:
+
+```sql
+-- Extension handles migrations automatically via ALTER EXTENSION UPDATE
+-- Migration history tracked in steep_repl.schema_version
+
+SELECT * FROM steep_repl.schema_version ORDER BY applied_at DESC;
+
+version | applied_at           | description
+────────┼──────────────────────┼────────────────────────────
+1.1.0   | 2025-01-15 10:30:00  | Add conflict_metadata JSONB column
+1.0.0   | 2024-12-01 08:00:00  | Initial schema
+```
+
+#### Rollback Procedure
+
+If issues occur during upgrade:
+
+```bash
+steep-repl rollback --node=node_c --version=1.0.2
+
+[INFO] Stopping steep-repl daemon...
+[INFO] Extension rollback: ALTER EXTENSION steep_repl UPDATE TO '1.0.2';
+[WARN] Some features may be unavailable after rollback
+[INFO] Resuming replication...
+```
+
+#### Pre-Upgrade Checklist
+
+```bash
+steep-repl upgrade-preflight --target=1.1.0
+
+✓ All nodes healthy
+✓ No pending conflicts
+✓ Replication lag < 1 minute
+✓ Backup completed within last 24 hours
+✓ Extension update path exists: 1.0.2 → 1.1.0
+✓ Disk space sufficient for migration
+✓ Maintenance window scheduled
+
+Ready for upgrade. Estimated duration: 15 minutes per node
+```
+
 ---
 
-## 18. Networking
+## 19. Networking
 
-### 18.1 Overview
+### 19.1 Overview
 
 Bidirectional replication requires reliable network connectivity between nodes. For cross-site and mixed-platform deployments, **Tailscale** is the recommended networking solution.
 
@@ -2929,9 +3346,9 @@ replication:
 
 ---
 
-## 19. Security
+## 20. Security
 
-### 19.1 Security Model
+### 20.1 Security Model
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -3212,9 +3629,9 @@ steep-repl tls generate --node hq --output /etc/steep/certs/
 
 ---
 
-## 20. Operations Runbook
+## 21. Operations Runbook
 
-### 20.1 Common Scenarios and Resolutions
+### 21.1 Common Scenarios and Resolutions
 
 #### Scenario: High Conflict Rate
 
@@ -3657,11 +4074,119 @@ steep-repl bypass --disable --table orders
 steep-repl range reallocate --table orders
 ```
 
+### 21.4 Slot Cleanup on Node Removal
+
+When permanently removing a node from the replication topology, replication slots must be cleaned up to prevent WAL accumulation.
+
+#### Why Cleanup Matters
+
+Orphaned replication slots cause:
+- WAL files accumulating indefinitely (disk full)
+- `pg_wal` directory growing unbounded
+- Eventually: PostgreSQL refusing writes when disk is full
+
+```sql
+-- Check for inactive slots (potential orphans)
+SELECT slot_name, active, restart_lsn,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS lag
+FROM pg_replication_slots
+WHERE active = false;
+```
+
+#### Removal Procedure
+
+**Step 1: Verify node is truly being removed**
+
+```bash
+steep-repl status --node=node_c
+
+[INFO] Node: node_c
+[INFO] Status: DISCONNECTED (last seen: 2 hours ago)
+[WARN] Replication slot steep_sub_node_c is inactive
+
+Confirm permanent removal? [y/N]: y
+```
+
+**Step 2: Remove node from topology**
+
+```bash
+steep-repl remove-node node_c
+
+[INFO] Disabling subscription on node_c (if reachable)...
+[INFO] Dropping replication slot steep_sub_node_c on node_a...
+[INFO] Dropping replication slot steep_sub_node_c on node_b...
+[INFO] Removing node_c from topology metadata...
+[INFO] Node removed successfully
+
+Remaining nodes:
+• node_a (active)
+• node_b (active)
+```
+
+**Step 3: Clean up if remove-node fails**
+
+If the node is unreachable and slots can't be cleaned automatically:
+
+```bash
+# On each remaining node, manually drop the orphaned slot
+steep-repl slot drop --name steep_sub_node_c --force
+
+# Or directly via SQL
+psql -c "SELECT pg_drop_replication_slot('steep_sub_node_c');"
+```
+
+#### Automatic Slot Monitoring
+
+steep-repl monitors for orphaned slots:
+
+```yaml
+# config.yaml
+replication:
+  slot_cleanup:
+    enabled: true
+    inactive_threshold: 24h       # Alert if inactive for 24 hours
+    auto_drop_threshold: 168h     # Auto-drop after 7 days inactive
+    wal_threshold_gb: 50          # Alert if slot holds >50GB WAL
+```
+
+```bash
+steep-repl slot status
+
+Slot Name              Node      Active   Lag        Age
+───────────────────────────────────────────────────────────
+steep_sub_node_a       node_a    ✓ yes    12 MB      -
+steep_sub_node_b       node_b    ✓ yes    8 MB       -
+steep_sub_node_c       node_c    ✗ no     2.3 GB ⚠   47h ⚠
+
+[WARN] steep_sub_node_c inactive for 47 hours
+[WARN] steep_sub_node_c holding 2.3 GB of WAL
+
+Recommended action:
+  steep-repl remove-node node_c   # If node_c is permanently gone
+  steep-repl wake --node=node_c   # If node_c should reconnect
+```
+
+#### Pre-Removal Checklist
+
+```bash
+steep-repl remove-node --preflight node_c
+
+✓ Node node_c not in active topology
+✓ No pending data to sync from node_c
+✓ Other nodes don't depend on node_c for coordinator
+✓ Identity ranges can be reclaimed
+
+[WARN] node_c has 3 unique rows not yet replicated to other nodes
+       These rows will be lost if you proceed.
+
+Proceed anyway? [y/N]:
+```
+
 ---
 
-## 21. Testing Requirements
+## 22. Testing Requirements
 
-### 21.1 Testing Philosophy
+### 22.1 Testing Philosophy
 
 **Core Principles:**
 
