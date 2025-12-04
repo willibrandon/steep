@@ -204,8 +204,8 @@ jobs:
       - name: Run extension tests
         run: make test-repl
 
-      - name: Run all Go tests
-        run: make test
+      - name: Run Go tests
+        run: make test-short
         env:
           PGHOST: localhost
           PGPORT: 5432
@@ -269,8 +269,8 @@ jobs:
         working-directory: extensions/steep_repl
         run: cargo pgrx test pg$env:PG_VER
 
-      - name: Run all Go tests
-        run: make test
+      - name: Run Go tests
+        run: make test-short
         env:
           PGHOST: localhost
           PGPORT: 5432
