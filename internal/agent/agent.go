@@ -182,6 +182,11 @@ func (a *Agent) Start() error {
 		a.logger.Printf("Database: %s", dbPath)
 	}
 
+	// Clear stale instance entries from previous runs before connecting
+	if err := a.instanceStore.DeleteAll(); err != nil {
+		a.logger.Printf("Warning: failed to clear stale instances: %v", err)
+	}
+
 	// Initialize pool manager and connect to PostgreSQL instances
 	a.poolManager = NewPoolManager(a.instanceStore, a.logger)
 
