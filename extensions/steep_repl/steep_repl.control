@@ -4,4 +4,3 @@ module_pathname = 'steep_repl'
 relocatable = false
 superuser = true
 trusted = false
-schema = 'steep_repl'

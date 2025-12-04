@@ -60,17 +60,17 @@
 
 ### Implementation for User Story 1
 
-- [ ] T014 [US1] Create extension entry point in `extensions/steep_repl/src/lib.rs`
-- [ ] T015 [US1] Add PostgreSQL 18 version check in `extensions/steep_repl/src/lib.rs`
-- [ ] T016 [US1] Define steep_repl schema via extension_sql! in `extensions/steep_repl/src/lib.rs`
-- [ ] T017 [US1] Create nodes table via extension_sql! in `extensions/steep_repl/src/lib.rs`
-- [ ] T018 [US1] Create coordinator_state table via extension_sql! in `extensions/steep_repl/src/lib.rs`
-- [ ] T019 [US1] Create audit_log table via extension_sql! in `extensions/steep_repl/src/lib.rs`
-- [ ] T020 [US1] Create indexes on audit_log (occurred_at, actor, action) in `extensions/steep_repl/src/lib.rs`
-- [ ] T021 [US1] Create extension control file in `extensions/steep_repl/steep_repl.control`
-- [ ] T022 [US1] Add pgrx test for schema creation in `extensions/steep_repl/src/lib.rs`
-- [ ] T023 [US1] Add pgrx test for table structure verification in `extensions/steep_repl/src/lib.rs`
-- [ ] T024 [US1] Build and test extension with `cargo pgrx test --pg18`
+- [x] T014 [US1] Create extension entry point in `extensions/steep_repl/src/lib.rs`
+- [x] T015 [US1] Add PostgreSQL 18 version check in `extensions/steep_repl/src/lib.rs`
+- [x] T016 [US1] Define steep_repl schema via extension_sql! in `extensions/steep_repl/src/lib.rs`
+- [x] T017 [US1] Create nodes table via extension_sql! in `extensions/steep_repl/src/lib.rs`
+- [x] T018 [US1] Create coordinator_state table via extension_sql! in `extensions/steep_repl/src/lib.rs`
+- [x] T019 [US1] Create audit_log table via extension_sql! in `extensions/steep_repl/src/lib.rs`
+- [x] T020 [US1] Create indexes on audit_log (occurred_at, actor, action) in `extensions/steep_repl/src/lib.rs`
+- [x] T021 [US1] Create extension control file in `extensions/steep_repl/steep_repl.control`
+- [x] T022 [US1] Add pgrx test for schema creation in `extensions/steep_repl/src/lib.rs`
+- [x] T023 [US1] Add pgrx test for table structure verification in `extensions/steep_repl/src/lib.rs`
+- [x] T024 [US1] Build and test extension with `cargo pgrx test --pg18`
 
 **Checkpoint**: Extension installs on PG18 and creates all tables/indexes
 
