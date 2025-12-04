@@ -27,7 +27,7 @@ set -euo pipefail
 REPLICAS=1
 LOGICAL=false
 CASCADE=false
-PG_VERSION=16
+PG_VERSION=18
 PRIMARY_PORT=15432
 GENERATE_LAG=false
 NETWORK_NAME="steep-repl-test"
@@ -47,6 +47,17 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# Get PostgreSQL data directory path (PG18+ uses versioned path)
+get_pgdata() {
+    local version=$1
+    local major_version="${version%%.*}"  # Extract major version (e.g., "18" from "18.1")
+    if [[ "$major_version" -ge 18 ]]; then
+        echo "/var/lib/postgresql/${major_version}/docker"
+    else
+        echo "/var/lib/postgresql/data"
+    fi
+}
 
 show_help() {
     sed -n '2,/^$/p' "$0" | sed 's/^#//' | sed 's/^ //'
@@ -91,6 +102,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Set data directory path based on PostgreSQL version
+PGDATA=$(get_pgdata "$PG_VERSION")
+
 # Check Docker is available
 if ! command -v docker &> /dev/null; then
     log_error "Docker is not installed or not in PATH"
@@ -105,6 +119,7 @@ fi
 
 log_info "Setting up PostgreSQL replication test environment"
 log_info "  PostgreSQL version: $PG_VERSION"
+log_info "  Data directory: $PGDATA"
 log_info "  Streaming replicas: $REPLICAS"
 log_info "  Logical replication: $LOGICAL"
 log_info "  Cascading: $CASCADE"
@@ -155,12 +170,12 @@ log_success "Primary is ready"
 
 # Configure pg_hba.conf for replication
 log_info "Configuring replication access..."
-docker exec "$PRIMARY_NAME" bash -c "echo '# Replication connections' >> /var/lib/postgresql/data/pg_hba.conf"
-docker exec "$PRIMARY_NAME" bash -c "echo 'host    replication     ${REPL_USER}      0.0.0.0/0       scram-sha-256' >> /var/lib/postgresql/data/pg_hba.conf"
-docker exec "$PRIMARY_NAME" bash -c "echo 'host    all             all             0.0.0.0/0       scram-sha-256' >> /var/lib/postgresql/data/pg_hba.conf"
+docker exec "$PRIMARY_NAME" bash -c "echo '# Replication connections' >> ${PGDATA}/pg_hba.conf"
+docker exec "$PRIMARY_NAME" bash -c "echo 'host    replication     ${REPL_USER}      0.0.0.0/0       scram-sha-256' >> ${PGDATA}/pg_hba.conf"
+docker exec "$PRIMARY_NAME" bash -c "echo 'host    all             all             0.0.0.0/0       scram-sha-256' >> ${PGDATA}/pg_hba.conf"
 
 # Reload configuration (must run as postgres user, not root)
-docker exec -u postgres "$PRIMARY_NAME" pg_ctl reload -D /var/lib/postgresql/data > /dev/null 2>&1
+docker exec -u postgres "$PRIMARY_NAME" pg_ctl reload -D "${PGDATA}" > /dev/null 2>&1
 log_success "Replication access configured"
 
 # Create replication user
@@ -204,25 +219,25 @@ create_replica() {
     # Run pg_basebackup in a temporary container
     docker run --rm \
         --network "$NETWORK_NAME" \
-        -v "steep-replica${replica_num}-data:/var/lib/postgresql/data" \
+        -v "steep-replica${replica_num}-data:${PGDATA}" \
         "postgres:${PG_VERSION}" \
         bash -c "
             PGPASSWORD='$REPL_PASS' pg_basebackup \
                 -h $upstream_host \
                 -U $REPL_USER \
-                -D /var/lib/postgresql/data \
+                -D ${PGDATA} \
                 -Fp -Xs -P -R \
                 -S $slot_name \
                 2>/dev/null
 
             # Set primary_conninfo and slot name in postgresql.auto.conf
-            cat >> /var/lib/postgresql/data/postgresql.auto.conf << EOF
+            cat >> ${PGDATA}/postgresql.auto.conf << EOF
 primary_conninfo = 'host=$upstream_host port=5432 user=$REPL_USER password=$REPL_PASS application_name=replica${replica_num}'
 primary_slot_name = '$slot_name'
 EOF
 
             # Ensure proper permissions
-            chmod 700 /var/lib/postgresql/data
+            chmod 700 ${PGDATA}
         " > /dev/null 2>&1
 
     log_info "Starting replica${replica_num}..."
@@ -232,7 +247,7 @@ EOF
         --hostname "pg-replica${replica_num}" \
         --shm-size=256m \
         -e POSTGRES_PASSWORD="$POSTGRES_PASS" \
-        -v "steep-replica${replica_num}-data:/var/lib/postgresql/data" \
+        -v "steep-replica${replica_num}-data:${PGDATA}" \
         -p "${replica_port}:5432" \
         "postgres:${PG_VERSION}" \
         -c hot_standby=on \
