@@ -159,6 +159,7 @@ func startSteepPTY(t *testing.T, binaryPath, configPath, host, port string) (*te
 	cmd := exec.Command(binaryPath, "--config", configPath)
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
+		"CI=", // Override CI=true from GitHub Actions so termenv enables colors
 		fmt.Sprintf("PGHOST=%s", host),
 		fmt.Sprintf("PGPORT=%s", port),
 		"PGDATABASE=testdb",
