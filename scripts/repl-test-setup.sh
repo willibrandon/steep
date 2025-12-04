@@ -9,7 +9,8 @@
 #   --replicas N       Number of streaming replicas (default: 1)
 #   --logical          Also set up logical replication (adds subscriber container)
 #   --cascade          Set up cascading replication (replica1 -> replica2)
-#   --pgversion VER    PostgreSQL version (default: 16)
+#   --bidirectional    Set up bidirectional logical replication (PG18+ only)
+#   --pgversion VER    PostgreSQL version (default: 18)
 #   --primary-port P   Primary port (default: 15432)
 #   --generate-lag     Insert data to create visible lag
 #   --help             Show this help message
@@ -19,6 +20,7 @@
 #   ./scripts/repl-test-setup.sh --replicas 2         # Primary + 2 replicas
 #   ./scripts/repl-test-setup.sh --logical            # Primary + replica + logical subscriber
 #   ./scripts/repl-test-setup.sh --cascade            # Primary -> replica1 -> replica2
+#   ./scripts/repl-test-setup.sh --bidirectional      # Two-node bidirectional replication
 #
 
 set -euo pipefail
@@ -27,6 +29,7 @@ set -euo pipefail
 REPLICAS=1
 LOGICAL=false
 CASCADE=false
+BIDIRECTIONAL=false
 PG_VERSION=18
 PRIMARY_PORT=15432
 GENERATE_LAG=false
@@ -80,6 +83,11 @@ while [[ $# -gt 0 ]]; do
             REPLICAS=2  # Cascade requires at least 2 replicas
             shift
             ;;
+        --bidirectional)
+            BIDIRECTIONAL=true
+            REPLICAS=0  # Bidirectional mode doesn't use streaming replicas
+            shift
+            ;;
         --pgversion)
             PG_VERSION="$2"
             shift 2
@@ -123,8 +131,18 @@ log_info "  Data directory: $PGDATA"
 log_info "  Streaming replicas: $REPLICAS"
 log_info "  Logical replication: $LOGICAL"
 log_info "  Cascading: $CASCADE"
+log_info "  Bidirectional: $BIDIRECTIONAL"
 log_info "  Primary port: $PRIMARY_PORT"
 echo
+
+# Bidirectional replication requires PostgreSQL 18+
+if [[ "$BIDIRECTIONAL" == "true" ]]; then
+    MAJOR_VERSION="${PG_VERSION%%.*}"
+    if [[ "$MAJOR_VERSION" -lt 18 ]]; then
+        log_error "Bidirectional replication requires PostgreSQL 18 or later (got: $PG_VERSION)"
+        exit 1
+    fi
+fi
 
 # Create network
 log_info "Creating Docker network: $NETWORK_NAME"
@@ -273,22 +291,24 @@ EOF
     fi
 }
 
-# Create streaming replicas
-if [[ "$CASCADE" == "true" ]]; then
-    # Cascading: primary -> replica1 -> replica2
-    create_replica 1 "$PRIMARY_NAME" "pg-primary"
+# Create streaming replicas (skip if REPLICAS is 0, e.g., in bidirectional mode)
+if [[ "$REPLICAS" -gt 0 ]]; then
+    if [[ "$CASCADE" == "true" ]]; then
+        # Cascading: primary -> replica1 -> replica2
+        create_replica 1 "$PRIMARY_NAME" "pg-primary"
 
-    # Wait a bit for replica1 to catch up
-    sleep 2
+        # Wait a bit for replica1 to catch up
+        sleep 2
 
-    # Create replica2 from replica1
-    log_info "Setting up cascading replication (replica1 -> replica2)..."
-    create_replica 2 "steep-pg-replica1" "pg-replica1"
-else
-    # Standard: all replicas connect to primary
-    for i in $(seq 1 "$REPLICAS"); do
-        create_replica "$i" "$PRIMARY_NAME" "pg-primary"
-    done
+        # Create replica2 from replica1
+        log_info "Setting up cascading replication (replica1 -> replica2)..."
+        create_replica 2 "steep-pg-replica1" "pg-replica1"
+    else
+        # Standard: all replicas connect to primary
+        for i in $(seq 1 "$REPLICAS"); do
+            create_replica "$i" "$PRIMARY_NAME" "pg-primary"
+        done
+    fi
 fi
 
 # Set up logical replication if requested
@@ -346,6 +366,174 @@ if [[ "$LOGICAL" == "true" ]]; then
 
     log_success "Subscriber ready (port: $SUBSCRIBER_PORT)"
     log_success "Subscription created: test_subscription"
+fi
+
+# Set up bidirectional replication if requested (PostgreSQL 18+)
+if [[ "$BIDIRECTIONAL" == "true" ]]; then
+    log_info "Setting up bidirectional logical replication..."
+
+    # Node names for bidirectional setup
+    NODE1_NAME="$PRIMARY_NAME"  # Already created as primary
+    NODE2_NAME="steep-pg-node2"
+    NODE2_PORT=$((PRIMARY_PORT + 1))
+
+    # Enable track_commit_timestamp on node1 (for origin_differs conflict detection)
+    log_info "Enabling track_commit_timestamp on node1..."
+    docker exec "$NODE1_NAME" psql -U postgres -c "ALTER SYSTEM SET track_commit_timestamp = on;" > /dev/null 2>&1
+    docker exec -u postgres "$NODE1_NAME" pg_ctl reload -D "${PGDATA}" > /dev/null 2>&1
+
+    # Start node2
+    log_info "Starting node2..."
+    docker run -d \
+        --name "$NODE2_NAME" \
+        --network "$NETWORK_NAME" \
+        --hostname pg-node2 \
+        --shm-size=256m \
+        -e POSTGRES_PASSWORD="$POSTGRES_PASS" \
+        -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256 \
+        -e POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256" \
+        -p "${NODE2_PORT}:5432" \
+        "postgres:${PG_VERSION}" \
+        -c wal_level=logical \
+        -c max_wal_senders=100 \
+        -c max_replication_slots=100 \
+        -c max_connections=100 \
+        -c listen_addresses='*' \
+        -c track_commit_timestamp=on \
+        > /dev/null
+
+    # Wait for node2 to be ready
+    log_info "Waiting for node2 to be ready..."
+    for i in {1..30}; do
+        if docker exec "$NODE2_NAME" pg_isready -U postgres -q 2>/dev/null; then
+            break
+        fi
+        sleep 1
+    done
+
+    if ! docker exec "$NODE2_NAME" pg_isready -U postgres -q 2>/dev/null; then
+        log_error "Node2 failed to start"
+        exit 1
+    fi
+    log_success "Node2 is ready (port: $NODE2_PORT)"
+
+    # Configure pg_hba.conf on node2
+    log_info "Configuring replication access on node2..."
+    docker exec "$NODE2_NAME" bash -c "echo 'host    all             all             0.0.0.0/0       scram-sha-256' >> ${PGDATA}/pg_hba.conf"
+    docker exec -u postgres "$NODE2_NAME" pg_ctl reload -D "${PGDATA}" > /dev/null 2>&1
+    log_success "Node2 access configured"
+
+    # Configure stepped sequences on node1 to avoid conflicts
+    # Node1: odd IDs (1, 3, 5, ...), Node2: even IDs (2, 4, 6, ...)
+    log_info "Configuring stepped sequences on node1..."
+    docker exec "$NODE1_NAME" psql -U postgres -d steep_test -c "
+        ALTER SEQUENCE lag_test_id_seq INCREMENT BY 2 RESTART WITH 1;
+    " > /dev/null 2>&1
+    log_success "Node1 sequence: start=1, step=2 (odd IDs)"
+
+    # Create steep_test database and table on node2
+    log_info "Creating test database on node2..."
+    docker exec "$NODE2_NAME" psql -U postgres -c "CREATE DATABASE steep_test;" > /dev/null 2>&1
+    docker exec "$NODE2_NAME" psql -U postgres -d steep_test -c "
+        CREATE TABLE lag_test (
+            id SERIAL PRIMARY KEY,
+            data TEXT,
+            padding TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX idx_lag_test_created ON lag_test(created_at);
+        -- Node2: even IDs (2, 4, 6, ...)
+        ALTER SEQUENCE lag_test_id_seq INCREMENT BY 2 RESTART WITH 2;
+    " > /dev/null 2>&1
+    log_success "Node2 test database created (sequence: start=2, step=2, even IDs)"
+
+    # Create publications on both nodes (FOR ALL TABLES)
+    log_info "Creating publications..."
+    docker exec "$NODE1_NAME" psql -U postgres -d steep_test -c "
+        CREATE PUBLICATION bidir_pub FOR ALL TABLES;
+    " > /dev/null 2>&1
+    log_success "Publication created on node1: bidir_pub"
+
+    docker exec "$NODE2_NAME" psql -U postgres -d steep_test -c "
+        CREATE PUBLICATION bidir_pub FOR ALL TABLES;
+    " > /dev/null 2>&1
+    log_success "Publication created on node2: bidir_pub"
+
+    # Create subscriptions with origin = 'none' to prevent loops
+    # Node1 subscribes to node2
+    log_info "Creating subscriptions with origin=none..."
+    docker exec "$NODE1_NAME" psql -U postgres -d steep_test -c "
+        CREATE SUBSCRIPTION sub_from_node2
+        CONNECTION 'host=pg-node2 port=5432 dbname=steep_test user=postgres password=$POSTGRES_PASS'
+        PUBLICATION bidir_pub
+        WITH (origin = 'none', copy_data = false);
+    " > /dev/null 2>&1
+    log_success "Subscription created on node1: sub_from_node2"
+
+    # Node2 subscribes to node1
+    docker exec "$NODE2_NAME" psql -U postgres -d steep_test -c "
+        CREATE SUBSCRIPTION sub_from_node1
+        CONNECTION 'host=pg-primary port=5432 dbname=steep_test user=postgres password=$POSTGRES_PASS'
+        PUBLICATION bidir_pub
+        WITH (origin = 'none', copy_data = false);
+    " > /dev/null 2>&1
+    log_success "Subscription created on node2: sub_from_node1"
+
+    # Wait for subscriptions to sync
+    sleep 2
+
+    # Verify bidirectional replication
+    echo
+    log_info "Verifying bidirectional replication..."
+
+    log_info "Publications on node1:"
+    docker exec "$NODE1_NAME" psql -U postgres -d steep_test -c "
+        SELECT pubname, puballtables FROM pg_publication;
+    " 2>/dev/null
+
+    log_info "Publications on node2:"
+    docker exec "$NODE2_NAME" psql -U postgres -d steep_test -c "
+        SELECT pubname, puballtables FROM pg_publication;
+    " 2>/dev/null
+
+    log_info "Subscriptions on node1:"
+    docker exec "$NODE1_NAME" psql -U postgres -d steep_test -c "
+        SELECT subname, subenabled, suborigin FROM pg_subscription;
+    " 2>/dev/null
+
+    log_info "Subscriptions on node2:"
+    docker exec "$NODE2_NAME" psql -U postgres -d steep_test -c "
+        SELECT subname, subenabled, suborigin FROM pg_subscription;
+    " 2>/dev/null
+
+    # Test bidirectional replication
+    log_info "Testing bidirectional replication..."
+
+    # Insert on both nodes simultaneously - stepped sequences prevent conflicts
+    # Node1 gets id=1 (odd), Node2 gets id=2 (even)
+    docker exec "$NODE1_NAME" psql -U postgres -d steep_test -c "
+        INSERT INTO lag_test (data) VALUES ('from_node1_test');
+    " > /dev/null 2>&1
+
+    docker exec "$NODE2_NAME" psql -U postgres -d steep_test -c "
+        INSERT INTO lag_test (data) VALUES ('from_node2_test');
+    " > /dev/null 2>&1
+
+    # Wait for cross-replication
+    sleep 3
+
+    # Verify data replicated to both nodes
+    log_info "Verifying data on node1:"
+    docker exec "$NODE1_NAME" psql -U postgres -d steep_test -c "
+        SELECT id, data FROM lag_test ORDER BY id;
+    " 2>/dev/null
+
+    log_info "Verifying data on node2:"
+    docker exec "$NODE2_NAME" psql -U postgres -d steep_test -c "
+        SELECT id, data FROM lag_test ORDER BY id;
+    " 2>/dev/null
+
+    log_success "Bidirectional replication is active!"
 fi
 
 # Generate some lag if requested
@@ -416,12 +604,17 @@ log_success "Replication test environment is ready!"
 echo "=========================================="
 echo
 echo "PostgreSQL connection details:"
-echo "  Primary:    localhost:${PRIMARY_PORT} (user: postgres, password: ${POSTGRES_PASS})"
-for i in $(seq 1 "$REPLICAS"); do
-    echo "  Replica${i}:   localhost:$((PRIMARY_PORT + i)) (user: postgres, password: ${POSTGRES_PASS})"
-done
-if [[ "$LOGICAL" == "true" ]]; then
-    echo "  Subscriber: localhost:$((PRIMARY_PORT + REPLICAS + 1)) (database: steep_test)"
+if [[ "$BIDIRECTIONAL" == "true" ]]; then
+    echo "  Node1:      localhost:${PRIMARY_PORT} (user: postgres, password: ${POSTGRES_PASS})"
+    echo "  Node2:      localhost:$((PRIMARY_PORT + 1)) (user: postgres, password: ${POSTGRES_PASS})"
+else
+    echo "  Primary:    localhost:${PRIMARY_PORT} (user: postgres, password: ${POSTGRES_PASS})"
+    for i in $(seq 1 "$REPLICAS"); do
+        echo "  Replica${i}:   localhost:$((PRIMARY_PORT + i)) (user: postgres, password: ${POSTGRES_PASS})"
+    done
+    if [[ "$LOGICAL" == "true" ]]; then
+        echo "  Subscriber: localhost:$((PRIMARY_PORT + REPLICAS + 1)) (database: steep_test)"
+    fi
 fi
 echo
 echo "Quick start with Steep (use environment variables):"
@@ -434,10 +627,26 @@ echo "  ./bin/steep"
 echo
 echo "Or edit config.yaml to set port: ${PRIMARY_PORT}"
 echo
-echo "To generate lag:"
-echo "  docker exec $PRIMARY_NAME psql -U postgres -d steep_test -c \\"
-echo "    \"INSERT INTO lag_test (data) SELECT md5(random()::text) FROM generate_series(1, 100000);\""
-echo
+if [[ "$BIDIRECTIONAL" == "true" ]]; then
+    echo "Bidirectional replication test commands:"
+    echo "  # Insert on node1 (will replicate to node2):"
+    echo "  docker exec $PRIMARY_NAME psql -U postgres -d steep_test -c \\"
+    echo "    \"INSERT INTO lag_test (data) VALUES ('from_node1');\""
+    echo
+    echo "  # Insert on node2 (will replicate to node1):"
+    echo "  docker exec steep-pg-node2 psql -U postgres -d steep_test -c \\"
+    echo "    \"INSERT INTO lag_test (data) VALUES ('from_node2');\""
+    echo
+    echo "  # Check conflict statistics (PG18+):"
+    echo "  docker exec $PRIMARY_NAME psql -U postgres -d steep_test -c \\"
+    echo "    \"SELECT * FROM pg_stat_subscription_stats;\""
+    echo
+else
+    echo "To generate lag:"
+    echo "  docker exec $PRIMARY_NAME psql -U postgres -d steep_test -c \\"
+    echo "    \"INSERT INTO lag_test (data) SELECT md5(random()::text) FROM generate_series(1, 100000);\""
+    echo
+fi
 echo "To tear down:"
 echo "  ./scripts/repl-test-teardown.sh"
 echo
