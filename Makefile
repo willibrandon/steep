@@ -1,4 +1,4 @@
-.PHONY: build build-agent build-repl build-repl-daemon build-repl-ext build-all test test-short test-integration test-agent test-repl test-coverage bench clean run run-dev run-agent run-agent-dev install-agent uninstall-agent start-agent stop-agent status-agent run-repl install-repl uninstall-repl start-repl stop-repl status-repl help
+.PHONY: build build-agent build-repl build-repl-daemon build-repl-ext build-all test test-short test-integration test-agent test-repl test-repl-integration test-coverage bench clean run run-dev run-agent run-agent-dev install-agent uninstall-agent start-agent stop-agent status-agent run-repl install-repl uninstall-repl start-repl stop-repl status-repl help
 
 # Force cmd.exe on Windows to avoid shell inconsistencies
 ifeq ($(OS),Windows_NT)
@@ -74,7 +74,10 @@ endif
 
 build-repl: build-repl-daemon build-repl-ext ## Build both replication daemon and extension
 
-build-all: build build-agent build-repl ## Build TUI, agent, daemon, and extension
+build-all: build build-agent build-repl-daemon ## Build TUI, agent, and repl daemon
+ifndef SKIP_REPL_EXT
+build-all: build-repl-ext
+endif
 
 test: ## Run all tests
 	@echo "Running tests..."
@@ -142,6 +145,10 @@ ifeq ($(OS),Windows_NT)
 else
 	cd $(REPL_EXT_DIR) && SDKROOT=$$(xcrun --show-sdk-path 2>/dev/null || echo "") cargo pgrx test pg18
 endif
+
+test-repl-integration: ## Run steep-repl integration tests (requires Docker)
+	@echo "Running steep-repl integration tests..."
+	$(GOTEST) -v -count=1 ./tests/integration/repl/...
 
 install-agent: build-agent ## Install agent as a system service (user mode)
 	@echo "Installing $(AGENT_BINARY_NAME) as user service..."

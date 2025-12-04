@@ -66,7 +66,10 @@ The implementation roadmap is in `docs/GUIDE.md` with 12 planned features organi
 steep/
 ├── cmd/
 │   ├── steep/             # TUI application entry point
-│   └── steep-agent/       # Background agent entry point
+│   ├── steep-agent/       # Background agent entry point
+│   └── steep-repl/        # Replication daemon entry point
+├── extensions/
+│   └── steep_repl/        # PostgreSQL extension (Rust/pgrx)
 ├── internal/
 │   ├── agent/             # Background agent implementation
 │   │   ├── collectors/    # Data collectors (activity, queries, etc.)
@@ -84,6 +87,13 @@ steep/
 │   │   ├── locks.go
 │   │   ├── replication.go
 │   │   └── performance.go
+│   ├── repl/              # Replication daemon
+│   │   ├── config/        # Replication config (YAML)
+│   │   ├── daemon/        # Daemon lifecycle management
+│   │   ├── grpc/          # gRPC server + proto definitions
+│   │   ├── ipc/           # Unix socket IPC (JSON-RPC)
+│   │   ├── pool/          # PostgreSQL connection pool
+│   │   └── store/         # Node store (PostgreSQL-backed)
 │   ├── ui/                # Bubbletea UI components
 │   │   ├── app.go         # Main app model
 │   │   ├── components/    # Reusable components (Table, Chart, StatusBar)
@@ -91,6 +101,7 @@ steep/
 │   │   └── styles/        # Lipgloss styles (centralized)
 │   └── utils/
 ├── pkg/pgstats/           # Public PostgreSQL statistics parsing
+├── tests/integration/repl/ # Replication integration tests
 └── configs/               # Default configurations
 ```
 
@@ -339,9 +350,21 @@ These reference implementations are available for studying UI/UX patterns before
 - SQLite (~/.config/steep/steep.db) for alert history and acknowledgment persistence; YAML (~/.config/steep/config.yaml) for alert rule configuration (012-alert-system)
 - Go 1.25.4 (per existing go.mod) (013-service-architecture)
 - SQLite (~/.config/steep/steep.db) with WAL mode for concurrent access (013-service-architecture)
-- PostgreSQL 18 (steep_repl schema tables) (014-repl-foundation)
+- Go 1.25.4 + grpc-go, protobuf, kardianos/service, pgx/pgxpool (014-repl-foundation)
+- Rust + pgrx 0.16.1 for PostgreSQL extension (014-repl-foundation)
+- PostgreSQL 18 (steep_repl schema tables: nodes, coordinator_state, audit_log) (014-repl-foundation)
+- Docker (ghcr.io/willibrandon/pg18-steep-repl for integration tests) (014-repl-foundation)
 
 ## Recent Changes
+- 014-repl-foundation: steep-repl replication daemon with gRPC and IPC interfaces
+- 014-repl-foundation: steep_repl PostgreSQL extension (Rust/pgrx) with nodes, coordinator_state, audit_log tables
+- 014-repl-foundation: gRPC service (Coordinator) for node registration, health checks, heartbeats
+- 014-repl-foundation: Unix socket IPC with JSON-RPC protocol for local CLI communication
+- 014-repl-foundation: PostgreSQL-backed node store with constraints (priority 1-100, port 1-65535, valid status)
+- 014-repl-foundation: TLS support for gRPC (optional cert/key/CA configuration)
+- 014-repl-foundation: CLI commands: run, install, uninstall, start, stop, status
+- 014-repl-foundation: Integration tests with testcontainers-go and Docker image (ghcr.io/willibrandon/pg18-steep-repl)
+- 014-repl-foundation: Make targets: build-repl, build-repl-daemon, build-repl-ext, test-repl, test-repl-integration
 - 013-service-architecture: steep-agent background daemon for continuous data collection independent of TUI runtime
 - 013-service-architecture: Cross-platform service management via kardianos/service (macOS launchd, Linux systemd, Windows SCM)
 - 013-service-architecture: CLI commands: install, uninstall, start, stop, restart, status, run, logs

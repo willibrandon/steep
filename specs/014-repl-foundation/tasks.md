@@ -202,14 +202,14 @@
 
 **Purpose**: Integration testing, documentation, and final validation
 
-- [ ] T082 [P] Create integration test for extension installation in `tests/integration/repl/extension_test.go`
-- [ ] T083 [P] Create integration test for daemon lifecycle in `tests/integration/repl/daemon_test.go`
-- [ ] T084 [P] Create integration test for IPC communication in `tests/integration/repl/ipc_test.go`
-- [ ] T085 [P] Create integration test for gRPC communication in `tests/integration/repl/grpc_test.go`
-- [ ] T086 Validate quickstart.md steps work end-to-end
-- [ ] T087 Add steep-repl to make targets in Makefile
-- [ ] T088 Update CLAUDE.md with 014-repl-foundation recent changes
-- [ ] T089 Run cross-platform build verification (Windows, Linux, macOS)
+- [x] T082 [P] Create integration test for extension installation in `tests/integration/repl/extension_test.go`
+- [x] T083 [P] Create integration test for daemon lifecycle in `tests/integration/repl/daemon_test.go`
+- [x] T084 [P] Create integration test for IPC communication in `tests/integration/repl/ipc_test.go`
+- [x] T085 [P] Create integration test for gRPC communication in `tests/integration/repl/grpc_test.go`
+- [x] T086 Validate quickstart.md steps work end-to-end
+- [x] T087 Add steep-repl to make targets in Makefile
+- [x] T088 Update CLAUDE.md with 014-repl-foundation recent changes
+- [x] T089 Run cross-platform build verification (Windows, Linux, macOS)
 
 ---
 
