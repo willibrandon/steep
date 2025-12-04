@@ -1,0 +1,83 @@
+# YAML Configuration Schema for steep-repl (Bidirectional Replication Daemon)
+# Location: ~/.config/steep/repl.yaml or path specified by --config flag
+#
+# steep-repl is a daemon that coordinates bidirectional PostgreSQL replication
+# using the steep_repl extension. It requires PostgreSQL 18.0 or higher.
+
+# Replication daemon configuration
+repl:
+  # Enable the replication daemon (default: true)
+  enabled: true
+
+  # Unique identifier for this node in the replication cluster
+  # Must be unique across all nodes. Used for conflict detection.
+  # Example: "node-east-1", "dc1-primary", "prod-node-001"
+  node_id: "node-1"
+
+  # Human-readable name for this node (for display in monitoring)
+  node_name: "Primary Node"
+
+  # PostgreSQL connection settings
+  # Connects to the local PostgreSQL instance where steep_repl extension is installed
+  postgresql:
+    # PostgreSQL host (default: localhost)
+    # Can be overridden by PGHOST environment variable
+    host: localhost
+
+    # PostgreSQL port (default: 5432)
+    # Can be overridden by PGPORT environment variable
+    port: 5432
+
+    # Database name where steep_repl extension is installed (default: postgres)
+    # Can be overridden by PGDATABASE environment variable
+    database: postgres
+
+    # Database user (must have permissions for steep_repl schema)
+    # Can be overridden by PGUSER environment variable
+    user: postgres
+
+    # SSL mode: disable, prefer, require (default: prefer)
+    # Can be overridden by PGSSLMODE environment variable
+    sslmode: prefer
+
+    # Command to retrieve password from external password manager
+    # Examples:
+    #   - "pass show postgres/repl"  (Unix pass)
+    #   - "security find-generic-password -s postgres-repl -w"  (macOS Keychain)
+    #   - "1password get item PostgreSQL-Repl --field password"  (1Password CLI)
+    # If not set, falls back to PGPASSWORD env var or trust authentication
+    # password_command: "pass show postgres/repl"
+
+  # gRPC server settings (for inter-node communication)
+  grpc:
+    # Port for gRPC server (required)
+    # Other nodes connect to this port for replication coordination
+    port: 5433
+
+    # TLS settings for secure inter-node communication (optional)
+    # tls:
+    #   enabled: true
+    #   cert_file: /path/to/server.crt
+    #   key_file: /path/to/server.key
+    #   ca_file: /path/to/ca.crt
+
+  # HTTP health endpoint (optional)
+  http:
+    # Enable HTTP health endpoint (default: false)
+    enabled: false
+
+    # Port for HTTP health server
+    port: 8080
+
+  # IPC socket for TUI communication (optional)
+  ipc:
+    # Enable Unix domain socket for local communication (default: false)
+    enabled: false
+
+    # Socket path (default: /tmp/steep-repl.sock on Unix, named pipe on Windows)
+    # socket_path: /tmp/steep-repl.sock
+
+# Debug mode (default: false)
+# Can be overridden by --debug flag
+# When enabled, logs at Debug level with additional tracing
+debug: false

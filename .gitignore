@@ -46,3 +46,6 @@ Thumbs.db
 
 # Database backups
 /backups/
+
+# Configuration files
+repl.config.yaml
