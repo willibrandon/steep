@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/willibrandon/steep/internal/repl/config"
+	"github.com/willibrandon/steep/internal/repl/db"
 )
 
 // Version is set by ldflags during build.
@@ -42,8 +43,11 @@ type Daemon struct {
 	logger *log.Logger
 	debug  bool
 
+	// PostgreSQL connection
+	pool        *db.Pool
+	auditWriter *db.AuditWriter
+
 	// Component references (will be added in later phases)
-	// pool      *db.Pool          // T040-T050: PostgreSQL connection
 	// ipcServer *ipc.Server       // T051-T063: IPC server
 	// grpcServer *grpc.Server     // T064-T074: gRPC server
 	// httpServer *health.Server   // T075-T081: HTTP health server
@@ -79,7 +83,24 @@ func (d *Daemon) Start() error {
 	d.logger.Printf("Node ID: %s", d.config.NodeID)
 	d.logger.Printf("Node Name: %s", d.config.NodeName)
 
-	// TODO (T040-T050): Initialize PostgreSQL connection pool
+	// Initialize PostgreSQL connection pool
+	d.logger.Printf("Connecting to PostgreSQL at %s:%d...", d.config.PostgreSQL.Host, d.config.PostgreSQL.Port)
+	pool, err := db.NewPool(d.ctx, d.config)
+	if err != nil {
+		return fmt.Errorf("failed to connect to PostgreSQL: %w", err)
+	}
+	d.pool = pool
+	d.logger.Printf("Connected to PostgreSQL %s", pool.VersionString())
+
+	// Initialize audit writer
+	d.auditWriter = db.NewAuditWriter(pool)
+
+	// Log daemon.started event
+	if err := d.auditWriter.LogDaemonStarted(d.ctx, d.config.NodeID, d.config.NodeName, Version); err != nil {
+		d.logger.Printf("Warning: failed to log daemon.started event: %v", err)
+		// Non-fatal - continue startup
+	}
+
 	// TODO (T051-T063): Start IPC server
 	// TODO (T064-T074): Start gRPC server
 	// TODO (T075-T081): Start HTTP health server
@@ -94,6 +115,15 @@ func (d *Daemon) Start() error {
 func (d *Daemon) Stop() error {
 	d.setState(StateStopping)
 	d.logger.Println("Stopping steep-repl daemon...")
+
+	// Log daemon.stopped event before closing pool
+	if d.auditWriter != nil && d.pool != nil && d.pool.IsConnected() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := d.auditWriter.LogDaemonStopped(ctx, d.config.NodeID, d.Uptime()); err != nil {
+			d.logger.Printf("Warning: failed to log daemon.stopped event: %v", err)
+		}
+		cancel()
+	}
 
 	// Signal all goroutines to stop
 	d.cancel()
@@ -112,7 +142,12 @@ func (d *Daemon) Stop() error {
 		d.logger.Println("Shutdown timeout - forcing stop")
 	}
 
-	// TODO (T040-T050): Close PostgreSQL connection pool
+	// Close PostgreSQL connection pool
+	if d.pool != nil {
+		d.pool.Close()
+		d.pool = nil
+	}
+
 	// TODO (T051-T063): Stop IPC server
 	// TODO (T064-T074): Stop gRPC server
 	// TODO (T075-T081): Stop HTTP health server
@@ -157,19 +192,44 @@ func (d *Daemon) Uptime() time.Duration {
 
 // Status returns a summary of the daemon's current status.
 func (d *Daemon) Status() *Status {
-	return &Status{
+	status := &Status{
 		State:     d.State(),
 		NodeID:    d.config.NodeID,
 		NodeName:  d.config.NodeName,
 		Uptime:    d.Uptime(),
 		StartTime: d.startTime,
 		Version:   Version,
-		// Component status will be added in later phases
-		PostgreSQL: ComponentStatus{Status: "not_initialized"},
+		// Component status
+		PostgreSQL: d.getPostgreSQLStatus(),
 		GRPC:       ComponentStatus{Status: "not_initialized"},
 		IPC:        ComponentStatus{Status: "not_initialized"},
 		HTTP:       ComponentStatus{Status: "not_initialized"},
 	}
+	return status
+}
+
+// getPostgreSQLStatus returns the current PostgreSQL connection status.
+func (d *Daemon) getPostgreSQLStatus() ComponentStatus {
+	if d.pool == nil {
+		return ComponentStatus{Status: "not_initialized"}
+	}
+
+	poolStatus := d.pool.Status()
+	cs := ComponentStatus{
+		Port: poolStatus.Port,
+	}
+
+	if poolStatus.Connected {
+		cs.Status = "connected"
+		cs.Version = poolStatus.Version
+	} else {
+		cs.Status = "disconnected"
+		if poolStatus.Error != "" {
+			cs.Error = poolStatus.Error
+		}
+	}
+
+	return cs
 }
 
 // Status holds the daemon's current status information.

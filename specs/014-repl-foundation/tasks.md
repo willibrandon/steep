@@ -112,17 +112,17 @@
 
 ### Implementation for User Story 3
 
-- [ ] T040 [US3] Create pgx connection pool wrapper in `internal/repl/db/pool.go`
-- [ ] T041 [US3] Implement connection string builder from config in `internal/repl/db/pool.go`
-- [ ] T042 [US3] Add environment variable support (PGHOST, etc.) in `internal/repl/db/pool.go`
-- [ ] T043 [US3] Implement password_command execution in `internal/repl/db/pool.go`
-- [ ] T044 [US3] Add PostgreSQL 18 version validation on connect in `internal/repl/db/pool.go`
-- [ ] T045 [US3] Implement exponential backoff retry logic in `internal/repl/db/pool.go`
-- [ ] T046 [US3] Add connection health check method in `internal/repl/db/pool.go`
-- [ ] T047 [US3] Integrate pool with daemon Start() in `internal/repl/daemon/daemon.go`
-- [ ] T048 [US3] Add PostgreSQL status to status command output in `cmd/steep-repl/main.go`
-- [ ] T049 [US3] Implement audit log writer in `internal/repl/db/audit.go`
-- [ ] T050 [US3] Log daemon.started event on startup in `internal/repl/daemon/daemon.go`
+- [x] T040 [US3] Create pgx connection pool wrapper in `internal/repl/db/pool.go`
+- [x] T041 [US3] Implement connection string builder from config in `internal/repl/db/pool.go`
+- [x] T042 [US3] Add environment variable support (PGHOST, etc.) in `internal/repl/db/pool.go`
+- [x] T043 [US3] Implement password_command execution in `internal/repl/db/pool.go`
+- [x] T044 [US3] Add PostgreSQL 18 version validation on connect in `internal/repl/db/pool.go`
+- [x] T045 [US3] Implement exponential backoff retry logic in `internal/repl/db/pool.go`
+- [x] T046 [US3] Add connection health check method in `internal/repl/db/pool.go`
+- [x] T047 [US3] Integrate pool with daemon Start() in `internal/repl/daemon/daemon.go`
+- [x] T048 [US3] Add PostgreSQL status to status command output in `cmd/steep-repl/main.go`
+- [x] T049 [US3] Implement audit log writer in `internal/repl/db/audit.go`
+- [x] T050 [US3] Log daemon.started event on startup in `internal/repl/daemon/daemon.go`
 
 **Checkpoint**: Daemon connects to PostgreSQL, shows status, logs audit events
 
