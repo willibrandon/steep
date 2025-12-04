@@ -101,6 +101,7 @@ ui:
 	cmd := exec.Command(steepBinary, "--config", configPath)
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
+		"CI=", // Override CI=true from GitHub Actions so termenv enables colors
 		fmt.Sprintf("PGHOST=%s", host),
 		fmt.Sprintf("PGPORT=%s", port.Port()),
 		"PGDATABASE=testdb",
@@ -311,6 +312,9 @@ ui:
 
 			// Find which row is now highlighted
 			highlightedRow := findHighlightedRow()
+			if highlightedRow == -1 {
+				t.Fatalf("No highlighted row found - colors may be disabled (check CI env var)")
+			}
 			highlightedLine := getLine(highlightedRow)
 			highlightedPID := extractPID(highlightedLine)
 
