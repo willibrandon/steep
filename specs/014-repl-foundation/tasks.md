@@ -84,21 +84,21 @@
 
 ### Implementation for User Story 2
 
-- [ ] T025 [US2] Create main.go with Cobra CLI commands in `cmd/steep-repl/main.go`
-- [ ] T026 [US2] Implement service.Program interface in `internal/repl/daemon/service.go`
-- [ ] T027 [US2] Implement Start() method (non-blocking) in `internal/repl/daemon/service.go`
-- [ ] T028 [US2] Implement Stop() method (graceful shutdown) in `internal/repl/daemon/service.go`
-- [ ] T029 [US2] Add platform-specific service options (launchd/systemd/SCM) in `internal/repl/daemon/service.go`
-- [ ] T030 [US2] Implement install command in `cmd/steep-repl/main.go`
-- [ ] T031 [US2] Implement uninstall command in `cmd/steep-repl/main.go`
-- [ ] T032 [US2] Implement start command in `cmd/steep-repl/main.go`
-- [ ] T033 [US2] Implement stop command in `cmd/steep-repl/main.go`
-- [ ] T034 [US2] Implement restart command in `cmd/steep-repl/main.go`
-- [ ] T035 [US2] Implement status command in `cmd/steep-repl/main.go`
-- [ ] T036 [US2] Implement run command (foreground) in `cmd/steep-repl/main.go`
-- [ ] T037 [US2] Add platform system logging integration in `internal/repl/daemon/service.go`
-- [ ] T038 [US2] Implement PID file management in `internal/repl/daemon/pidfile.go`
-- [ ] T039 [P] [US2] Add build target to Makefile: `make build-repl`
+- [x] T025 [US2] Create main.go with Cobra CLI commands in `cmd/steep-repl/main.go`
+- [x] T026 [US2] Implement service.Program interface in `internal/repl/daemon/service.go`
+- [x] T027 [US2] Implement Start() method (non-blocking) in `internal/repl/daemon/service.go`
+- [x] T028 [US2] Implement Stop() method (graceful shutdown) in `internal/repl/daemon/service.go`
+- [x] T029 [US2] Add platform-specific service options (launchd/systemd/SCM) in `internal/repl/daemon/service.go`
+- [x] T030 [US2] Implement install command in `cmd/steep-repl/main.go`
+- [x] T031 [US2] Implement uninstall command in `cmd/steep-repl/main.go`
+- [x] T032 [US2] Implement start command in `cmd/steep-repl/main.go`
+- [x] T033 [US2] Implement stop command in `cmd/steep-repl/main.go`
+- [x] T034 [US2] Implement restart command in `cmd/steep-repl/main.go`
+- [x] T035 [US2] Implement status command in `cmd/steep-repl/main.go`
+- [x] T036 [US2] Implement run command (foreground) in `cmd/steep-repl/main.go`
+- [x] T037 [US2] Add platform system logging integration in `internal/repl/daemon/service.go`
+- [x] T038 [US2] Implement PID file management in `internal/repl/daemon/pidfile.go`
+- [x] T039 [P] [US2] Add build target to Makefile: `make build-repl`
 
 **Checkpoint**: Daemon installs as service and responds to all CLI commands
 
