@@ -41,12 +41,12 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T008 Create Go models matching data-model.md in `internal/repl/models/node.go`
-- [ ] T009 [P] Create Go models for coordinator state in `internal/repl/models/state.go`
-- [ ] T010 [P] Create Go models for audit log in `internal/repl/models/audit.go`
-- [ ] T011 Create configuration struct for repl section in `internal/repl/config/config.go`
-- [ ] T012 Implement config loading with Viper (platform paths) in `internal/repl/config/config.go`
-- [ ] T013 Create daemon orchestrator skeleton in `internal/repl/daemon/daemon.go`
+- [x] T008 Create Go models matching data-model.md in `internal/repl/models/node.go`
+- [x] T009 [P] Create Go models for coordinator state in `internal/repl/models/state.go`
+- [x] T010 [P] Create Go models for audit log in `internal/repl/models/audit.go`
+- [x] T011 Create configuration struct for repl section in `internal/repl/config/config.go`
+- [x] T012 Implement config loading with Viper (platform paths) in `internal/repl/config/config.go`
+- [x] T013 Create daemon orchestrator skeleton in `internal/repl/daemon/daemon.go`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
