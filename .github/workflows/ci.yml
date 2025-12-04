@@ -45,7 +45,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -133,12 +133,6 @@ jobs:
 
       - name: Run all Go tests
         run: make test
-        env:
-          PGHOST: localhost
-          PGPORT: 5432
-          PGUSER: postgres
-          PGPASSWORD: postgres
-          PGDATABASE: testdb
 
   build-and-test-macos:
     name: macOS build & test
