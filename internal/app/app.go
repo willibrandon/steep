@@ -1614,9 +1614,10 @@ func (m *Model) cycleInstance(direction int) {
 	// Update dashboard instance filter for SQLite queries
 	m.dashboard.SetInstanceFilter(m.currentInstance)
 
-	// Update query monitor instance name (for TUI-based collection when not in agent mode)
+	// Update query monitor pool and instance name (for TUI-based collection when not in agent mode)
 	if m.queryMonitor != nil {
 		m.queryMonitor.SetInstanceName(m.currentInstance)
+		m.queryMonitor.SetPool(pool)
 	}
 
 	// Update deadlock monitor instance name (filters retrieval by instance)

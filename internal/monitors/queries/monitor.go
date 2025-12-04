@@ -345,6 +345,20 @@ func (m *Monitor) SetInstanceName(name string) {
 	m.instanceName = name
 }
 
+// SetPool updates the database pool and restarts collection.
+// Call this when switching instances to collect from the new instance.
+func (m *Monitor) SetPool(pool *pgxpool.Pool) {
+	wasRunning := m.status == MonitorStatusRunning
+	if wasRunning {
+		m.Stop()
+	}
+	m.pool = pool
+	m.loggingChecked = false // Re-check logging for new instance
+	if wasRunning {
+		_ = m.Start(context.Background())
+	}
+}
+
 // InstanceName returns the current instance name.
 func (m *Monitor) InstanceName() string {
 	return m.instanceName
