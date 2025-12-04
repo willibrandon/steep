@@ -3659,10 +3659,774 @@ steep-repl range reallocate --table orders
 
 ---
 
+## 21. Testing Requirements
+
+### 21.1 Testing Philosophy
+
+**Core Principles:**
+
+1. **No Mocks, Fakes, or Test Doubles** - All tests run against real implementations
+2. **Real PostgreSQL Instances** - Integration tests use testcontainers with actual PostgreSQL
+3. **Full Topology Testing** - Replication tests set up complete multi-node topologies
+4. **70% Code Coverage Target** - Measured across all packages
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Testing Philosophy                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ❌ PROHIBITED:                                                 │
+│  • Mocks (gomock, mockery, etc.)                               │
+│  • Fakes (in-memory implementations)                           │
+│  • Test doubles (stubs, spies)                                 │
+│  • Interface-based dependency injection for testing            │
+│                                                                 │
+│  ✓ REQUIRED:                                                   │
+│  • Real PostgreSQL via testcontainers                          │
+│  • Real steep_repl extension installed                         │
+│  • Real steep-repl daemon processes                            │
+│  • Real network connections (localhost/Docker network)         │
+│  • Real file system operations                                 │
+│  • Real IPC (named pipes on Windows, Unix sockets on Linux)   │
+│                                                                 │
+│  WHY:                                                          │
+│  • Mocks test assumptions, not behavior                        │
+│  • PostgreSQL behavior cannot be accurately mocked             │
+│  • Replication edge cases only surface with real databases    │
+│  • Confidence in production comes from testing production-like │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 21.2 Test Categories
+
+#### Unit Tests
+
+Unit tests for pure functions and business logic only. No external dependencies.
+
+```go
+// ✓ Good: Pure function, no dependencies
+func TestComputeRangeUtilization(t *testing.T) {
+    pct := ComputeRangeUtilization(8500, 1, 10000)
+    assert.Equal(t, 85.0, pct)
+}
+
+// ✓ Good: Parsing logic
+func TestParseConflictType(t *testing.T) {
+    ct := ParseConflictType("UPDATE_UPDATE")
+    assert.Equal(t, ConflictTypeUpdateUpdate, ct)
+}
+
+// ❌ Bad: Mocking database
+func TestRangeAllocation(t *testing.T) {
+    mockDB := new(MockDB)  // PROHIBITED
+    mockDB.On("Query", ...).Return(...)
+}
+```
+
+**Coverage target**: 80% for pure logic packages (`internal/repl/ranges/calc.go`, etc.)
+
+#### Integration Tests
+
+Integration tests run against real PostgreSQL instances using testcontainers.
+
+```go
+// internal/repl/ranges/integration_test.go
+func TestRangeAllocation_Integration(t *testing.T) {
+    if testing.Short() {
+        t.Skip("skipping integration test")
+    }
+
+    ctx := context.Background()
+
+    // Start real PostgreSQL container
+    pg, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+        ContainerRequest: testcontainers.ContainerRequest{
+            Image:        "postgres:18",
+            ExposedPorts: []string{"5432/tcp"},
+            Env: map[string]string{
+                "POSTGRES_PASSWORD": "test",
+                "POSTGRES_DB":       "steep_test",
+            },
+            WaitingFor: wait.ForLog("database system is ready to accept connections"),
+        },
+        Started: true,
+    })
+    require.NoError(t, err)
+    defer pg.Terminate(ctx)
+
+    // Install real extension
+    connStr := getConnectionString(pg)
+    db, _ := pgx.Connect(ctx, connStr)
+    _, err = db.Exec(ctx, "CREATE EXTENSION steep_repl")
+    require.NoError(t, err)
+
+    // Test real range allocation
+    coordinator := ranges.NewCoordinator(db)
+    allocated, err := coordinator.AllocateRange(ctx, "public", "orders", 10000)
+    require.NoError(t, err)
+    assert.Equal(t, int64(1), allocated.RangeStart)
+    assert.Equal(t, int64(10000), allocated.RangeEnd)
+
+    // Verify constraint was created
+    var constraintExists bool
+    db.QueryRow(ctx, `
+        SELECT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'steep_range_orders'
+        )
+    `).Scan(&constraintExists)
+    assert.True(t, constraintExists)
+}
+```
+
+**Coverage target**: 70% for integration packages
+
+### 21.3 Replication Topology Tests
+
+Full topology tests verify the system works as designed with multiple PostgreSQL nodes.
+
+#### Two-Node Topology Test Setup
+
+```go
+// internal/repl/topology/integration_test.go
+
+type TwoNodeTopology struct {
+    NodeA       testcontainers.Container
+    NodeB       testcontainers.Container
+    DaemonA     *exec.Cmd
+    DaemonB     *exec.Cmd
+    ConnStrA    string
+    ConnStrB    string
+    GRPCAddrA   string
+    GRPCAddrB   string
+    network     testcontainers.Network
+}
+
+func SetupTwoNodeTopology(t *testing.T) *TwoNodeTopology {
+    ctx := context.Background()
+
+    // Create Docker network for node communication
+    network, err := testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
+        NetworkRequest: testcontainers.NetworkRequest{
+            Name:   "steep-test-net",
+            Driver: "bridge",
+        },
+    })
+    require.NoError(t, err)
+
+    // Start Node A (PostgreSQL 18)
+    nodeA, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+        ContainerRequest: testcontainers.ContainerRequest{
+            Image:        "postgres:18",
+            ExposedPorts: []string{"5432/tcp"},
+            Networks:     []string{"steep-test-net"},
+            NetworkAliases: map[string][]string{
+                "steep-test-net": {"node-a"},
+            },
+            Env: map[string]string{
+                "POSTGRES_PASSWORD": "test",
+                "POSTGRES_DB":       "steep_test",
+            },
+            Cmd: []string{
+                "-c", "wal_level=logical",
+                "-c", "max_replication_slots=10",
+                "-c", "max_wal_senders=10",
+            },
+            WaitingFor: wait.ForLog("database system is ready to accept connections"),
+        },
+        Started: true,
+    })
+    require.NoError(t, err)
+
+    // Start Node B (PostgreSQL 18)
+    nodeB, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+        ContainerRequest: testcontainers.ContainerRequest{
+            Image:        "postgres:18",
+            ExposedPorts: []string{"5432/tcp"},
+            Networks:     []string{"steep-test-net"},
+            NetworkAliases: map[string][]string{
+                "steep-test-net": {"node-b"},
+            },
+            Env: map[string]string{
+                "POSTGRES_PASSWORD": "test",
+                "POSTGRES_DB":       "steep_test",
+            },
+            Cmd: []string{
+                "-c", "wal_level=logical",
+                "-c", "max_replication_slots=10",
+                "-c", "max_wal_senders=10",
+            },
+            WaitingFor: wait.ForLog("database system is ready to accept connections"),
+        },
+        Started: true,
+    })
+    require.NoError(t, err)
+
+    topo := &TwoNodeTopology{
+        NodeA:   nodeA,
+        NodeB:   nodeB,
+        network: network,
+    }
+
+    // Install extension on both nodes
+    topo.installExtension(t, nodeA)
+    topo.installExtension(t, nodeB)
+
+    // Create test schema on both nodes
+    topo.createTestSchema(t)
+
+    // Start steep-repl daemons
+    topo.startDaemons(t)
+
+    // Setup bidirectional replication
+    topo.setupReplication(t)
+
+    return topo
+}
+
+func (topo *TwoNodeTopology) Teardown(t *testing.T) {
+    ctx := context.Background()
+
+    // Stop daemons
+    if topo.DaemonA != nil {
+        topo.DaemonA.Process.Kill()
+    }
+    if topo.DaemonB != nil {
+        topo.DaemonB.Process.Kill()
+    }
+
+    // Terminate containers
+    topo.NodeA.Terminate(ctx)
+    topo.NodeB.Terminate(ctx)
+    topo.network.Remove(ctx)
+}
+```
+
+#### Replication Flow Tests
+
+```go
+func TestBidirectionalReplication_InsertFromNodeA(t *testing.T) {
+    if testing.Short() {
+        t.Skip("skipping topology test")
+    }
+
+    topo := SetupTwoNodeTopology(t)
+    defer topo.Teardown(t)
+
+    ctx := context.Background()
+    dbA, _ := pgx.Connect(ctx, topo.ConnStrA)
+    dbB, _ := pgx.Connect(ctx, topo.ConnStrB)
+
+    // Insert on Node A
+    _, err := dbA.Exec(ctx, "INSERT INTO orders (order_id, customer_id, status) VALUES (1, 100, 'new')")
+    require.NoError(t, err)
+
+    // Wait for replication (with timeout)
+    require.Eventually(t, func() bool {
+        var count int
+        dbB.QueryRow(ctx, "SELECT count(*) FROM orders WHERE order_id = 1").Scan(&count)
+        return count == 1
+    }, 10*time.Second, 100*time.Millisecond, "row not replicated to Node B")
+
+    // Verify data matches
+    var status string
+    dbB.QueryRow(ctx, "SELECT status FROM orders WHERE order_id = 1").Scan(&status)
+    assert.Equal(t, "new", status)
+}
+
+func TestBidirectionalReplication_InsertFromNodeB(t *testing.T) {
+    if testing.Short() {
+        t.Skip("skipping topology test")
+    }
+
+    topo := SetupTwoNodeTopology(t)
+    defer topo.Teardown(t)
+
+    ctx := context.Background()
+    dbA, _ := pgx.Connect(ctx, topo.ConnStrA)
+    dbB, _ := pgx.Connect(ctx, topo.ConnStrB)
+
+    // Insert on Node B (different range)
+    _, err := dbB.Exec(ctx, "INSERT INTO orders (order_id, customer_id, status) VALUES (10001, 200, 'pending')")
+    require.NoError(t, err)
+
+    // Wait for replication to Node A
+    require.Eventually(t, func() bool {
+        var count int
+        dbA.QueryRow(ctx, "SELECT count(*) FROM orders WHERE order_id = 10001").Scan(&count)
+        return count == 1
+    }, 10*time.Second, 100*time.Millisecond, "row not replicated to Node A")
+}
+```
+
+#### Conflict Resolution Tests
+
+```go
+func TestConflictDetection_UpdateUpdate(t *testing.T) {
+    if testing.Short() {
+        t.Skip("skipping topology test")
+    }
+
+    topo := SetupTwoNodeTopology(t)
+    defer topo.Teardown(t)
+
+    ctx := context.Background()
+    dbA, _ := pgx.Connect(ctx, topo.ConnStrA)
+    dbB, _ := pgx.Connect(ctx, topo.ConnStrB)
+
+    // Setup: Insert a row and let it replicate
+    _, err := dbA.Exec(ctx, "INSERT INTO orders (order_id, customer_id, status) VALUES (1, 100, 'new')")
+    require.NoError(t, err)
+    waitForReplication(t, dbB, "SELECT count(*) FROM orders WHERE order_id = 1", 1)
+
+    // Pause replication temporarily to create conflict
+    pauseReplication(t, topo)
+
+    // Update on Node A
+    _, err = dbA.Exec(ctx, "UPDATE orders SET status = 'processing' WHERE order_id = 1")
+    require.NoError(t, err)
+
+    // Update same row on Node B (different value)
+    _, err = dbB.Exec(ctx, "UPDATE orders SET status = 'shipped' WHERE order_id = 1")
+    require.NoError(t, err)
+
+    // Resume replication - conflict should be detected
+    resumeReplication(t, topo)
+
+    // Verify conflict was logged
+    require.Eventually(t, func() bool {
+        var count int
+        dbA.QueryRow(ctx, `
+            SELECT count(*) FROM steep_repl.conflict_log
+            WHERE table_name = 'orders'
+              AND conflict_type = 'UPDATE_UPDATE'
+        `).Scan(&count)
+        return count >= 1
+    }, 10*time.Second, 100*time.Millisecond, "conflict not detected")
+
+    // Verify last-write-wins resolution (default)
+    var statusA, statusB string
+    dbA.QueryRow(ctx, "SELECT status FROM orders WHERE order_id = 1").Scan(&statusA)
+    dbB.QueryRow(ctx, "SELECT status FROM orders WHERE order_id = 1").Scan(&statusB)
+    assert.Equal(t, statusA, statusB, "nodes should have same value after resolution")
+}
+
+func TestConflictDetection_InsertInsert(t *testing.T) {
+    // Test INSERT-INSERT conflict when both nodes insert same PK
+    // (This should be prevented by identity ranges, test the constraint)
+}
+
+func TestConflictResolution_ManualStrategy(t *testing.T) {
+    // Test that manual strategy queues conflict for resolution
+}
+
+func TestConflictResolution_NodePriority(t *testing.T) {
+    // Test that higher priority node wins
+}
+```
+
+#### Identity Range Tests
+
+```go
+func TestIdentityRange_Enforcement(t *testing.T) {
+    if testing.Short() {
+        t.Skip("skipping topology test")
+    }
+
+    topo := SetupTwoNodeTopology(t)
+    defer topo.Teardown(t)
+
+    ctx := context.Background()
+    dbA, _ := pgx.Connect(ctx, topo.ConnStrA)
+
+    // Node A has range 1-10000
+    // Try to insert outside range - should fail
+    _, err := dbA.Exec(ctx, "INSERT INTO orders (order_id, customer_id, status) VALUES (10001, 100, 'new')")
+    require.Error(t, err)
+    assert.Contains(t, err.Error(), "violates check constraint")
+}
+
+func TestIdentityRange_AutoExpansion(t *testing.T) {
+    // Test that ranges auto-expand at 80% threshold
+}
+
+func TestIdentityRange_BypassMode(t *testing.T) {
+    if testing.Short() {
+        t.Skip("skipping topology test")
+    }
+
+    topo := SetupTwoNodeTopology(t)
+    defer topo.Teardown(t)
+
+    ctx := context.Background()
+    dbA, _ := pgx.Connect(ctx, topo.ConnStrA)
+
+    // Enable bypass
+    _, err := dbA.Exec(ctx, "SET steep_repl.bypass_range_check = 'on'")
+    require.NoError(t, err)
+
+    // Now insert outside range should work
+    _, err = dbA.Exec(ctx, "INSERT INTO orders (order_id, customer_id, status) VALUES (99999, 100, 'bulk')")
+    require.NoError(t, err)
+
+    // Verify audit log
+    var logCount int
+    dbA.QueryRow(ctx, `
+        SELECT count(*) FROM steep_repl.audit_log
+        WHERE action = 'bypass_enabled'
+    `).Scan(&logCount)
+    assert.GreaterOrEqual(t, logCount, 1)
+}
+```
+
+#### DDL Replication Tests
+
+```go
+func TestDDLReplication_CreateTable(t *testing.T) {
+    if testing.Short() {
+        t.Skip("skipping topology test")
+    }
+
+    topo := SetupTwoNodeTopology(t)
+    defer topo.Teardown(t)
+
+    ctx := context.Background()
+    dbA, _ := pgx.Connect(ctx, topo.ConnStrA)
+    dbB, _ := pgx.Connect(ctx, topo.ConnStrB)
+
+    // Create table on Node A
+    _, err := dbA.Exec(ctx, "CREATE TABLE new_table (id SERIAL PRIMARY KEY, name TEXT)")
+    require.NoError(t, err)
+
+    // Wait for DDL to replicate
+    require.Eventually(t, func() bool {
+        var exists bool
+        dbB.QueryRow(ctx, `
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_name = 'new_table'
+            )
+        `).Scan(&exists)
+        return exists
+    }, 30*time.Second, 500*time.Millisecond, "table not replicated to Node B")
+}
+
+func TestDDLReplication_AlterTableAddColumn(t *testing.T) {
+    // Test ALTER TABLE ADD COLUMN replicates
+}
+
+func TestDDLReplication_DropTableRequiresApproval(t *testing.T) {
+    // Test DROP TABLE enters PENDING state
+}
+```
+
+#### Failover Tests
+
+```go
+func TestFailover_NodeADown(t *testing.T) {
+    if testing.Short() {
+        t.Skip("skipping topology test")
+    }
+
+    topo := SetupTwoNodeTopology(t)
+    defer topo.Teardown(t)
+
+    ctx := context.Background()
+
+    // Kill Node A
+    topo.NodeA.Terminate(ctx)
+
+    // Wait for Node B to detect and self-promote
+    require.Eventually(t, func() bool {
+        dbB, _ := pgx.Connect(ctx, topo.ConnStrB)
+        var isCoordinator bool
+        dbB.QueryRow(ctx, `
+            SELECT is_coordinator FROM steep_repl.nodes
+            WHERE node_name = 'node_b'
+        `).Scan(&isCoordinator)
+        return isCoordinator
+    }, 60*time.Second, 1*time.Second, "Node B did not become coordinator")
+
+    // Verify Node B can still accept writes
+    dbB, _ := pgx.Connect(ctx, topo.ConnStrB)
+    _, err := dbB.Exec(ctx, "INSERT INTO orders (order_id, customer_id, status) VALUES (10001, 100, 'failover')")
+    require.NoError(t, err)
+}
+
+func TestFailback_NodeAReturns(t *testing.T) {
+    // Test failback procedure when Node A returns
+}
+```
+
+### 21.4 Cross-Platform Tests
+
+```go
+// Run on Windows
+func TestIPC_NamedPipes(t *testing.T) {
+    if runtime.GOOS != "windows" {
+        t.Skip("Windows-only test")
+    }
+
+    // Test named pipe communication
+    listener, err := winio.ListenPipe(`\\.\pipe\steep-repl-test`, nil)
+    require.NoError(t, err)
+    defer listener.Close()
+
+    // ... test IPC communication
+}
+
+// Run on Linux/macOS
+func TestIPC_UnixSockets(t *testing.T) {
+    if runtime.GOOS == "windows" {
+        t.Skip("Unix-only test")
+    }
+
+    // Test Unix socket communication
+    sockPath := filepath.Join(os.TempDir(), "steep-repl-test.sock")
+    listener, err := net.Listen("unix", sockPath)
+    require.NoError(t, err)
+    defer listener.Close()
+
+    // ... test IPC communication
+}
+```
+
+### 21.5 Extension Tests (Rust/pgrx)
+
+```rust
+// extensions/steep_repl/src/tests.rs
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn test_range_allocation() {
+        // Test runs in a real PostgreSQL instance via pgrx
+        Spi::run("CREATE TABLE test_orders (id SERIAL PRIMARY KEY)").unwrap();
+
+        let result = Spi::get_one::<i64>(
+            "SELECT range_end FROM steep_repl.allocate_range('public', 'test_orders', 10000)"
+        ).unwrap();
+
+        assert_eq!(result, Some(10000));
+    }
+
+    #[pg_test]
+    fn test_check_constraint_created() {
+        Spi::run("CREATE TABLE test_orders (id SERIAL PRIMARY KEY)").unwrap();
+        Spi::run("SELECT steep_repl.apply_range_constraint('public', 'test_orders', 1, 10000)").unwrap();
+
+        let exists = Spi::get_one::<bool>(
+            "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'steep_range_test_orders')"
+        ).unwrap();
+
+        assert_eq!(exists, Some(true));
+    }
+
+    #[pg_test]
+    fn test_conflict_log_insert() {
+        // Test conflict logging
+    }
+
+    #[pg_test]
+    fn test_ddl_capture() {
+        // Test ProcessUtility hook captures DDL
+    }
+}
+```
+
+### 21.6 Test Configuration
+
+```yaml
+# .github/workflows/test.yml
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - run: go test -short -coverprofile=coverage.out ./...
+      - run: go tool cover -func=coverage.out | grep total | awk '{print $3}'
+
+  integration-tests:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        pg: [16, 17, 18]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Run integration tests
+        run: go test -v -timeout 30m ./internal/repl/...
+        env:
+          POSTGRES_VERSION: ${{ matrix.pg }}
+
+  topology-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Run topology tests
+        run: go test -v -timeout 60m -run 'Topology|Replication|Failover' ./...
+
+  extension-tests:
+    strategy:
+      matrix:
+        pg: [16, 17, 18]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-pgrx
+      - run: cargo pgrx init --pg${{ matrix.pg }} download
+      - run: cargo pgrx test pg${{ matrix.pg }}
+        working-directory: extensions/steep_repl
+
+  coverage-check:
+    needs: [unit-tests, integration-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          if (( $(echo "$COVERAGE < 70" | bc -l) )); then
+            echo "Coverage $COVERAGE% is below 70% threshold"
+            exit 1
+          fi
+```
+
+### 21.7 Test Helpers
+
+```go
+// internal/testutil/topology.go
+package testutil
+
+import (
+    "context"
+    "testing"
+    "time"
+
+    "github.com/jackc/pgx/v5"
+    "github.com/stretchr/testify/require"
+)
+
+// WaitForReplication waits for a query to return expected count
+func WaitForReplication(t *testing.T, db *pgx.Conn, query string, expected int) {
+    t.Helper()
+    ctx := context.Background()
+
+    require.Eventually(t, func() bool {
+        var count int
+        db.QueryRow(ctx, query).Scan(&count)
+        return count == expected
+    }, 30*time.Second, 100*time.Millisecond, "replication timeout")
+}
+
+// WaitForConflict waits for a conflict to be logged
+func WaitForConflict(t *testing.T, db *pgx.Conn, tableName, conflictType string) {
+    t.Helper()
+    ctx := context.Background()
+
+    require.Eventually(t, func() bool {
+        var count int
+        db.QueryRow(ctx, `
+            SELECT count(*) FROM steep_repl.conflict_log
+            WHERE table_name = $1 AND conflict_type = $2
+        `, tableName, conflictType).Scan(&count)
+        return count >= 1
+    }, 30*time.Second, 100*time.Millisecond, "conflict not detected")
+}
+
+// AssertNodesInSync verifies both nodes have identical data
+func AssertNodesInSync(t *testing.T, dbA, dbB *pgx.Conn, table string) {
+    t.Helper()
+    ctx := context.Background()
+
+    var countA, countB int
+    dbA.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&countA)
+    dbB.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&countB)
+
+    require.Equal(t, countA, countB, "row counts differ between nodes")
+
+    // Checksum comparison
+    var hashA, hashB string
+    query := "SELECT md5(string_agg(t::text, '' ORDER BY 1)) FROM " + table + " t"
+    dbA.QueryRow(ctx, query).Scan(&hashA)
+    dbB.QueryRow(ctx, query).Scan(&hashB)
+
+    require.Equal(t, hashA, hashB, "data checksums differ between nodes")
+}
+```
+
+### 21.8 Coverage Requirements by Package
+
+| Package | Coverage Target | Test Type |
+|---------|-----------------|-----------|
+| `internal/repl/ranges` | 75% | Unit + Integration |
+| `internal/repl/conflicts` | 75% | Unit + Integration |
+| `internal/repl/ddl` | 70% | Integration |
+| `internal/repl/topology` | 70% | Topology |
+| `internal/repl/ipc` | 70% | Integration |
+| `internal/repl/grpc` | 70% | Integration |
+| `internal/repl/daemon` | 65% | Integration |
+| `extensions/steep_repl` | 70% | pgrx pg_test |
+| **Overall** | **70%** | All |
+
+### 21.9 Makefile Targets
+
+```makefile
+# Test targets
+.PHONY: test test-short test-integration test-topology test-extension test-coverage
+
+test: test-short test-integration test-topology test-extension
+
+test-short:
+	go test -short -v ./...
+
+test-integration:
+	go test -v -timeout 30m ./internal/repl/...
+
+test-topology:
+	go test -v -timeout 60m -run 'Topology|Replication|Failover' ./...
+
+test-extension:
+	cd extensions/steep_repl && cargo pgrx test pg18
+
+test-coverage:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out | grep total
+	@COVERAGE=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//'); \
+	if [ $$(echo "$$COVERAGE < 70" | bc) -eq 1 ]; then \
+		echo "Coverage $$COVERAGE% is below 70% threshold"; \
+		exit 1; \
+	fi
+
+test-coverage-html:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+```
+
+---
+
 ## Changelog
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.9 | 2025-12-03 | Added Section 21: Testing Requirements (no mocks/fakes/doubles, real PostgreSQL testcontainers, full topology tests, 70% coverage target) |
 | 0.8 | 2025-12-03 | Resolved all open questions in Section 15: coordinator failover (no Raft, state in PG), clock sync (NTP + commit timestamps), large transactions (bulk resolution UI), schema versioning (fingerprints), conflict rollback (revert function) |
 | 0.7 | 2025-12-03 | Added PG15+ requirement and limitations for row/column filtering; removed vendor-specific references for public consumption |
 | 0.6 | 2025-12-03 | Added Sections 17-20: Production Readiness (validation, clock sync, failover, backup, notifications, WAL sizing), Networking (Tailscale integration), Security (credentials, RBAC, audit), Operations Runbook |

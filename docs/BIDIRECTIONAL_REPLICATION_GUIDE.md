@@ -26,6 +26,7 @@ This guide provides the complete sequence of `/speckit.specify` commands to buil
   - [014-h: Monitoring & TUI Integration](#feature-014-h-monitoring--tui-integration)
   - [014-i: Production Hardening](#feature-014-i-production-hardening)
 - [Verification Checklist](#verification-checklist)
+- [Testing Requirements](#testing-requirements)
 
 ---
 
@@ -92,6 +93,7 @@ Every section from `BIDIRECTIONAL_REPLICATION.md` must be covered:
 | 18 | Networking | 014-i |
 | 19 | Security | 014-i |
 | 20 | Operations Runbook | 014-i |
+| **21** | **Testing Requirements** | **All features** |
 
 ---
 
@@ -1549,13 +1551,116 @@ After implementation, verify ALL design document sections are covered:
 | 18 | Networking | 014-i | [ ] |
 | 19 | Security | 014-i | [ ] |
 | 20 | Operations Runbook | 014-i | [ ] |
+| 21 | Testing Requirements | All | [ ] |
+
+---
+
+## Testing Requirements
+
+**Reference**: `docs/BIDIRECTIONAL_REPLICATION.md` Section 21
+
+### Core Principles
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Testing Philosophy                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ❌ PROHIBITED:                                                 │
+│  • Mocks (gomock, mockery, etc.)                               │
+│  • Fakes (in-memory implementations)                           │
+│  • Test doubles (stubs, spies)                                 │
+│  • Interface-based dependency injection for testing            │
+│                                                                 │
+│  ✓ REQUIRED:                                                   │
+│  • Real PostgreSQL via testcontainers                          │
+│  • Real steep_repl extension installed                         │
+│  • Real steep-repl daemon processes                            │
+│  • Real network connections (localhost/Docker network)         │
+│  • Full replication topologies for integration tests           │
+│                                                                 │
+│  TARGET: 70% code coverage                                      │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Test Types by Feature
+
+| Feature | Unit Tests | Integration Tests | Topology Tests |
+|---------|------------|-------------------|----------------|
+| 014-a | Config parsing, path handling | Extension install, daemon start, IPC | - |
+| 014-b | Progress calculation | Snapshot copy, schema fingerprint | Two-node init |
+| 014-c | Range utilization calc | Constraint creation, allocation | Range enforcement |
+| 014-d | Conflict type parsing | Conflict logging, resolution | UPDATE-UPDATE, INSERT-INSERT |
+| 014-e | DDL parsing | ProcessUtility hook, queue | DDL replication |
+| 014-f | Filter parsing | Publication creation | Filtered replication |
+| 014-g | Priority sorting | Node registration, health | Coordinator election, failover |
+| 014-h | Metric calculation | Health endpoint | Dashboard integration |
+| 014-i | Config validation | Tailscale status, RBAC | Failover/failback |
+
+### Per-Feature Testing Criteria
+
+Each feature MUST include:
+
+1. **Integration tests** with real PostgreSQL (testcontainers)
+2. **Topology tests** for replication features (two-node minimum)
+3. **Cross-platform tests** for IPC (named pipes on Windows, Unix sockets on Linux)
+4. **Extension tests** via pgrx `#[pg_test]`
+
+### Test Infrastructure
+
+```go
+// Required test setup for every replication test
+func SetupTwoNodeTopology(t *testing.T) *TwoNodeTopology {
+    // 1. Create Docker network
+    // 2. Start two PostgreSQL 18 containers with wal_level=logical
+    // 3. Install steep_repl extension on both
+    // 4. Create test schema on both
+    // 5. Start steep-repl daemons
+    // 6. Setup bidirectional replication
+    // Returns topology with connection strings and cleanup function
+}
+```
+
+### Coverage Requirements
+
+| Package | Target | Enforcement |
+|---------|--------|-------------|
+| `internal/repl/ranges` | 75% | CI fails below |
+| `internal/repl/conflicts` | 75% | CI fails below |
+| `internal/repl/ddl` | 70% | CI fails below |
+| `internal/repl/topology` | 70% | CI fails below |
+| `extensions/steep_repl` | 70% | cargo pgrx test |
+| **Overall** | **70%** | CI fails below |
+
+### Makefile Targets
+
+```makefile
+test:              # Run all tests
+test-short:        # Unit tests only (no testcontainers)
+test-integration:  # Integration tests with real PostgreSQL
+test-topology:     # Full replication topology tests
+test-extension:    # Rust extension tests via pgrx
+test-coverage:     # Coverage report with 70% threshold check
+```
+
+### Acceptance Criteria for Each Feature
+
+Every feature's acceptance criteria includes:
+
+- [ ] Integration tests pass with real PostgreSQL 16, 17, 18
+- [ ] Topology tests pass with two-node replication
+- [ ] Extension tests pass via `cargo pgrx test`
+- [ ] Coverage meets package-specific threshold
+- [ ] No mocks, fakes, or test doubles in test code
 
 ---
 
 ## References
 
-- **Design Document**: `docs/BIDIRECTIONAL_REPLICATION.md` v0.8
+- **Design Document**: `docs/BIDIRECTIONAL_REPLICATION.md` v0.9
 - **Constitution**: `.specify/memory/constitution.md`
 - **pgrx**: https://github.com/pgcentralfoundation/pgrx
 - **kardianos/service**: https://github.com/kardianos/service
 - **PostgreSQL 18 Logical Replication**: https://www.postgresql.org/docs/18/logical-replication.html
+- **testcontainers-go**: https://github.com/testcontainers/testcontainers-go
