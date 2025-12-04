@@ -186,13 +186,13 @@
 
 ### Implementation for User Story 6
 
-- [ ] T075 [US6] Create HTTP server with configurable port in `internal/repl/health/http.go`
-- [ ] T076 [US6] Implement /health endpoint handler in `internal/repl/health/http.go`
-- [ ] T077 [US6] Implement /ready endpoint handler in `internal/repl/health/http.go`
-- [ ] T078 [US6] Implement /live endpoint handler in `internal/repl/health/http.go`
-- [ ] T079 [US6] Add component health aggregation in `internal/repl/health/http.go`
-- [ ] T080 [US6] Integrate HTTP server with daemon (optional enable) in `internal/repl/daemon/daemon.go`
-- [ ] T081 [US6] Add HTTP status to status command output in `cmd/steep-repl/main.go`
+- [x] T075 [US6] Create HTTP server with configurable port in `internal/repl/health/http.go`
+- [x] T076 [US6] Implement /health endpoint handler in `internal/repl/health/http.go`
+- [x] T077 [US6] Implement /ready endpoint handler in `internal/repl/health/http.go`
+- [x] T078 [US6] Implement /live endpoint handler in `internal/repl/health/http.go`
+- [x] T079 [US6] Add component health aggregation in `internal/repl/health/http.go`
+- [x] T080 [US6] Integrate HTTP server with daemon (optional enable) in `internal/repl/daemon/daemon.go`
+- [x] T081 [US6] Add HTTP status to status command output in `cmd/steep-repl/main.go`
 
 **Checkpoint**: HTTP health endpoint returns JSON with component health
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/kardianos/service"
 	"github.com/willibrandon/steep/internal/repl/config"
+	"github.com/willibrandon/steep/internal/repl/ipc"
 )
 
 // Exit codes for CLI commands
@@ -368,17 +369,64 @@ func GetStatus() (*ServiceStatus, error) {
 		status.State = "unknown"
 	}
 
-	// If running, read status from PID file or IPC
+	// If running, query daemon via IPC for detailed status
 	if svcStatus == service.StatusRunning {
 		pid, err := ReadPIDFile(DefaultPIDFilePath())
 		if err == nil {
 			status.PID = pid
 		}
-		status.Version = Version
-		// TODO: Query daemon via IPC for detailed component status
+
+		// Try to get detailed status via IPC
+		client, err := ipc.NewClient("")
+		if err == nil {
+			defer client.Close()
+			if ipcStatus, err := client.GetStatus(); err == nil {
+				status.NodeID = ipcStatus.NodeID
+				status.NodeName = ipcStatus.NodeName
+				status.Version = ipcStatus.Version
+				status.Uptime = formatUptime(ipcStatus.Uptime)
+
+				// Map IPC status to ServiceStatus components
+				status.PostgreSQL = ComponentStatus{
+					Status:  ipcStatus.PostgreSQL.Status,
+					Port:    ipcStatus.PostgreSQL.Port,
+					Version: ipcStatus.PostgreSQL.Version,
+				}
+				status.GRPC = ComponentStatus{
+					Status: ipcStatus.GRPC.Status,
+					Port:   ipcStatus.GRPC.Port,
+				}
+				status.IPC = ComponentStatus{
+					Status: ipcStatus.IPC.Status,
+				}
+				status.HTTP = ComponentStatus{
+					Status: ipcStatus.HTTP.Status,
+					Port:   ipcStatus.HTTP.Port,
+				}
+			}
+		} else {
+			// IPC not available, just show version
+			status.Version = Version
+		}
 	}
 
 	return status, nil
+}
+
+// formatUptime formats a duration as a human-readable string.
+func formatUptime(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	return fmt.Sprintf("%dd %dh", days, hours)
 }
 
 // PermissionError indicates an operation requires elevated privileges.

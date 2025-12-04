@@ -11,6 +11,7 @@ import (
 	"github.com/willibrandon/steep/internal/repl/config"
 	"github.com/willibrandon/steep/internal/repl/db"
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
+	"github.com/willibrandon/steep/internal/repl/health"
 	"github.com/willibrandon/steep/internal/repl/ipc"
 )
 
@@ -55,8 +56,8 @@ type Daemon struct {
 	// gRPC server for node-to-node communication
 	grpcServer *replgrpc.Server
 
-	// Component references (will be added in later phases)
-	// httpServer *health.Server   // T075-T081: HTTP health server
+	// HTTP health server for load balancer integration
+	httpServer *health.Server
 }
 
 // New creates a new Daemon instance with the given configuration.
@@ -151,7 +152,23 @@ func (d *Daemon) Start() error {
 	}
 	d.grpcServer = grpcServer
 
-	// TODO (T075-T081): Start HTTP health server
+	// Start HTTP health server if enabled
+	if d.config.HTTP.Enabled {
+		httpConfig := health.ServerConfig{
+			Port: d.config.HTTP.Port,
+			Bind: d.config.HTTP.Bind,
+		}
+
+		httpProvider := &daemonHTTPProvider{d: d}
+		httpServer := health.NewServer(httpConfig, httpProvider, d.logger, d.debug)
+
+		if err := httpServer.Start(d.ctx); err != nil {
+			return fmt.Errorf("failed to start HTTP server: %w", err)
+		}
+		d.httpServer = httpServer
+	} else {
+		d.logger.Println("HTTP health server disabled")
+	}
 
 	d.setState(StateRunning)
 	d.logger.Println("steep-repl daemon started successfully")
@@ -212,7 +229,13 @@ func (d *Daemon) Stop() error {
 		d.pool = nil
 	}
 
-	// TODO (T075-T081): Stop HTTP health server
+	// Stop HTTP health server
+	if d.httpServer != nil {
+		if err := d.httpServer.Stop(); err != nil {
+			d.logger.Printf("Warning: failed to stop HTTP server: %v", err)
+		}
+		d.httpServer = nil
+	}
 
 	d.setState(StateStopped)
 	d.logger.Println("steep-repl daemon stopped")
@@ -275,7 +298,7 @@ func (d *Daemon) Status() *Status {
 		PostgreSQL: d.getPostgreSQLStatus(),
 		GRPC:       d.getGRPCStatus(),
 		IPC:        d.getIPCStatus(),
-		HTTP:       ComponentStatus{Status: "not_initialized"},
+		HTTP:       d.getHTTPStatus(),
 	}
 	return status
 }
@@ -300,6 +323,20 @@ func (d *Daemon) getIPCStatus() ComponentStatus {
 		return ComponentStatus{Status: "not_initialized"}
 	}
 	return ComponentStatus{Status: "listening"}
+}
+
+// getHTTPStatus returns the current HTTP health server status.
+func (d *Daemon) getHTTPStatus() ComponentStatus {
+	if !d.config.HTTP.Enabled {
+		return ComponentStatus{Status: "disabled"}
+	}
+	if d.httpServer == nil {
+		return ComponentStatus{Status: "not_initialized"}
+	}
+	return ComponentStatus{
+		Status: "listening",
+		Port:   d.httpServer.Port(),
+	}
 }
 
 // getPostgreSQLStatus returns the current PostgreSQL connection status.
@@ -369,6 +406,8 @@ func (p *daemonIPCProvider) GetStatus() ipc.DaemonStatus {
 	result.GRPC.Status = status.GRPC.Status
 	result.GRPC.Port = status.GRPC.Port
 	result.IPC.Status = status.IPC.Status
+	result.HTTP.Status = status.HTTP.Status
+	result.HTTP.Port = status.HTTP.Port
 	return result
 }
 
@@ -436,4 +475,50 @@ func (p *daemonGRPCProvider) GetPostgreSQLVersion() string {
 		return ""
 	}
 	return pool.VersionString()
+}
+
+// daemonHTTPProvider implements health.HealthProvider to avoid import cycles.
+type daemonHTTPProvider struct {
+	d *Daemon
+}
+
+func (p *daemonHTTPProvider) GetNodeID() string {
+	return p.d.config.NodeID
+}
+
+func (p *daemonHTTPProvider) GetNodeName() string {
+	return p.d.config.NodeName
+}
+
+func (p *daemonHTTPProvider) GetVersion() string {
+	return Version
+}
+
+func (p *daemonHTTPProvider) GetUptime() time.Duration {
+	return p.d.Uptime()
+}
+
+func (p *daemonHTTPProvider) IsPostgreSQLConnected() bool {
+	pool := p.d.Pool()
+	return pool != nil && pool.IsConnected()
+}
+
+func (p *daemonHTTPProvider) GetPostgreSQLStatus() string {
+	pool := p.d.Pool()
+	if pool == nil {
+		return "not initialized"
+	}
+	return pool.VersionString()
+}
+
+func (p *daemonHTTPProvider) IsGRPCRunning() bool {
+	return p.d.grpcServer != nil
+}
+
+func (p *daemonHTTPProvider) GetGRPCPort() int {
+	return p.d.config.GRPC.Port
+}
+
+func (p *daemonHTTPProvider) IsIPCRunning() bool {
+	return p.d.ipcServer != nil
 }

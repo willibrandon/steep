@@ -51,13 +51,19 @@ type StatusResult struct {
 	UptimeSeconds int64          `json:"uptime_seconds"`
 	StartTime     time.Time      `json:"start_time"`
 	Version       string         `json:"version"`
+	NodeID        string         `json:"node_id"`
+	NodeName      string         `json:"node_name"`
+	Uptime        time.Duration  `json:"uptime"`
 	PostgreSQL    PostgreSQLInfo `json:"postgresql"`
 	GRPC          GRPCInfo       `json:"grpc"`
+	IPC           IPCInfo        `json:"ipc"`
+	HTTP          HTTPInfo       `json:"http"`
 	Node          NodeInfo       `json:"node"`
 }
 
 // PostgreSQLInfo holds PostgreSQL connection info.
 type PostgreSQLInfo struct {
+	Status    string `json:"status"`
 	Connected bool   `json:"connected"`
 	Version   string `json:"version,omitempty"`
 	Host      string `json:"host,omitempty"`
@@ -66,9 +72,21 @@ type PostgreSQLInfo struct {
 
 // GRPCInfo holds gRPC server info.
 type GRPCInfo struct {
-	Listening  bool `json:"listening"`
-	Port       int  `json:"port,omitempty"`
-	TLSEnabled bool `json:"tls_enabled"`
+	Status     string `json:"status"`
+	Listening  bool   `json:"listening"`
+	Port       int    `json:"port,omitempty"`
+	TLSEnabled bool   `json:"tls_enabled"`
+}
+
+// IPCInfo holds IPC server info.
+type IPCInfo struct {
+	Status string `json:"status"`
+}
+
+// HTTPInfo holds HTTP health server info.
+type HTTPInfo struct {
+	Status string `json:"status"`
+	Port   int    `json:"port,omitempty"`
 }
 
 // NodeInfo holds local node info.

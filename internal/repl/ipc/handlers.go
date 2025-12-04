@@ -29,6 +29,10 @@ type DaemonStatus struct {
 	IPC struct {
 		Status string
 	}
+	HTTP struct {
+		Status string
+		Port   int
+	}
 }
 
 // DaemonConfig holds relevant daemon config (avoids import cycle).
@@ -84,16 +88,28 @@ func (h *Handlers) StatusGet(ctx context.Context, params json.RawMessage) (any, 
 		UptimeSeconds: int64(status.Uptime.Seconds()),
 		StartTime:     status.StartTime,
 		Version:       status.Version,
+		NodeID:        cfg.NodeID,
+		NodeName:      cfg.NodeName,
+		Uptime:        status.Uptime,
 		PostgreSQL: PostgreSQLInfo{
+			Status:    status.PostgreSQL.Status,
 			Connected: status.PostgreSQL.Status == "connected",
 			Version:   status.PostgreSQL.Version,
 			Host:      cfg.PostgreSQL.Host,
 			Port:      cfg.PostgreSQL.Port,
 		},
 		GRPC: GRPCInfo{
+			Status:     status.GRPC.Status,
 			Listening:  status.GRPC.Status == "listening",
 			Port:       cfg.GRPC.Port,
 			TLSEnabled: false, // TODO: Add TLS support
+		},
+		IPC: IPCInfo{
+			Status: status.IPC.Status,
+		},
+		HTTP: HTTPInfo{
+			Status: status.HTTP.Status,
+			Port:   status.HTTP.Port,
 		},
 		Node: NodeInfo{
 			NodeID:        cfg.NodeID,
