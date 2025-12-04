@@ -201,6 +201,9 @@ jobs:
         working-directory: extensions/steep_repl
         run: cargo build --features pg$PG_VER
 
+      - name: Run extension tests
+        run: make test-repl
+
       - name: Run all Go tests
         run: make test
         env:
@@ -261,6 +264,10 @@ jobs:
       - name: Build PostgreSQL extension
         working-directory: extensions/steep_repl
         run: cargo build --features pg$env:PG_VER
+
+      - name: Run extension tests
+        working-directory: extensions/steep_repl
+        run: cargo pgrx test pg$env:PG_VER
 
       - name: Run all Go tests
         run: make test
