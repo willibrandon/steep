@@ -25,13 +25,13 @@
 
 **Purpose**: Initialize both Rust extension and Go daemon projects
 
-- [ ] T001 Create extensions directory structure: `extensions/steep_repl/`
-- [ ] T002 Initialize Rust/pgrx project with `cargo pgrx init` in `extensions/steep_repl/`
-- [ ] T003 [P] Configure Cargo.toml with pg18-only feature in `extensions/steep_repl/Cargo.toml`
-- [ ] T004 [P] Create Go daemon directory structure: `cmd/steep-repl/`, `internal/repl/`
-- [ ] T005 Add Go dependencies to go.mod: kardianos/service, Microsoft/go-winio, grpc-go
-- [ ] T006 [P] Copy gRPC proto from contracts to `internal/repl/grpc/proto/repl.proto`
-- [ ] T007 Generate gRPC Go code from proto in `internal/repl/grpc/proto/`
+- [x] T001 Create extensions directory structure: `extensions/steep_repl/`
+- [x] T002 Initialize Rust/pgrx project with `cargo pgrx init` in `extensions/steep_repl/`
+- [x] T003 [P] Configure Cargo.toml with pg18-only feature in `extensions/steep_repl/Cargo.toml`
+- [x] T004 [P] Create Go daemon directory structure: `cmd/steep-repl/`, `internal/repl/`
+- [x] T005 Add Go dependencies to go.mod: kardianos/service, Microsoft/go-winio, grpc-go
+- [x] T006 [P] Copy gRPC proto from contracts to `internal/repl/grpc/proto/repl.proto`
+- [x] T007 Generate gRPC Go code from proto in `internal/repl/grpc/proto/`
 
 ---
 

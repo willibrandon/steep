@@ -1,4 +1,4 @@
-.PHONY: build build-agent build-all test test-short test-integration test-agent test-coverage bench clean run run-dev run-agent run-agent-dev install-agent uninstall-agent start-agent stop-agent status-agent help
+.PHONY: build build-agent build-repl build-all test test-short test-integration test-agent test-repl test-coverage bench clean run run-dev run-agent run-agent-dev install-agent uninstall-agent start-agent stop-agent status-agent help
 
 # Force cmd.exe on Windows to avoid shell inconsistencies
 ifeq ($(OS),Windows_NT)
@@ -8,6 +8,10 @@ endif
 # Binary names
 BINARY_NAME=steep
 AGENT_BINARY_NAME=steep-agent
+REPL_BINARY_NAME=steep-repl
+
+# Rust/pgrx extension
+REPL_EXT_DIR=extensions/steep_repl
 
 # Build directory
 BUILD_DIR=bin
@@ -49,7 +53,16 @@ endif
 	$(GOBUILD) -o $(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) cmd/steep-agent/main.go
 	@echo "Build complete: $(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT)"
 
-build-all: build build-agent ## Build both TUI and agent
+build-repl: ## Build the steep_repl PostgreSQL extension
+	@echo "Building steep_repl extension..."
+ifeq ($(OS),Windows_NT)
+	cd $(REPL_EXT_DIR) && cargo build --features pg18
+else
+	cd $(REPL_EXT_DIR) && SDKROOT=$$(xcrun --show-sdk-path 2>/dev/null || echo "") cargo build --features pg18
+endif
+	@echo "Extension built: $(REPL_EXT_DIR)/target/debug/libsteep_repl.dylib"
+
+build-all: build build-agent build-repl ## Build TUI, agent, and extension
 
 test: ## Run all tests
 	@echo "Running tests..."
@@ -109,6 +122,14 @@ run-agent-dev: build-agent ## Run agent with local config.yaml and debug (for Do
 test-agent: build-agent ## Run agent-specific tests
 	@echo "Running agent tests..."
 	$(GOTEST) -v -count=1 ./internal/agent/...
+
+test-repl: ## Run steep_repl extension tests (requires PG18)
+	@echo "Running steep_repl extension tests..."
+ifeq ($(OS),Windows_NT)
+	cd $(REPL_EXT_DIR) && cargo pgrx test pg18
+else
+	cd $(REPL_EXT_DIR) && SDKROOT=$$(xcrun --show-sdk-path 2>/dev/null || echo "") cargo pgrx test pg18
+endif
 
 install-agent: build-agent ## Install agent as a system service (user mode)
 	@echo "Installing $(AGENT_BINARY_NAME) as user service..."

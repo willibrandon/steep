@@ -1,0 +1,36 @@
+[package]
+name = "steep_repl"
+version = "0.1.0"
+edition = "2021"
+description = "PostgreSQL extension for Steep bidirectional replication coordination"
+authors = ["Steep Contributors"]
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "pgrx_embed_steep_repl"
+path = "./src/bin/pgrx_embed.rs"
+
+[features]
+# PostgreSQL 18 is REQUIRED for bidirectional replication features
+# (DDL replication, sequence synchronization, parallel COPY)
+default = ["pg18"]
+pg18 = ["pgrx/pg18", "pgrx-tests/pg18"]
+pg_test = []
+
+[dependencies]
+pgrx = "=0.16.1"
+
+[dev-dependencies]
+pgrx-tests = "=0.16.1"
+
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
