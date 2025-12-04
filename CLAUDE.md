@@ -339,6 +339,7 @@ These reference implementations are available for studying UI/UX patterns before
 - SQLite (~/.config/steep/steep.db) for alert history and acknowledgment persistence; YAML (~/.config/steep/config.yaml) for alert rule configuration (012-alert-system)
 - Go 1.25.4 (per existing go.mod) (013-service-architecture)
 - SQLite (~/.config/steep/steep.db) with WAL mode for concurrent access (013-service-architecture)
+- PostgreSQL 18 (steep_repl schema tables) (014-repl-foundation)
 
 ## Recent Changes
 - 013-service-architecture: steep-agent background daemon for continuous data collection independent of TUI runtime

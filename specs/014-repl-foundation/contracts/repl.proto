@@ -1,0 +1,132 @@
+// steep_repl gRPC Service Definitions
+// Node-to-node communication protocol for bidirectional replication coordination
+
+syntax = "proto3";
+
+package steep.repl.v1;
+
+option go_package = "steep/internal/repl/grpc/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Core Service: Coordinator
+// =============================================================================
+
+// Coordinator service handles cluster coordination between nodes
+service Coordinator {
+  // Health check for node-to-node verification
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+
+  // Node registration and discovery
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+  rpc GetNodes(GetNodesRequest) returns (GetNodesResponse);
+
+  // Heartbeat for node liveness detection
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// =============================================================================
+// Health Check Messages
+// =============================================================================
+
+message HealthCheckRequest {
+  // Optional: specific service to check (empty = overall health)
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
+
+  ServingStatus status = 1;
+
+  // Component health breakdown
+  map<string, ComponentHealth> components = 2;
+
+  // Node metadata
+  string node_id = 3;
+  string node_name = 4;
+  string version = 5;
+  google.protobuf.Timestamp uptime_since = 6;
+}
+
+message ComponentHealth {
+  bool healthy = 1;
+  string status = 2;  // "connected", "disconnected", "error", etc.
+  string message = 3; // Optional detail message
+}
+
+// =============================================================================
+// Node Registration Messages
+// =============================================================================
+
+message RegisterNodeRequest {
+  string node_id = 1;
+  string node_name = 2;
+  string host = 3;
+  int32 port = 4;
+  int32 priority = 5;
+}
+
+message RegisterNodeResponse {
+  bool success = 1;
+  string error = 2;
+
+  // Current cluster state
+  repeated NodeInfo nodes = 3;
+  string coordinator_id = 4;
+}
+
+message GetNodesRequest {
+  // Optional: filter by status
+  repeated string status_filter = 1;
+}
+
+message GetNodesResponse {
+  repeated NodeInfo nodes = 1;
+  string coordinator_id = 2;
+}
+
+message NodeInfo {
+  string node_id = 1;
+  string node_name = 2;
+  string host = 3;
+  int32 port = 4;
+  int32 priority = 5;
+  bool is_coordinator = 6;
+  google.protobuf.Timestamp last_seen = 7;
+  string status = 8;  // "unknown", "healthy", "degraded", "unreachable", "offline"
+}
+
+// =============================================================================
+// Heartbeat Messages
+// =============================================================================
+
+message HeartbeatRequest {
+  string node_id = 1;
+
+  // Optional: include current node status
+  NodeStatus node_status = 2;
+}
+
+message NodeStatus {
+  // PostgreSQL connectivity
+  bool postgresql_connected = 1;
+  string postgresql_version = 2;
+
+  // Resource metrics (optional)
+  int64 memory_used_bytes = 3;
+  float cpu_percent = 4;
+}
+
+message HeartbeatResponse {
+  bool acknowledged = 1;
+
+  // Cluster updates since last heartbeat
+  string coordinator_id = 2;
+  repeated NodeInfo updated_nodes = 3;
+}
