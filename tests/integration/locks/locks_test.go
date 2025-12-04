@@ -55,7 +55,13 @@ func setupPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 
 	connStr := "postgres://test:test@" + host + ":" + port.Port() + "/testdb?sslmode=disable"
 
-	pool, err := pgxpool.New(ctx, connStr)
+	config, err := pgxpool.ParseConfig(connStr)
+	if err != nil {
+		t.Fatalf("Failed to parse connection string: %v", err)
+	}
+	config.MaxConns = 10
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		t.Fatalf("Failed to create connection pool: %v", err)
 	}
