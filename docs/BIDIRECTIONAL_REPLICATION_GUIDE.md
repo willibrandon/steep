@@ -53,8 +53,8 @@ Bidirectional replication is implemented through **9 features** covering all 22 
 ## Prerequisites
 
 1. **Steep core features complete**: Features 001-013 implemented
-2. **PostgreSQL 17 or 18**: Required (18 recommended for native conflict logging)
-3. **PostgreSQL 17+**: Required for row/column filtering (Section 7)
+2. **PostgreSQL 18**: Required (DDL replication, sequence sync, parallel COPY, native conflict logging)
+3. **PostgreSQL 18**: Required for row/column filtering (Section 7)
 4. **Rust/pgrx environment**: For steep_repl extension
    - Rust toolchain (MSVC on Windows)
    - `cargo install cargo-pgrx`
@@ -183,7 +183,7 @@ Every section from `BIDIRECTIONAL_REPLICATION.md` must be covered:
 
 | Priority | Story |
 |----------|-------|
-| P1 | As a DBA, I want to install the steep_repl extension on PostgreSQL 17/18 |
+| P1 | As a DBA, I want to install the steep_repl extension on PostgreSQL 18 |
 | P1 | As a DBA, I want to install steep-repl daemon as a system service (Windows SCM, Linux systemd, macOS launchd) |
 | P1 | As a DBA, I want steep-repl to connect to PostgreSQL via pgx connection pooling |
 | P2 | As a DBA, I want Steep TUI to communicate with steep-repl via IPC (named pipes on Windows, Unix sockets on Linux/macOS) |
@@ -287,7 +287,7 @@ steep/
 
 #### Acceptance Criteria
 
-- [ ] Extension installs on PostgreSQL 17, 18 (Windows, Linux, macOS)
+- [ ] Extension installs on PostgreSQL 18 (Windows, Linux, macOS)
 - [ ] Daemon installs and runs as service on all platforms
 - [ ] `steep-repl status` shows connection to PostgreSQL
 - [ ] `steep-repl health` returns JSON health status
@@ -771,7 +771,7 @@ replication:
 #### Spec-Kit Command
 
 ```bash
-/speckit.specify Implement conflict detection and resolution for Steep bidirectional replication. Integrate with PostgreSQL 17/18 conflict logging (native in 18). Create conflict_log table storing local/remote tuples and timestamps. Implement resolution strategies: last_write_wins (default), first_write_wins, node_priority, keep_local, apply_remote, manual. Build TUI for manual resolution with side-by-side comparison. Support bulk resolution by transaction ID for large transactions. Include revert capability. Require NTP clock sync with startup validation. Implement simple coordinator failover (no Raft) with state in PostgreSQL. Reference: BIDIRECTIONAL_REPLICATION.md sections 10, 17.1, 17.2, 17.3, 17.5.
+/speckit.specify Implement conflict detection and resolution for Steep bidirectional replication. Integrate with PostgreSQL 18 native conflict logging via pg_stat_subscription_stats. Create conflict_log table storing local/remote tuples and timestamps. Implement resolution strategies: last_write_wins (default), first_write_wins, node_priority, keep_local, apply_remote, manual. Build TUI for manual resolution with side-by-side comparison. Support bulk resolution by transaction ID for large transactions. Include revert capability. Require NTP clock sync with startup validation. Implement simple coordinator failover (no Raft) with state in PostgreSQL. Reference: BIDIRECTIONAL_REPLICATION.md sections 10, 17.1, 17.2, 17.3, 17.5.
 ```
 
 ---
@@ -930,7 +930,7 @@ replication:
 | P2 | As a DBA, I want to view active filters in Steep TUI |
 | P3 | As a DBA, I want schema-level exclusions |
 
-**Note**: Row and column filtering require PostgreSQL 17+.
+**Note**: Row and column filtering require PostgreSQL 18.
 
 #### Technical Scope
 
@@ -944,7 +944,7 @@ CREATE PUBLICATION steep_pub FOR ALL TABLES
     WHERE (schemaname NOT IN ('audit', 'temp', 'staging'));
 ```
 
-**Row-Level Filtering** - Section 7.2 (PG17+):
+**Row-Level Filtering** - Section 7.2 (PG18):
 ```sql
 CREATE PUBLICATION steep_pub FOR TABLE orders
     WHERE (region IN ('US', 'EU'));
@@ -961,7 +961,7 @@ CREATE PUBLICATION steep_pub FOR TABLE customers
 | UPDATE changes match | Row effectively deleted if no longer matches |
 | Bidirectional complexity | Can cause INSERT-INSERT conflicts |
 
-**Column Filtering** - Section 7.3 (PG17+):
+**Column Filtering** - Section 7.3 (PG18):
 ```sql
 CREATE PUBLICATION steep_pub FOR TABLE customers (id, name, email, created_at);
 -- Excludes: ssn, credit_card, password_hash
@@ -1019,8 +1019,8 @@ replication:
 #### Acceptance Criteria
 
 - [ ] Table include/exclude via publication
-- [ ] Row filters applied (PG17+)
-- [ ] Column filters applied (PG17+)
+- [ ] Row filters applied (PG18)
+- [ ] Column filters applied (PG18)
 - [ ] Schema-level exclusions
 - [ ] TUI displays active filters
 - [ ] Warnings for filter limitations
@@ -1029,7 +1029,7 @@ replication:
 #### Spec-Kit Command
 
 ```bash
-/speckit.specify Implement filtering for Steep bidirectional replication using PostgreSQL native publication features. Support table-level filtering (include/exclude), row-level filtering with WHERE clauses (PG17+), and column-level filtering (PG17+). Document limitations (replica identity columns required, UPDATE changing filter match, bidirectional conflicts). Create TUI view showing active filters per table. Reference: BIDIRECTIONAL_REPLICATION.md section 7.
+/speckit.specify Implement filtering for Steep bidirectional replication using PostgreSQL 18 native publication features. Support table-level filtering (include/exclude), row-level filtering with WHERE clauses, and column-level filtering. Document limitations (replica identity columns required, UPDATE changing filter match, bidirectional conflicts). Create TUI view showing active filters per table. Reference: BIDIRECTIONAL_REPLICATION.md section 7.
 ```
 
 ---
@@ -1632,7 +1632,7 @@ Each feature MUST include:
 // Required test setup for every replication test
 func SetupTwoNodeTopology(t *testing.T) *TwoNodeTopology {
     // 1. Create Docker network
-    // 2. Start two PostgreSQL 17 or 18 containers with wal_level=logical
+    // 2. Start two PostgreSQL 18 containers with wal_level=logical
     // 3. Install steep_repl extension on both
     // 4. Create test schema on both
     // 5. Start steep-repl daemons
@@ -1667,7 +1667,7 @@ test-coverage:     # Coverage report with 70% threshold check
 
 Every feature's acceptance criteria includes:
 
-- [ ] Integration tests pass with real PostgreSQL 17, 18
+- [ ] Integration tests pass with real PostgreSQL 18
 - [ ] Topology tests pass with two-node replication
 - [ ] Extension tests pass via `cargo pgrx test`
 - [ ] Coverage meets package-specific threshold

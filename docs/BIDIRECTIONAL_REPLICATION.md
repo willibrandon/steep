@@ -133,35 +133,92 @@ Deployment Options:
 
 ### 3.1 Supported Versions
 
-**Supported**: PostgreSQL 17 and 18 only.
+**Required**: PostgreSQL 18 only.
 
-| Feature | PostgreSQL 17 | PostgreSQL 18 |
-|---------|---------------|---------------|
-| Core logical replication | ✓ | ✓ |
-| Row-level filtering | ✓ | ✓ |
-| Column-level filtering | ✓ | ✓ |
-| Parallel apply workers | ✓ | ✓ |
-| Native conflict logging | - | ✓ |
-| `track_commit_timestamp` | ✓ | ✓ |
+PostgreSQL 18 introduces several features critical for bidirectional replication that are not available in earlier versions:
 
-**Recommended**: PostgreSQL 18 for native conflict logging. On PostgreSQL 17, conflicts are detected via the steep_repl extension with slightly higher overhead.
+| Feature | PostgreSQL 18 | Benefit for Bidirectional Replication |
+|---------|---------------|---------------------------------------|
+| **Logical Replication for DDL** | ✓ | Schema changes (CREATE TABLE, ALTER, etc.) replicate automatically |
+| **Sequence Synchronization** | ✓ | Sequences sync via `REFRESH SEQUENCES`, critical for identity ranges |
+| **Parallel COPY FROM** | ✓ | Faster initial snapshots with multi-worker bulk loading |
+| Native conflict logging | ✓ | Built-in conflict detection in `pg_stat_subscription_stats` |
+| Row-level filtering | ✓ | Fine-grained control over what data replicates |
+| Column-level filtering | ✓ | Exclude sensitive columns from replication |
+| Parallel apply workers | ✓ | Higher throughput for apply operations |
+| `track_commit_timestamp` | ✓ | Timestamp-based conflict resolution |
 
-### 3.2 Version Validation
+### 3.2 Key PostgreSQL 18 Features
+
+#### Logical Replication for DDL
+
+Previously, PostgreSQL logical replication could only replicate DML (INSERT/UPDATE/DELETE). PostgreSQL 18 extends this to include DDL statements (CREATE TABLE, ALTER, DROP, etc.), eliminating the need for manual schema synchronization:
+
+```sql
+-- DDL changes now replicate automatically
+ALTER TABLE orders ADD COLUMN priority integer DEFAULT 0;
+-- ^ Automatically replicated to all subscribers
+```
+
+**Impact on steep-repl**:
+- Reduces complexity of DDL coordination layer
+- ProcessUtility hook becomes optional (for conflict detection only)
+- Schema drift is prevented at the PostgreSQL level
+
+#### Sequence Synchronization
+
+PostgreSQL 18 adds native sequence replication with `REFRESH SEQUENCES`:
+
+```sql
+-- Sync sequence values to subscriber
+ALTER SUBSCRIPTION mysub REFRESH SEQUENCES;
+```
+
+**Impact on steep-repl**:
+- Identity range coordination can leverage native sequence sync
+- Post-snapshot sequence sync is automatic
+- Reduces custom sequence handling code
+
+#### Parallel COPY FROM
+
+Initial table synchronization uses COPY FROM, which is now parallelized in PostgreSQL 18:
+
+```
+                     Single-threaded COPY          Parallel COPY (4 workers)
+Data Size: 10GB      ~15 minutes                   ~4 minutes
+Data Size: 100GB     ~2.5 hours                    ~40 minutes
+Data Size: 1TB       ~25 hours                     ~7 hours
+```
+
+**Impact on steep-repl**:
+- Faster initial snapshot generation
+- Shorter maintenance windows for node initialization
+- Better utilization of multi-core systems
+
+### 3.3 Version Validation
 
 steep-repl validates PostgreSQL version on startup:
 
 ```bash
 steep-repl start
 [INFO] PostgreSQL version: 18.0
-[INFO] Native conflict logging: available
+[INFO] DDL replication: available
+[INFO] Sequence synchronization: available
+[INFO] Parallel COPY: available (4 workers)
 [INFO] Version check: PASSED
 ```
 
 ```bash
 steep-repl start
-[ERROR] PostgreSQL version 16.4 is not supported.
-[ERROR] Steep bidirectional replication requires PostgreSQL 17 or 18.
-[ERROR] Please upgrade PostgreSQL before continuing.
+[ERROR] PostgreSQL version 17.2 is not supported.
+[ERROR] Steep bidirectional replication requires PostgreSQL 18.
+[ERROR]
+[ERROR] PostgreSQL 18 features required:
+[ERROR]   • Logical replication for DDL
+[ERROR]   • Sequence synchronization
+[ERROR]   • Parallel COPY FROM
+[ERROR]
+[ERROR] Please upgrade to PostgreSQL 18 before continuing.
 ```
 
 ---
@@ -678,33 +735,134 @@ Before replication can begin, nodes must be synchronized to a common baseline. T
 2. **Manual initialization from backup** - User-provided pg_dump/pg_basebackup
 3. **Reinitialization** - Recovering a diverged or corrupted node
 
-### 5.2 Snapshot Initialization (Automatic)
+### 6.2 Two-Phase Snapshot Initialization
 
-The steep-repl daemon coordinates automatic snapshots using PostgreSQL's built-in mechanisms:
+Steep separates snapshot initialization into two distinct phases for better control over large database initialization:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Snapshot Initialization Flow                  │
+│            Two-Phase Snapshot Initialization                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  1. CREATE SUBSCRIPTION ... WITH (copy_data = true)            │
-│     ┌──────────┐                         ┌──────────┐          │
-│     │ Source   │ ──── Table Data ──────► │  Target  │          │
-│     │ (pub)    │                         │  (sub)   │          │
-│     └──────────┘                         └──────────┘          │
+│  PHASE 1: SNAPSHOT GENERATION (Source Node)                     │
+│  ─────────────────────────────────────────                      │
+│     ┌──────────┐                                                │
+│     │ Source   │ ──► Export to file/storage                    │
+│     │ (pub)    │     (pg_dump, COPY, or basebackup)            │
+│     └──────────┘                                                │
 │                                                                 │
-│  2. Steep enhancements:                                         │
-│     • Progress tracking (% complete, rows/sec, ETA)            │
-│     • Identity range pre-allocation before snapshot            │
-│     • Constraint installation after snapshot complete          │
-│     • Parallel table copy (configurable workers)               │
+│     • Create replication slot to capture WAL from this point   │
+│     • Export schema (DDL) separately from data                  │
+│     • Export data with parallel COPY (PG18 feature)            │
+│     • Record LSN at snapshot time                               │
+│     • Snapshot stored locally, S3, NFS, or transferred         │
 │                                                                 │
-│  3. Post-snapshot:                                              │
-│     • steep_repl schema and metadata tables created            │
-│     • Range constraints applied                                 │
-│     • Replication begins from consistent point                 │
+│  ═══════════════════════════════════════════════════════════   │
+│                                                                 │
+│  PHASE 2: SNAPSHOT APPLICATION (Target Node)                    │
+│  ────────────────────────────────────────────                   │
+│                       ┌──────────┐                              │
+│     Import from ──►   │  Target  │                              │
+│     file/storage      │  (sub)   │                              │
+│                       └──────────┘                              │
+│                                                                 │
+│     • Apply schema first (CREATE EXTENSION, tables, etc.)       │
+│     • Load data with parallel COPY FROM (PG18 feature)         │
+│     • Sync sequences (PG18 REFRESH SEQUENCES)                   │
+│     • Install steep_repl metadata and range constraints        │
+│     • Create subscription starting from captured LSN            │
+│     • Apply queued WAL changes since snapshot                   │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+#### Why Two Phases?
+
+| Benefit | Description |
+|---------|-------------|
+| **Decoupled timing** | Generate snapshot during low-traffic window, apply later |
+| **Portable snapshots** | Export once, apply to multiple target nodes |
+| **Resumable application** | If application fails, retry without regenerating |
+| **Network efficiency** | Compress and transfer snapshot separately |
+| **Parallel COPY** | PG18 parallelizes both generation and application |
+
+#### Phase 1: Snapshot Generation
+
+```bash
+# Generate snapshot with replication slot
+steep-repl snapshot generate \
+    --source node_a \
+    --output /snapshots/2025-12-03/ \
+    --parallel 4 \
+    --compress gzip
+
+# Output structure:
+# /snapshots/2025-12-03/
+# ├── manifest.json           # LSN, tables, checksums
+# ├── schema.sql              # DDL statements
+# ├── data/
+# │   ├── customers.csv.gz    # Table data (parallel COPY)
+# │   ├── orders.csv.gz
+# │   └── ...
+# └── sequences.json          # Sequence values at snapshot time
+```
+
+```
+┌─ Snapshot Generation ─────────────────────────────────────────────┐
+│                                                                   │
+│  Generating snapshot from node_a                                 │
+│  Slot: steep_snapshot_20251203_143022                            │
+│  LSN: 0/1A234B00                                                 │
+│                                                                   │
+│  Phase: Data Export                                              │
+│  Overall: ████████████░░░░░░░░ 62%  (14 of 23 tables)           │
+│                                                                   │
+│  Current: orders (1.2GB) - 4 parallel workers                    │
+│           ██████████████░░░░░░ 71%  168,000 rows/sec             │
+│           ETA: 52s                                               │
+│                                                                   │
+│  Output: /snapshots/2025-12-03/ (3.2GB written)                  │
+│                                                                   │
+│  [C]ancel  [P]ause                                               │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+#### Phase 2: Snapshot Application
+
+```bash
+# Apply snapshot to target node
+steep-repl snapshot apply \
+    --target node_b \
+    --input /snapshots/2025-12-03/ \
+    --parallel 4 \
+    --source node_a  # For subscription creation
+
+# Or apply from remote storage
+steep-repl snapshot apply \
+    --target node_b \
+    --input s3://steep-snapshots/2025-12-03/ \
+    --parallel 8
+```
+
+```
+┌─ Snapshot Application ────────────────────────────────────────────┐
+│                                                                   │
+│  Applying snapshot to node_b                                     │
+│  Source LSN: 0/1A234B00                                          │
+│  Current LSN: 0/1A236F80 (+10KB WAL to apply)                    │
+│                                                                   │
+│  Phase: Data Import (3 of 4)                                     │
+│  ├─ [✓] Schema applied (23 tables, 45 indexes)                   │
+│  ├─ [✓] Extensions installed (steep_repl)                        │
+│  ├─ [▶] Data loading...                                          │
+│  └─ [ ] WAL catch-up                                             │
+│                                                                   │
+│  Current: orders (1.2GB) - 4 parallel workers                    │
+│           ██████████████░░░░░░ 71%  252,000 rows/sec             │
+│           ETA: 35s                                               │
+│                                                                   │
+│  [C]ancel                                                         │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 #### Configuration
@@ -712,13 +870,46 @@ The steep-repl daemon coordinates automatic snapshots using PostgreSQL's built-i
 ```yaml
 replication:
   initialization:
-    method: snapshot              # snapshot | manual
-    parallel_workers: 4           # Parallel table copy
-    snapshot_timeout: 24h         # Max time for snapshot
+    method: two_phase            # two_phase | direct | manual
 
-    # Large table handling
-    large_table_threshold: 10GB   # Tables above this get special handling
-    large_table_method: pg_dump   # pg_dump | copy | basebackup
+    # Phase 1: Generation
+    generation:
+      parallel_workers: 4        # PG18 parallel COPY workers
+      compression: gzip          # none | gzip | lz4 | zstd
+      output_format: directory   # directory | tar | custom
+      checksum: sha256           # Verify data integrity
+
+    # Phase 2: Application
+    application:
+      parallel_workers: 4        # PG18 parallel COPY FROM workers
+      verify_checksums: true     # Validate before applying
+      sequence_sync: auto        # Use PG18 REFRESH SEQUENCES
+
+    # Shared settings
+    snapshot_timeout: 24h        # Max time for either phase
+    large_table_threshold: 10GB  # Tables above this get special handling
+
+    # Storage options
+    storage:
+      type: local               # local | s3 | gcs | azure | nfs
+      path: /var/steep/snapshots
+      # s3:
+      #   bucket: steep-snapshots
+      #   prefix: production/
+```
+
+#### Direct Mode (Single-Phase, Smaller Databases)
+
+For databases under 100GB, a simpler direct mode combines both phases:
+
+```bash
+# Direct initialization (combines both phases)
+steep-repl init node_b --from node_a --method direct
+
+# Equivalent to:
+# steep-repl snapshot generate --source node_a --output /tmp/... && \
+# steep-repl snapshot apply --target node_b --input /tmp/... && \
+# rm -rf /tmp/...
 ```
 
 #### Progress Tracking in Steep UI
@@ -726,17 +917,23 @@ replication:
 ```
 ┌─ Node Initialization ─────────────────────────────────────────────┐
 │                                                                   │
-│  Initializing node_b from node_a                                 │
+│  Initializing node_b from node_a (Two-Phase)                     │
 │                                                                   │
-│  Overall: ████████████░░░░░░░░ 62%  (14 of 23 tables)           │
+│  [✓] Phase 1: Snapshot Generated                                 │
+│      Location: /snapshots/2025-12-03/                            │
+│      Size: 4.2GB (compressed)                                    │
+│      LSN: 0/1A234B00                                             │
 │                                                                   │
-│  Current: orders (1.2GB)                                         │
-│           ██████████████░░░░░░ 71%  42,000 rows/sec              │
-│           ETA: 3m 24s                                            │
+│  [▶] Phase 2: Applying Snapshot                                  │
+│      Overall: ████████████░░░░░░░░ 62%  (14 of 23 tables)       │
+│                                                                   │
+│      Current: orders (1.2GB) - 4 workers                         │
+│               ██████████████░░░░░░ 71%  252,000 rows/sec         │
+│               ETA: 35s                                           │
 │                                                                   │
 │  Completed:                                                       │
-│    ✓ customers (245MB) - 2m 14s                                  │
-│    ✓ products (89MB) - 45s                                       │
+│    ✓ customers (245MB) - 58s                                     │
+│    ✓ products (89MB) - 12s                                       │
 │    ✓ categories (1.2MB) - <1s                                    │
 │                                                                   │
 │  Pending: line_items, inventory, audit_log, ...                  │
@@ -745,7 +942,7 @@ replication:
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.3 Manual Initialization from Backup
+### 6.3 Manual Initialization from Backup
 
 For large databases where snapshot is impractical (multi-TB), users can initialize from their own backups:
 
@@ -800,7 +997,7 @@ steep-repl init complete --node node_b \
 steep-repl init from-replica --node node_b --replica-of node_a
 ```
 
-### 5.4 Reinitialization (Recovery)
+### 6.4 Reinitialization (Recovery)
 
 When a node falls too far behind or becomes corrupted:
 
@@ -846,7 +1043,7 @@ steep-repl reinit --node node_b --full
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.5 Schema Synchronization
+### 6.5 Schema Synchronization
 
 Before data can flow, schemas must match:
 
@@ -877,7 +1074,7 @@ replication:
       # manual: Warn but allow user to fix
 ```
 
-### 5.6 Initialization States
+### 6.6 Initialization States
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -907,7 +1104,7 @@ States:
   REINITIALIZING - Recovery in progress
 ```
 
-### 5.7 Monitoring in Steep UI
+### 6.7 Monitoring in Steep UI
 
 ```
 ┌─ Nodes ───────────────────────────────────────────────────────────┐
@@ -3001,11 +3198,11 @@ The steep_repl PostgreSQL extension requires careful upgrade planning to maintai
 
 #### Version Compatibility
 
-| Extension Version | PostgreSQL 17 | PostgreSQL 18 | steep-repl (Go) |
-|-------------------|---------------|---------------|-----------------|
-| 1.0.x             | ✓             | ✓             | 1.0.x - 1.2.x   |
-| 1.1.x             | ✓             | ✓             | 1.1.x - 1.3.x   |
-| 1.2.x             | -             | ✓             | 1.2.x+          |
+| Extension Version | PostgreSQL 18 | steep-repl (Go) | Key Features |
+|-------------------|---------------|-----------------|--------------|
+| 1.0.x             | ✓             | 1.0.x - 1.2.x   | Core replication, conflict detection |
+| 1.1.x             | ✓             | 1.1.x - 1.3.x   | DDL replication integration |
+| 1.2.x             | ✓             | 1.2.x+          | Sequence sync, parallel COPY |
 
 The extension and Go daemon maintain backward compatibility within minor versions.
 
@@ -3019,9 +3216,9 @@ steep-repl version --all-nodes
 
 Node       Extension    Daemon     PostgreSQL
 ────────────────────────────────────────────
-node_a     1.0.2        1.0.5      17.2
+node_a     1.0.2        1.0.5      18.0
 node_b     1.0.2        1.0.5      18.1
-node_c     1.0.2        1.0.5      17.4
+node_c     1.0.2        1.0.5      18.0
 
 # Step 2: Verify upgrade compatibility
 steep-repl upgrade-check --target-version=1.1.0
