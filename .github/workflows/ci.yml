@@ -128,11 +128,8 @@ jobs:
       - name: Run extension tests
         run: make test-repl
 
-      - name: Run Go unit tests
-        run: make test-short
-
-      - name: Run Go integration tests
-        run: make test-integration
+      - name: Run all Go tests
+        run: make test
         env:
           PGHOST: localhost
           PGPORT: 5432
@@ -149,8 +146,8 @@ jobs:
 
       - name: Install PostgreSQL 18 via Homebrew
         run: |
-          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install postgresql@16
-          echo "$(brew --prefix postgresql@16)/bin" >> $GITHUB_PATH
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install postgresql@18
+          echo "$(brew --prefix postgresql@18)/bin" >> $GITHUB_PATH
 
       - uses: actions/checkout@v4
 
@@ -163,6 +160,12 @@ jobs:
       - name: Set up PostgreSQL permissions
         run: |
           sudo chmod a+rwx `$(which pg_config) --pkglibdir` `$(which pg_config) --sharedir`/extension
+
+      - name: Start PostgreSQL and create test database
+        run: |
+          brew services start postgresql@18
+          sleep 3
+          createdb testdb
 
       - name: Set up Rust
         run: |
@@ -195,14 +198,19 @@ jobs:
         working-directory: extensions/steep_repl
         run: cargo build --features pg$PG_VER
 
-      - name: Run Go unit tests
-        run: make test-short
+      - name: Run all Go tests
+        run: make test
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: runner
+          PGDATABASE: testdb
 
   build-and-test-windows:
     name: Windows build & test
     runs-on: windows-2022
     env:
-      PG_VER: 17
+      PG_VER: 18
 
     steps:
       - uses: actions/checkout@v4
@@ -212,6 +220,16 @@ jobs:
         with:
           go-version: '1.23'
           cache: true
+
+      - name: Install PostgreSQL
+        run: choco install postgresql18 --params '/Password:postgres' -y
+
+      - name: Start PostgreSQL and create test database
+        run: |
+          net start postgresql-x64-18
+          $env:PGPASSWORD = "postgres"
+          & "C:\Program Files\PostgreSQL\18\bin\createdb.exe" -U postgres testdb
+        shell: pwsh
 
       - name: Set up Rust
         run: |
@@ -241,8 +259,14 @@ jobs:
         working-directory: extensions/steep_repl
         run: cargo build --features pg$env:PG_VER
 
-      - name: Run Go unit tests
-        run: go test -short -count=1 -v ./...
+      - name: Run all Go tests
+        run: make test
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: testdb
 
   test-repl-integration:
     name: Repl integration tests (Docker)
