@@ -162,17 +162,17 @@
 
 ### Implementation for User Story 5
 
-- [ ] T064 [US5] Implement mTLS server credentials loader in `internal/repl/grpc/tls.go`
-- [ ] T065 [P] [US5] Implement mTLS client credentials loader in `internal/repl/grpc/tls.go`
-- [ ] T066 [US5] Create gRPC server with mTLS in `internal/repl/grpc/server.go`
-- [ ] T067 [US5] Implement Coordinator.HealthCheck RPC in `internal/repl/grpc/server.go`
-- [ ] T068 [US5] Implement Coordinator.RegisterNode RPC in `internal/repl/grpc/server.go`
-- [ ] T069 [US5] Implement Coordinator.GetNodes RPC in `internal/repl/grpc/server.go`
-- [ ] T070 [US5] Implement Coordinator.Heartbeat RPC in `internal/repl/grpc/server.go`
-- [ ] T071 [US5] Create gRPC client for node communication in `internal/repl/grpc/client.go`
-- [ ] T072 [US5] Implement health --remote CLI command in `cmd/steep-repl/main.go`
-- [ ] T073 [US5] Integrate gRPC server with daemon in `internal/repl/daemon/daemon.go`
-- [ ] T074 [US5] Add failed connection logging in `internal/repl/grpc/server.go`
+- [x] T064 [US5] Implement mTLS server credentials loader in `internal/repl/grpc/tls.go`
+- [x] T065 [P] [US5] Implement mTLS client credentials loader in `internal/repl/grpc/tls.go`
+- [x] T066 [US5] Create gRPC server with mTLS in `internal/repl/grpc/server.go`
+- [x] T067 [US5] Implement Coordinator.HealthCheck RPC in `internal/repl/grpc/server.go`
+- [x] T068 [US5] Implement Coordinator.RegisterNode RPC in `internal/repl/grpc/server.go`
+- [x] T069 [US5] Implement Coordinator.GetNodes RPC in `internal/repl/grpc/server.go`
+- [x] T070 [US5] Implement Coordinator.Heartbeat RPC in `internal/repl/grpc/server.go`
+- [x] T071 [US5] Create gRPC client for node communication in `internal/repl/grpc/client.go`
+- [x] T072 [US5] Implement health --remote CLI command in `cmd/steep-repl/main.go`
+- [x] T073 [US5] Integrate gRPC server with daemon in `internal/repl/daemon/daemon.go`
+- [x] T074 [US5] Add failed connection logging in `internal/repl/grpc/server.go`
 
 **Checkpoint**: Two nodes can communicate via gRPC with mTLS
 

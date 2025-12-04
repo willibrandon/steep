@@ -1,16 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/willibrandon/steep/internal/repl/config"
 	"github.com/willibrandon/steep/internal/repl/daemon"
+	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
+	"github.com/willibrandon/steep/internal/repl/grpc/certs"
 )
 
 var (
@@ -58,6 +63,8 @@ Direct Run (for debugging):
 		newStopCmd(),
 		newRestartCmd(),
 		newStatusCmd(),
+		newHealthCmd(),
+		newInitTLSCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -386,6 +393,164 @@ func printHumanStatus(status *daemon.ServiceStatus) {
 	printComponentStatus("HTTP", status.HTTP)
 }
 
+// newHealthCmd creates the health subcommand for remote node health checks.
+func newHealthCmd() *cobra.Command {
+	var remoteAddr string
+	var timeout time.Duration
+	var certFile, keyFile, caFile string
+	var insecure bool
+
+	cmd := &cobra.Command{
+		Use:   "health",
+		Short: "Check health of a remote node via gRPC",
+		Long: `Check the health status of a remote steep-repl node via gRPC.
+
+This command connects to a remote node and retrieves its health status,
+including component health (PostgreSQL, gRPC, etc.) and uptime information.
+
+Examples:
+  # Without TLS (insecure)
+  steep-repl health --remote localhost:5433 --insecure
+
+  # With TLS (using config file)
+  steep-repl health --remote localhost:5433 --config repl.config.yaml
+
+  # With TLS (explicit certs)
+  steep-repl health --remote localhost:5433 --ca certs/ca.crt`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if remoteAddr == "" {
+				return fmt.Errorf("--remote flag is required")
+			}
+
+			// Load TLS config from config file if specified
+			if configPath != "" && caFile == "" {
+				cfg, err := config.LoadFromPath(configPath)
+				if err == nil && cfg.GRPC.TLS.CAFile != "" {
+					caFile = cfg.GRPC.TLS.CAFile
+					// Use client certs if available, otherwise fall back to server certs
+					if cfg.GRPC.TLS.ClientCertFile != "" {
+						certFile = cfg.GRPC.TLS.ClientCertFile
+						keyFile = cfg.GRPC.TLS.ClientKeyFile
+					} else {
+						certFile = cfg.GRPC.TLS.CertFile
+						keyFile = cfg.GRPC.TLS.KeyFile
+					}
+				}
+			}
+
+			// Require either --insecure or TLS config
+			if !insecure && caFile == "" {
+				return fmt.Errorf("either --insecure or --ca (or --config with TLS) is required")
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			// Create gRPC client
+			clientCfg := replgrpc.ClientConfig{
+				Address: remoteAddr,
+				Timeout: timeout,
+			}
+			if !insecure {
+				clientCfg.CAFile = caFile
+				clientCfg.CertFile = certFile
+				clientCfg.KeyFile = keyFile
+			}
+
+			client, err := replgrpc.NewClient(ctx, clientCfg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error connecting to %s: %v\n", remoteAddr, err)
+				os.Exit(1)
+			}
+			defer client.Close()
+
+			// Get health check result
+			result, err := client.GetHealthCheckResult(ctx)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			if jsonOutput {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				if err := enc.Encode(result); err != nil {
+					fmt.Fprintf(os.Stderr, "Error encoding JSON: %v\n", err)
+					os.Exit(1)
+				}
+			} else {
+				printHealthResult(result)
+			}
+
+			// Exit code based on status
+			if result.Status != "healthy" {
+				os.Exit(1)
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&remoteAddr, "remote", "", "remote node address (host:port)")
+	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Second, "connection timeout")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "output in JSON format")
+	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file")
+	cmd.Flags().StringVar(&certFile, "cert", "", "client certificate file (for mTLS)")
+	cmd.Flags().StringVar(&keyFile, "key", "", "client key file (for mTLS)")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
+	_ = cmd.MarkFlagRequired("remote")
+
+	return cmd
+}
+
+// printHealthResult prints the health check result in human-readable format.
+func printHealthResult(result *replgrpc.HealthCheckResult) {
+	fmt.Printf("Remote node health: %s\n", result.Status)
+	if result.NodeID != "" {
+		fmt.Printf("  Node ID:    %s\n", result.NodeID)
+	}
+	if result.NodeName != "" {
+		fmt.Printf("  Node Name:  %s\n", result.NodeName)
+	}
+	if result.Version != "" {
+		fmt.Printf("  Version:    %s\n", result.Version)
+	}
+	if !result.UptimeSince.IsZero() {
+		uptime := time.Since(result.UptimeSince)
+		fmt.Printf("  Uptime:     %s\n", formatDuration(uptime))
+	}
+
+	if len(result.Components) > 0 {
+		fmt.Println("\nComponents:")
+		for name, comp := range result.Components {
+			status := comp.Status
+			if comp.Message != "" {
+				status = fmt.Sprintf("%s (%s)", status, comp.Message)
+			}
+			healthIcon := "✓"
+			if !comp.Healthy {
+				healthIcon = "✗"
+			}
+			fmt.Printf("  %-12s %s %s\n", name+":", healthIcon, status)
+		}
+	}
+}
+
+// formatDuration formats a duration in human-readable form.
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	return fmt.Sprintf("%dd %dh", days, hours)
+}
+
 // printComponentStatus prints a single component's status.
 func printComponentStatus(name string, cs daemon.ComponentStatus) {
 	status := cs.Status
@@ -405,4 +570,86 @@ func printComponentStatus(name string, cs daemon.ComponentStatus) {
 	}
 
 	fmt.Printf("  %-12s %s%s\n", name+":", status, detail)
+}
+
+// newInitTLSCmd creates the init-tls subcommand for generating mTLS certificates.
+func newInitTLSCmd() *cobra.Command {
+	var (
+		outputDir string
+		nodeName  string
+		hosts     []string
+		validDays int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "init-tls",
+		Short: "Generate mTLS certificates for secure node communication",
+		Long: `Generate a CA and server/client certificates for mTLS.
+
+This creates all certificates needed for secure gRPC communication:
+  - ca.crt, ca.key       CA certificate and key
+  - server.crt, server.key   Server certificate for this node
+  - client.crt, client.key   Client certificate for connecting to other nodes
+
+Example:
+  steep-repl init-tls
+  steep-repl init-tls --hosts localhost,192.168.1.10,node1.example.com
+  steep-repl init-tls --output ~/.config/steep/certs --days 365`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Default output directory
+			if outputDir == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return fmt.Errorf("get home dir: %w", err)
+				}
+				outputDir = filepath.Join(home, ".config", "steep", "certs")
+			}
+
+			// Default hosts
+			if len(hosts) == 0 {
+				hosts = []string{"localhost", "127.0.0.1"}
+				// Try to add hostname
+				if h, err := os.Hostname(); err == nil {
+					hosts = append(hosts, h)
+				}
+			}
+
+			cfg := certs.Config{
+				OutputDir: outputDir,
+				NodeName:  nodeName,
+				Hosts:     hosts,
+				ValidDays: validDays,
+			}
+
+			fmt.Printf("Generating mTLS certificates in %s...\n", outputDir)
+			result, err := certs.Generate(cfg)
+			if err != nil {
+				return err
+			}
+
+			fmt.Println("\nGenerated files:")
+			fmt.Printf("  CA:     %s, %s\n", result.CACert, result.CAKey)
+			fmt.Printf("  Server: %s, %s\n", result.ServerCert, result.ServerKey)
+			fmt.Printf("  Client: %s, %s\n", result.ClientCert, result.ClientKey)
+
+			fmt.Println("\nAdd this to your config.yaml:")
+			fmt.Println("─────────────────────────────────")
+			fmt.Print(certs.ConfigSnippet(result))
+			fmt.Println("─────────────────────────────────")
+
+			fmt.Println("\nFor multi-node setup:")
+			fmt.Println("  1. Copy ca.crt to all nodes")
+			fmt.Println("  2. Run 'steep-repl init-tls' on each node with appropriate --hosts")
+			fmt.Println("  3. Each node uses its own server.crt/key and the shared ca.crt")
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory (default ~/.config/steep/certs)")
+	cmd.Flags().StringVarP(&nodeName, "name", "n", "", "node name for certificate CN (default steep-repl)")
+	cmd.Flags().StringSliceVar(&hosts, "hosts", nil, "hostnames and IPs for certificate SANs (default localhost,127.0.0.1)")
+	cmd.Flags().IntVar(&validDays, "days", 365, "certificate validity in days")
+
+	return cmd
 }

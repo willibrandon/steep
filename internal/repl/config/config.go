@@ -40,9 +40,11 @@ type GRPCConfig struct {
 
 // TLSConfig holds mTLS certificate configuration.
 type TLSConfig struct {
-	CertFile string `mapstructure:"cert_file"`
-	KeyFile  string `mapstructure:"key_file"`
-	CAFile   string `mapstructure:"ca_file"`
+	CertFile       string `mapstructure:"cert_file"`
+	KeyFile        string `mapstructure:"key_file"`
+	CAFile         string `mapstructure:"ca_file"`
+	ClientCertFile string `mapstructure:"client_cert_file"`
+	ClientKeyFile  string `mapstructure:"client_key_file"`
 }
 
 // HTTPConfig holds HTTP health endpoint configuration.

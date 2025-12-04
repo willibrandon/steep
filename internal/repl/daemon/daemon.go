@@ -10,6 +10,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/repl/config"
 	"github.com/willibrandon/steep/internal/repl/db"
+	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
 	"github.com/willibrandon/steep/internal/repl/ipc"
 )
 
@@ -51,8 +52,10 @@ type Daemon struct {
 	// IPC server for TUI communication
 	ipcServer *ipc.Server
 
+	// gRPC server for node-to-node communication
+	grpcServer *replgrpc.Server
+
 	// Component references (will be added in later phases)
-	// grpcServer *grpc.Server     // T064-T074: gRPC server
 	// httpServer *health.Server   // T075-T081: HTTP health server
 }
 
@@ -129,7 +132,25 @@ func (d *Daemon) Start() error {
 		d.logger.Println("IPC server disabled")
 	}
 
-	// TODO (T064-T074): Start gRPC server
+	// Start gRPC server for node-to-node communication
+	grpcConfig := replgrpc.ServerConfig{
+		Port:     d.config.GRPC.Port,
+		CertFile: d.config.GRPC.TLS.CertFile,
+		KeyFile:  d.config.GRPC.TLS.KeyFile,
+		CAFile:   d.config.GRPC.TLS.CAFile,
+	}
+
+	grpcProvider := &daemonGRPCProvider{d: d}
+	grpcServer, err := replgrpc.NewServer(grpcConfig, grpcProvider, d.logger, d.debug)
+	if err != nil {
+		return fmt.Errorf("failed to create gRPC server: %w", err)
+	}
+
+	if err := grpcServer.Start(d.ctx); err != nil {
+		return fmt.Errorf("failed to start gRPC server: %w", err)
+	}
+	d.grpcServer = grpcServer
+
 	// TODO (T075-T081): Start HTTP health server
 
 	d.setState(StateRunning)
@@ -169,6 +190,14 @@ func (d *Daemon) Stop() error {
 		d.logger.Println("Shutdown timeout - forcing stop")
 	}
 
+	// Stop gRPC server
+	if d.grpcServer != nil {
+		if err := d.grpcServer.Stop(); err != nil {
+			d.logger.Printf("Warning: failed to stop gRPC server: %v", err)
+		}
+		d.grpcServer = nil
+	}
+
 	// Stop IPC server
 	if d.ipcServer != nil {
 		if err := d.ipcServer.Stop(); err != nil {
@@ -183,7 +212,6 @@ func (d *Daemon) Stop() error {
 		d.pool = nil
 	}
 
-	// TODO (T064-T074): Stop gRPC server
 	// TODO (T075-T081): Stop HTTP health server
 
 	d.setState(StateStopped)
@@ -245,11 +273,22 @@ func (d *Daemon) Status() *Status {
 		Version:   Version,
 		// Component status
 		PostgreSQL: d.getPostgreSQLStatus(),
-		GRPC:       ComponentStatus{Status: "not_initialized"},
+		GRPC:       d.getGRPCStatus(),
 		IPC:        d.getIPCStatus(),
 		HTTP:       ComponentStatus{Status: "not_initialized"},
 	}
 	return status
+}
+
+// getGRPCStatus returns the current gRPC server status.
+func (d *Daemon) getGRPCStatus() ComponentStatus {
+	if d.grpcServer == nil {
+		return ComponentStatus{Status: "not_initialized"}
+	}
+	return ComponentStatus{
+		Status: "listening",
+		Port:   d.config.GRPC.Port,
+	}
 }
 
 // getIPCStatus returns the current IPC server status.
@@ -359,4 +398,42 @@ func (p *daemonIPCProvider) HealthCheckPool(ctx context.Context) error {
 		return fmt.Errorf("pool not initialized")
 	}
 	return pool.HealthCheck(ctx)
+}
+
+// daemonGRPCProvider implements replgrpc.DaemonProvider to avoid import cycles.
+type daemonGRPCProvider struct {
+	d *Daemon
+}
+
+func (p *daemonGRPCProvider) GetNodeID() string {
+	return p.d.config.NodeID
+}
+
+func (p *daemonGRPCProvider) GetNodeName() string {
+	return p.d.config.NodeName
+}
+
+func (p *daemonGRPCProvider) GetVersion() string {
+	return Version
+}
+
+func (p *daemonGRPCProvider) GetStartTime() time.Time {
+	return p.d.startTime
+}
+
+func (p *daemonGRPCProvider) GetPool() *db.Pool {
+	return p.d.Pool()
+}
+
+func (p *daemonGRPCProvider) IsPostgreSQLConnected() bool {
+	pool := p.d.Pool()
+	return pool != nil && pool.IsConnected()
+}
+
+func (p *daemonGRPCProvider) GetPostgreSQLVersion() string {
+	pool := p.d.Pool()
+	if pool == nil {
+		return ""
+	}
+	return pool.VersionString()
 }
