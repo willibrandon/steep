@@ -10,6 +10,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/repl/config"
 	"github.com/willibrandon/steep/internal/repl/db"
+	"github.com/willibrandon/steep/internal/repl/ipc"
 )
 
 // Version is set by ldflags during build.
@@ -47,8 +48,10 @@ type Daemon struct {
 	pool        *db.Pool
 	auditWriter *db.AuditWriter
 
+	// IPC server for TUI communication
+	ipcServer *ipc.Server
+
 	// Component references (will be added in later phases)
-	// ipcServer *ipc.Server       // T051-T063: IPC server
 	// grpcServer *grpc.Server     // T064-T074: gRPC server
 	// httpServer *health.Server   // T075-T081: HTTP health server
 }
@@ -101,7 +104,31 @@ func (d *Daemon) Start() error {
 		// Non-fatal - continue startup
 	}
 
-	// TODO (T051-T063): Start IPC server
+	// Start IPC server if enabled
+	if d.config.IPC.Enabled {
+		socketPath := d.config.IPC.Path
+		if socketPath == "" {
+			socketPath = ipc.DefaultSocketPath()
+		}
+
+		ipcServer, err := ipc.NewServer(socketPath, d.logger, d.debug)
+		if err != nil {
+			return fmt.Errorf("failed to create IPC server: %w", err)
+		}
+
+		// Register handlers
+		provider := &daemonIPCProvider{d: d}
+		handlers := ipc.NewHandlers(provider)
+		handlers.RegisterAll(ipcServer)
+
+		if err := ipcServer.Start(d.ctx); err != nil {
+			return fmt.Errorf("failed to start IPC server: %w", err)
+		}
+		d.ipcServer = ipcServer
+	} else {
+		d.logger.Println("IPC server disabled")
+	}
+
 	// TODO (T064-T074): Start gRPC server
 	// TODO (T075-T081): Start HTTP health server
 
@@ -142,13 +169,20 @@ func (d *Daemon) Stop() error {
 		d.logger.Println("Shutdown timeout - forcing stop")
 	}
 
+	// Stop IPC server
+	if d.ipcServer != nil {
+		if err := d.ipcServer.Stop(); err != nil {
+			d.logger.Printf("Warning: failed to stop IPC server: %v", err)
+		}
+		d.ipcServer = nil
+	}
+
 	// Close PostgreSQL connection pool
 	if d.pool != nil {
 		d.pool.Close()
 		d.pool = nil
 	}
 
-	// TODO (T051-T063): Stop IPC server
 	// TODO (T064-T074): Stop gRPC server
 	// TODO (T075-T081): Stop HTTP health server
 
@@ -182,6 +216,16 @@ func (d *Daemon) Config() *config.Config {
 	return d.config
 }
 
+// Pool returns the PostgreSQL connection pool.
+func (d *Daemon) Pool() *db.Pool {
+	return d.pool
+}
+
+// AuditWriter returns the audit log writer.
+func (d *Daemon) AuditWriter() *db.AuditWriter {
+	return d.auditWriter
+}
+
 // Uptime returns how long the daemon has been running.
 func (d *Daemon) Uptime() time.Duration {
 	if d.startTime.IsZero() {
@@ -202,10 +246,21 @@ func (d *Daemon) Status() *Status {
 		// Component status
 		PostgreSQL: d.getPostgreSQLStatus(),
 		GRPC:       ComponentStatus{Status: "not_initialized"},
-		IPC:        ComponentStatus{Status: "not_initialized"},
+		IPC:        d.getIPCStatus(),
 		HTTP:       ComponentStatus{Status: "not_initialized"},
 	}
 	return status
+}
+
+// getIPCStatus returns the current IPC server status.
+func (d *Daemon) getIPCStatus() ComponentStatus {
+	if !d.config.IPC.Enabled {
+		return ComponentStatus{Status: "disabled"}
+	}
+	if d.ipcServer == nil {
+		return ComponentStatus{Status: "not_initialized"}
+	}
+	return ComponentStatus{Status: "listening"}
 }
 
 // getPostgreSQLStatus returns the current PostgreSQL connection status.
@@ -252,4 +307,56 @@ type ComponentStatus struct {
 	Port    int    `json:"port,omitempty"`
 	Version string `json:"version,omitempty"`
 	Error   string `json:"error,omitempty"`
+}
+
+// daemonIPCProvider implements ipc.DaemonProvider to avoid import cycles.
+type daemonIPCProvider struct {
+	d *Daemon
+}
+
+func (p *daemonIPCProvider) GetStatus() ipc.DaemonStatus {
+	status := p.d.Status()
+	result := ipc.DaemonStatus{
+		State:     string(status.State),
+		NodeID:    status.NodeID,
+		NodeName:  status.NodeName,
+		Uptime:    status.Uptime,
+		StartTime: status.StartTime,
+		Version:   status.Version,
+	}
+	result.PostgreSQL.Status = status.PostgreSQL.Status
+	result.PostgreSQL.Version = status.PostgreSQL.Version
+	result.PostgreSQL.Port = status.PostgreSQL.Port
+	result.GRPC.Status = status.GRPC.Status
+	result.GRPC.Port = status.GRPC.Port
+	result.IPC.Status = status.IPC.Status
+	return result
+}
+
+func (p *daemonIPCProvider) GetConfig() ipc.DaemonConfig {
+	cfg := p.d.Config()
+	result := ipc.DaemonConfig{
+		NodeID:   cfg.NodeID,
+		NodeName: cfg.NodeName,
+	}
+	result.PostgreSQL.Host = cfg.PostgreSQL.Host
+	result.PostgreSQL.Port = cfg.PostgreSQL.Port
+	result.GRPC.Port = cfg.GRPC.Port
+	return result
+}
+
+func (p *daemonIPCProvider) GetPool() *db.Pool {
+	return p.d.Pool()
+}
+
+func (p *daemonIPCProvider) GetAuditWriter() *db.AuditWriter {
+	return p.d.AuditWriter()
+}
+
+func (p *daemonIPCProvider) HealthCheckPool(ctx context.Context) error {
+	pool := p.d.Pool()
+	if pool == nil {
+		return fmt.Errorf("pool not initialized")
+	}
+	return pool.HealthCheck(ctx)
 }

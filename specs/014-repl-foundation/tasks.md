@@ -136,19 +136,19 @@
 
 ### Implementation for User Story 4
 
-- [ ] T051 [US4] Create cross-platform IPC listener in `internal/repl/ipc/listener.go`
-- [ ] T052 [US4] Implement Windows named pipe listener with go-winio in `internal/repl/ipc/listener_windows.go`
-- [ ] T053 [P] [US4] Implement Unix socket listener in `internal/repl/ipc/listener_unix.go`
-- [ ] T054 [US4] Add stale endpoint cleanup on startup in `internal/repl/ipc/listener.go`
-- [ ] T055 [US4] Define IPC message types per contracts in `internal/repl/ipc/messages.go`
-- [ ] T056 [US4] Implement JSON-over-IPC protocol handler in `internal/repl/ipc/server.go`
-- [ ] T057 [US4] Implement status.get method handler in `internal/repl/ipc/handlers.go`
-- [ ] T058 [US4] Implement health.check method handler in `internal/repl/ipc/handlers.go`
-- [ ] T059 [US4] Implement nodes.list method handler in `internal/repl/ipc/handlers.go`
-- [ ] T060 [US4] Implement nodes.get method handler in `internal/repl/ipc/handlers.go`
-- [ ] T061 [US4] Implement audit.query method handler in `internal/repl/ipc/handlers.go`
-- [ ] T062 [US4] Integrate IPC server with daemon in `internal/repl/daemon/daemon.go`
-- [ ] T063 [US4] Create IPC client for testing in `internal/repl/ipc/client.go`
+- [x] T051 [US4] Create cross-platform IPC listener in `internal/repl/ipc/listener.go`
+- [x] T052 [US4] Implement Windows named pipe listener with go-winio in `internal/repl/ipc/listener_windows.go`
+- [x] T053 [P] [US4] Implement Unix socket listener in `internal/repl/ipc/listener_unix.go`
+- [x] T054 [US4] Add stale endpoint cleanup on startup in `internal/repl/ipc/listener.go`
+- [x] T055 [US4] Define IPC message types per contracts in `internal/repl/ipc/messages.go`
+- [x] T056 [US4] Implement JSON-over-IPC protocol handler in `internal/repl/ipc/server.go`
+- [x] T057 [US4] Implement status.get method handler in `internal/repl/ipc/handlers.go`
+- [x] T058 [US4] Implement health.check method handler in `internal/repl/ipc/handlers.go`
+- [x] T059 [US4] Implement nodes.list method handler in `internal/repl/ipc/handlers.go`
+- [x] T060 [US4] Implement nodes.get method handler in `internal/repl/ipc/handlers.go`
+- [x] T061 [US4] Implement audit.query method handler in `internal/repl/ipc/handlers.go`
+- [x] T062 [US4] Integrate IPC server with daemon in `internal/repl/daemon/daemon.go`
+- [x] T063 [US4] Create IPC client for testing in `internal/repl/ipc/client.go`
 
 **Checkpoint**: IPC server accepts connections and responds to all methods
 
