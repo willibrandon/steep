@@ -56,12 +56,12 @@ func (c *ActivityCollector) Collect(ctx context.Context) error {
 
 // connectionStats holds summarized connection statistics.
 type connectionStats struct {
-	TotalConnections  int
-	ActiveConnections int
-	IdleConnections   int
-	IdleInTx          int
+	TotalConnections   int
+	ActiveConnections  int
+	IdleConnections    int
+	IdleInTx           int
 	WaitingConnections int
-	Timestamp         time.Time
+	Timestamp          time.Time
 }
 
 // summarizeConnections creates a summary of connection states.

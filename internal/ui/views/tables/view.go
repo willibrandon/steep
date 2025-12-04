@@ -33,11 +33,11 @@ const (
 	ModeConfirmReindexConcurrently
 	ModeHelp
 	// New modes for operations menu
-	ModeOperationsMenu     // Show operation selection menu
-	ModeOperationProgress  // Show progress for running operation
-	ModeConfirmCancel      // Confirm operation cancellation
-	ModePermissions        // Show permissions dialog
-	ModeOperationHistory   // Show operation history overlay
+	ModeOperationsMenu    // Show operation selection menu
+	ModeOperationProgress // Show progress for running operation
+	ModeConfirmCancel     // Confirm operation cancellation
+	ModePermissions       // Show permissions dialog
+	ModeOperationHistory  // Show operation history overlay
 )
 
 // FocusPanel indicates which panel has keyboard focus.
@@ -158,8 +158,8 @@ type (
 
 	// MaintenanceResultMsg contains the result of a maintenance operation.
 	MaintenanceResultMsg struct {
-		Operation string        // "VACUUM", "ANALYZE", "REINDEX"
-		TableName string        // schema.table
+		Operation string // "VACUUM", "ANALYZE", "REINDEX"
+		TableName string // schema.table
 		Success   bool
 		Error     error
 		Elapsed   time.Duration // How long the operation took
@@ -193,8 +193,8 @@ type (
 	// CheckBloatResultMsg contains the result of an on-demand bloat check.
 	CheckBloatResultMsg struct {
 		TableOID  uint32
-		TableName string        // schema.table
-		BloatPct  float64       // Bloat percentage from pgstattuple
+		TableName string  // schema.table
+		BloatPct  float64 // Bloat percentage from pgstattuple
 		Success   bool
 		Error     error
 		Elapsed   time.Duration // How long the operation took
@@ -317,8 +317,8 @@ func NewTablesView() *TablesView {
 		chartsVisible:      true, // Show charts by default
 		clipboard:          ui.NewClipboardWriter(),
 		spinner:            s,
-		showSystemSchemas:  false, // Hidden by default per spec
-		loading:            true,  // Start in loading state
+		showSystemSchemas:  false,                           // Hidden by default per spec
+		loading:            true,                            // Start in loading state
 		operationHistory:   models.NewOperationHistory(100), // Session-scoped, max 100 entries
 	}
 }

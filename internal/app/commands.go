@@ -617,4 +617,3 @@ func reloadConfig(pool *pgxpool.Pool) tea.Cmd {
 		}
 	}
 }
-

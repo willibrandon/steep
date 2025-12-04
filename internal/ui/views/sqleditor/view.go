@@ -45,10 +45,10 @@ type SQLEditorView struct {
 	editorHeight int
 
 	// Calculated layout dimensions for mouse coordinate translation (set in View())
-	editorContentStartY   int // Lines before editor content (connection bar + title)
-	editorSectionHeight   int // Actual rendered height of editor section
-	resultsDataStartY     int // Lines before results data rows
-	resultsHeaderHeight   int // Lines in results header (title + column header + separator)
+	editorContentStartY int // Lines before editor content (connection bar + title)
+	editorSectionHeight int // Actual rendered height of editor section
+	resultsDataStartY   int // Lines before results data rows
+	resultsHeaderHeight int // Lines in results header (title + column header + separator)
 
 	// Results
 	results         *ResultSet

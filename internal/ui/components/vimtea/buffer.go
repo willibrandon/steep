@@ -44,7 +44,7 @@ type Buffer interface {
 
 	// CanRedo returns whether there are changes that can be redone
 	CanRedo() bool
-	
+
 	// Clear removes all content from the buffer and resets to empty state
 	Clear() tea.Cmd
 }

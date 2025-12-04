@@ -14,13 +14,13 @@ type AuditAction string
 
 // Audit log action types for this feature.
 const (
-	ActionNodeRegistered    AuditAction = "node.registered"
-	ActionNodeUpdated       AuditAction = "node.updated"
-	ActionNodeRemoved       AuditAction = "node.removed"
+	ActionNodeRegistered     AuditAction = "node.registered"
+	ActionNodeUpdated        AuditAction = "node.updated"
+	ActionNodeRemoved        AuditAction = "node.removed"
 	ActionCoordinatorElected AuditAction = "coordinator.elected"
-	ActionStateUpdated      AuditAction = "state.updated"
-	ActionDaemonStarted     AuditAction = "daemon.started"
-	ActionDaemonStopped     AuditAction = "daemon.stopped"
+	ActionStateUpdated       AuditAction = "state.updated"
+	ActionDaemonStarted      AuditAction = "daemon.started"
+	ActionDaemonStopped      AuditAction = "daemon.stopped"
 )
 
 // AuditTargetType defines the type of target entity.

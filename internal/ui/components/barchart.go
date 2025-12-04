@@ -105,7 +105,7 @@ func (c *BarChart) View() string {
 // renderEmpty shows a placeholder when no data is available.
 func (c *BarChart) renderEmpty() string {
 	contentStyle := lipgloss.NewStyle().
-		Width(c.config.Width - 4).
+		Width(c.config.Width-4).
 		Height(c.config.Height).
 		Align(lipgloss.Center, lipgloss.Center).
 		Foreground(styles.ColorMuted)

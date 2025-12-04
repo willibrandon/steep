@@ -52,11 +52,11 @@ type PhysicalWizardConfig struct {
 	PasswordShown bool
 
 	// Step 2: Network & Security
-	PrimaryHost   string
-	PrimaryPort   string
-	ReplicaCIDR   string // CIDR or IP for pg_hba.conf (e.g., "192.168.1.0/24" or "192.168.1.100/32")
-	SSLMode       SSLMode
-	AuthMethod    AuthMethod
+	PrimaryHost string
+	PrimaryPort string
+	ReplicaCIDR string // CIDR or IP for pg_hba.conf (e.g., "192.168.1.0/24" or "192.168.1.100/32")
+	SSLMode     SSLMode
+	AuthMethod  AuthMethod
 
 	// Step 3: Replication mode
 	SyncMode     string // "sync" or "async"
@@ -70,8 +70,8 @@ type PhysicalWizardState struct {
 	Step          WizardStep
 	Config        PhysicalWizardConfig
 	Error         string
-	SelectedField int  // For navigation within a step
-	EditingField  int  // -1 if not editing, otherwise field index
+	SelectedField int // For navigation within a step
+	EditingField  int // -1 if not editing, otherwise field index
 	InputBuffer   string
 	CreatingUser  bool // True while user creation is in progress
 }

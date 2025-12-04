@@ -31,7 +31,7 @@ func TestGRPC_ServerStart(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: 15450,
 		},
@@ -89,7 +89,7 @@ func TestGRPC_HealthCheck(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: grpcPort,
 		},
@@ -178,7 +178,7 @@ func TestGRPC_RegisterNode(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: grpcPort,
 		},
@@ -286,7 +286,7 @@ func TestGRPC_GetNodes(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: grpcPort,
 		},
@@ -398,7 +398,7 @@ func TestGRPC_Heartbeat(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: grpcPort,
 		},
@@ -479,7 +479,7 @@ func TestGRPC_MultipleClients(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: grpcPort,
 		},

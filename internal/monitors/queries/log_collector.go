@@ -92,7 +92,7 @@ type LogCollector struct {
 	logDir        string
 	logPattern    string
 	logLinePrefix string
-	positions     map[string]int64  // Position per file
+	positions     map[string]int64 // Position per file
 	events        chan QueryEvent
 	errors        chan error
 	lastParams    map[string]map[string]string // Parameters per PID from most recent DETAIL line

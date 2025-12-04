@@ -30,7 +30,7 @@ func TestIPC_ClientConnect(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: 15440,
 		},
@@ -90,7 +90,7 @@ func TestIPC_StatusGet(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: 15441,
 		},
@@ -165,7 +165,7 @@ func TestIPC_HealthCheck(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: 15442,
 		},
@@ -259,7 +259,7 @@ func TestIPC_NodesListEmpty(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: 15443,
 		},
@@ -329,7 +329,7 @@ func TestIPC_AuditQuery(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: 15444,
 		},
@@ -412,7 +412,7 @@ func TestIPC_ConcurrentRequests(t *testing.T) {
 			Port:     int(connConfig.Port),
 			Database: connConfig.Database,
 			User:     connConfig.User,
-			},
+		},
 		GRPC: config.GRPCConfig{
 			Port: 15445,
 		},

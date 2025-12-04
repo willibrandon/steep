@@ -90,7 +90,7 @@ type Plan struct {
 	CTEName                     string   `json:"CTE Name"`
 	Filter                      string   `json:"Filter"`
 	GroupKey                    []string `json:"Group Key"`
-	HashCondition                string   `json:"Hash Cond"`
+	HashCondition               string   `json:"Hash Cond"`
 	HeapFetches                 float64  `json:"Heap Fetches"`
 	IndexCondition              string   `json:"Index Cond"`
 	IndexName                   string   `json:"Index Name"`

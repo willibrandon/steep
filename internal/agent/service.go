@@ -120,8 +120,8 @@ func NewService(svcConfig ServiceConfig) (service.Service, error) {
 	case "darwin":
 		// macOS launchd configuration
 		cfg.Option = mergeOptions(cfg.Option, service.KeyValue{
-			"KeepAlive":   true,
-			"RunAtLoad":   true,
+			"KeepAlive":      true,
+			"RunAtLoad":      true,
 			"LaunchOnlyOnce": false,
 		})
 	case "linux":

@@ -154,10 +154,10 @@ const (
 
 // TransactionState represents transaction context.
 type TransactionState struct {
-	Active         bool          // Whether in a transaction
-	StartedAt      time.Time     // When transaction began
-	SavepointStack []string      // Nested savepoint names
-	IsolationLevel string        // READ COMMITTED, SERIALIZABLE, etc.
+	Active         bool      // Whether in a transaction
+	StartedAt      time.Time // When transaction began
+	SavepointStack []string  // Nested savepoint names
+	IsolationLevel string    // READ COMMITTED, SERIALIZABLE, etc.
 	StateType      TransactionStateType
 }
 
@@ -173,11 +173,11 @@ type HistoryEntry struct {
 
 // Snippet represents a saved query.
 type Snippet struct {
-	Name        string    `yaml:"name"`        // Unique identifier
+	Name        string    `yaml:"name"`                  // Unique identifier
 	Description string    `yaml:"description,omitempty"` // Optional description
-	SQL         string    `yaml:"sql"`         // Query text
-	CreatedAt   time.Time `yaml:"created_at"`  // When snippet was created
-	UpdatedAt   time.Time `yaml:"updated_at"`  // When snippet was last modified
+	SQL         string    `yaml:"sql"`                   // Query text
+	CreatedAt   time.Time `yaml:"created_at"`            // When snippet was created
+	UpdatedAt   time.Time `yaml:"updated_at"`            // When snippet was last modified
 }
 
 // FocusArea indicates which component has keyboard focus.

@@ -99,9 +99,9 @@ type ConfigView struct {
 
 	// Command mode state
 	commandInput textinput.Model // Command input with cursor/paste support
-	toastMessage string    // Toast message to display
-	toastIsError bool      // Whether toast is an error message
-	toastTime    time.Time // When toast was shown
+	toastMessage string          // Toast message to display
+	toastIsError bool            // Whether toast is an error message
+	toastTime    time.Time       // When toast was shown
 
 	// Read-only mode
 	readOnly bool // If true, write operations are blocked
@@ -1141,7 +1141,7 @@ func (v *ConfigView) renderTable() string {
 		nameWidth = 25
 		valueWidth = 15
 		unitWidth = 5
-		categoryWidth = 0 // Hide category in narrow mode
+		categoryWidth = 0                                             // Hide category in narrow mode
 		descWidth = v.width - nameWidth - valueWidth - unitWidth - 12 // 3 separators
 		if descWidth < 10 {
 			descWidth = 10

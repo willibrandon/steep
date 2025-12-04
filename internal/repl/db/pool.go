@@ -27,12 +27,12 @@ type Pool struct {
 	config *config.Config
 
 	// Connection state
-	mu        sync.RWMutex
-	connected bool
-	version   int // PostgreSQL version number (e.g., 180000)
+	mu         sync.RWMutex
+	connected  bool
+	version    int // PostgreSQL version number (e.g., 180000)
 	versionStr string
-	lastError error
-	lastCheck time.Time
+	lastError  error
+	lastCheck  time.Time
 }
 
 // PoolStatus holds the current pool status.

@@ -280,7 +280,6 @@ func (pm *PoolManager) updateInstanceStatus(name string, status InstanceStatus, 
 	_ = pm.instanceStore.Upsert(instance)
 }
 
-
 // InstanceNames returns the names of all configured instances.
 func (pm *PoolManager) InstanceNames() []string {
 	pm.mu.RLock()
@@ -302,10 +301,10 @@ func (pm *PoolManager) Stats() map[string]PoolStats {
 	for name, pool := range pm.pools {
 		s := pool.Stat()
 		stats[name] = PoolStats{
-			TotalConns:   int(s.TotalConns()),
+			TotalConns:    int(s.TotalConns()),
 			AcquiredConns: int(s.AcquiredConns()),
-			IdleConns:    int(s.IdleConns()),
-			MaxConns:     int(s.MaxConns()),
+			IdleConns:     int(s.IdleConns()),
+			MaxConns:      int(s.MaxConns()),
 		}
 	}
 	return stats
@@ -313,8 +312,8 @@ func (pm *PoolManager) Stats() map[string]PoolStats {
 
 // PoolStats contains connection pool statistics.
 type PoolStats struct {
-	TotalConns   int
+	TotalConns    int
 	AcquiredConns int
-	IdleConns    int
-	MaxConns     int
+	IdleConns     int
+	MaxConns      int
 }

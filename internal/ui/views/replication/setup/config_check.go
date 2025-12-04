@@ -19,11 +19,11 @@ type ConfigCheckConfig struct {
 
 // ConfigEditorState holds state for the configuration editor.
 type ConfigEditorState struct {
-	Params       []ConfigEditorParam
-	SelectedIdx  int
-	Editing      bool
-	InputBuffer  string
-	ReadOnly     bool
+	Params      []ConfigEditorParam
+	SelectedIdx int
+	Editing     bool
+	InputBuffer string
+	ReadOnly    bool
 }
 
 // ConfigEditorParam represents an editable configuration parameter.

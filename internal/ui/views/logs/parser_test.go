@@ -109,14 +109,14 @@ func TestParseStderrLine(t *testing.T) {
 			pid:      11111,
 		},
 		{
-			name:     "no severity marker",
-			input:    "This is just a random line",
-			wantNil:  true,
+			name:    "no severity marker",
+			input:   "This is just a random line",
+			wantNil: true,
 		},
 		{
-			name:     "continuation line",
-			input:    "DETAIL:  Process 123 waits for lock",
-			wantNil:  true, // No severity marker at expected position
+			name:    "continuation line",
+			input:   "DETAIL:  Process 123 waits for lock",
+			wantNil: true, // No severity marker at expected position
 		},
 	}
 

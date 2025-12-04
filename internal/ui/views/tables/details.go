@@ -435,4 +435,3 @@ func formatNumber(n int64) string {
 	}
 	return fmt.Sprintf("%.1fB", float64(n)/1000000000)
 }
-

@@ -346,12 +346,12 @@ func TestMetricsStore_PruneRetention(t *testing.T) {
 		daysAgo int
 		count   int
 	}{
-		{0, 10},   // Today - stays
-		{1, 10},   // Yesterday - stays
-		{6, 20},   // 6 days old - stays (within 7 day window)
-		{14, 30},  // Two weeks old - pruned
-		{30, 40},  // Month old - pruned
-		{60, 50},  // Two months old - pruned
+		{0, 10},  // Today - stays
+		{1, 10},  // Yesterday - stays
+		{6, 20},  // 6 days old - stays (within 7 day window)
+		{14, 30}, // Two weeks old - pruned
+		{30, 40}, // Month old - pruned
+		{60, 50}, // Two months old - pruned
 	}
 
 	var totalInserted int64

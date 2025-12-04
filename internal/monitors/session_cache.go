@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-
 // SessionState holds cached session information from pg_stat_activity.
 type SessionState struct {
 	PID          int

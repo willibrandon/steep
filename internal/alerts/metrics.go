@@ -139,18 +139,18 @@ func AvailableMetrics() []string {
 // MetricDescription returns a human-readable description of a metric.
 func MetricDescription(name string) string {
 	descriptions := map[string]string{
-		"active_connections":           "Number of active database connections",
-		"connection_count":             "Number of active database connections (alias)",
-		"max_connections":              "Maximum allowed connections (from pg_settings)",
-		"cache_hit_ratio":              "Buffer cache hit ratio (0-1)",
-		"cache_hit_ratio_pct":          "Buffer cache hit ratio (0-100%)",
-		"tps":                          "Transactions per second",
-		"transactions_per_second":      "Transactions per second (alias)",
-		"database_size":                "Database size in bytes",
-		"db_size":                      "Database size in bytes (alias)",
-		"replication_lag_bytes":        "Replication lag in bytes",
-		"longest_transaction_seconds":  "Duration of longest running transaction in seconds",
-		"idle_in_transaction_seconds":  "Duration of longest idle-in-transaction in seconds",
+		"active_connections":          "Number of active database connections",
+		"connection_count":            "Number of active database connections (alias)",
+		"max_connections":             "Maximum allowed connections (from pg_settings)",
+		"cache_hit_ratio":             "Buffer cache hit ratio (0-1)",
+		"cache_hit_ratio_pct":         "Buffer cache hit ratio (0-100%)",
+		"tps":                         "Transactions per second",
+		"transactions_per_second":     "Transactions per second (alias)",
+		"database_size":               "Database size in bytes",
+		"db_size":                     "Database size in bytes (alias)",
+		"replication_lag_bytes":       "Replication lag in bytes",
+		"longest_transaction_seconds": "Duration of longest running transaction in seconds",
+		"idle_in_transaction_seconds": "Duration of longest idle-in-transaction in seconds",
 	}
 	if desc, ok := descriptions[name]; ok {
 		return desc

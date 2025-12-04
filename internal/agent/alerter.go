@@ -33,12 +33,12 @@ type AlerterConfig struct {
 // Alerter integrates the existing alert engine with the agent.
 // It periodically evaluates metrics and sends webhook notifications on state changes.
 type Alerter struct {
-	config AlerterConfig
-	engine *alerts.Engine
+	config  AlerterConfig
+	engine  *alerts.Engine
 	webhook *WebhookDelivery
-	pool   *pgxpool.Pool
-	logger *log.Logger
-	debug  bool
+	pool    *pgxpool.Pool
+	logger  *log.Logger
+	debug   bool
 
 	// Current instance name for tagging webhooks
 	instanceName string

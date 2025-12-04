@@ -35,8 +35,8 @@ var (
 	ColorSelectedBg = lipgloss.Color("57")  // Purple background
 
 	// Lock blocking colors
-	ColorBlocked  = lipgloss.Color("9")   // Red - blocked queries (waiting)
-	ColorBlocking = lipgloss.Color("11")  // Yellow - blocking queries (holding lock)
+	ColorBlocked  = lipgloss.Color("9")  // Red - blocked queries (waiting)
+	ColorBlocking = lipgloss.Color("11") // Yellow - blocking queries (holding lock)
 
 	// Alert severity colors
 	ColorAlertWarning  = lipgloss.Color("214") // Orange - warning alerts

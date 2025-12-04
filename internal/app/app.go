@@ -100,13 +100,13 @@ type Model struct {
 	readOnly bool
 
 	// Monitors
-	activityMonitor    *monitors.ActivityMonitor
-	statsMonitor       *monitors.StatsMonitor
-	locksMonitor       *monitors.LocksMonitor
-	deadlockMonitor    *monitors.DeadlockMonitor
-	deadlockStore      *sqlite.DeadlockStore
-	replicationMonitor *monitors.ReplicationMonitor
-	replicationStore   *sqlite.ReplicationStore
+	activityMonitor     *monitors.ActivityMonitor
+	statsMonitor        *monitors.StatsMonitor
+	locksMonitor        *monitors.LocksMonitor
+	deadlockMonitor     *monitors.DeadlockMonitor
+	deadlockStore       *sqlite.DeadlockStore
+	replicationMonitor  *monitors.ReplicationMonitor
+	replicationStore    *sqlite.ReplicationStore
 	configMonitor       *monitors.ConfigMonitor
 	configTickCounter   int // Counter for slower config refresh (every 60 ticks)
 	deadlockTickCounter int // Counter for slower deadlock refresh (every 30 ticks)
@@ -129,10 +129,10 @@ type Model struct {
 	alertStore  *sqlite.AlertStore
 
 	// Multi-instance support (T054)
-	currentInstance  string                        // Name of currently selected instance
-	instanceNames    []string                      // Available instance names for cycling
-	instancePools    map[string]*pgxpool.Pool      // Connection pool per instance
-	instanceConfigs  []config.AgentInstanceConfig  // Instance connection configs
+	currentInstance string                       // Name of currently selected instance
+	instanceNames   []string                     // Available instance names for cycling
+	instancePools   map[string]*pgxpool.Pool     // Connection pool per instance
+	instanceConfigs []config.AgentInstanceConfig // Instance connection configs
 }
 
 // AgentStatusInfo holds agent status for display in the status bar.
@@ -140,7 +140,7 @@ type AgentStatusInfo struct {
 	Running     bool
 	PID         int
 	Version     string
-	StartTime   time.Time      // Agent start time for uptime display (T070)
+	StartTime   time.Time // Agent start time for uptime display (T070)
 	LastCollect time.Time
 	ConfigHash  string         // Agent's config hash for drift detection (T061)
 	Instances   []InstanceInfo // List of monitored instances (multi-instance support)
@@ -462,7 +462,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		refreshInterval := m.config.UI.RefreshInterval
 		m.activityMonitor = monitors.NewActivityMonitor(msg.Pool, refreshInterval)
 		m.statsMonitor = monitors.NewStatsMonitor(msg.Pool, refreshInterval)
-		m.locksMonitor = monitors.NewLocksMonitor(msg.Pool, 2*time.Second) // 2s refresh for locks
+		m.locksMonitor = monitors.NewLocksMonitor(msg.Pool, 2*time.Second)    // 2s refresh for locks
 		m.configMonitor = monitors.NewConfigMonitor(msg.Pool, 60*time.Second) // 60s refresh for config
 
 		// Initialize query stats storage

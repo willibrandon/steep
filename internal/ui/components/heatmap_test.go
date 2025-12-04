@@ -165,15 +165,15 @@ func TestHeatmap_GetIntensityLevel(t *testing.T) {
 		value    float64
 		expected int
 	}{
-		{0, 0},    // 0% -> Low
-		{10, 0},   // 10% -> Low
-		{24, 0},   // 24% -> Low
-		{25, 1},   // 25% -> Medium
-		{49, 1},   // 49% -> Medium
-		{50, 2},   // 50% -> High
-		{74, 2},   // 74% -> High
-		{75, 3},   // 75% -> Peak
-		{100, 3},  // 100% -> Peak
+		{0, 0},   // 0% -> Low
+		{10, 0},  // 10% -> Low
+		{24, 0},  // 24% -> Low
+		{25, 1},  // 25% -> Medium
+		{49, 1},  // 49% -> Medium
+		{50, 2},  // 50% -> High
+		{74, 2},  // 74% -> High
+		{75, 3},  // 75% -> Peak
+		{100, 3}, // 100% -> Peak
 	}
 
 	for _, tt := range tests {

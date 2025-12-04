@@ -30,24 +30,24 @@ const (
 
 // Rule represents a configured alert rule.
 type Rule struct {
-	Name       string   // Unique identifier
-	Metric     string   // Metric expression to evaluate
-	Operator   Operator // Comparison operator
-	Warning    float64  // Warning threshold
-	Critical   float64  // Critical threshold
-	Enabled    bool     // Whether rule is active
-	Message    string   // Optional custom message template
+	Name     string   // Unique identifier
+	Metric   string   // Metric expression to evaluate
+	Operator Operator // Comparison operator
+	Warning  float64  // Warning threshold
+	Critical float64  // Critical threshold
+	Enabled  bool     // Whether rule is active
+	Message  string   // Optional custom message template
 }
 
 // State represents the current state of an alert rule.
 type State struct {
-	RuleName      string
-	CurrentState  AlertState
-	PreviousState AlertState
-	MetricValue   float64
-	TriggeredAt   time.Time
-	LastEvaluated time.Time
-	Acknowledged  bool
+	RuleName       string
+	CurrentState   AlertState
+	PreviousState  AlertState
+	MetricValue    float64
+	TriggeredAt    time.Time
+	LastEvaluated  time.Time
+	Acknowledged   bool
 	AcknowledgedAt time.Time
 }
 

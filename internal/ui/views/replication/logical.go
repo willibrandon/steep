@@ -165,7 +165,10 @@ func (v *ReplicationView) renderLogical() string {
 }
 
 // renderPubRow renders a publication row with styling.
-func (v *ReplicationView) renderPubRow(p models.Publication, selected bool, headers []struct{ name string; width int }) string {
+func (v *ReplicationView) renderPubRow(p models.Publication, selected bool, headers []struct {
+	name  string
+	width int
+}) string {
 	baseStyle := lipgloss.NewStyle()
 	if selected {
 		baseStyle = baseStyle.Background(lipgloss.Color("236"))
@@ -210,7 +213,10 @@ func (v *ReplicationView) renderPubRow(p models.Publication, selected bool, head
 }
 
 // renderSubRow renders a subscription row with styling.
-func (v *ReplicationView) renderSubRow(s models.Subscription, selected bool, headers []struct{ name string; width int }) string {
+func (v *ReplicationView) renderSubRow(s models.Subscription, selected bool, headers []struct {
+	name  string
+	width int
+}) string {
 	baseStyle := lipgloss.NewStyle()
 	if selected {
 		baseStyle = baseStyle.Background(lipgloss.Color("236"))

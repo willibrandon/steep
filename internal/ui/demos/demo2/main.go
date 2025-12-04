@@ -87,8 +87,8 @@ func (m model) renderPanel(p panel) string {
 	var bgColor lipgloss.Color
 	switch p.status {
 	case statusWarning:
-		valueColor = lipgloss.Color("0")  // Black text
-		bgColor = lipgloss.Color("11")    // Yellow background
+		valueColor = lipgloss.Color("0") // Black text
+		bgColor = lipgloss.Color("11")   // Yellow background
 	case statusCritical:
 		valueColor = lipgloss.Color("15") // White text
 		bgColor = lipgloss.Color("9")     // Red background

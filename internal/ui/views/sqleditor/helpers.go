@@ -56,7 +56,6 @@ func truncateToRunes(s string, n int) string {
 	return string(runes[:n])
 }
 
-
 // isSelectQuery checks if SQL is a SELECT-type query that returns rows.
 func isSelectQuery(sql string) bool {
 	upper := strings.ToUpper(strings.TrimSpace(sql))

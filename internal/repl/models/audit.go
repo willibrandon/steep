@@ -31,17 +31,17 @@ const (
 
 // AuditLogEntry represents an immutable record of system activity.
 type AuditLogEntry struct {
-	ID           int64      `db:"id" json:"id"`
-	OccurredAt   time.Time  `db:"occurred_at" json:"occurred_at"`
-	Action       string     `db:"action" json:"action"`
-	Actor        string     `db:"actor" json:"actor"` // Format: role@host
-	TargetType   *string    `db:"target_type" json:"target_type,omitempty"`
-	TargetID     *string    `db:"target_id" json:"target_id,omitempty"`
-	OldValue     []byte     `db:"old_value" json:"-"` // JSONB
-	NewValue     []byte     `db:"new_value" json:"-"` // JSONB
-	ClientIP     *string    `db:"client_ip" json:"client_ip,omitempty"`
-	Success      bool       `db:"success" json:"success"`
-	ErrorMessage *string    `db:"error_message" json:"error_message,omitempty"`
+	ID           int64     `db:"id" json:"id"`
+	OccurredAt   time.Time `db:"occurred_at" json:"occurred_at"`
+	Action       string    `db:"action" json:"action"`
+	Actor        string    `db:"actor" json:"actor"` // Format: role@host
+	TargetType   *string   `db:"target_type" json:"target_type,omitempty"`
+	TargetID     *string   `db:"target_id" json:"target_id,omitempty"`
+	OldValue     []byte    `db:"old_value" json:"-"` // JSONB
+	NewValue     []byte    `db:"new_value" json:"-"` // JSONB
+	ClientIP     *string   `db:"client_ip" json:"client_ip,omitempty"`
+	Success      bool      `db:"success" json:"success"`
+	ErrorMessage *string   `db:"error_message" json:"error_message,omitempty"`
 }
 
 // GetOldValueAs unmarshals the old value JSONB into the provided target.

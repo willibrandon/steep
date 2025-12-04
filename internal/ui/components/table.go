@@ -17,7 +17,7 @@ type Table struct {
 	rows    [][]string
 
 	// Display options
-	showHeaders bool
+	showHeaders  bool
 	columnWidths []int
 }
 
