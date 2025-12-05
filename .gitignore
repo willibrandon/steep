@@ -8,6 +8,8 @@
 /bin/
 /dist/
 /steep
+/steep-repl
+/steep-agent
 *.exe
 *.dll
 *.so

@@ -65,6 +65,7 @@ Direct Run (for debugging):
 		newStatusCmd(),
 		newHealthCmd(),
 		newInitTLSCmd(),
+		newInitCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -650,6 +651,219 @@ Example:
 	cmd.Flags().StringVarP(&nodeName, "name", "n", "", "node name for certificate CN (default steep-repl)")
 	cmd.Flags().StringSliceVar(&hosts, "hosts", nil, "hostnames and IPs for certificate SANs (default localhost,127.0.0.1)")
 	cmd.Flags().IntVar(&validDays, "days", 365, "certificate validity in days")
+
+	return cmd
+}
+
+// newInitCmd creates the init command group for node initialization.
+func newInitCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Node initialization commands",
+		Long: `Initialize nodes for bidirectional replication.
+
+Available subcommands:
+  steep-repl init <target> --from <source>    Start automatic snapshot initialization
+  steep-repl init prepare --node <node>       Prepare for manual initialization
+  steep-repl init complete --node <target>    Complete manual initialization
+  steep-repl init cancel --node <node>        Cancel in-progress initialization
+
+Examples:
+  # Automatic snapshot initialization (recommended for <100GB)
+  steep-repl init node-b --from node-a
+
+  # Manual initialization for large databases
+  steep-repl init prepare --node node-a --slot init_slot_001
+  # ... run pg_basebackup and restore on node-b ...
+  steep-repl init complete --node node-b --source node-a --lsn 0/1A234B00`,
+	}
+
+	// Add subcommands
+	cmd.AddCommand(
+		newInitStartCmd(),
+		newInitPrepareCmd(),
+		newInitCompleteCmd(),
+		newInitCancelCmd(),
+	)
+
+	return cmd
+}
+
+// newInitStartCmd creates the init start subcommand for automatic snapshot initialization.
+func newInitStartCmd() *cobra.Command {
+	var (
+		sourceNodeID    string
+		method          string
+		parallelWorkers int
+		schemaSync      string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "start <target-node-id>",
+		Short: "Start automatic snapshot initialization",
+		Long: `Start automatic snapshot initialization using PostgreSQL logical replication
+with copy_data=true. Recommended for databases under 100GB.
+
+The target node will be initialized from the source node's data. Progress
+can be monitored via the TUI or 'steep-repl status' command.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			targetNodeID := args[0]
+
+			if sourceNodeID == "" {
+				return fmt.Errorf("--from flag is required")
+			}
+
+			fmt.Printf("Starting initialization of %s from %s...\n", targetNodeID, sourceNodeID)
+			fmt.Printf("  Method: %s\n", method)
+			fmt.Printf("  Parallel workers: %d\n", parallelWorkers)
+			fmt.Printf("  Schema sync: %s\n", schemaSync)
+			fmt.Println()
+
+			// Skeleton - actual gRPC call implemented in T026
+			fmt.Println("Not implemented: init start (see T026)")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&sourceNodeID, "from", "", "source node ID to initialize from (required)")
+	cmd.Flags().StringVar(&method, "method", "snapshot", "initialization method: snapshot, manual, two-phase, direct")
+	cmd.Flags().IntVar(&parallelWorkers, "parallel", 4, "number of parallel workers (1-16)")
+	cmd.Flags().StringVar(&schemaSync, "schema-sync", "strict", "schema sync mode: strict, auto, manual")
+	_ = cmd.MarkFlagRequired("from")
+
+	return cmd
+}
+
+// newInitPrepareCmd creates the init prepare subcommand for manual initialization.
+func newInitPrepareCmd() *cobra.Command {
+	var (
+		nodeID      string
+		slotName    string
+		expireHours int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "prepare",
+		Short: "Prepare for manual initialization",
+		Long: `Prepare for manual initialization by creating a replication slot and
+recording the LSN. This is step 1 of the manual initialization workflow.
+
+After running this command:
+1. Use pg_basebackup or pg_dump to create a backup from the source
+2. Restore the backup on the target node
+3. Run 'steep-repl init complete' to finish initialization`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if nodeID == "" {
+				return fmt.Errorf("--node flag is required")
+			}
+			if slotName == "" {
+				slotName = fmt.Sprintf("steep_init_%s", nodeID)
+			}
+
+			fmt.Printf("Preparing initialization for node %s...\n", nodeID)
+			fmt.Printf("  Slot name: %s\n", slotName)
+			fmt.Printf("  Expires in: %d hours\n", expireHours)
+			fmt.Println()
+
+			// Skeleton - actual gRPC call implemented in T034
+			fmt.Println("Not implemented: init prepare (see T034)")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&nodeID, "node", "", "node ID to prepare (required)")
+	cmd.Flags().StringVar(&slotName, "slot", "", "replication slot name (default: steep_init_<node>)")
+	cmd.Flags().IntVar(&expireHours, "expires", 24, "slot expiration in hours")
+	_ = cmd.MarkFlagRequired("node")
+
+	return cmd
+}
+
+// newInitCompleteCmd creates the init complete subcommand for manual initialization.
+func newInitCompleteCmd() *cobra.Command {
+	var (
+		targetNodeID    string
+		sourceNodeID    string
+		sourceLSN       string
+		schemaSync      string
+		skipSchemaCheck bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "complete",
+		Short: "Complete manual initialization",
+		Long: `Complete manual initialization after restoring a backup.
+This is step 2 of the manual initialization workflow.
+
+Before running this command:
+1. Run 'steep-repl init prepare' on the source node
+2. Use pg_basebackup or pg_dump to create a backup
+3. Restore the backup on the target node
+
+This command will verify the schema matches and create the subscription
+to start replication from the recorded LSN.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if targetNodeID == "" {
+				return fmt.Errorf("--node flag is required")
+			}
+			if sourceNodeID == "" {
+				return fmt.Errorf("--source flag is required")
+			}
+
+			fmt.Printf("Completing initialization of %s from %s...\n", targetNodeID, sourceNodeID)
+			if sourceLSN != "" {
+				fmt.Printf("  Source LSN: %s\n", sourceLSN)
+			}
+			fmt.Printf("  Schema sync: %s\n", schemaSync)
+			fmt.Printf("  Skip schema check: %v\n", skipSchemaCheck)
+			fmt.Println()
+
+			// Skeleton - actual gRPC call implemented in T035
+			fmt.Println("Not implemented: init complete (see T035)")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&targetNodeID, "node", "", "target node ID (required)")
+	cmd.Flags().StringVar(&sourceNodeID, "source", "", "source node ID (required)")
+	cmd.Flags().StringVar(&sourceLSN, "lsn", "", "source LSN from prepare step (auto-detected if not specified)")
+	cmd.Flags().StringVar(&schemaSync, "schema-sync", "strict", "schema sync mode: strict, auto, manual")
+	cmd.Flags().BoolVar(&skipSchemaCheck, "skip-schema-check", false, "skip schema verification (dangerous)")
+	_ = cmd.MarkFlagRequired("node")
+	_ = cmd.MarkFlagRequired("source")
+
+	return cmd
+}
+
+// newInitCancelCmd creates the init cancel subcommand.
+func newInitCancelCmd() *cobra.Command {
+	var nodeID string
+
+	cmd := &cobra.Command{
+		Use:   "cancel",
+		Short: "Cancel in-progress initialization",
+		Long: `Cancel an in-progress initialization. This will:
+- Drop any partial subscriptions
+- Clean up partial data on the target node
+- Reset the node state to UNINITIALIZED
+
+Use this if initialization is taking too long or has stalled.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if nodeID == "" {
+				return fmt.Errorf("--node flag is required")
+			}
+
+			fmt.Printf("Cancelling initialization for node %s...\n", nodeID)
+
+			// Skeleton - actual gRPC call implemented in T023
+			fmt.Println("Not implemented: init cancel (see T023)")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&nodeID, "node", "", "node ID to cancel initialization for (required)")
+	_ = cmd.MarkFlagRequired("node")
 
 	return cmd
 }

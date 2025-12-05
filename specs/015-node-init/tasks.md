@@ -40,19 +40,19 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Add init_state, init_source_node, init_started_at, init_completed_at columns to nodes table in extensions/steep_repl/src/lib.rs
-- [ ] T006 Create steep_repl.init_progress table in extensions/steep_repl/src/lib.rs (phase, percent, tables, current_table, throughput, ETA)
-- [ ] T007 [P] Create steep_repl.schema_fingerprints table in extensions/steep_repl/src/lib.rs (schema, table, fingerprint, column_count, captured_at)
-- [ ] T008 [P] Create steep_repl.init_slots table in extensions/steep_repl/src/lib.rs (slot_name, node_id, lsn, created_at, expires_at)
-- [ ] T009 [P] Create steep_repl.snapshots table in extensions/steep_repl/src/lib.rs (snapshot_id, source_node, lsn, storage_path, manifest_json, status)
-- [ ] T010 Implement compute_fingerprint(schema, table) SQL function in extensions/steep_repl/src/lib.rs (SHA256 of column definitions)
-- [ ] T011 [P] Create InitProgress Go model in internal/repl/models/progress.go matching init_progress table
-- [ ] T012 [P] Create SchemaFingerprint Go model in internal/repl/models/fingerprint.go matching schema_fingerprints table
-- [ ] T013 [P] Create Snapshot Go model in internal/repl/models/snapshot.go matching snapshots table
-- [ ] T014 Implement InitManager struct skeleton in internal/repl/init/manager.go (holds pool, config, channels for progress updates)
-- [ ] T015 Add InitService RPC handlers skeleton in internal/repl/grpc/handlers.go (StartInit, PrepareInit, CompleteInit, CancelInit, GetProgress, StreamProgress)
-- [ ] T016 Add init subcommand group to cmd/steep-repl/main.go (init, init prepare, init complete, init cancel)
-- [ ] T017 Implement structured JSON logging for init events in internal/repl/init/logging.go (init.started, init.state_change, init.table_complete, etc.)
+- [x] T005 Add init_state, init_source_node, init_started_at, init_completed_at columns to nodes table in extensions/steep_repl/src/lib.rs
+- [x] T006 Create steep_repl.init_progress table in extensions/steep_repl/src/lib.rs (phase, percent, tables, current_table, throughput, ETA)
+- [x] T007 [P] Create steep_repl.schema_fingerprints table in extensions/steep_repl/src/lib.rs (schema, table, fingerprint, column_count, captured_at)
+- [x] T008 [P] Create steep_repl.init_slots table in extensions/steep_repl/src/lib.rs (slot_name, node_id, lsn, created_at, expires_at)
+- [x] T009 [P] Create steep_repl.snapshots table in extensions/steep_repl/src/lib.rs (snapshot_id, source_node, lsn, storage_path, manifest_json, status)
+- [x] T010 Implement compute_fingerprint(schema, table) SQL function in extensions/steep_repl/src/lib.rs (SHA256 of column definitions)
+- [x] T011 [P] Create InitProgress Go model in internal/repl/models/progress.go matching init_progress table
+- [x] T012 [P] Create SchemaFingerprint Go model in internal/repl/models/fingerprint.go matching schema_fingerprints table
+- [x] T013 [P] Create Snapshot Go model in internal/repl/models/snapshot.go matching snapshots table
+- [x] T014 Implement InitManager struct skeleton in internal/repl/init/manager.go (holds pool, config, channels for progress updates)
+- [x] T015 Add InitService RPC handlers skeleton in internal/repl/grpc/init_handlers.go (StartInit, PrepareInit, CompleteInit, CancelInit, GetProgress, StreamProgress)
+- [x] T016 Add init subcommand group to cmd/steep-repl/main.go (init, init prepare, init complete, init cancel)
+- [x] T017 Implement structured JSON logging for init events in internal/repl/init/logging.go (init.started, init.state_change, init.table_complete, etc.)
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
