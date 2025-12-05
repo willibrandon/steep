@@ -43,6 +43,10 @@ var (
 	ColorAlertCritical = lipgloss.Color("196") // Bright red - critical alerts
 	ColorAlertNormal   = lipgloss.Color("10")  // Green - resolved/normal
 	ColorAlertAck      = lipgloss.Color("8")   // Gray - acknowledged
+
+	// Instance indicator colors
+	ColorInstance          = lipgloss.Color("205") // Magenta/pink - current instance (complements cyan header)
+	ColorInstanceHighlight = lipgloss.Color("219") // Light pink - brief flash on switch
 )
 
 // ConnectionStateColor returns the appropriate color for a connection state.

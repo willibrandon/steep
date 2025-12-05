@@ -209,38 +209,12 @@ func (s *StatusBar) View() string {
 		agentSection = " | " + styles.MutedStyle.Render("Agent: Stopped")
 	}
 
-	// Instance indicator (T054: multi-instance support)
-	// Only show when agent is running and there are instances to display
+	// Instance navigation hint (T054: multi-instance support)
+	// Instance name is now shown in the top header - status bar just shows nav hint
 	var instanceSection string
-	if s.agentMode && len(s.instances) > 0 {
-		if len(s.instances) == 1 {
-			// Single instance - just show the name
-			inst := s.instances[0]
-			if inst.Status == "connected" {
-				instanceSection = " | " + styles.SuccessStyle.Render(fmt.Sprintf("[%s]", inst.Name))
-			} else {
-				instanceSection = " | " + styles.WarningStyle.Render(fmt.Sprintf("[%s: %s]", inst.Name, inst.Status))
-			}
-		} else {
-			// Multiple instances - show filter or count
-			if s.currentInstance != "" {
-				// Filtering by specific instance - use accent color to highlight current selection
-				instanceSection = " | " + styles.AccentStyle.Render(fmt.Sprintf("[%s]", s.currentInstance))
-			} else {
-				// Show instance count with health summary
-				connectedCount := 0
-				for _, inst := range s.instances {
-					if inst.Status == "connected" {
-						connectedCount++
-					}
-				}
-				if connectedCount == len(s.instances) {
-					instanceSection = " | " + styles.SuccessStyle.Render(fmt.Sprintf("[%d instances]", len(s.instances)))
-				} else {
-					instanceSection = " | " + styles.WarningStyle.Render(fmt.Sprintf("[%d/%d instances]", connectedCount, len(s.instances)))
-				}
-			}
-		}
+	if s.agentMode && len(s.instances) > 1 {
+		// Multiple instances - show navigation hint
+		instanceSection = " | " + styles.MutedStyle.Render("</>")
 	}
 
 	// Build status line

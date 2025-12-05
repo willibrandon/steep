@@ -130,10 +130,12 @@ type Model struct {
 	alertStore  *sqlite.AlertStore
 
 	// Multi-instance support (T054)
-	currentInstance string                       // Name of currently selected instance
-	instanceNames   []string                     // Available instance names for cycling
-	instancePools   map[string]*pgxpool.Pool     // Connection pool per instance
-	instanceConfigs []config.AgentInstanceConfig // Instance connection configs
+	currentInstance       string                       // Name of currently selected instance
+	instanceNames         []string                     // Available instance names for cycling
+	instancePools         map[string]*pgxpool.Pool     // Connection pool per instance
+	instanceConfigs       []config.AgentInstanceConfig // Instance connection configs
+	instanceSwitchTime    time.Time                    // Time of last instance switch (for highlight effect)
+	instanceSwitchTimeout time.Duration                // Duration to show highlight (1 second)
 }
 
 // AgentStatusInfo holds agent status for display in the status bar.
@@ -267,10 +269,11 @@ func New(readonly bool, configPath string, agentStatus *AgentStatusInfo) (*Model
 		reconnectionState: db.NewReconnectionState(5), // Max 5 attempts
 		reconnecting:      false,
 		readOnly:          readonly,
-		chartsVisible:     true, // Charts visible by default
-		connectionMetrics: connectionMetrics,
-		instancePools:     make(map[string]*pgxpool.Pool),
-		instanceConfigs:   cfg.Agent.Instances,
+		chartsVisible:         true, // Charts visible by default
+		connectionMetrics:     connectionMetrics,
+		instancePools:         make(map[string]*pgxpool.Pool),
+		instanceConfigs:       cfg.Agent.Instances,
+		instanceSwitchTimeout: 1 * time.Second, // Highlight duration on switch
 	}, nil
 }
 
@@ -1607,6 +1610,9 @@ func (m *Model) cycleInstance(direction int) {
 	m.currentInstance = newInstance
 	m.dbPool = pool
 
+	// Set switch time for highlight effect
+	m.instanceSwitchTime = time.Now()
+
 	// Update status bar
 	m.statusBar.SetCurrentInstance(m.currentInstance)
 
@@ -1874,7 +1880,54 @@ func (m Model) renderCurrentView() string {
 
 // renderHeader renders the application header
 func (m Model) renderHeader() string {
-	return styles.HeaderStyle.Render("Steep - PostgreSQL Monitoring")
+	// Header base style (cyan, bold)
+	headerStyle := styles.HeaderStyle
+
+	// Build header: "Steep [instance] - PostgreSQL Monitoring"
+	// Instance indicator gets its own color, rest uses header style
+	var result string
+	result = headerStyle.Render("Steep")
+
+	// Show instance name prominently when in multi-instance mode
+	if len(m.instanceNames) > 1 && m.currentInstance != "" {
+		// Check if we're in the highlight period after a switch
+		isHighlighted := !m.instanceSwitchTime.IsZero() &&
+			time.Since(m.instanceSwitchTime) < m.instanceSwitchTimeout
+
+		// Bracket style - muted, acts as container
+		bracketStyle := lipgloss.NewStyle().
+			Foreground(styles.ColorMuted)
+
+		// Instance name style - stands out
+		instanceStyle := lipgloss.NewStyle().
+			Foreground(styles.ColorInstance).
+			Bold(true)
+
+		if isHighlighted {
+			// Brief highlight after switch - add chevrons for motion effect
+			// and use a subtle background to draw the eye
+			highlightBracket := lipgloss.NewStyle().
+				Foreground(styles.ColorMuted).
+				Background(lipgloss.Color("236"))
+			highlightName := lipgloss.NewStyle().
+				Foreground(styles.ColorInstanceHighlight).
+				Background(lipgloss.Color("236")).
+				Bold(true)
+			result += " " + highlightBracket.Render("»[") + highlightName.Render(m.currentInstance) + highlightBracket.Render("]«")
+		} else {
+			// Brackets muted, instance name colored
+			result += " " + bracketStyle.Render("[") + instanceStyle.Render(m.currentInstance) + bracketStyle.Render("]")
+		}
+	} else if m.agentStatus != nil && m.agentStatus.Running && len(m.agentStatus.Instances) == 1 {
+		// Single instance with agent - show instance name in muted style
+		bracketStyle := lipgloss.NewStyle().
+			Foreground(styles.ColorMuted)
+		result += " " + bracketStyle.Render("["+m.agentStatus.Instances[0].Name+"]")
+	}
+
+	result += headerStyle.Render(" - PostgreSQL Monitoring")
+
+	return result
 }
 
 // renderStatusBar renders the status bar
