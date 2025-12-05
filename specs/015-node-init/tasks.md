@@ -92,18 +92,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T028 [P] [US2] Integration test for prepare/complete workflow in tests/integration/repl/init_test.go (create slot, verify LSN, complete init)
-- [ ] T029 [P] [US2] Integration test for schema verification during complete in tests/integration/repl/init_test.go (mismatch detection in strict mode)
+- [x] T028 [P] [US2] Integration test for prepare/complete workflow in tests/integration/repl/init_test.go (create slot, verify LSN, complete init)
+- [x] T029 [P] [US2] Integration test for schema verification during complete in tests/integration/repl/init_test.go (mismatch detection in strict mode)
 
 ### Implementation for User Story 2
 
-- [ ] T030 [US2] Implement PrepareInit RPC handler in internal/repl/grpc/handlers.go (create replication slot, record LSN, set expiry)
-- [ ] T031 [US2] Implement prepare logic in internal/repl/init/manual.go (pg_create_logical_replication_slot, pg_current_wal_lsn)
-- [ ] T032 [US2] Implement CompleteInit RPC handler in internal/repl/grpc/handlers.go (verify schema, install metadata, create subscription)
-- [ ] T033 [US2] Implement complete logic in internal/repl/init/manual.go (schema check, CREATE SUBSCRIPTION with copy_data=false, origin advance)
-- [ ] T034 [US2] Add init prepare CLI command in cmd/steep-repl/main.go (`steep-repl init prepare --node <node> --slot <name>`)
-- [ ] T035 [US2] Add init complete CLI command in cmd/steep-repl/main.go (`steep-repl init complete --node <target> --source <source> --source-lsn <lsn>`)
-- [ ] T036 [US2] Handle WAL catch-up phase after complete in internal/repl/init/manual.go (track lag until caught up, transition to SYNCHRONIZED)
+- [x] T030 [US2] Implement PrepareInit RPC handler in internal/repl/grpc/init_handlers.go (create replication slot, record LSN, set expiry)
+- [x] T031 [US2] Implement prepare logic in internal/repl/init/manual.go (pg_create_logical_replication_slot, pg_current_wal_lsn)
+- [x] T032 [US2] Implement CompleteInit RPC handler in internal/repl/grpc/init_handlers.go (verify schema, install metadata, create subscription)
+- [x] T033 [US2] Implement complete logic in internal/repl/init/manual.go (schema check, CREATE SUBSCRIPTION with copy_data=false, origin advance)
+- [x] T034 [US2] Add init prepare CLI command in cmd/steep-repl/main.go (`steep-repl init prepare --node <node> --slot <name>`)
+- [x] T035 [US2] Add init complete CLI command in cmd/steep-repl/main.go (`steep-repl init complete --node <target> --source <source> --source-lsn <lsn>`)
+- [x] T036 [US2] Handle WAL catch-up phase after complete in internal/repl/init/manual.go (track lag until caught up, transition to SYNCHRONIZED)
 
 **Checkpoint**: Manual initialization workflow works with user-managed backup/restore
 

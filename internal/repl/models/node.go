@@ -66,7 +66,7 @@ func (s InitState) IsValid() bool {
 func (s InitState) CanTransitionTo(target InitState) bool {
 	transitions := map[InitState][]InitState{
 		InitStateUninitialized:  {InitStatePreparing, InitStateFailed},
-		InitStatePreparing:      {InitStateCopying, InitStateFailed},
+		InitStatePreparing:      {InitStateCopying, InitStateCatchingUp, InitStateFailed}, // CatchingUp for manual init (skips copying)
 		InitStateCopying:        {InitStateCatchingUp, InitStateFailed},
 		InitStateCatchingUp:     {InitStateSynchronized, InitStateFailed},
 		InitStateSynchronized:   {InitStateDiverged},

@@ -295,6 +295,18 @@ func (m *Manager) StartReinit(ctx context.Context, opts ReinitOptions) error {
 	return m.reinit.Start(ctx, opts)
 }
 
+// PrepareInit prepares for manual initialization by creating a replication slot.
+// This should be called on the SOURCE node.
+func (m *Manager) PrepareInit(ctx context.Context, nodeID, slotName string, expiresDuration time.Duration) (*PrepareResult, error) {
+	return m.manual.Prepare(ctx, nodeID, slotName, expiresDuration)
+}
+
+// CompleteInit finishes manual initialization after user has restored backup.
+// This should be called on the TARGET node.
+func (m *Manager) CompleteInit(ctx context.Context, opts CompleteOptions) error {
+	return m.manual.Complete(ctx, opts)
+}
+
 // sendProgress sends a progress update to subscribers.
 func (m *Manager) sendProgress(update ProgressUpdate) {
 	select {

@@ -665,13 +665,15 @@ func (x *PrepareInitResponse) GetCreatedAt() *timestamppb.Timestamp {
 }
 
 type CompleteInitRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	TargetNodeId   string                 `protobuf:"bytes,1,opt,name=target_node_id,json=targetNodeId,proto3" json:"target_node_id,omitempty"`
-	SourceNodeId   string                 `protobuf:"bytes,2,opt,name=source_node_id,json=sourceNodeId,proto3" json:"source_node_id,omitempty"`
-	SourceLsn      string                 `protobuf:"bytes,3,opt,name=source_lsn,json=sourceLsn,proto3" json:"source_lsn,omitempty"`
-	SchemaSyncMode SchemaSyncMode         `protobuf:"varint,4,opt,name=schema_sync_mode,json=schemaSyncMode,proto3,enum=steep.repl.v1.SchemaSyncMode" json:"schema_sync_mode,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	TargetNodeId    string                 `protobuf:"bytes,1,opt,name=target_node_id,json=targetNodeId,proto3" json:"target_node_id,omitempty"`
+	SourceNodeId    string                 `protobuf:"bytes,2,opt,name=source_node_id,json=sourceNodeId,proto3" json:"source_node_id,omitempty"`
+	SourceLsn       string                 `protobuf:"bytes,3,opt,name=source_lsn,json=sourceLsn,proto3" json:"source_lsn,omitempty"`
+	SchemaSyncMode  SchemaSyncMode         `protobuf:"varint,4,opt,name=schema_sync_mode,json=schemaSyncMode,proto3,enum=steep.repl.v1.SchemaSyncMode" json:"schema_sync_mode,omitempty"`
+	SourceNodeInfo  *SourceNodeInfo        `protobuf:"bytes,5,opt,name=source_node_info,json=sourceNodeInfo,proto3" json:"source_node_info,omitempty"` // Required for subscription connection
+	SkipSchemaCheck bool                   `protobuf:"varint,6,opt,name=skip_schema_check,json=skipSchemaCheck,proto3" json:"skip_schema_check,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CompleteInitRequest) Reset() {
@@ -730,6 +732,20 @@ func (x *CompleteInitRequest) GetSchemaSyncMode() SchemaSyncMode {
 		return x.SchemaSyncMode
 	}
 	return SchemaSyncMode_SCHEMA_SYNC_UNSPECIFIED
+}
+
+func (x *CompleteInitRequest) GetSourceNodeInfo() *SourceNodeInfo {
+	if x != nil {
+		return x.SourceNodeInfo
+	}
+	return nil
+}
+
+func (x *CompleteInitRequest) GetSkipSchemaCheck() bool {
+	if x != nil {
+		return x.SkipSchemaCheck
+	}
+	return false
 }
 
 type CompleteInitResponse struct {
@@ -2229,13 +2245,15 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\tslot_name\x18\x03 \x01(\tR\bslotName\x12\x10\n" +
 	"\x03lsn\x18\x04 \x01(\tR\x03lsn\x129\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xc9\x01\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xbe\x02\n" +
 	"\x13CompleteInitRequest\x12$\n" +
 	"\x0etarget_node_id\x18\x01 \x01(\tR\ftargetNodeId\x12$\n" +
 	"\x0esource_node_id\x18\x02 \x01(\tR\fsourceNodeId\x12\x1d\n" +
 	"\n" +
 	"source_lsn\x18\x03 \x01(\tR\tsourceLsn\x12G\n" +
-	"\x10schema_sync_mode\x18\x04 \x01(\x0e2\x1d.steep.repl.v1.SchemaSyncModeR\x0eschemaSyncMode\"\xc4\x01\n" +
+	"\x10schema_sync_mode\x18\x04 \x01(\x0e2\x1d.steep.repl.v1.SchemaSyncModeR\x0eschemaSyncMode\x12G\n" +
+	"\x10source_node_info\x18\x05 \x01(\v2\x1d.steep.repl.v1.SourceNodeInfoR\x0esourceNodeInfo\x12*\n" +
+	"\x11skip_schema_check\x18\x06 \x01(\bR\x0fskipSchemaCheck\"\xc4\x01\n" +
 	"\x14CompleteInitResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12.\n" +
@@ -2456,46 +2474,47 @@ var file_internal_repl_grpc_proto_init_proto_depIdxs = []int32{
 	0,  // 4: steep.repl.v1.StartInitResponse.state:type_name -> steep.repl.v1.InitState
 	31, // 5: steep.repl.v1.PrepareInitResponse.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 6: steep.repl.v1.CompleteInitRequest.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
-	0,  // 7: steep.repl.v1.CompleteInitResponse.state:type_name -> steep.repl.v1.InitState
-	26, // 8: steep.repl.v1.CompleteInitResponse.schema_mismatches:type_name -> steep.repl.v1.SchemaComparison
-	0,  // 9: steep.repl.v1.CancelInitResponse.previous_state:type_name -> steep.repl.v1.InitState
-	18, // 10: steep.repl.v1.GetProgressResponse.progress:type_name -> steep.repl.v1.InitProgress
-	18, // 11: steep.repl.v1.ProgressUpdate.progress:type_name -> steep.repl.v1.InitProgress
-	31, // 12: steep.repl.v1.ProgressUpdate.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 13: steep.repl.v1.InitProgress.state:type_name -> steep.repl.v1.InitState
-	31, // 14: steep.repl.v1.InitProgress.started_at:type_name -> google.protobuf.Timestamp
-	19, // 15: steep.repl.v1.InitProgress.completed_tables:type_name -> steep.repl.v1.TableProgress
-	21, // 16: steep.repl.v1.StartReinitRequest.scope:type_name -> steep.repl.v1.ReinitScope
-	22, // 17: steep.repl.v1.ReinitScope.tables:type_name -> steep.repl.v1.TableList
-	0,  // 18: steep.repl.v1.StartReinitResponse.state:type_name -> steep.repl.v1.InitState
-	26, // 19: steep.repl.v1.CompareSchemasResponse.comparisons:type_name -> steep.repl.v1.SchemaComparison
-	3,  // 20: steep.repl.v1.SchemaComparison.status:type_name -> steep.repl.v1.ComparisonStatus
-	27, // 21: steep.repl.v1.SchemaComparison.differences:type_name -> steep.repl.v1.ColumnDifference
-	4,  // 22: steep.repl.v1.InitService.StartInit:input_type -> steep.repl.v1.StartInitRequest
-	8,  // 23: steep.repl.v1.InitService.PrepareInit:input_type -> steep.repl.v1.PrepareInitRequest
-	10, // 24: steep.repl.v1.InitService.CompleteInit:input_type -> steep.repl.v1.CompleteInitRequest
-	12, // 25: steep.repl.v1.InitService.CancelInit:input_type -> steep.repl.v1.CancelInitRequest
-	14, // 26: steep.repl.v1.InitService.GetProgress:input_type -> steep.repl.v1.GetProgressRequest
-	16, // 27: steep.repl.v1.InitService.StreamProgress:input_type -> steep.repl.v1.StreamProgressRequest
-	20, // 28: steep.repl.v1.InitService.StartReinit:input_type -> steep.repl.v1.StartReinitRequest
-	24, // 29: steep.repl.v1.InitService.CompareSchemas:input_type -> steep.repl.v1.CompareSchemasRequest
-	28, // 30: steep.repl.v1.InitService.GenerateSnapshot:input_type -> steep.repl.v1.GenerateSnapshotRequest
-	29, // 31: steep.repl.v1.InitService.ApplySnapshot:input_type -> steep.repl.v1.ApplySnapshotRequest
-	7,  // 32: steep.repl.v1.InitService.StartInit:output_type -> steep.repl.v1.StartInitResponse
-	9,  // 33: steep.repl.v1.InitService.PrepareInit:output_type -> steep.repl.v1.PrepareInitResponse
-	11, // 34: steep.repl.v1.InitService.CompleteInit:output_type -> steep.repl.v1.CompleteInitResponse
-	13, // 35: steep.repl.v1.InitService.CancelInit:output_type -> steep.repl.v1.CancelInitResponse
-	15, // 36: steep.repl.v1.InitService.GetProgress:output_type -> steep.repl.v1.GetProgressResponse
-	17, // 37: steep.repl.v1.InitService.StreamProgress:output_type -> steep.repl.v1.ProgressUpdate
-	23, // 38: steep.repl.v1.InitService.StartReinit:output_type -> steep.repl.v1.StartReinitResponse
-	25, // 39: steep.repl.v1.InitService.CompareSchemas:output_type -> steep.repl.v1.CompareSchemasResponse
-	30, // 40: steep.repl.v1.InitService.GenerateSnapshot:output_type -> steep.repl.v1.SnapshotProgress
-	30, // 41: steep.repl.v1.InitService.ApplySnapshot:output_type -> steep.repl.v1.SnapshotProgress
-	32, // [32:42] is the sub-list for method output_type
-	22, // [22:32] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	5,  // 7: steep.repl.v1.CompleteInitRequest.source_node_info:type_name -> steep.repl.v1.SourceNodeInfo
+	0,  // 8: steep.repl.v1.CompleteInitResponse.state:type_name -> steep.repl.v1.InitState
+	26, // 9: steep.repl.v1.CompleteInitResponse.schema_mismatches:type_name -> steep.repl.v1.SchemaComparison
+	0,  // 10: steep.repl.v1.CancelInitResponse.previous_state:type_name -> steep.repl.v1.InitState
+	18, // 11: steep.repl.v1.GetProgressResponse.progress:type_name -> steep.repl.v1.InitProgress
+	18, // 12: steep.repl.v1.ProgressUpdate.progress:type_name -> steep.repl.v1.InitProgress
+	31, // 13: steep.repl.v1.ProgressUpdate.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 14: steep.repl.v1.InitProgress.state:type_name -> steep.repl.v1.InitState
+	31, // 15: steep.repl.v1.InitProgress.started_at:type_name -> google.protobuf.Timestamp
+	19, // 16: steep.repl.v1.InitProgress.completed_tables:type_name -> steep.repl.v1.TableProgress
+	21, // 17: steep.repl.v1.StartReinitRequest.scope:type_name -> steep.repl.v1.ReinitScope
+	22, // 18: steep.repl.v1.ReinitScope.tables:type_name -> steep.repl.v1.TableList
+	0,  // 19: steep.repl.v1.StartReinitResponse.state:type_name -> steep.repl.v1.InitState
+	26, // 20: steep.repl.v1.CompareSchemasResponse.comparisons:type_name -> steep.repl.v1.SchemaComparison
+	3,  // 21: steep.repl.v1.SchemaComparison.status:type_name -> steep.repl.v1.ComparisonStatus
+	27, // 22: steep.repl.v1.SchemaComparison.differences:type_name -> steep.repl.v1.ColumnDifference
+	4,  // 23: steep.repl.v1.InitService.StartInit:input_type -> steep.repl.v1.StartInitRequest
+	8,  // 24: steep.repl.v1.InitService.PrepareInit:input_type -> steep.repl.v1.PrepareInitRequest
+	10, // 25: steep.repl.v1.InitService.CompleteInit:input_type -> steep.repl.v1.CompleteInitRequest
+	12, // 26: steep.repl.v1.InitService.CancelInit:input_type -> steep.repl.v1.CancelInitRequest
+	14, // 27: steep.repl.v1.InitService.GetProgress:input_type -> steep.repl.v1.GetProgressRequest
+	16, // 28: steep.repl.v1.InitService.StreamProgress:input_type -> steep.repl.v1.StreamProgressRequest
+	20, // 29: steep.repl.v1.InitService.StartReinit:input_type -> steep.repl.v1.StartReinitRequest
+	24, // 30: steep.repl.v1.InitService.CompareSchemas:input_type -> steep.repl.v1.CompareSchemasRequest
+	28, // 31: steep.repl.v1.InitService.GenerateSnapshot:input_type -> steep.repl.v1.GenerateSnapshotRequest
+	29, // 32: steep.repl.v1.InitService.ApplySnapshot:input_type -> steep.repl.v1.ApplySnapshotRequest
+	7,  // 33: steep.repl.v1.InitService.StartInit:output_type -> steep.repl.v1.StartInitResponse
+	9,  // 34: steep.repl.v1.InitService.PrepareInit:output_type -> steep.repl.v1.PrepareInitResponse
+	11, // 35: steep.repl.v1.InitService.CompleteInit:output_type -> steep.repl.v1.CompleteInitResponse
+	13, // 36: steep.repl.v1.InitService.CancelInit:output_type -> steep.repl.v1.CancelInitResponse
+	15, // 37: steep.repl.v1.InitService.GetProgress:output_type -> steep.repl.v1.GetProgressResponse
+	17, // 38: steep.repl.v1.InitService.StreamProgress:output_type -> steep.repl.v1.ProgressUpdate
+	23, // 39: steep.repl.v1.InitService.StartReinit:output_type -> steep.repl.v1.StartReinitResponse
+	25, // 40: steep.repl.v1.InitService.CompareSchemas:output_type -> steep.repl.v1.CompareSchemasResponse
+	30, // 41: steep.repl.v1.InitService.GenerateSnapshot:output_type -> steep.repl.v1.SnapshotProgress
+	30, // 42: steep.repl.v1.InitService.ApplySnapshot:output_type -> steep.repl.v1.SnapshotProgress
+	33, // [33:43] is the sub-list for method output_type
+	23, // [23:33] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_internal_repl_grpc_proto_init_proto_init() }

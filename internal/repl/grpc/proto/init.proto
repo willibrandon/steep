@@ -142,6 +142,8 @@ message CompleteInitRequest {
     string source_node_id = 2;
     string source_lsn = 3;
     SchemaSyncMode schema_sync_mode = 4;
+    SourceNodeInfo source_node_info = 5;  // Required for subscription connection
+    bool skip_schema_check = 6;
 }
 
 message CompleteInitResponse {

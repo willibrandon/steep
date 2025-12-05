@@ -860,9 +860,11 @@ func runInitStartIPC(targetNodeID, sourceNodeID, method string, parallelWorkers 
 // newInitPrepareCmd creates the init prepare subcommand for manual initialization.
 func newInitPrepareCmd() *cobra.Command {
 	var (
-		nodeID      string
-		slotName    string
-		expireHours int
+		nodeID     string
+		slotName   string
+		remoteAddr string
+		caFile     string
+		insecure   bool
 	)
 
 	cmd := &cobra.Command{
@@ -871,10 +873,15 @@ func newInitPrepareCmd() *cobra.Command {
 		Long: `Prepare for manual initialization by creating a replication slot and
 recording the LSN. This is step 1 of the manual initialization workflow.
 
+This command should be run on the SOURCE node.
+
 After running this command:
 1. Use pg_basebackup or pg_dump to create a backup from the source
 2. Restore the backup on the target node
-3. Run 'steep-repl init complete' to finish initialization`,
+3. Run 'steep-repl init complete' on the TARGET node to finish initialization
+
+Example:
+  steep-repl init prepare --node source-node --slot init_slot_001 --remote localhost:15460 --insecure`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if nodeID == "" {
 				return fmt.Errorf("--node flag is required")
@@ -885,21 +892,82 @@ After running this command:
 
 			fmt.Printf("Preparing initialization for node %s...\n", nodeID)
 			fmt.Printf("  Slot name: %s\n", slotName)
-			fmt.Printf("  Expires in: %d hours\n", expireHours)
 			fmt.Println()
 
-			// Skeleton - actual gRPC call implemented in T034
-			fmt.Println("Not implemented: init prepare (see T034)")
+			// If remote address specified, use gRPC
+			if remoteAddr != "" {
+				return runInitPrepareGRPC(nodeID, slotName, remoteAddr, caFile, insecure)
+			}
+
+			// Otherwise show error
+			fmt.Println("Error: IPC not implemented for init prepare")
+			fmt.Println("Use --remote flag to connect to a running daemon via gRPC:")
+			fmt.Printf("  steep-repl init prepare --node %s --slot %s --remote localhost:5433 --insecure\n", nodeID, slotName)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&nodeID, "node", "", "node ID to prepare (required)")
 	cmd.Flags().StringVar(&slotName, "slot", "", "replication slot name (default: steep_init_<node>)")
-	cmd.Flags().IntVar(&expireHours, "expires", 24, "slot expiration in hours")
+	cmd.Flags().StringVar(&remoteAddr, "remote", "", "remote daemon address (host:port) for gRPC")
+	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
 	_ = cmd.MarkFlagRequired("node")
 
 	return cmd
+}
+
+// runInitPrepareGRPC prepares for initialization via gRPC.
+func runInitPrepareGRPC(nodeID, slotName, remoteAddr, caFile string, insecure bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	clientCfg := replgrpc.ClientConfig{
+		Address: remoteAddr,
+		Timeout: 30 * time.Second,
+	}
+	if !insecure {
+		clientCfg.CAFile = caFile
+	}
+
+	client, err := replgrpc.NewClient(ctx, clientCfg)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	defer client.Close()
+
+	resp, err := client.PrepareInit(ctx, &pb.PrepareInitRequest{
+		NodeId:   nodeID,
+		SlotName: slotName,
+	})
+	if err != nil {
+		return fmt.Errorf("gRPC call failed: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("prepare failed: %s", resp.Error)
+	}
+
+	fmt.Println("Prepare completed successfully!")
+	fmt.Printf("  Slot:       %s\n", resp.SlotName)
+	fmt.Printf("  LSN:        %s\n", resp.Lsn)
+	if resp.CreatedAt != nil {
+		fmt.Printf("  Created at: %s\n", resp.CreatedAt.AsTime().Format(time.RFC3339))
+	}
+	fmt.Println()
+	fmt.Println("Next steps:")
+	fmt.Println("  1. Create a backup using the slot:")
+	fmt.Printf("     pg_basebackup -h <source-host> -S %s -X stream -D /path/to/backup\n", resp.SlotName)
+	fmt.Println("     # OR")
+	fmt.Println("     pg_dump -h <source-host> -Fd -f /path/to/backup <database>")
+	fmt.Println()
+	fmt.Println("  2. Restore the backup on the target node")
+	fmt.Println()
+	fmt.Println("  3. Complete initialization on the target:")
+	fmt.Printf("     steep-repl init complete --node <target> --source %s --lsn %s \\\n", nodeID, resp.Lsn)
+	fmt.Println("       --source-host <source-host> --source-port 5432 --remote <target-daemon> --insecure")
+
+	return nil
 }
 
 // newInitCompleteCmd creates the init complete subcommand for manual initialization.
@@ -910,6 +978,14 @@ func newInitCompleteCmd() *cobra.Command {
 		sourceLSN       string
 		schemaSync      string
 		skipSchemaCheck bool
+		remoteAddr      string
+		caFile          string
+		insecure        bool
+		// Source connection info for subscription
+		sourceHost     string
+		sourcePort     int
+		sourceDatabase string
+		sourceUser     string
 	)
 
 	cmd := &cobra.Command{
@@ -918,13 +994,20 @@ func newInitCompleteCmd() *cobra.Command {
 		Long: `Complete manual initialization after restoring a backup.
 This is step 2 of the manual initialization workflow.
 
+This command should be run on the TARGET node.
+
 Before running this command:
 1. Run 'steep-repl init prepare' on the source node
 2. Use pg_basebackup or pg_dump to create a backup
 3. Restore the backup on the target node
 
 This command will verify the schema matches and create the subscription
-to start replication from the recorded LSN.`,
+to start replication from the recorded LSN.
+
+Example:
+  steep-repl init complete --node target-node --source source-node --lsn 0/1A234B00 \
+    --source-host pg-source --source-port 5432 --source-database testdb --source-user test \
+    --remote localhost:15461 --insecure`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if targetNodeID == "" {
 				return fmt.Errorf("--node flag is required")
@@ -932,17 +1015,32 @@ to start replication from the recorded LSN.`,
 			if sourceNodeID == "" {
 				return fmt.Errorf("--source flag is required")
 			}
+			if sourceHost == "" {
+				return fmt.Errorf("--source-host flag is required")
+			}
 
 			fmt.Printf("Completing initialization of %s from %s...\n", targetNodeID, sourceNodeID)
 			if sourceLSN != "" {
 				fmt.Printf("  Source LSN: %s\n", sourceLSN)
+			} else {
+				fmt.Printf("  Source LSN: (auto-detect from init_slots)\n")
 			}
+			fmt.Printf("  Source: %s:%d\n", sourceHost, sourcePort)
 			fmt.Printf("  Schema sync: %s\n", schemaSync)
 			fmt.Printf("  Skip schema check: %v\n", skipSchemaCheck)
 			fmt.Println()
 
-			// Skeleton - actual gRPC call implemented in T035
-			fmt.Println("Not implemented: init complete (see T035)")
+			// If remote address specified, use gRPC
+			if remoteAddr != "" {
+				return runInitCompleteGRPC(targetNodeID, sourceNodeID, sourceLSN, schemaSync, skipSchemaCheck,
+					sourceHost, sourcePort, sourceDatabase, sourceUser,
+					remoteAddr, caFile, insecure)
+			}
+
+			// Otherwise show error
+			fmt.Println("Error: IPC not implemented for init complete")
+			fmt.Println("Use --remote flag to connect to a running daemon via gRPC:")
+			fmt.Printf("  steep-repl init complete --node %s --source %s --source-host <host> --remote localhost:5433 --insecure\n", targetNodeID, sourceNodeID)
 			return nil
 		},
 	}
@@ -952,10 +1050,83 @@ to start replication from the recorded LSN.`,
 	cmd.Flags().StringVar(&sourceLSN, "lsn", "", "source LSN from prepare step (auto-detected if not specified)")
 	cmd.Flags().StringVar(&schemaSync, "schema-sync", "strict", "schema sync mode: strict, auto, manual")
 	cmd.Flags().BoolVar(&skipSchemaCheck, "skip-schema-check", false, "skip schema verification (dangerous)")
+	cmd.Flags().StringVar(&sourceHost, "source-host", "", "source PostgreSQL host (required)")
+	cmd.Flags().IntVar(&sourcePort, "source-port", 5432, "source PostgreSQL port")
+	cmd.Flags().StringVar(&sourceDatabase, "source-database", "", "source PostgreSQL database")
+	cmd.Flags().StringVar(&sourceUser, "source-user", "", "source PostgreSQL user")
+	cmd.Flags().StringVar(&remoteAddr, "remote", "", "remote daemon address (host:port) for gRPC")
+	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
 	_ = cmd.MarkFlagRequired("node")
 	_ = cmd.MarkFlagRequired("source")
+	_ = cmd.MarkFlagRequired("source-host")
 
 	return cmd
+}
+
+// runInitCompleteGRPC completes initialization via gRPC.
+func runInitCompleteGRPC(targetNodeID, sourceNodeID, sourceLSN, schemaSync string, skipSchemaCheck bool,
+	sourceHost string, sourcePort int, sourceDatabase, sourceUser string,
+	remoteAddr, caFile string, insecure bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	clientCfg := replgrpc.ClientConfig{
+		Address: remoteAddr,
+		Timeout: 2 * time.Minute,
+	}
+	if !insecure {
+		clientCfg.CAFile = caFile
+	}
+
+	client, err := replgrpc.NewClient(ctx, clientCfg)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	defer client.Close()
+
+	// Convert schema sync to proto enum
+	var pbSchemaSync pb.SchemaSyncMode
+	switch schemaSync {
+	case "strict":
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_STRICT
+	case "auto":
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_AUTO
+	case "manual":
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_MANUAL
+	default:
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_STRICT
+	}
+
+	resp, err := client.CompleteInit(ctx, &pb.CompleteInitRequest{
+		TargetNodeId:   targetNodeID,
+		SourceNodeId:   sourceNodeID,
+		SourceLsn:      sourceLSN,
+		SchemaSyncMode: pbSchemaSync,
+		SourceNodeInfo: &pb.SourceNodeInfo{
+			Host:     sourceHost,
+			Port:     int32(sourcePort),
+			Database: sourceDatabase,
+			User:     sourceUser,
+		},
+		SkipSchemaCheck: skipSchemaCheck,
+	})
+	if err != nil {
+		return fmt.Errorf("gRPC call failed: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("complete failed: %s", resp.Error)
+	}
+
+	fmt.Println("Complete initialization started successfully!")
+	fmt.Printf("  State: %s\n", resp.State.String())
+	fmt.Println()
+	fmt.Println("The node is now catching up with WAL changes from the source.")
+	fmt.Println("Monitor progress with:")
+	fmt.Printf("  steep-repl init progress --node %s --remote %s --insecure\n", targetNodeID, remoteAddr)
+
+	return nil
 }
 
 // newInitCancelCmd creates the init cancel subcommand.

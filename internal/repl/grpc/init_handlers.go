@@ -108,7 +108,8 @@ func (s *InitServer) StartInit(ctx context.Context, req *pb.StartInitRequest) (*
 }
 
 // PrepareInit handles the PrepareInit RPC.
-// Implemented in T030 (Phase 4: User Story 2).
+// Creates a replication slot and records the LSN for manual initialization.
+// This should be called on the SOURCE node.
 func (s *InitServer) PrepareInit(ctx context.Context, req *pb.PrepareInitRequest) (*pb.PrepareInitResponse, error) {
 	s.logRequest("PrepareInit", req.NodeId)
 
@@ -119,15 +120,28 @@ func (s *InitServer) PrepareInit(ctx context.Context, req *pb.PrepareInitRequest
 		return nil, status.Error(codes.InvalidArgument, "slot_name is required")
 	}
 
-	// This is a skeleton - actual implementation in T030
+	// Default expiration: 24 hours
+	expiresDuration := 24 * time.Hour
+
+	result, err := s.manager.PrepareInit(ctx, req.NodeId, req.SlotName, expiresDuration)
+	if err != nil {
+		return &pb.PrepareInitResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
 	return &pb.PrepareInitResponse{
-		Success: false,
-		Error:   "not implemented: PrepareInit (see T030)",
+		Success:   true,
+		SlotName:  result.SlotName,
+		Lsn:       result.LSN,
+		CreatedAt: timestamppb.New(result.CreatedAt),
 	}, nil
 }
 
 // CompleteInit handles the CompleteInit RPC.
-// Implemented in T032 (Phase 4: User Story 2).
+// Finishes manual initialization after user has restored backup.
+// This should be called on the TARGET node.
 func (s *InitServer) CompleteInit(ctx context.Context, req *pb.CompleteInitRequest) (*pb.CompleteInitResponse, error) {
 	s.logRequest("CompleteInit", req.TargetNodeId)
 
@@ -137,11 +151,43 @@ func (s *InitServer) CompleteInit(ctx context.Context, req *pb.CompleteInitReque
 	if req.SourceNodeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "source_node_id is required")
 	}
+	if req.SourceNodeInfo == nil || req.SourceNodeInfo.Host == "" {
+		return nil, status.Error(codes.InvalidArgument, "source_node_info with host is required")
+	}
 
-	// This is a skeleton - actual implementation in T032
+	// Build complete options
+	opts := replinit.CompleteOptions{
+		TargetNodeID:    req.TargetNodeId,
+		SourceNodeID:    req.SourceNodeId,
+		SourceLSN:       req.SourceLsn,
+		SourceHost:      req.SourceNodeInfo.Host,
+		SourcePort:      int(req.SourceNodeInfo.Port),
+		SourceDatabase:  req.SourceNodeInfo.Database,
+		SourceUser:      req.SourceNodeInfo.User,
+		SchemaSyncMode:  protoSchemaSyncToConfig(req.SchemaSyncMode),
+		SkipSchemaCheck: req.SkipSchemaCheck,
+	}
+
+	// Default port if not set
+	if opts.SourcePort == 0 {
+		opts.SourcePort = 5432
+	}
+
+	err := s.manager.CompleteInit(ctx, opts)
+	if err != nil {
+		return &pb.CompleteInitResponse{
+			Success: false,
+			Error:   err.Error(),
+			State:   pb.InitState_INIT_STATE_FAILED,
+		}, nil
+	}
+
+	// Get current state after completion
+	nodeState, _ := s.manager.GetNodeState(ctx, req.TargetNodeId)
+
 	return &pb.CompleteInitResponse{
-		Success: false,
-		Error:   "not implemented: CompleteInit (see T032)",
+		Success: true,
+		State:   modelStateToProto(nodeState),
 	}, nil
 }
 
