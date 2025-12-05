@@ -318,6 +318,10 @@ func (v *ReplicationView) handleNodesKeys(key string) tea.Cmd {
 			v.mode = ModeNormal
 		case "C":
 			// T044: Cancel initialization from TUI
+			// Only allow cancel if node is actively initializing
+			if v.progressOverlay == nil || !v.progressOverlay.IsInitializing() {
+				return nil // Node is not initializing, ignore cancel
+			}
 			if v.readOnly {
 				v.showToast("Cannot cancel initialization in read-only mode", true)
 				return nil

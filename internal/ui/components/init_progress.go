@@ -76,6 +76,22 @@ func (p *InitProgressOverlay) GetNodeID() string {
 	return p.progress.NodeID
 }
 
+// GetState returns the current state being displayed.
+func (p *InitProgressOverlay) GetState() string {
+	if p.progress == nil {
+		return ""
+	}
+	return p.progress.State
+}
+
+// IsInitializing returns true if the displayed node is actively initializing.
+func (p *InitProgressOverlay) IsInitializing() bool {
+	if p.progress == nil {
+		return false
+	}
+	return isActiveState(p.progress.State)
+}
+
 // SetProgress updates the progress data.
 func (p *InitProgressOverlay) SetProgress(progress *InitProgressData) {
 	p.progress = progress
@@ -200,7 +216,12 @@ func (p *InitProgressOverlay) View() string {
 	// Help text
 	lines = append(lines, "")
 	helpStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
-	lines = append(lines, helpStyle.Render("[C] Cancel  [Esc] Close"))
+	// Only show cancel option if initialization is active
+	if isActiveState(pr.State) {
+		lines = append(lines, helpStyle.Render("[C] Cancel  [Esc] Close"))
+	} else {
+		lines = append(lines, helpStyle.Render("[Esc] Close"))
+	}
 
 	content := strings.Join(lines, "\n")
 
