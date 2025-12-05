@@ -778,32 +778,45 @@ psql -c "CREATE EXTENSION steep_repl;"
 
 ### Configuration
 
-Add repl section to `~/.config/steep/config.yaml`:
+Create `~/.config/steep/repl.config.yaml` (separate from main config.yaml):
 
 ```yaml
 repl:
   enabled: true
+  node_id: "node-1"
+  node_name: "Primary Node"
 
-  # PostgreSQL connection for coordination data
-  connection:
+  # PostgreSQL connection (where steep_repl extension is installed)
+  postgresql:
     host: localhost
     port: 5432
     database: postgres
     user: postgres
+    sslmode: prefer
+    # password_command: "pass show postgres/repl"
 
   # gRPC server for node-to-node communication
   grpc:
     port: 5433
-    # Optional TLS configuration
-    # cert_file: /path/to/server.crt
-    # key_file: /path/to/server.key
-    # ca_file: /path/to/ca.crt
+    # Optional TLS configuration (use init-tls to generate certs)
+    # tls:
+    #   cert_file: /path/to/server.crt
+    #   key_file: /path/to/server.key
+    #   ca_file: /path/to/ca.crt
 
   # HTTP health endpoint (optional)
   http:
-    enabled: true
+    enabled: false
     port: 8080
+
+  # IPC socket for TUI communication (optional)
+  ipc:
+    enabled: false
+
+debug: false
 ```
+
+See `configs/repl.config.yaml.example` for full documentation.
 
 ### Platform Support
 
