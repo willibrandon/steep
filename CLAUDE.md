@@ -358,13 +358,18 @@ These reference implementations are available for studying UI/UX patterns before
 ## Recent Changes
 - 014-repl-foundation: steep-repl replication daemon with gRPC and IPC interfaces
 - 014-repl-foundation: steep_repl PostgreSQL extension (Rust/pgrx) with nodes, coordinator_state, audit_log tables
+- 014-repl-foundation: Cross-platform service management via kardianos/service (macOS launchd, Linux systemd, Windows SCM)
 - 014-repl-foundation: gRPC service (Coordinator) for node registration, health checks, heartbeats
 - 014-repl-foundation: Unix socket IPC with JSON-RPC protocol for local CLI communication
+- 014-repl-foundation: Windows named pipe IPC support (\\.\pipe\steep-repl)
+- 014-repl-foundation: HTTP health endpoint for load balancers and monitoring systems (/health)
 - 014-repl-foundation: PostgreSQL-backed node store with constraints (priority 1-100, port 1-65535, valid status)
 - 014-repl-foundation: TLS support for gRPC (optional cert/key/CA configuration)
-- 014-repl-foundation: CLI commands: run, install, uninstall, start, stop, status
+- 014-repl-foundation: PostgreSQL connection pooling with automatic reconnection and exponential backoff
+- 014-repl-foundation: CLI commands: run, install, uninstall, start, stop, restart, status, init-tls, health
 - 014-repl-foundation: Integration tests with testcontainers-go and Docker image (ghcr.io/willibrandon/pg18-steep-repl)
 - 014-repl-foundation: Make targets: build-repl, build-repl-daemon, build-repl-ext, test-repl, test-repl-integration
+- 014-repl-foundation: Multi-platform CI (Linux, macOS, Windows) with PostgreSQL 18
 - 013-service-architecture: steep-agent background daemon for continuous data collection independent of TUI runtime
 - 013-service-architecture: Cross-platform service management via kardianos/service (macOS launchd, Linux systemd, Windows SCM)
 - 013-service-architecture: CLI commands: install, uninstall, start, stop, restart, status, run, logs
