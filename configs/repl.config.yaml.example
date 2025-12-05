@@ -77,6 +77,39 @@ repl:
     # Socket path (default: /tmp/steep-repl.sock on Unix, named pipe on Windows)
     # socket_path: /tmp/steep-repl.sock
 
+  # Node initialization settings
+  initialization:
+    # Initialization method (default: snapshot)
+    # - snapshot: Automatic via PostgreSQL copy_data=true (best for <100GB)
+    # - manual: User-provided pg_dump/pg_basebackup
+    # - two-phase: Generate snapshot separately, apply later
+    # - direct: Combined two-phase in one step (smaller DBs)
+    method: snapshot
+
+    # Number of parallel workers for data copy (default: 4, range: 1-16)
+    parallel_workers: 4
+
+    # Schema sync mode (default: strict)
+    # - strict: Fail initialization if schemas don't match
+    # - auto: Apply DDL to fix schema mismatches
+    # - manual: Warn about mismatches but allow user to proceed
+    schema_sync: strict
+
+    # Tables larger than this threshold use alternate copy method (default: 10GB)
+    large_table_threshold: "10GB"
+
+    # Method for large tables: pg_dump, copy, basebackup (default: pg_dump)
+    large_table_method: pg_dump
+
+    # Maximum time for snapshot operations (default: 24h)
+    snapshot_timeout: "24h"
+
+    # Directory for storing snapshots (default: system temp directory)
+    # snapshot_storage_path: /var/steep/snapshots
+
+    # Compression for snapshots: none, gzip, lz4, zstd (default: gzip)
+    snapshot_compression: gzip
+
 # Debug mode (default: false)
 # Can be overridden by --debug flag
 # When enabled, logs at Debug level with additional tracing

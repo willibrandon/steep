@@ -12,14 +12,53 @@ import (
 
 // Config holds the steep-repl daemon configuration.
 type Config struct {
-	Enabled    bool             `mapstructure:"enabled"`
-	NodeID     string           `mapstructure:"node_id"`
-	NodeName   string           `mapstructure:"node_name"`
-	PostgreSQL PostgreSQLConfig `mapstructure:"postgresql"`
-	GRPC       GRPCConfig       `mapstructure:"grpc"`
-	HTTP       HTTPConfig       `mapstructure:"http"`
-	IPC        IPCConfig        `mapstructure:"ipc"`
-	Audit      AuditConfig      `mapstructure:"audit"`
+	Enabled        bool             `mapstructure:"enabled"`
+	NodeID         string           `mapstructure:"node_id"`
+	NodeName       string           `mapstructure:"node_name"`
+	PostgreSQL     PostgreSQLConfig `mapstructure:"postgresql"`
+	GRPC           GRPCConfig       `mapstructure:"grpc"`
+	HTTP           HTTPConfig       `mapstructure:"http"`
+	IPC            IPCConfig        `mapstructure:"ipc"`
+	Audit          AuditConfig      `mapstructure:"audit"`
+	Initialization InitConfig       `mapstructure:"initialization"`
+}
+
+// InitMethod defines the initialization method for new nodes.
+type InitMethod string
+
+const (
+	// InitMethodSnapshot uses PostgreSQL's copy_data=true for automatic initialization.
+	InitMethodSnapshot InitMethod = "snapshot"
+	// InitMethodManual uses user-provided pg_dump/pg_basebackup.
+	InitMethodManual InitMethod = "manual"
+	// InitMethodTwoPhase generates snapshot separately from application.
+	InitMethodTwoPhase InitMethod = "two-phase"
+	// InitMethodDirect combines two-phase in one step for smaller DBs.
+	InitMethodDirect InitMethod = "direct"
+)
+
+// SchemaSyncMode defines how schema mismatches are handled during initialization.
+type SchemaSyncMode string
+
+const (
+	// SchemaSyncStrict fails initialization if schemas don't match (default).
+	SchemaSyncStrict SchemaSyncMode = "strict"
+	// SchemaSyncAuto applies DDL to fix schema mismatches.
+	SchemaSyncAuto SchemaSyncMode = "auto"
+	// SchemaSyncManual warns about mismatches but allows user to proceed.
+	SchemaSyncManual SchemaSyncMode = "manual"
+)
+
+// InitConfig holds node initialization configuration.
+type InitConfig struct {
+	Method               InitMethod     `mapstructure:"method"`
+	ParallelWorkers      int            `mapstructure:"parallel_workers"`
+	SchemaSync           SchemaSyncMode `mapstructure:"schema_sync"`
+	LargeTableThreshold  string         `mapstructure:"large_table_threshold"`
+	LargeTableMethod     string         `mapstructure:"large_table_method"`
+	SnapshotTimeout      string         `mapstructure:"snapshot_timeout"`
+	SnapshotStoragePath  string         `mapstructure:"snapshot_storage_path"`
+	SnapshotCompression  string         `mapstructure:"snapshot_compression"`
 }
 
 // PostgreSQLConfig holds PostgreSQL connection configuration.
@@ -176,6 +215,16 @@ func applyDefaults(v *viper.Viper) {
 
 	// Audit defaults
 	v.SetDefault("repl.audit.retention", "17520h") // 2 years
+
+	// Initialization defaults
+	v.SetDefault("repl.initialization.method", "snapshot")
+	v.SetDefault("repl.initialization.parallel_workers", 4)
+	v.SetDefault("repl.initialization.schema_sync", "strict")
+	v.SetDefault("repl.initialization.large_table_threshold", "10GB")
+	v.SetDefault("repl.initialization.large_table_method", "pg_dump")
+	v.SetDefault("repl.initialization.snapshot_timeout", "24h")
+	v.SetDefault("repl.initialization.snapshot_storage_path", "")
+	v.SetDefault("repl.initialization.snapshot_compression", "gzip")
 }
 
 // Validate checks that the configuration has valid values.
@@ -209,6 +258,45 @@ func (c *Config) Validate() error {
 		if c.HTTP.Port < 1 || c.HTTP.Port > 65535 {
 			return fmt.Errorf("repl.http.port must be between 1 and 65535")
 		}
+	}
+
+	// Initialization validation
+	if err := c.Initialization.Validate(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Validate checks that initialization config has valid values.
+func (ic *InitConfig) Validate() error {
+	// Validate method
+	switch ic.Method {
+	case InitMethodSnapshot, InitMethodManual, InitMethodTwoPhase, InitMethodDirect, "":
+		// Valid
+	default:
+		return fmt.Errorf("repl.initialization.method must be one of: snapshot, manual, two-phase, direct")
+	}
+
+	// Validate parallel workers (1-16, 0 means use default)
+	if ic.ParallelWorkers != 0 && (ic.ParallelWorkers < 1 || ic.ParallelWorkers > 16) {
+		return fmt.Errorf("repl.initialization.parallel_workers must be between 1 and 16")
+	}
+
+	// Validate schema sync mode
+	switch ic.SchemaSync {
+	case SchemaSyncStrict, SchemaSyncAuto, SchemaSyncManual, "":
+		// Valid
+	default:
+		return fmt.Errorf("repl.initialization.schema_sync must be one of: strict, auto, manual")
+	}
+
+	// Validate compression
+	switch ic.SnapshotCompression {
+	case "none", "gzip", "lz4", "zstd", "":
+		// Valid
+	default:
+		return fmt.Errorf("repl.initialization.snapshot_compression must be one of: none, gzip, lz4, zstd")
 	}
 
 	return nil

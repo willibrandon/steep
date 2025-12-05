@@ -27,10 +27,10 @@
 
 **Purpose**: Project initialization and core infrastructure for initialization feature
 
-- [ ] T001 Add initialization config section to internal/repl/config/config.go (InitConfig struct with method, parallel_workers, schema_sync mode, thresholds)
-- [ ] T002 [P] Create internal/repl/init/ package directory structure (manager.go, snapshot.go, manual.go, reinit.go, progress.go, schema.go)
-- [ ] T003 [P] Add InitState enum (8 states) to internal/repl/models/node.go with state transition validation
-- [ ] T004 Generate gRPC code from specs/015-node-init/contracts/init.proto into internal/repl/grpc/proto/
+- [x] T001 Add initialization config section to internal/repl/config/config.go (InitConfig struct with method, parallel_workers, schema_sync mode, thresholds)
+- [x] T002 [P] Create internal/repl/init/ package directory structure (manager.go, snapshot.go, manual.go, reinit.go, progress.go, schema.go)
+- [x] T003 [P] Add InitState enum (8 states) to internal/repl/models/node.go with state transition validation
+- [x] T004 Generate gRPC code from specs/015-node-init/contracts/init.proto into internal/repl/grpc/proto/
 
 ---
 
