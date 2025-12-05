@@ -48,4 +48,7 @@ Thumbs.db
 /backups/
 
 # Certificates
-/certs/repl.config.yaml
+/certs/
+
+# Local config
+repl.config.yaml
