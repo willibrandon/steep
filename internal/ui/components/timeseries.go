@@ -127,8 +127,8 @@ func (c *TimeSeriesChart) renderCollectingData(caption string) string {
 	msg := fmt.Sprintf("Collecting data... (%d/%d points)", current, expected)
 
 	contentStyle := lipgloss.NewStyle().
-		Width(c.width - 4).
-		Height(c.height - 2).
+		Width(c.width-4).
+		Height(c.height-2).
 		Align(lipgloss.Center, lipgloss.Center).
 		Foreground(styles.ColorMuted)
 

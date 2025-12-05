@@ -15,9 +15,9 @@ func init() {
 // SteepTheme is a dark theme optimized for SQL readability
 var SteepTheme = chroma.MustNewStyle("steep", chroma.StyleEntries{
 	// Background and defaults
-	chroma.Background:       "bg:#1a1a2e",
-	chroma.Text:             "#eaeaea",
-	chroma.Error:            "#ff5555 bold",
+	chroma.Background: "bg:#1a1a2e",
+	chroma.Text:       "#eaeaea",
+	chroma.Error:      "#ff5555 bold",
 
 	// Keywords: SELECT, FROM, WHERE, JOIN, etc. - Cyan, bold
 	chroma.Keyword:          "bold #50fa7b",
@@ -26,9 +26,9 @@ var SteepTheme = chroma.MustNewStyle("steep", chroma.StyleEntries{
 	chroma.KeywordType:      "#8be9fd",      // INT, VARCHAR, etc.
 
 	// Strings: 'hello world' - Yellow/Gold
-	chroma.String:        "#f1fa8c",
-	chroma.StringEscape:  "#ffb86c",
-	chroma.StringSymbol:  "#f1fa8c",
+	chroma.String:       "#f1fa8c",
+	chroma.StringEscape: "#ffb86c",
+	chroma.StringSymbol: "#f1fa8c",
 
 	// Numbers: 42, 3.14 - Purple
 	chroma.Number:      "#bd93f9",

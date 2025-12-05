@@ -1,4 +1,4 @@
-.PHONY: build build-agent build-all test test-short test-integration test-agent test-coverage bench clean run run-dev run-agent run-agent-dev install-agent uninstall-agent start-agent stop-agent status-agent help
+.PHONY: build build-agent build-repl build-repl-daemon build-repl-ext build-all test test-short test-integration test-agent test-repl test-repl-integration test-coverage bench clean run run-dev run-agent run-agent-dev install-agent uninstall-agent start-agent stop-agent status-agent run-repl install-repl uninstall-repl start-repl stop-repl status-repl help
 
 # Force cmd.exe on Windows to avoid shell inconsistencies
 ifeq ($(OS),Windows_NT)
@@ -8,6 +8,10 @@ endif
 # Binary names
 BINARY_NAME=steep
 AGENT_BINARY_NAME=steep-agent
+REPL_BINARY_NAME=steep-repl
+
+# Rust/pgrx extension
+REPL_EXT_DIR=extensions/steep_repl
 
 # Build directory
 BUILD_DIR=bin
@@ -49,7 +53,31 @@ endif
 	$(GOBUILD) -o $(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) cmd/steep-agent/main.go
 	@echo "Build complete: $(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT)"
 
-build-all: build build-agent ## Build both TUI and agent
+build-repl-daemon: ## Build the steep-repl replication daemon
+	@echo "Building $(REPL_BINARY_NAME) daemon..."
+ifeq ($(OS),Windows_NT)
+	@if not exist $(BUILD_DIR) mkdir $(BUILD_DIR)
+else
+	@mkdir -p $(BUILD_DIR)
+endif
+	$(GOBUILD) -o $(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT) cmd/steep-repl/main.go
+	@echo "Build complete: $(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT)"
+
+build-repl-ext: ## Build the steep_repl PostgreSQL extension
+	@echo "Building steep_repl extension..."
+ifeq ($(OS),Windows_NT)
+	cd $(REPL_EXT_DIR) && cargo build --features pg18
+else
+	cd $(REPL_EXT_DIR) && SDKROOT=$$(xcrun --show-sdk-path 2>/dev/null || echo "") cargo build --features pg18
+endif
+	@echo "Extension built: $(REPL_EXT_DIR)/target/debug/libsteep_repl.dylib"
+
+build-repl: build-repl-daemon build-repl-ext ## Build both replication daemon and extension
+
+build-all: build build-agent build-repl-daemon ## Build TUI, agent, and repl daemon
+ifndef SKIP_REPL_EXT
+build-all: build-repl-ext
+endif
 
 test: ## Run all tests
 	@echo "Running tests..."
@@ -110,6 +138,18 @@ test-agent: build-agent ## Run agent-specific tests
 	@echo "Running agent tests..."
 	$(GOTEST) -v -count=1 ./internal/agent/...
 
+test-repl: ## Run steep_repl extension tests (requires PG18)
+	@echo "Running steep_repl extension tests..."
+ifeq ($(OS),Windows_NT)
+	cd $(REPL_EXT_DIR) && cargo pgrx test pg18
+else
+	cd $(REPL_EXT_DIR) && SDKROOT=$$(xcrun --show-sdk-path 2>/dev/null || echo "") cargo pgrx test pg18
+endif
+
+test-repl-integration: ## Run steep-repl integration tests (requires Docker)
+	@echo "Running steep-repl integration tests..."
+	$(GOTEST) -v -count=1 ./tests/integration/repl/...
+
 install-agent: build-agent ## Install agent as a system service (user mode)
 	@echo "Installing $(AGENT_BINARY_NAME) as user service..."
 	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) install --user
@@ -130,5 +170,30 @@ stop-agent: ## Stop the running agent service
 
 status-agent: ## Show agent service status
 	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) status
+
+run-repl: build-repl-daemon ## Run repl daemon in foreground with debug
+	@echo "Running $(REPL_BINARY_NAME) in foreground..."
+	@$(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT) run --debug
+
+install-repl: build-repl-daemon ## Install repl daemon as a system service (user mode)
+	@echo "Installing $(REPL_BINARY_NAME) as user service..."
+	@$(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT) install --user
+	@echo "Service installed. Start with: make start-repl"
+
+uninstall-repl: ## Uninstall repl daemon service
+	@echo "Uninstalling $(REPL_BINARY_NAME) service..."
+	@$(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT) uninstall
+	@echo "Service uninstalled"
+
+start-repl: ## Start the installed repl daemon service
+	@echo "Starting $(REPL_BINARY_NAME) service..."
+	@$(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT) start
+
+stop-repl: ## Stop the running repl daemon service
+	@echo "Stopping $(REPL_BINARY_NAME) service..."
+	@$(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT) stop
+
+status-repl: ## Show repl daemon service status
+	@$(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT) status
 
 .DEFAULT_GOAL := help

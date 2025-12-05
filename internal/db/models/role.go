@@ -23,24 +23,24 @@ type Role struct {
 
 // RoleMembership represents membership of one role in another.
 type RoleMembership struct {
-	RoleOID      uint32
-	RoleName     string
-	MemberOID    uint32
-	MemberName   string
-	GrantorOID   uint32
-	GrantorName  string
-	AdminOption  bool
+	RoleOID       uint32
+	RoleName      string
+	MemberOID     uint32
+	MemberName    string
+	GrantorOID    uint32
+	GrantorName   string
+	AdminOption   bool
 	InheritOption bool
-	SetOption    bool
+	SetOption     bool
 }
 
 // RoleDetails contains full role information including memberships and owned objects.
 type RoleDetails struct {
 	Role
-	Memberships  []RoleMembership // Roles this role belongs to
-	Members      []RoleMembership // Roles that are members of this role
-	OwnedTables  []OwnedObject
-	DefaultACLs  []DefaultACL
+	Memberships []RoleMembership // Roles this role belongs to
+	Members     []RoleMembership // Roles that are members of this role
+	OwnedTables []OwnedObject
+	DefaultACLs []DefaultACL
 }
 
 // OwnedObject represents a database object owned by a role.

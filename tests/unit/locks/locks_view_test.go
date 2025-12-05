@@ -495,10 +495,10 @@ func TestBlockingStatusDetermination(t *testing.T) {
 	data.BlockedPIDs = map[int]bool{300: true, 400: true}
 
 	tests := []struct {
-		pid           int
+		pid            int
 		expectedStatus models.LockStatus
 		expectedColor  lipgloss.Color
-		description   string
+		description    string
 	}{
 		{
 			pid:            100,

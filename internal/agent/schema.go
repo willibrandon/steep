@@ -154,7 +154,6 @@ type DiskSpaceInfo struct {
 	UsedPercent    float64
 }
 
-
 // DiskFullError indicates insufficient disk space.
 type DiskFullError struct {
 	AvailableBytes uint64

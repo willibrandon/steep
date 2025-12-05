@@ -46,3 +46,6 @@ Thumbs.db
 
 # Database backups
 /backups/
+
+# Certificates
+/certs/

@@ -23,20 +23,20 @@ type DeadlockEvent struct {
 
 // DeadlockProcess represents a process involved in a deadlock.
 type DeadlockProcess struct {
-	ID              int64
-	EventID         int64
-	PID             int
-	Username        string
-	ApplicationName string
-	ClientAddr      string
-	BackendStart    *time.Time
-	XactStart       *time.Time
-	LockType        string
-	LockMode        string
-	RelationName    string
-	Query           string
+	ID               int64
+	EventID          int64
+	PID              int
+	Username         string
+	ApplicationName  string
+	ClientAddr       string
+	BackendStart     *time.Time
+	XactStart        *time.Time
+	LockType         string
+	LockMode         string
+	RelationName     string
+	Query            string
 	QueryFingerprint *uint64
-	BlockedByPID    *int
+	BlockedByPID     *int
 }
 
 // DeadlockSummary provides a summary view of deadlock events.

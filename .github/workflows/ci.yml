@@ -1,0 +1,313 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: "false"
+  PG_VER: 18
+
+jobs:
+  lint:
+    name: Lint (Go)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install X11 dev libraries
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run go fmt check
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Go files are not formatted:"
+            gofmt -l .
+            exit 1
+          fi
+
+  build-and-test-linux:
+    name: Linux build & test
+    runs-on: ubuntu-22.04
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Remove old PostgreSQL packages
+        run: |
+          sudo apt remove -y '^postgres.*' '^libpq.*' '^clang.*' '^llvm.*' '^libclang.*' '^libllvm.*' '^mono-llvm.*' || true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y -qq --fix-missing
+          sudo apt-get install -y \
+            build-essential \
+            llvm-14-dev libclang-14-dev clang-14 \
+            gcc \
+            libssl-dev \
+            libz-dev \
+            make \
+            pkg-config \
+            zlib1g-dev
+
+      - name: Setup PostgreSQL apt repo
+        run: |
+          sudo apt-get install -y wget gnupg
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo apt-get update -y -qq --fix-missing
+
+      - name: Install PostgreSQL 18
+        run: |
+          sudo apt-get install -y \
+            postgresql-$PG_VER \
+            postgresql-server-dev-$PG_VER
+
+      - name: Set up PostgreSQL permissions
+        run: |
+          sudo chmod a+rwx `/usr/lib/postgresql/$PG_VER/bin/pg_config --pkglibdir` \
+            `/usr/lib/postgresql/$PG_VER/bin/pg_config --sharedir`/extension \
+            /var/run/postgresql/
+
+      - name: Set up Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: steep-cargo-linux-${{ hashFiles('**/Cargo.lock', 'extensions/steep_repl/Cargo.toml') }}
+          restore-keys: |
+            steep-cargo-linux-
+
+      - name: Install cargo-pgrx
+        run: cargo install --locked cargo-pgrx --version "=0.16.1"
+
+      - name: Run cargo pgrx init
+        run: cargo pgrx init --pg$PG_VER /usr/lib/postgresql/$PG_VER/bin/pg_config
+
+      - name: Build Go binaries
+        run: make build build-agent build-repl-daemon
+
+      - name: Build PostgreSQL extension
+        run: make build-repl-ext
+
+      - name: Run extension tests
+        run: make test-repl
+
+      - name: Run all Go tests
+        run: make test
+
+  build-and-test-macos:
+    name: macOS build & test
+    runs-on: macos-14
+
+    steps:
+      - uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Install PostgreSQL 18 via Homebrew
+        run: |
+          brew install --quiet postgresql@18
+          echo "$(brew --prefix postgresql@18)/bin" >> $GITHUB_PATH
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Set up PostgreSQL permissions
+        run: |
+          sudo chmod a+rwx `$(which pg_config) --pkglibdir` `$(which pg_config) --sharedir`/extension
+
+      - name: Start PostgreSQL and create test database
+        run: |
+          brew services start postgresql@18
+          sleep 3
+          createdb testdb
+
+      - name: Set up Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Get PostgreSQL version
+        run: |
+          PG_VER=$(pg_config --version | awk '{split($2,a,"."); print a[1]}')
+          echo "PG_VER=$PG_VER" >> $GITHUB_ENV
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: steep-cargo-macos-${{ hashFiles('**/Cargo.lock', 'extensions/steep_repl/Cargo.toml') }}
+          restore-keys: |
+            steep-cargo-macos-
+
+      - name: Install cargo-pgrx
+        run: cargo install --locked cargo-pgrx --version "=0.16.1"
+
+      - name: Run cargo pgrx init
+        run: cargo pgrx init --pg$PG_VER $(which pg_config)
+
+      - name: Build Go binaries
+        run: make build build-agent build-repl-daemon
+
+      - name: Build PostgreSQL extension
+        working-directory: extensions/steep_repl
+        run: cargo build --features pg$PG_VER
+
+      - name: Run extension tests
+        run: make test-repl
+
+      - name: Run Go tests
+        run: make test-short
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: runner
+          PGDATABASE: testdb
+
+  build-and-test-windows:
+    name: Windows build & test
+    runs-on: windows-2022
+    env:
+      PG_VER: 18
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Install PostgreSQL 18
+        run: |
+          curl -L -o pgsql.zip https://get.enterprisedb.com/postgresql/postgresql-18.0-1-windows-x64-binaries.zip
+          Expand-Archive pgsql.zip -DestinationPath C:\
+          echo "C:\pgsql\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+        shell: pwsh
+
+      - name: Start PostgreSQL and create test database
+        run: |
+          C:\pgsql\bin\initdb.exe -D C:\pgsql\data -U postgres -A trust
+          C:\pgsql\bin\pg_ctl.exe -D C:\pgsql\data -l C:\pgsql\log.txt start
+          C:\pgsql\bin\createdb.exe -U postgres testdb
+        shell: pwsh
+
+      - name: Set up Rust
+        run: |
+          rustup update
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: steep-cargo-windows-${{ hashFiles('**/Cargo.lock', 'extensions/steep_repl/Cargo.toml') }}
+          restore-keys: |
+            steep-cargo-windows-
+
+      - name: Install cargo-pgrx
+        run: cargo install --locked cargo-pgrx --version "=0.16.1"
+
+      - name: Run cargo pgrx init
+        run: cargo pgrx init --pg$env:PG_VER=C:\pgsql\bin\pg_config.exe
+
+      - name: Build Go binaries
+        run: |
+          go build -o bin/steep.exe ./cmd/steep
+          go build -o bin/steep-agent.exe ./cmd/steep-agent
+          go build -o bin/steep-repl.exe ./cmd/steep-repl
+
+      - name: Build PostgreSQL extension
+        working-directory: extensions/steep_repl
+        run: cargo build --features pg$env:PG_VER
+
+      - name: Run extension tests
+        working-directory: extensions/steep_repl
+        run: cargo pgrx test pg$env:PG_VER
+
+      - name: Run Go tests
+        run: make test-short
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGDATABASE: testdb
+
+  test-repl-integration:
+    name: Repl integration tests (Docker)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run repl integration tests
+        run: make test-repl-integration

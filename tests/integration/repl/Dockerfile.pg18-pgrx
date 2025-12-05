@@ -1,0 +1,49 @@
+# Dockerfile for PostgreSQL 18 with steep_repl extension
+# Multi-stage build to keep final image small
+#
+# Build context should be the repository root:
+#   docker build -f tests/integration/repl/Dockerfile.pg18-pgrx -t steep-pg18-pgrx .
+
+# Stage 1: Build the extension
+FROM postgres:18-bookworm AS builder
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    libreadline-dev \
+    zlib1g-dev \
+    libclang-dev \
+    clang \
+    git \
+    postgresql-server-dev-18 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install cargo-pgrx
+RUN cargo install --locked cargo-pgrx --version "=0.16.1"
+
+# Initialize pgrx
+RUN cargo pgrx init --pg18 /usr/bin/pg_config
+
+# Copy and build extension
+WORKDIR /build
+COPY extensions/steep_repl/ ./
+RUN cargo pgrx install --release --pg-config /usr/bin/pg_config
+
+# Stage 2: Final image with just PostgreSQL and the extension
+FROM postgres:18-bookworm
+
+# Copy the compiled extension files from builder
+COPY --from=builder /usr/share/postgresql/18/extension/steep_repl* /usr/share/postgresql/18/extension/
+COPY --from=builder /usr/lib/postgresql/18/lib/steep_repl.so /usr/lib/postgresql/18/lib/
+
+# Create init script to install extension on startup
+RUN echo 'CREATE EXTENSION IF NOT EXISTS steep_repl;' > /docker-entrypoint-initdb.d/00-create-steep-repl.sql
+
+USER postgres
+WORKDIR /var/lib/postgresql/data

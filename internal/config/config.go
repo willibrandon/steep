@@ -84,17 +84,17 @@ type LogsConfig struct {
 
 // ConnectionConfig holds database connection parameters
 type ConnectionConfig struct {
-	Host           string `mapstructure:"host"`
-	Port           int    `mapstructure:"port"`
-	Database       string `mapstructure:"database"`
-	User           string `mapstructure:"user"`
+	Host            string `mapstructure:"host"`
+	Port            int    `mapstructure:"port"`
+	Database        string `mapstructure:"database"`
+	User            string `mapstructure:"user"`
 	PasswordCommand string `mapstructure:"password_command"`
-	SSLMode        string `mapstructure:"sslmode"`
-	SSLRootCert    string `mapstructure:"sslrootcert"`
-	SSLCert        string `mapstructure:"sslcert"`
-	SSLKey         string `mapstructure:"sslkey"`
-	PoolMaxConns   int    `mapstructure:"pool_max_conns"`
-	PoolMinConns   int    `mapstructure:"pool_min_conns"`
+	SSLMode         string `mapstructure:"sslmode"`
+	SSLRootCert     string `mapstructure:"sslrootcert"`
+	SSLCert         string `mapstructure:"sslcert"`
+	SSLKey          string `mapstructure:"sslkey"`
+	PoolMaxConns    int    `mapstructure:"pool_max_conns"`
+	PoolMinConns    int    `mapstructure:"pool_min_conns"`
 }
 
 // UIConfig holds user interface preferences

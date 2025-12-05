@@ -77,11 +77,11 @@ type Monitor struct {
 	config      MonitorConfig
 
 	// State
-	status          MonitorStatus
-	dataSource      DataSourceType
-	accessMethod    LogAccessMethod
-	cancel          context.CancelFunc
-	loggingChecked  bool // Track if we've already checked logging status
+	status         MonitorStatus
+	dataSource     DataSourceType
+	accessMethod   LogAccessMethod
+	cancel         context.CancelFunc
+	loggingChecked bool // Track if we've already checked logging status
 
 	// Instance name for multi-instance support
 	instanceName string
@@ -585,9 +585,9 @@ func looksCorrupted(query string) bool {
 	// Check for embedded log line patterns that indicate concatenation errors
 	// These patterns should NOT appear in valid SQL outside of string literals
 	logPatterns := []string{
-		" UTC [",                       // Log line timestamp suffix
-		" LOG:",                         // PostgreSQL log prefix
-		"] LOG:",                        // Log prefix with bracket
+		" UTC [", // Log line timestamp suffix
+		" LOG:",  // PostgreSQL log prefix
+		"] LOG:", // Log prefix with bracket
 	}
 
 	// Check patterns against parts of query outside string literals
@@ -618,9 +618,9 @@ func looksCorrupted(query string) bool {
 	// e.g., "...NULLS LAST  replay_lag::text as time_lag FROM pg_stat_replication"
 	// These indicate two different queries were incorrectly merged
 	concatPatterns := []string{
-		"NULLS LAST  ",                  // Double space often indicates concatenation point
-		" FROM PG_STAT_REPLICATION",     // Replication query fragment in non-replication query
-		"::TEXT AS TIME_LAG",            // Common replication query fragment
+		"NULLS LAST  ",              // Double space often indicates concatenation point
+		" FROM PG_STAT_REPLICATION", // Replication query fragment in non-replication query
+		"::TEXT AS TIME_LAG",        // Common replication query fragment
 	}
 
 	for _, pattern := range concatPatterns {

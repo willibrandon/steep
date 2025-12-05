@@ -47,9 +47,13 @@ make build
 ```bash
 make build            # Build the steep TUI binary
 make build-agent      # Build the steep-agent daemon
+make build-repl-daemon # Build the steep-repl daemon
+make build-repl-ext   # Build the PostgreSQL extension (requires Rust + pgrx)
 make test             # Run all tests
 make test-short       # Run tests (skip integration)
 make test-integration # Run integration tests only
+make test-repl        # Run replication extension tests
+make test-repl-integration # Run replication integration tests
 make bench            # Run performance benchmarks
 make clean            # Remove build artifacts
 make help             # Show available targets
@@ -719,6 +723,109 @@ No manual intervention or TUI restarts required.
 | Linux | systemd | `sudo ./bin/steep-agent install` |
 | Windows | SCM | `steep-agent.exe install` (as Administrator) |
 
+## Replication Daemon (steep-repl)
+
+The `steep-repl` daemon is the foundation for bidirectional PostgreSQL replication coordination. It provides a PostgreSQL extension for coordination data storage and a cross-platform daemon for cluster management.
+
+### Components
+
+**PostgreSQL Extension (steep_repl)**:
+- Creates `steep_repl` schema with nodes, coordinator_state, and audit_log tables
+- Requires PostgreSQL 18+
+- Built with Rust and pgrx
+
+**Go Daemon (steep-repl)**:
+- Cross-platform service management (launchd/systemd/Windows SCM)
+- gRPC server for node-to-node communication (port 5433)
+- Unix socket/named pipe IPC for TUI communication
+- HTTP health endpoint for load balancers and monitoring
+- PostgreSQL connection pooling with automatic reconnection
+
+### Quick Setup
+
+```bash
+# Build the extension and daemon
+make build-repl-ext      # Requires Rust + cargo-pgrx
+make build-repl-daemon
+
+# Install the PostgreSQL extension
+psql -c "CREATE EXTENSION steep_repl;"
+
+# Run daemon in foreground (for testing)
+./bin/steep-repl run --debug
+
+# Install as service
+./bin/steep-repl install
+./bin/steep-repl start
+
+# Check status
+./bin/steep-repl status
+```
+
+### Daemon Commands
+
+| Command | Description |
+|---------|-------------|
+| `steep-repl install [--user]` | Install as system or user service |
+| `steep-repl uninstall` | Remove the service |
+| `steep-repl start` | Start the installed service |
+| `steep-repl stop` | Stop the running service |
+| `steep-repl restart` | Restart the service |
+| `steep-repl status [--json]` | Show service status and health |
+| `steep-repl run [--debug]` | Run in foreground (for debugging) |
+| `steep-repl init-tls` | Generate mTLS certificates for secure node communication |
+| `steep-repl health HOST:PORT` | Check health of a remote node via gRPC |
+
+### Configuration
+
+Create `~/.config/steep/repl.config.yaml` (separate from main config.yaml):
+
+```yaml
+repl:
+  enabled: true
+  node_id: "node-1"
+  node_name: "Primary Node"
+
+  # PostgreSQL connection (where steep_repl extension is installed)
+  postgresql:
+    host: localhost
+    port: 5432
+    database: postgres
+    user: postgres
+    sslmode: prefer
+    # password_command: "pass show postgres/repl"
+
+  # gRPC server for node-to-node communication
+  grpc:
+    port: 5433
+    # Optional TLS configuration (use init-tls to generate certs)
+    # tls:
+    #   cert_file: /path/to/server.crt
+    #   key_file: /path/to/server.key
+    #   ca_file: /path/to/ca.crt
+
+  # HTTP health endpoint (optional)
+  http:
+    enabled: false
+    port: 8080
+
+  # IPC socket for TUI communication (optional)
+  ipc:
+    enabled: false
+
+debug: false
+```
+
+See `configs/repl.config.yaml.example` for full documentation.
+
+### Platform Support
+
+| Platform | Service Manager | Installation |
+|----------|----------------|--------------|
+| macOS | launchd | `./bin/steep-repl install` |
+| Linux | systemd | `sudo ./bin/steep-repl install` |
+| Windows | SCM | `steep-repl.exe install` (as Administrator) |
+
 ## Error Handling
 
 Steep provides helpful error messages for common issues:
@@ -749,7 +856,10 @@ If the database connection is lost, Steep automatically attempts to reconnect wi
 steep/
 ├── cmd/
 │   ├── steep/          # TUI application entry point
-│   └── steep-agent/    # Background agent entry point
+│   ├── steep-agent/    # Background agent entry point
+│   └── steep-repl/     # Replication daemon entry point
+├── extensions/
+│   └── steep_repl/     # PostgreSQL extension (Rust/pgrx)
 ├── internal/
 │   ├── agent/          # Background agent implementation
 │   │   ├── collectors/ # Data collectors (activity, queries, etc.)
@@ -760,10 +870,18 @@ steep/
 │   ├── config/         # Configuration management
 │   ├── db/             # Database connection and operations
 │   ├── logger/         # Structured logging
+│   ├── repl/           # Replication daemon
+│   │   ├── config/     # Replication config (YAML)
+│   │   ├── daemon/     # Daemon lifecycle management
+│   │   ├── grpc/       # gRPC server + proto definitions
+│   │   ├── ipc/        # Unix socket/named pipe IPC
+│   │   ├── pool/       # PostgreSQL connection pool
+│   │   └── store/      # Node store (PostgreSQL-backed)
 │   └── ui/             # User interface components
 │       ├── components/ # Reusable UI components
 │       ├── views/      # View implementations
 │       └── styles/     # Color schemes and styling
+├── tests/integration/repl/ # Replication integration tests
 ├── docs/               # Documentation
 └── specs/              # Feature specifications
 ```
@@ -867,6 +985,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 - [x] Advanced visualizations (time-series graphs, sparklines, bar charts, heatmaps)
 - [x] Alert system (threshold-based alerts, expression rules, history, acknowledgment)
 - [x] Service architecture (steep-agent background daemon, multi-instance monitoring, TUI auto-detection)
+- [x] Replication foundation (steep-repl daemon, PostgreSQL extension, gRPC/IPC, cross-platform service)
 - [ ] Export metrics to Prometheus
 - [ ] Light theme
 - [ ] Custom color schemes

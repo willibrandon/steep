@@ -15,7 +15,6 @@ import (
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 )
 
-
 // JSONLogParser parses PostgreSQL JSON format log files for deadlock events.
 type JSONLogParser struct {
 	logDir       string

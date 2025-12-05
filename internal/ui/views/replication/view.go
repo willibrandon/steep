@@ -98,9 +98,9 @@ type ReplicationView struct {
 	subScrollOffset  int
 
 	// Topology view state
-	showTopology         bool
-	topologySelectedIdx  int                // Currently selected replica in topology
-	topologyExpanded     map[string]bool    // Which replicas have expanded pipeline view (by app name)
+	showTopology        bool
+	topologySelectedIdx int             // Currently selected replica in topology
+	topologyExpanded    map[string]bool // Which replicas have expanded pipeline view (by app name)
 
 	// Detail view state
 	detailScrollOffset int
@@ -115,9 +115,9 @@ type ReplicationView struct {
 	toastTime    time.Time
 
 	// Time window for sparklines
-	timeWindow          time.Duration
-	sqliteLagHistory    map[string][]float64 // Lag history from SQLite for longer windows
-	lastSqliteFetch     time.Time            // When we last fetched from SQLite
+	timeWindow       time.Duration
+	sqliteLagHistory map[string][]float64 // Lag history from SQLite for longer windows
+	lastSqliteFetch  time.Time            // When we last fetched from SQLite
 
 	// Clipboard
 	clipboard *ui.ClipboardWriter

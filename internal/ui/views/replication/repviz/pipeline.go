@@ -29,10 +29,10 @@ var (
 
 // PipelineStage represents a single stage in the WAL pipeline.
 type PipelineStage struct {
-	Name      string
-	LSN       string
-	BytesLag  int64 // Bytes behind previous stage
-	Severity  models.LagSeverity
+	Name     string
+	LSN      string
+	BytesLag int64 // Bytes behind previous stage
+	Severity models.LagSeverity
 }
 
 // RenderWALPipeline renders a visual representation of the WAL pipeline for a replica.

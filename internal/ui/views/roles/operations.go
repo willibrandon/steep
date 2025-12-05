@@ -42,14 +42,14 @@ type CreateRoleForm struct {
 	focusIndex    int // 0=name, 1=password, 2+=attributes
 
 	// Attributes
-	canLogin      bool
-	superuser     bool
-	createDB      bool
-	createRole    bool
-	inherit       bool
-	replication   bool
-	bypassRLS     bool
-	connLimit     int // -1 = unlimited
+	canLogin    bool
+	superuser   bool
+	createDB    bool
+	createRole  bool
+	inherit     bool
+	replication bool
+	bypassRLS   bool
+	connLimit   int // -1 = unlimited
 }
 
 // NewCreateRoleForm creates a new form for creating roles.

@@ -12,12 +12,12 @@ import (
 
 // HeatmapConfig configures a Heatmap component.
 type HeatmapConfig struct {
-	Title         string // Chart title
-	Width         int    // Total width available
-	ShowLegend    bool   // Show color legend
-	ShowHourAxis  bool   // Show hour axis (0-23)
-	ShowDayAxis   bool   // Show day of week axis
-	Condensed     bool   // Use condensed mode (4 time periods instead of 24 hours)
+	Title        string // Chart title
+	Width        int    // Total width available
+	ShowLegend   bool   // Show color legend
+	ShowHourAxis bool   // Show hour axis (0-23)
+	ShowDayAxis  bool   // Show day of week axis
+	Condensed    bool   // Use condensed mode (4 time periods instead of 24 hours)
 }
 
 // DefaultHeatmapConfig returns sensible defaults.
@@ -37,9 +37,9 @@ type Heatmap struct {
 	config HeatmapConfig
 	// Data is a 7x24 matrix where [0]=Sunday, [6]=Saturday
 	// Values of -1 indicate no data for that cell
-	data   [7][24]float64
-	min    float64
-	max    float64
+	data    [7][24]float64
+	min     float64
+	max     float64
 	hasData bool
 }
 

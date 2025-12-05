@@ -341,9 +341,9 @@ func TestDefaultTimeSeriesConfig(t *testing.T) {
 
 func TestTimeSeriesChart_MinimumDimensions(t *testing.T) {
 	config := TimeSeriesConfig{
-		Width:     5,  // Too small
-		Height:    1,  // Too small
-		MinPoints: 0,  // Invalid
+		Width:     5, // Too small
+		Height:    1, // Too small
+		MinPoints: 0, // Invalid
 	}
 	chart := NewTimeSeriesChart(config)
 

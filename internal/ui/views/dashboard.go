@@ -25,10 +25,10 @@ type DashboardView struct {
 	height int
 
 	// Components
-	metricsPanel     *components.MetricsPanel
-	timeSeriesPanel  *components.TimeSeriesPanel
-	heatmapPanel     *components.HeatmapPanel
-	alertPanel       *components.AlertPanel
+	metricsPanel    *components.MetricsPanel
+	timeSeriesPanel *components.TimeSeriesPanel
+	heatmapPanel    *components.HeatmapPanel
+	alertPanel      *components.AlertPanel
 
 	// Metrics collector for graph data
 	metricsCollector *metrics.Collector
@@ -40,12 +40,12 @@ type DashboardView struct {
 	instanceFilter string // "" = all instances
 
 	// State
-	connected        bool
-	connectionInfo   string
-	lastUpdate       time.Time
-	chartsVisible    bool
-	heatmapVisible   bool
-	timeWindow       metrics.TimeWindow
+	connected      bool
+	connectionInfo string
+	lastUpdate     time.Time
+	chartsVisible  bool
+	heatmapVisible bool
+	timeWindow     metrics.TimeWindow
 
 	// Data
 	metrics models.Metrics
@@ -402,7 +402,7 @@ func (d *DashboardView) renderHistoryOverlay() string {
 	var content string
 	if len(d.historyEvents) == 0 {
 		content = lipgloss.NewStyle().
-			Width(overlayWidth - 4).
+			Width(overlayWidth-4).
 			Height(contentHeight).
 			Align(lipgloss.Center, lipgloss.Center).
 			Foreground(styles.ColorMuted).
@@ -626,7 +626,7 @@ func (d *DashboardView) renderMain() string {
 	// Push footer to bottom of view
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		lipgloss.NewStyle().Height(d.height - footerHeight).Render(topSection),
+		lipgloss.NewStyle().Height(d.height-footerHeight).Render(topSection),
 		footer,
 	)
 }
@@ -718,7 +718,7 @@ func (d *DashboardView) renderPlaceholderWithHeight(height int) string {
 	}
 
 	return lipgloss.NewStyle().
-		Width(d.width - 4).
+		Width(d.width-4).
 		Height(height).
 		Align(lipgloss.Center, lipgloss.Center).
 		Render(content)

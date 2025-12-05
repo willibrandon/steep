@@ -7,11 +7,11 @@ import (
 // KeyMap defines all keyboard bindings for the application
 type KeyMap struct {
 	// Navigation
-	Quit       key.Binding
-	Help       key.Binding
+	Quit        key.Binding
+	Help        key.Binding
 	CloseDialog key.Binding
-	NextView   key.Binding
-	PrevView   key.Binding
+	NextView    key.Binding
+	PrevView    key.Binding
 
 	// View jumping (1-9)
 	JumpToDashboard   key.Binding
@@ -22,17 +22,17 @@ type KeyMap struct {
 	JumpToReplication key.Binding
 
 	// Table navigation
-	Up        key.Binding
-	Down      key.Binding
-	PageUp    key.Binding
-	PageDown  key.Binding
-	Home      key.Binding
-	End       key.Binding
+	Up       key.Binding
+	Down     key.Binding
+	PageUp   key.Binding
+	PageDown key.Binding
+	Home     key.Binding
+	End      key.Binding
 
 	// Table actions
-	Sort      key.Binding
-	Filter    key.Binding
-	Refresh   key.Binding
+	Sort    key.Binding
+	Filter  key.Binding
+	Refresh key.Binding
 }
 
 // DefaultKeyMap returns the default keyboard bindings

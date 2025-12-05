@@ -56,7 +56,7 @@ func HelpOverlay(width, height int) string {
 	for _, section := range sections {
 		content += headerStyle.Render(section.header) + "\n"
 		for _, key := range section.keys {
-			content += keyStyle.Render("  " + key) + "\n"
+			content += keyStyle.Render("  "+key) + "\n"
 		}
 		content = sectionStyle.Render(content)
 	}

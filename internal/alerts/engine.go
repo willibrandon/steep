@@ -370,12 +370,12 @@ type messageTemplateData struct {
 	Critical float64
 
 	// From State
-	State      string  // "normal", "warning", "critical"
-	PrevState  string  // Previous state
-	Value      float64 // Current metric value
-	Threshold  float64 // Threshold that was crossed
-	ValueFmt   string  // Value formatted with 2 decimal places
-	ThreshFmt  string  // Threshold formatted with 2 decimal places
+	State     string  // "normal", "warning", "critical"
+	PrevState string  // Previous state
+	Value     float64 // Current metric value
+	Threshold float64 // Threshold that was crossed
+	ValueFmt  string  // Value formatted with 2 decimal places
+	ThreshFmt string  // Threshold formatted with 2 decimal places
 }
 
 // formatMessage formats an alert message for display.

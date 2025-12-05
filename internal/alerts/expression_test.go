@@ -274,11 +274,11 @@ func TestParseInvalidExpression(t *testing.T) {
 	parser := NewParser()
 
 	invalidExprs := []string{
-		"a +",      // incomplete
-		"+ b",      // missing left operand
-		"(a + b",   // unclosed paren
-		"a b",      // missing operator
-		"a + + b",  // double operator
+		"a +",     // incomplete
+		"+ b",     // missing left operand
+		"(a + b",  // unclosed paren
+		"a b",     // missing operator
+		"a + + b", // double operator
 	}
 
 	for _, expr := range invalidExprs {

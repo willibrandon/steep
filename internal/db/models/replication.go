@@ -151,8 +151,8 @@ type Replica struct {
 // GetLagSeverity returns the severity level based on byte lag.
 func (r *Replica) GetLagSeverity() LagSeverity {
 	const (
-		oneMB  = 1024 * 1024
-		tenMB  = 10 * oneMB
+		oneMB = 1024 * 1024
+		tenMB = 10 * oneMB
 	)
 	switch {
 	case r.ByteLag < oneMB:

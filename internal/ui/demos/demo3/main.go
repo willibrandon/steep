@@ -14,13 +14,13 @@ import (
 
 // Colors
 var (
-	borderColor   = lipgloss.Color("240")
-	accentColor   = lipgloss.Color("6")
-	mutedColor    = lipgloss.Color("8")
-	activeColor   = lipgloss.Color("10")
-	idleColor     = lipgloss.Color("8")
-	idleTxnColor  = lipgloss.Color("11")
-	warningColor  = lipgloss.Color("11")
+	borderColor  = lipgloss.Color("240")
+	accentColor  = lipgloss.Color("6")
+	mutedColor   = lipgloss.Color("8")
+	activeColor  = lipgloss.Color("10")
+	idleColor    = lipgloss.Color("8")
+	idleTxnColor = lipgloss.Color("11")
+	warningColor = lipgloss.Color("11")
 )
 
 type model struct {

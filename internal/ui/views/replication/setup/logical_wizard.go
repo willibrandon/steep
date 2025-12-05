@@ -15,11 +15,11 @@ import (
 type LogicalWizardStep int
 
 const (
-	LogicalStepType LogicalWizardStep = iota // Publication or Subscription
-	LogicalStepTableSelection                // Select tables (publication only)
-	LogicalStepOperations                    // Select DML operations (publication only)
-	LogicalStepConnection                    // Connection info (subscription only)
-	LogicalStepReview                        // Review generated SQL
+	LogicalStepType           LogicalWizardStep = iota // Publication or Subscription
+	LogicalStepTableSelection                          // Select tables (publication only)
+	LogicalStepOperations                              // Select DML operations (publication only)
+	LogicalStepConnection                              // Connection info (subscription only)
+	LogicalStepReview                                  // Review generated SQL
 )
 
 // LogicalWizardMode indicates whether creating publication or subscription.
@@ -36,17 +36,17 @@ type LogicalWizardConfig struct {
 	Mode LogicalWizardMode
 
 	// Publication config
-	PublicationName  string
-	AllTables        bool
-	SelectedTables   map[string]bool // schema.table -> selected
-	OpInsert         bool
-	OpUpdate         bool
-	OpDelete         bool
-	OpTruncate       bool
-	ReplicationUser  string // User for subscribers to connect
-	ReplicationPass  string
-	AutoGenPass      bool
-	PasswordShown    bool
+	PublicationName string
+	AllTables       bool
+	SelectedTables  map[string]bool // schema.table -> selected
+	OpInsert        bool
+	OpUpdate        bool
+	OpDelete        bool
+	OpTruncate      bool
+	ReplicationUser string // User for subscribers to connect
+	ReplicationPass string
+	AutoGenPass     bool
+	PasswordShown   bool
 
 	// Subscription config
 	SubscriptionName string

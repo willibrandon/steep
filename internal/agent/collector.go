@@ -192,8 +192,8 @@ type ReplicationCollectorResult struct {
 
 // LocksCollectorResult holds locks collection results.
 type LocksCollectorResult struct {
-	Locks    []models.Lock
-	Blocking []models.BlockingRelationship
+	Locks     []models.Lock
+	Blocking  []models.BlockingRelationship
 	Timestamp time.Time
 	Error     error
 }
