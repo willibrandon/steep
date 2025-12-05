@@ -117,14 +117,14 @@
 
 ### Implementation for User Story 3
 
-- [ ] T037 [US3] Implement GetProgress RPC handler in internal/repl/grpc/handlers.go (fetch from init_progress table)
-- [ ] T038 [US3] Implement StreamProgress RPC handler in internal/repl/grpc/handlers.go (poll and stream updates at configurable interval)
-- [ ] T039 [US3] Add progress tracking goroutine in internal/repl/init/progress.go (poll pg_subscription_rel, pg_stat_progress_copy, update init_progress table)
-- [ ] T040 [US3] Calculate ETA and throughput in internal/repl/init/progress.go (rows/sec, bytes/sec, time remaining estimate)
-- [ ] T041 [US3] Create progress overlay component in internal/ui/components/progress.go (phases, progress bars, current table, ETA)
-- [ ] T042 [US3] Add progress column to Nodes view in internal/ui/views/replication.go (state + percent + ETA for initializing nodes)
-- [ ] T043 [US3] Implement D key binding for detailed progress overlay in internal/ui/views/replication.go
-- [ ] T044 [US3] Implement C key binding to cancel initialization from TUI in internal/ui/views/replication.go
+- [x] T037 [US3] Implement GetProgress RPC handler in internal/repl/grpc/handlers.go (fetch from init_progress table)
+- [x] T038 [US3] Implement StreamProgress RPC handler in internal/repl/grpc/handlers.go (poll and stream updates at configurable interval)
+- [x] T039 [US3] Add progress tracking goroutine in internal/repl/init/progress.go (poll pg_subscription_rel, pg_stat_progress_copy, update init_progress table)
+- [x] T040 [US3] Calculate ETA and throughput in internal/repl/init/progress.go (rows/sec, bytes/sec, time remaining estimate)
+- [x] T041 [US3] Create progress overlay component in internal/ui/components/progress.go (phases, progress bars, current table, ETA)
+- [x] T042 [US3] Add progress column to Nodes view in internal/ui/views/replication.go (state + percent + ETA for initializing nodes)
+- [x] T043 [US3] Implement D key binding for detailed progress overlay in internal/ui/views/replication.go
+- [x] T044 [US3] Implement C key binding to cancel initialization from TUI in internal/ui/views/replication.go
 
 **Checkpoint**: TUI shows real-time initialization progress with cancel capability
 

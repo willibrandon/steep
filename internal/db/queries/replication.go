@@ -617,3 +617,215 @@ func ReplicationUserExists(ctx context.Context, pool *pgxpool.Pool, username str
 	}
 	return exists, nil
 }
+
+// =============================================================================
+// Cluster Node queries (steep_repl extension)
+// =============================================================================
+
+// GetClusterNodes retrieves nodes from the steep_repl.nodes table.
+// Returns empty slice if the schema/table doesn't exist (extension not installed).
+func GetClusterNodes(ctx context.Context, pool *pgxpool.Pool) ([]models.ClusterNode, error) {
+	// First check if the steep_repl schema exists
+	var schemaExists bool
+	err := pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.schemata
+			WHERE schema_name = 'steep_repl'
+		)
+	`).Scan(&schemaExists)
+	if err != nil {
+		return nil, fmt.Errorf("check steep_repl schema: %w", err)
+	}
+	if !schemaExists {
+		return []models.ClusterNode{}, nil
+	}
+
+	// Check if nodes table exists
+	var tableExists bool
+	err = pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'steep_repl' AND table_name = 'nodes'
+		)
+	`).Scan(&tableExists)
+	if err != nil {
+		return nil, fmt.Errorf("check steep_repl.nodes table: %w", err)
+	}
+	if !tableExists {
+		return []models.ClusterNode{}, nil
+	}
+
+	// Check if init_progress table exists (might be newer extension version)
+	var progressTableExists bool
+	err = pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'steep_repl' AND table_name = 'init_progress'
+		)
+	`).Scan(&progressTableExists)
+	if err != nil {
+		progressTableExists = false
+	}
+
+	var query string
+	if progressTableExists {
+		// Query with LEFT JOIN to init_progress for real-time progress data
+		query = `
+			SELECT
+				n.node_id,
+				COALESCE(n.node_name, '') AS node_name,
+				COALESCE(n.host, '') AS host,
+				COALESCE(n.port, 5432) AS port,
+				COALESCE(n.priority, 50) AS priority,
+				COALESCE(n.is_coordinator, false) AS is_coordinator,
+				n.last_seen,
+				COALESCE(n.status, 'unknown') AS status,
+				COALESCE(n.init_state, 'uninitialized') AS init_state,
+				COALESCE(n.init_source_node, '') AS init_source_node,
+				n.init_started_at,
+				n.init_completed_at,
+				-- Progress fields (NULL if no progress record)
+				p.phase,
+				p.overall_percent,
+				p.tables_total,
+				p.tables_completed,
+				p.current_table,
+				p.current_table_percent,
+				p.rows_copied,
+				p.bytes_copied,
+				p.throughput_rows_sec,
+				p.eta_seconds,
+				p.parallel_workers,
+				p.error_message
+			FROM steep_repl.nodes n
+			LEFT JOIN steep_repl.init_progress p ON n.node_id = p.node_id
+			ORDER BY n.priority DESC, n.node_name, n.node_id
+		`
+	} else {
+		// Fallback query without progress data
+		query = `
+			SELECT
+				node_id,
+				COALESCE(node_name, '') AS node_name,
+				COALESCE(host, '') AS host,
+				COALESCE(port, 5432) AS port,
+				COALESCE(priority, 50) AS priority,
+				COALESCE(is_coordinator, false) AS is_coordinator,
+				last_seen,
+				COALESCE(status, 'unknown') AS status,
+				COALESCE(init_state, 'uninitialized') AS init_state,
+				COALESCE(init_source_node, '') AS init_source_node,
+				init_started_at,
+				init_completed_at,
+				NULL::text, NULL::real, NULL::int, NULL::int, NULL::text, NULL::real,
+				NULL::bigint, NULL::bigint, NULL::real, NULL::int, NULL::int, NULL::text
+			FROM steep_repl.nodes
+			ORDER BY priority DESC, node_name, node_id
+		`
+	}
+
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query steep_repl.nodes: %w", err)
+	}
+	defer rows.Close()
+
+	var nodes []models.ClusterNode
+	for rows.Next() {
+		var n models.ClusterNode
+		// Progress fields (nullable)
+		var phase, currentTable, errorMessage *string
+		var overallPct, currentTablePct, throughputRowsSec *float64
+		var tablesTotal, tablesCompleted, etaSeconds, parallelWorkers *int
+		var rowsCopied, bytesCopied *int64
+
+		err := rows.Scan(
+			&n.NodeID,
+			&n.NodeName,
+			&n.Host,
+			&n.Port,
+			&n.Priority,
+			&n.IsCoordinator,
+			&n.LastSeen,
+			&n.Status,
+			&n.InitState,
+			&n.InitSourceNode,
+			&n.InitStartedAt,
+			&n.InitCompletedAt,
+			// Progress fields
+			&phase,
+			&overallPct,
+			&tablesTotal,
+			&tablesCompleted,
+			&currentTable,
+			&currentTablePct,
+			&rowsCopied,
+			&bytesCopied,
+			&throughputRowsSec,
+			&etaSeconds,
+			&parallelWorkers,
+			&errorMessage,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan node row: %w", err)
+		}
+
+		// Populate InitProgress if we have progress data
+		if phase != nil {
+			n.InitProgress = &models.NodeInitProgress{
+				Phase:               *phase,
+				OverallPercent:      derefFloat64(overallPct),
+				TablesTotal:         derefInt(tablesTotal),
+				TablesCompleted:     derefInt(tablesCompleted),
+				CurrentTable:        derefString(currentTable),
+				CurrentTablePercent: derefFloat64(currentTablePct),
+				RowsCopied:          derefInt64(rowsCopied),
+				BytesCopied:         derefInt64(bytesCopied),
+				ThroughputRowsSec:   derefFloat64(throughputRowsSec),
+				ETASeconds:          derefInt(etaSeconds),
+				ParallelWorkers:     derefInt(parallelWorkers),
+				ErrorMessage:        derefString(errorMessage),
+			}
+		}
+
+		nodes = append(nodes, n)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate nodes: %w", err)
+	}
+
+	return nodes, nil
+}
+
+// =============================================================================
+// Helper functions for pointer dereferencing
+// =============================================================================
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func derefInt(i *int) int {
+	if i == nil {
+		return 0
+	}
+	return *i
+}
+
+func derefInt64(i *int64) int64 {
+	if i == nil {
+		return 0
+	}
+	return *i
+}
+
+func derefFloat64(f *float64) float64 {
+	if f == nil {
+		return 0
+	}
+	return *f
+}

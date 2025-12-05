@@ -58,6 +58,9 @@ CREATE TABLE steep_repl.nodes (
     node_name TEXT NOT NULL,
     host TEXT NOT NULL,
     port INTEGER NOT NULL DEFAULT 5432,
+    -- Daemon gRPC address for cross-node health checks
+    grpc_host TEXT,
+    grpc_port INTEGER,
     priority INTEGER NOT NULL DEFAULT 50,
     is_coordinator BOOLEAN NOT NULL DEFAULT false,
     last_seen TIMESTAMPTZ,
@@ -69,6 +72,7 @@ CREATE TABLE steep_repl.nodes (
     init_completed_at TIMESTAMPTZ,
     CONSTRAINT nodes_priority_check CHECK (priority >= 1 AND priority <= 100),
     CONSTRAINT nodes_port_check CHECK (port >= 1 AND port <= 65535),
+    CONSTRAINT nodes_grpc_port_check CHECK (grpc_port IS NULL OR (grpc_port >= 1 AND grpc_port <= 65535)),
     CONSTRAINT nodes_host_check CHECK (host <> ''),
     CONSTRAINT nodes_status_check CHECK (status IN ('unknown', 'healthy', 'degraded', 'unreachable', 'offline')),
     CONSTRAINT nodes_init_state_check CHECK (init_state IN (

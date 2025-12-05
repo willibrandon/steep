@@ -236,6 +236,12 @@ func (m *Manager) GetProgress(ctx context.Context, nodeID string) (*models.InitP
 	return &p, nil
 }
 
+// GetTableFingerprints returns schema fingerprints for all user tables.
+// Used by gRPC handlers for remote schema verification.
+func (m *Manager) GetTableFingerprints(ctx context.Context) (map[string]string, error) {
+	return GetTableFingerprints(ctx, m.pool)
+}
+
 // GetNodeState returns the current init_state for a node.
 func (m *Manager) GetNodeState(ctx context.Context, nodeID string) (models.InitState, error) {
 	var state models.InitState

@@ -163,6 +163,8 @@ func (v *ReplicationView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return v.handleSlotsKeys(key)
 	case TabLogical:
 		return v.handleLogicalKeys(key)
+	case TabNodes:
+		return v.handleNodesKeys(key)
 	case TabSetup:
 		return v.handleSetupKeys(key)
 	}
@@ -304,6 +306,129 @@ func (v *ReplicationView) handleLogicalKeys(key string) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// handleNodesKeys handles keys specific to the Nodes tab.
+func (v *ReplicationView) handleNodesKeys(key string) tea.Cmd {
+	// Handle node progress overlay mode
+	if v.mode == ModeNodeProgress {
+		switch key {
+		case "esc", "q":
+			v.progressOverlay.Hide()
+			v.mode = ModeNormal
+		case "C":
+			// T044: Cancel initialization from TUI
+			if v.readOnly {
+				v.showToast("Cannot cancel initialization in read-only mode", true)
+				return nil
+			}
+			nodeID := v.progressOverlay.GetNodeID()
+			if nodeID == "" {
+				return nil
+			}
+			// Show confirmation dialog
+			v.mode = ModeConfirmCancelInit
+		}
+		return nil
+	}
+
+	// Handle confirm cancel init mode
+	if v.mode == ModeConfirmCancelInit {
+		switch key {
+		case "y", "Y":
+			v.mode = ModeNodeProgress
+			return v.cancelInitCmd()
+		case "n", "N", "esc", "q":
+			v.mode = ModeNodeProgress
+		}
+		return nil
+	}
+
+	// Normal Nodes tab mode
+	switch key {
+	case "j", "down":
+		v.moveNodeSelection(1)
+	case "k", "up":
+		v.moveNodeSelection(-1)
+	case "g", "home":
+		v.nodeSelectedIdx = 0
+		v.ensureNodeVisible()
+	case "G", "end":
+		if len(v.clusterNodes) > 0 {
+			v.nodeSelectedIdx = len(v.clusterNodes) - 1
+			v.ensureNodeVisible()
+		}
+	case "ctrl+d", "pgdown":
+		v.moveNodeSelection(10)
+	case "ctrl+u", "pgup":
+		v.moveNodeSelection(-10)
+	case "D", "d", "enter":
+		// T043: Show detailed node info overlay
+		if len(v.clusterNodes) > 0 && v.nodeSelectedIdx < len(v.clusterNodes) {
+			node := v.clusterNodes[v.nodeSelectedIdx]
+			// Build progress data from node info (even if not actively initializing)
+			progressData := v.buildNodeProgressData(node)
+			v.progressOverlay.Show(progressData)
+			v.mode = ModeNodeProgress
+		}
+	case "C":
+		// T044: Cancel initialization from Nodes list
+		if v.readOnly {
+			v.showToast("Cannot cancel initialization in read-only mode", true)
+			return nil
+		}
+		if len(v.clusterNodes) > 0 && v.nodeSelectedIdx < len(v.clusterNodes) {
+			node := v.clusterNodes[v.nodeSelectedIdx]
+			if isInitializing(node.InitState) {
+				// Store node ID for cancellation and show confirmation
+				v.progressOverlay.Show(node.Progress)
+				v.mode = ModeConfirmCancelInit
+			} else {
+				v.showToast("Node is not initializing", false)
+			}
+		}
+	}
+	return nil
+}
+
+// moveNodeSelection moves the node selection by delta.
+func (v *ReplicationView) moveNodeSelection(delta int) {
+	if len(v.clusterNodes) == 0 {
+		return
+	}
+	v.nodeSelectedIdx += delta
+	if v.nodeSelectedIdx < 0 {
+		v.nodeSelectedIdx = 0
+	}
+	if v.nodeSelectedIdx >= len(v.clusterNodes) {
+		v.nodeSelectedIdx = len(v.clusterNodes) - 1
+	}
+	v.ensureNodeVisible()
+}
+
+// ensureNodeVisible ensures the selected node is visible in the viewport.
+func (v *ReplicationView) ensureNodeVisible() {
+	tableHeight := v.height - 10 // Reserve space for header and footer
+	if tableHeight < 1 {
+		tableHeight = 1
+	}
+	if v.nodeSelectedIdx < v.nodeScrollOffset {
+		v.nodeScrollOffset = v.nodeSelectedIdx
+	}
+	if v.nodeSelectedIdx >= v.nodeScrollOffset+tableHeight {
+		v.nodeScrollOffset = v.nodeSelectedIdx - tableHeight + 1
+	}
+}
+
+// cancelInitCmd sends a cancel initialization request for the selected node.
+func (v *ReplicationView) cancelInitCmd() tea.Cmd {
+	nodeID := v.progressOverlay.GetNodeID()
+	if nodeID == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		return ui.CancelInitRequestMsg{NodeID: nodeID}
+	}
 }
 
 // handleSetupKeys handles keys specific to the Setup tab.

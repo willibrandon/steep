@@ -38,6 +38,9 @@ service InitService {
     // Compare schemas between nodes
     rpc CompareSchemas(CompareSchemasRequest) returns (CompareSchemasResponse);
 
+    // Get schema fingerprints from this node's database
+    rpc GetSchemaFingerprints(GetSchemaFingerprintsRequest) returns (GetSchemaFingerprintsResponse);
+
     // Generate snapshot (two-phase, phase 1)
     rpc GenerateSnapshot(GenerateSnapshotRequest) returns (stream SnapshotProgress);
 
@@ -144,6 +147,7 @@ message CompleteInitRequest {
     SchemaSyncMode schema_sync_mode = 4;
     SourceNodeInfo source_node_info = 5;  // Required for subscription connection
     bool skip_schema_check = 6;
+    string source_remote = 7;             // gRPC address of source daemon for schema verification
 }
 
 message CompleteInitResponse {
@@ -281,6 +285,26 @@ message ColumnDifference {
     string difference_type = 2;        // missing, extra, type_change, default_change
     string local_definition = 3;
     string remote_definition = 4;
+}
+
+// =============================================================================
+// Schema Fingerprints (for remote schema verification)
+// =============================================================================
+
+message GetSchemaFingerprintsRequest {
+    repeated string schemas = 1;       // Empty = public schema only
+}
+
+message GetSchemaFingerprintsResponse {
+    bool success = 1;
+    string error = 2;
+    repeated TableFingerprint fingerprints = 3;
+}
+
+message TableFingerprint {
+    string schema_name = 1;
+    string table_name = 2;
+    string fingerprint = 3;            // SHA256 hash of column definitions
 }
 
 // =============================================================================

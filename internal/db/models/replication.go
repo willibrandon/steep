@@ -112,6 +112,59 @@ func ParseSlotType(s string) SlotType {
 }
 
 // =============================================================================
+// ClusterNode Model (steep_repl.nodes)
+// =============================================================================
+
+// ClusterNode represents a node in the bidirectional replication cluster.
+// Source: steep_repl.nodes table (PostgreSQL extension)
+type ClusterNode struct {
+	// NodeID is the unique identifier for the node
+	NodeID string
+	// NodeName is the human-readable name
+	NodeName string
+	// Host is the hostname or IP address
+	Host string
+	// Port is the PostgreSQL port
+	Port int
+	// Priority is the node priority (1-100)
+	Priority int
+	// IsCoordinator is true if this node is the coordinator
+	IsCoordinator bool
+	// LastSeen is the last heartbeat time
+	LastSeen *time.Time
+	// Status is the node status (unknown, healthy, degraded, unreachable, offline)
+	Status string
+	// InitState is the initialization state
+	InitState string
+	// InitSourceNode is the source node for initialization
+	InitSourceNode string
+	// InitStartedAt is when initialization started
+	InitStartedAt *time.Time
+	// InitCompletedAt is when initialization completed
+	InitCompletedAt *time.Time
+
+	// InitProgress contains real-time progress data if node is initializing
+	InitProgress *NodeInitProgress
+}
+
+// NodeInitProgress contains real-time initialization progress data.
+// Source: steep_repl.init_progress table
+type NodeInitProgress struct {
+	Phase               string  // preparing, copying, catching_up, complete, failed
+	OverallPercent      float64 // 0-100
+	TablesTotal         int
+	TablesCompleted     int
+	CurrentTable        string
+	CurrentTablePercent float64
+	RowsCopied          int64
+	BytesCopied         int64
+	ThroughputRowsSec   float64
+	ETASeconds          int
+	ParallelWorkers     int
+	ErrorMessage        string
+}
+
+// =============================================================================
 // T004: Replica Model
 // =============================================================================
 
@@ -391,6 +444,8 @@ type ReplicationData struct {
 	Publications []Publication
 	// Subscriptions is the list of logical replication subscriptions
 	Subscriptions []Subscription
+	// ClusterNodes is the list of steep_repl cluster nodes
+	ClusterNodes []ClusterNode
 	// LagHistory is the in-memory ring buffer keyed by replica name
 	LagHistory map[string][]float64
 	// RefreshTime is when the data was fetched
@@ -428,6 +483,7 @@ func NewReplicationData() *ReplicationData {
 		Slots:         make([]ReplicationSlot, 0),
 		Publications:  make([]Publication, 0),
 		Subscriptions: make([]Subscription, 0),
+		ClusterNodes:  make([]ClusterNode, 0),
 		LagHistory:    make(map[string][]float64),
 		RefreshTime:   time.Now(),
 	}

@@ -56,6 +56,7 @@ type DaemonProvider interface {
 	GetPool() *db.Pool
 	GetAuditWriter() *db.AuditWriter
 	HealthCheckPool(ctx context.Context) error
+	CancelInit(ctx context.Context, nodeID string) error
 }
 
 // Handlers provides IPC method handlers.
@@ -75,6 +76,7 @@ func (h *Handlers) RegisterAll(s *Server) {
 	s.RegisterHandler(MethodNodesList, h.NodesList)
 	s.RegisterHandler(MethodNodesGet, h.NodesGet)
 	s.RegisterHandler(MethodAuditQuery, h.AuditQuery)
+	s.RegisterHandler(MethodInitCancel, h.InitCancel)
 }
 
 // StatusGet handles status.get requests.
@@ -435,4 +437,39 @@ func (h *Handlers) queryNode(ctx context.Context, pool *db.Pool, nodeID string) 
 	}
 
 	return &n, nil
+}
+
+// InitCancel handles init.cancel requests.
+func (h *Handlers) InitCancel(ctx context.Context, params json.RawMessage) (any, error) {
+	// Parse params
+	var p InitCancelParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &HandlerError{
+			Code:    ErrCodeInvalidRequest,
+			Message: "invalid params: " + err.Error(),
+		}
+	}
+
+	if p.NodeID == "" {
+		return nil, &HandlerError{
+			Code:    ErrCodeInvalidRequest,
+			Message: "node_id is required",
+		}
+	}
+
+	// Call the daemon's cancel method
+	err := h.provider.CancelInit(ctx, p.NodeID)
+	if err != nil {
+		return InitCancelResult{
+			Success: false,
+			NodeID:  p.NodeID,
+			Message: err.Error(),
+		}, nil
+	}
+
+	return InitCancelResult{
+		Success: true,
+		NodeID:  p.NodeID,
+		Message: "initialization cancelled",
+	}, nil
 }

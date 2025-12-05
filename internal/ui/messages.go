@@ -346,3 +346,17 @@ type AlertAcknowledgedMsg struct {
 	Unacknowledged bool // true if this was an unacknowledge operation
 	Error          error
 }
+
+// Node initialization messages (steep-repl)
+
+// CancelInitRequestMsg requests cancellation of a node initialization.
+type CancelInitRequestMsg struct {
+	NodeID string
+}
+
+// CancelInitResultMsg contains the result of a cancel initialization attempt.
+type CancelInitResultMsg struct {
+	NodeID  string
+	Success bool
+	Error   error
+}

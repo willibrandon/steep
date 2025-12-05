@@ -17,6 +17,7 @@ import (
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
 	"github.com/willibrandon/steep/internal/repl/grpc/certs"
 	pb "github.com/willibrandon/steep/internal/repl/grpc/proto"
+	replinit "github.com/willibrandon/steep/internal/repl/init"
 )
 
 var (
@@ -887,7 +888,7 @@ Example:
 				return fmt.Errorf("--node flag is required")
 			}
 			if slotName == "" {
-				slotName = fmt.Sprintf("steep_init_%s", nodeID)
+				slotName = fmt.Sprintf("steep_init_%s", replinit.SanitizeSlotName(nodeID))
 			}
 
 			fmt.Printf("Preparing initialization for node %s...\n", nodeID)
@@ -986,6 +987,7 @@ func newInitCompleteCmd() *cobra.Command {
 		sourcePort     int
 		sourceDatabase string
 		sourceUser     string
+		sourceRemote   string // gRPC address of source daemon for schema verification
 	)
 
 	cmd := &cobra.Command{
@@ -1033,7 +1035,7 @@ Example:
 			// If remote address specified, use gRPC
 			if remoteAddr != "" {
 				return runInitCompleteGRPC(targetNodeID, sourceNodeID, sourceLSN, schemaSync, skipSchemaCheck,
-					sourceHost, sourcePort, sourceDatabase, sourceUser,
+					sourceHost, sourcePort, sourceDatabase, sourceUser, sourceRemote,
 					remoteAddr, caFile, insecure)
 			}
 
@@ -1054,6 +1056,7 @@ Example:
 	cmd.Flags().IntVar(&sourcePort, "source-port", 5432, "source PostgreSQL port")
 	cmd.Flags().StringVar(&sourceDatabase, "source-database", "", "source PostgreSQL database")
 	cmd.Flags().StringVar(&sourceUser, "source-user", "", "source PostgreSQL user")
+	cmd.Flags().StringVar(&sourceRemote, "source-remote", "", "source daemon gRPC address for schema verification (e.g., localhost:15461)")
 	cmd.Flags().StringVar(&remoteAddr, "remote", "", "remote daemon address (host:port) for gRPC")
 	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
@@ -1066,7 +1069,7 @@ Example:
 
 // runInitCompleteGRPC completes initialization via gRPC.
 func runInitCompleteGRPC(targetNodeID, sourceNodeID, sourceLSN, schemaSync string, skipSchemaCheck bool,
-	sourceHost string, sourcePort int, sourceDatabase, sourceUser string,
+	sourceHost string, sourcePort int, sourceDatabase, sourceUser, sourceRemote string,
 	remoteAddr, caFile string, insecure bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -1110,6 +1113,7 @@ func runInitCompleteGRPC(targetNodeID, sourceNodeID, sourceLSN, schemaSync strin
 			User:     sourceUser,
 		},
 		SkipSchemaCheck: skipSchemaCheck,
+		SourceRemote:    sourceRemote,
 	})
 	if err != nil {
 		return fmt.Errorf("gRPC call failed: %w", err)

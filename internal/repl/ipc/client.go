@@ -193,3 +193,23 @@ func (c *Client) QueryAudit(params AuditQueryParams) (*AuditQueryResult, error) 
 
 	return &result, nil
 }
+
+// CancelInit calls init.cancel and returns the result.
+func (c *Client) CancelInit(nodeID string) (*InitCancelResult, error) {
+	params := InitCancelParams{NodeID: nodeID}
+	resp, err := c.Call(MethodInitCancel, params)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.Error != nil {
+		return nil, fmt.Errorf("%s: %s", resp.Error.Code, resp.Error.Message)
+	}
+
+	var result InitCancelResult
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse result: %w", err)
+	}
+
+	return &result, nil
+}

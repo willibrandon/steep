@@ -42,6 +42,7 @@ const (
 	MethodNodesList   = "nodes.list"
 	MethodNodesGet    = "nodes.get"
 	MethodAuditQuery  = "audit.query"
+	MethodInitCancel  = "init.cancel"
 )
 
 // StatusResult is the result of status.get.
@@ -167,6 +168,18 @@ type AuditEntry struct {
 	TargetType string    `json:"target_type,omitempty"`
 	TargetID   string    `json:"target_id,omitempty"`
 	Success    bool      `json:"success"`
+}
+
+// InitCancelParams are the parameters for init.cancel.
+type InitCancelParams struct {
+	NodeID string `json:"node_id"`
+}
+
+// InitCancelResult is the result of init.cancel.
+type InitCancelResult struct {
+	Success bool   `json:"success"`
+	NodeID  string `json:"node_id"`
+	Message string `json:"message,omitempty"`
 }
 
 // NewErrorResponse creates an error response.

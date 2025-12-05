@@ -494,22 +494,29 @@ func (s *SnapshotInitializer) monitorSubscriptionSync(ctx context.Context, targe
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	// Get total size upfront for ETA calculation
+	totalBytes, _ := s.getTotalDatabaseSize(ctx)
+	startTime := time.Now()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			// Query pg_subscription_rel for sync status
+			// Query pg_subscription_rel for sync status with bytes copied
 			// i = initialize, d = data is being copied, s = synchronized, r = ready
 			var syncedCount, totalCount int
+			var bytesCompleted int64
 			err := s.pool.QueryRow(ctx, `
 				SELECT
 					COUNT(*) FILTER (WHERE srsubstate IN ('s', 'r')) as synced,
-					COUNT(*) as total
+					COUNT(*) as total,
+					COALESCE(SUM(CASE WHEN srsubstate IN ('s', 'r')
+						THEN pg_table_size(srrelid) ELSE 0 END), 0) as bytes_completed
 				FROM pg_subscription_rel psr
 				JOIN pg_subscription ps ON ps.oid = psr.srsubid
 				WHERE ps.subname = $1
-			`, subName).Scan(&syncedCount, &totalCount)
+			`, subName).Scan(&syncedCount, &totalCount, &bytesCompleted)
 			if err != nil {
 				s.manager.logger.Log(InitEvent{
 					Level:  "warn",
@@ -523,7 +530,22 @@ func (s *SnapshotInitializer) monitorSubscriptionSync(ctx context.Context, targe
 			// Update progress
 			if totalCount > 0 {
 				percent := float32(syncedCount) / float32(totalCount) * 100
-				s.updateProgress(ctx, targetNode, percent, syncedCount)
+
+				// Calculate throughput and ETA
+				elapsedSeconds := time.Since(startTime).Seconds()
+				var throughput float32
+				var etaSeconds int
+
+				if elapsedSeconds > 0 && bytesCompleted > 0 {
+					throughput = float32(float64(bytesCompleted) / elapsedSeconds)
+					if totalBytes > bytesCompleted {
+						bytesRemaining := totalBytes - bytesCompleted
+						etaSeconds = int(float64(bytesRemaining) / float64(throughput))
+					}
+				}
+
+				// Update all progress fields in the database
+				s.updateFullProgress(ctx, targetNode, percent, syncedCount, totalCount, bytesCompleted, throughput, etaSeconds)
 
 				// Send progress update
 				s.manager.sendProgress(ProgressUpdate{
@@ -532,6 +554,9 @@ func (s *SnapshotInitializer) monitorSubscriptionSync(ctx context.Context, targe
 					OverallPercent:  percent,
 					TablesTotal:     totalCount,
 					TablesCompleted: syncedCount,
+					BytesCopied:     bytesCompleted,
+					ThroughputRows:  throughput,
+					ETASeconds:      etaSeconds,
 				})
 
 				// All tables synced?
@@ -551,6 +576,22 @@ func (s *SnapshotInitializer) updateProgress(ctx context.Context, nodeID string,
 		WHERE node_id = $1
 	`
 	_, _ = s.pool.Exec(ctx, query, nodeID, percent, tablesCompleted)
+}
+
+// updateFullProgress updates all progress fields including ETA and throughput.
+func (s *SnapshotInitializer) updateFullProgress(ctx context.Context, nodeID string, percent float32, tablesCompleted, tablesTotal int, bytesCopied int64, throughput float32, etaSeconds int) {
+	query := `
+		UPDATE steep_repl.init_progress
+		SET overall_percent = $2,
+			tables_completed = $3,
+			tables_total = $4,
+			bytes_copied = $5,
+			throughput_rows_sec = $6,
+			eta_seconds = $7,
+			updated_at = NOW()
+		WHERE node_id = $1
+	`
+	_, _ = s.pool.Exec(ctx, query, nodeID, percent, tablesCompleted, tablesTotal, bytesCopied, throughput, etaSeconds)
 }
 
 // waitForCatchUp waits for replication lag to reach acceptable levels.

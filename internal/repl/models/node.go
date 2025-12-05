@@ -71,7 +71,7 @@ func (s InitState) CanTransitionTo(target InitState) bool {
 		InitStateCatchingUp:     {InitStateSynchronized, InitStateFailed},
 		InitStateSynchronized:   {InitStateDiverged},
 		InitStateDiverged:       {InitStateReinitializing, InitStateFailed},
-		InitStateFailed:         {InitStateUninitialized, InitStateReinitializing},
+		InitStateFailed:         {InitStateUninitialized, InitStatePreparing, InitStateReinitializing},
 		InitStateReinitializing: {InitStateCopying, InitStateFailed},
 	}
 

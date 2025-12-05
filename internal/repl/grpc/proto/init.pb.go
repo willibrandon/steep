@@ -672,6 +672,7 @@ type CompleteInitRequest struct {
 	SchemaSyncMode  SchemaSyncMode         `protobuf:"varint,4,opt,name=schema_sync_mode,json=schemaSyncMode,proto3,enum=steep.repl.v1.SchemaSyncMode" json:"schema_sync_mode,omitempty"`
 	SourceNodeInfo  *SourceNodeInfo        `protobuf:"bytes,5,opt,name=source_node_info,json=sourceNodeInfo,proto3" json:"source_node_info,omitempty"` // Required for subscription connection
 	SkipSchemaCheck bool                   `protobuf:"varint,6,opt,name=skip_schema_check,json=skipSchemaCheck,proto3" json:"skip_schema_check,omitempty"`
+	SourceRemote    string                 `protobuf:"bytes,7,opt,name=source_remote,json=sourceRemote,proto3" json:"source_remote,omitempty"` // gRPC address of source daemon for schema verification
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -746,6 +747,13 @@ func (x *CompleteInitRequest) GetSkipSchemaCheck() bool {
 		return x.SkipSchemaCheck
 	}
 	return false
+}
+
+func (x *CompleteInitRequest) GetSourceRemote() string {
+	if x != nil {
+		return x.SourceRemote
+	}
+	return ""
 }
 
 type CompleteInitResponse struct {
@@ -1942,6 +1950,170 @@ func (x *ColumnDifference) GetRemoteDefinition() string {
 	return ""
 }
 
+type GetSchemaFingerprintsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Schemas       []string               `protobuf:"bytes,1,rep,name=schemas,proto3" json:"schemas,omitempty"` // Empty = public schema only
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSchemaFingerprintsRequest) Reset() {
+	*x = GetSchemaFingerprintsRequest{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSchemaFingerprintsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSchemaFingerprintsRequest) ProtoMessage() {}
+
+func (x *GetSchemaFingerprintsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSchemaFingerprintsRequest.ProtoReflect.Descriptor instead.
+func (*GetSchemaFingerprintsRequest) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *GetSchemaFingerprintsRequest) GetSchemas() []string {
+	if x != nil {
+		return x.Schemas
+	}
+	return nil
+}
+
+type GetSchemaFingerprintsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Fingerprints  []*TableFingerprint    `protobuf:"bytes,3,rep,name=fingerprints,proto3" json:"fingerprints,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSchemaFingerprintsResponse) Reset() {
+	*x = GetSchemaFingerprintsResponse{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSchemaFingerprintsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSchemaFingerprintsResponse) ProtoMessage() {}
+
+func (x *GetSchemaFingerprintsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSchemaFingerprintsResponse.ProtoReflect.Descriptor instead.
+func (*GetSchemaFingerprintsResponse) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *GetSchemaFingerprintsResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *GetSchemaFingerprintsResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *GetSchemaFingerprintsResponse) GetFingerprints() []*TableFingerprint {
+	if x != nil {
+		return x.Fingerprints
+	}
+	return nil
+}
+
+type TableFingerprint struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SchemaName    string                 `protobuf:"bytes,1,opt,name=schema_name,json=schemaName,proto3" json:"schema_name,omitempty"`
+	TableName     string                 `protobuf:"bytes,2,opt,name=table_name,json=tableName,proto3" json:"table_name,omitempty"`
+	Fingerprint   string                 `protobuf:"bytes,3,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"` // SHA256 hash of column definitions
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TableFingerprint) Reset() {
+	*x = TableFingerprint{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TableFingerprint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TableFingerprint) ProtoMessage() {}
+
+func (x *TableFingerprint) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TableFingerprint.ProtoReflect.Descriptor instead.
+func (*TableFingerprint) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *TableFingerprint) GetSchemaName() string {
+	if x != nil {
+		return x.SchemaName
+	}
+	return ""
+}
+
+func (x *TableFingerprint) GetTableName() string {
+	if x != nil {
+		return x.TableName
+	}
+	return ""
+}
+
+func (x *TableFingerprint) GetFingerprint() string {
+	if x != nil {
+		return x.Fingerprint
+	}
+	return ""
+}
+
 type GenerateSnapshotRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	SourceNodeId    string                 `protobuf:"bytes,1,opt,name=source_node_id,json=sourceNodeId,proto3" json:"source_node_id,omitempty"`
@@ -1954,7 +2126,7 @@ type GenerateSnapshotRequest struct {
 
 func (x *GenerateSnapshotRequest) Reset() {
 	*x = GenerateSnapshotRequest{}
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[24]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1966,7 +2138,7 @@ func (x *GenerateSnapshotRequest) String() string {
 func (*GenerateSnapshotRequest) ProtoMessage() {}
 
 func (x *GenerateSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[24]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1979,7 +2151,7 @@ func (x *GenerateSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*GenerateSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{24}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GenerateSnapshotRequest) GetSourceNodeId() string {
@@ -2023,7 +2195,7 @@ type ApplySnapshotRequest struct {
 
 func (x *ApplySnapshotRequest) Reset() {
 	*x = ApplySnapshotRequest{}
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[25]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2035,7 +2207,7 @@ func (x *ApplySnapshotRequest) String() string {
 func (*ApplySnapshotRequest) ProtoMessage() {}
 
 func (x *ApplySnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[25]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2048,7 +2220,7 @@ func (x *ApplySnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplySnapshotRequest.ProtoReflect.Descriptor instead.
 func (*ApplySnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{25}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ApplySnapshotRequest) GetTargetNodeId() string {
@@ -2105,7 +2277,7 @@ type SnapshotProgress struct {
 
 func (x *SnapshotProgress) Reset() {
 	*x = SnapshotProgress{}
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[26]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2117,7 +2289,7 @@ func (x *SnapshotProgress) String() string {
 func (*SnapshotProgress) ProtoMessage() {}
 
 func (x *SnapshotProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[26]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2130,7 +2302,7 @@ func (x *SnapshotProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotProgress.ProtoReflect.Descriptor instead.
 func (*SnapshotProgress) Descriptor() ([]byte, []int) {
-	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{26}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SnapshotProgress) GetSnapshotId() string {
@@ -2245,7 +2417,7 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\tslot_name\x18\x03 \x01(\tR\bslotName\x12\x10\n" +
 	"\x03lsn\x18\x04 \x01(\tR\x03lsn\x129\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xbe\x02\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xe3\x02\n" +
 	"\x13CompleteInitRequest\x12$\n" +
 	"\x0etarget_node_id\x18\x01 \x01(\tR\ftargetNodeId\x12$\n" +
 	"\x0esource_node_id\x18\x02 \x01(\tR\fsourceNodeId\x12\x1d\n" +
@@ -2253,7 +2425,8 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"source_lsn\x18\x03 \x01(\tR\tsourceLsn\x12G\n" +
 	"\x10schema_sync_mode\x18\x04 \x01(\x0e2\x1d.steep.repl.v1.SchemaSyncModeR\x0eschemaSyncMode\x12G\n" +
 	"\x10source_node_info\x18\x05 \x01(\v2\x1d.steep.repl.v1.SourceNodeInfoR\x0esourceNodeInfo\x12*\n" +
-	"\x11skip_schema_check\x18\x06 \x01(\bR\x0fskipSchemaCheck\"\xc4\x01\n" +
+	"\x11skip_schema_check\x18\x06 \x01(\bR\x0fskipSchemaCheck\x12#\n" +
+	"\rsource_remote\x18\a \x01(\tR\fsourceRemote\"\xc4\x01\n" +
 	"\x14CompleteInitResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12.\n" +
@@ -2348,7 +2521,19 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"columnName\x12'\n" +
 	"\x0fdifference_type\x18\x02 \x01(\tR\x0edifferenceType\x12)\n" +
 	"\x10local_definition\x18\x03 \x01(\tR\x0flocalDefinition\x12+\n" +
-	"\x11remote_definition\x18\x04 \x01(\tR\x10remoteDefinition\"\xad\x01\n" +
+	"\x11remote_definition\x18\x04 \x01(\tR\x10remoteDefinition\"8\n" +
+	"\x1cGetSchemaFingerprintsRequest\x12\x18\n" +
+	"\aschemas\x18\x01 \x03(\tR\aschemas\"\x94\x01\n" +
+	"\x1dGetSchemaFingerprintsResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12C\n" +
+	"\ffingerprints\x18\x03 \x03(\v2\x1f.steep.repl.v1.TableFingerprintR\ffingerprints\"t\n" +
+	"\x10TableFingerprint\x12\x1f\n" +
+	"\vschema_name\x18\x01 \x01(\tR\n" +
+	"schemaName\x12\x1d\n" +
+	"\n" +
+	"table_name\x18\x02 \x01(\tR\ttableName\x12 \n" +
+	"\vfingerprint\x18\x03 \x01(\tR\vfingerprint\"\xad\x01\n" +
 	"\x17GenerateSnapshotRequest\x12$\n" +
 	"\x0esource_node_id\x18\x01 \x01(\tR\fsourceNodeId\x12\x1f\n" +
 	"\voutput_path\x18\x02 \x01(\tR\n" +
@@ -2404,7 +2589,7 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\x17COMPARISON_STATUS_MATCH\x10\x01\x12\x1e\n" +
 	"\x1aCOMPARISON_STATUS_MISMATCH\x10\x02\x12 \n" +
 	"\x1cCOMPARISON_STATUS_LOCAL_ONLY\x10\x03\x12!\n" +
-	"\x1dCOMPARISON_STATUS_REMOTE_ONLY\x10\x042\xfb\x06\n" +
+	"\x1dCOMPARISON_STATUS_REMOTE_ONLY\x10\x042\xef\a\n" +
 	"\vInitService\x12N\n" +
 	"\tStartInit\x12\x1f.steep.repl.v1.StartInitRequest\x1a .steep.repl.v1.StartInitResponse\x12T\n" +
 	"\vPrepareInit\x12!.steep.repl.v1.PrepareInitRequest\x1a\".steep.repl.v1.PrepareInitResponse\x12W\n" +
@@ -2414,7 +2599,8 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\vGetProgress\x12!.steep.repl.v1.GetProgressRequest\x1a\".steep.repl.v1.GetProgressResponse\x12W\n" +
 	"\x0eStreamProgress\x12$.steep.repl.v1.StreamProgressRequest\x1a\x1d.steep.repl.v1.ProgressUpdate0\x01\x12T\n" +
 	"\vStartReinit\x12!.steep.repl.v1.StartReinitRequest\x1a\".steep.repl.v1.StartReinitResponse\x12]\n" +
-	"\x0eCompareSchemas\x12$.steep.repl.v1.CompareSchemasRequest\x1a%.steep.repl.v1.CompareSchemasResponse\x12]\n" +
+	"\x0eCompareSchemas\x12$.steep.repl.v1.CompareSchemasRequest\x1a%.steep.repl.v1.CompareSchemasResponse\x12r\n" +
+	"\x15GetSchemaFingerprints\x12+.steep.repl.v1.GetSchemaFingerprintsRequest\x1a,.steep.repl.v1.GetSchemaFingerprintsResponse\x12]\n" +
 	"\x10GenerateSnapshot\x12&.steep.repl.v1.GenerateSnapshotRequest\x1a\x1f.steep.repl.v1.SnapshotProgress0\x01\x12W\n" +
 	"\rApplySnapshot\x12#.steep.repl.v1.ApplySnapshotRequest\x1a\x1f.steep.repl.v1.SnapshotProgress0\x01B Z\x1esteep/internal/repl/grpc/protob\x06proto3"
 
@@ -2431,40 +2617,43 @@ func file_internal_repl_grpc_proto_init_proto_rawDescGZIP() []byte {
 }
 
 var file_internal_repl_grpc_proto_init_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_internal_repl_grpc_proto_init_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_internal_repl_grpc_proto_init_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_internal_repl_grpc_proto_init_proto_goTypes = []any{
-	(InitState)(0),                  // 0: steep.repl.v1.InitState
-	(InitMethod)(0),                 // 1: steep.repl.v1.InitMethod
-	(SchemaSyncMode)(0),             // 2: steep.repl.v1.SchemaSyncMode
-	(ComparisonStatus)(0),           // 3: steep.repl.v1.ComparisonStatus
-	(*StartInitRequest)(nil),        // 4: steep.repl.v1.StartInitRequest
-	(*SourceNodeInfo)(nil),          // 5: steep.repl.v1.SourceNodeInfo
-	(*InitOptions)(nil),             // 6: steep.repl.v1.InitOptions
-	(*StartInitResponse)(nil),       // 7: steep.repl.v1.StartInitResponse
-	(*PrepareInitRequest)(nil),      // 8: steep.repl.v1.PrepareInitRequest
-	(*PrepareInitResponse)(nil),     // 9: steep.repl.v1.PrepareInitResponse
-	(*CompleteInitRequest)(nil),     // 10: steep.repl.v1.CompleteInitRequest
-	(*CompleteInitResponse)(nil),    // 11: steep.repl.v1.CompleteInitResponse
-	(*CancelInitRequest)(nil),       // 12: steep.repl.v1.CancelInitRequest
-	(*CancelInitResponse)(nil),      // 13: steep.repl.v1.CancelInitResponse
-	(*GetProgressRequest)(nil),      // 14: steep.repl.v1.GetProgressRequest
-	(*GetProgressResponse)(nil),     // 15: steep.repl.v1.GetProgressResponse
-	(*StreamProgressRequest)(nil),   // 16: steep.repl.v1.StreamProgressRequest
-	(*ProgressUpdate)(nil),          // 17: steep.repl.v1.ProgressUpdate
-	(*InitProgress)(nil),            // 18: steep.repl.v1.InitProgress
-	(*TableProgress)(nil),           // 19: steep.repl.v1.TableProgress
-	(*StartReinitRequest)(nil),      // 20: steep.repl.v1.StartReinitRequest
-	(*ReinitScope)(nil),             // 21: steep.repl.v1.ReinitScope
-	(*TableList)(nil),               // 22: steep.repl.v1.TableList
-	(*StartReinitResponse)(nil),     // 23: steep.repl.v1.StartReinitResponse
-	(*CompareSchemasRequest)(nil),   // 24: steep.repl.v1.CompareSchemasRequest
-	(*CompareSchemasResponse)(nil),  // 25: steep.repl.v1.CompareSchemasResponse
-	(*SchemaComparison)(nil),        // 26: steep.repl.v1.SchemaComparison
-	(*ColumnDifference)(nil),        // 27: steep.repl.v1.ColumnDifference
-	(*GenerateSnapshotRequest)(nil), // 28: steep.repl.v1.GenerateSnapshotRequest
-	(*ApplySnapshotRequest)(nil),    // 29: steep.repl.v1.ApplySnapshotRequest
-	(*SnapshotProgress)(nil),        // 30: steep.repl.v1.SnapshotProgress
-	(*timestamppb.Timestamp)(nil),   // 31: google.protobuf.Timestamp
+	(InitState)(0),                        // 0: steep.repl.v1.InitState
+	(InitMethod)(0),                       // 1: steep.repl.v1.InitMethod
+	(SchemaSyncMode)(0),                   // 2: steep.repl.v1.SchemaSyncMode
+	(ComparisonStatus)(0),                 // 3: steep.repl.v1.ComparisonStatus
+	(*StartInitRequest)(nil),              // 4: steep.repl.v1.StartInitRequest
+	(*SourceNodeInfo)(nil),                // 5: steep.repl.v1.SourceNodeInfo
+	(*InitOptions)(nil),                   // 6: steep.repl.v1.InitOptions
+	(*StartInitResponse)(nil),             // 7: steep.repl.v1.StartInitResponse
+	(*PrepareInitRequest)(nil),            // 8: steep.repl.v1.PrepareInitRequest
+	(*PrepareInitResponse)(nil),           // 9: steep.repl.v1.PrepareInitResponse
+	(*CompleteInitRequest)(nil),           // 10: steep.repl.v1.CompleteInitRequest
+	(*CompleteInitResponse)(nil),          // 11: steep.repl.v1.CompleteInitResponse
+	(*CancelInitRequest)(nil),             // 12: steep.repl.v1.CancelInitRequest
+	(*CancelInitResponse)(nil),            // 13: steep.repl.v1.CancelInitResponse
+	(*GetProgressRequest)(nil),            // 14: steep.repl.v1.GetProgressRequest
+	(*GetProgressResponse)(nil),           // 15: steep.repl.v1.GetProgressResponse
+	(*StreamProgressRequest)(nil),         // 16: steep.repl.v1.StreamProgressRequest
+	(*ProgressUpdate)(nil),                // 17: steep.repl.v1.ProgressUpdate
+	(*InitProgress)(nil),                  // 18: steep.repl.v1.InitProgress
+	(*TableProgress)(nil),                 // 19: steep.repl.v1.TableProgress
+	(*StartReinitRequest)(nil),            // 20: steep.repl.v1.StartReinitRequest
+	(*ReinitScope)(nil),                   // 21: steep.repl.v1.ReinitScope
+	(*TableList)(nil),                     // 22: steep.repl.v1.TableList
+	(*StartReinitResponse)(nil),           // 23: steep.repl.v1.StartReinitResponse
+	(*CompareSchemasRequest)(nil),         // 24: steep.repl.v1.CompareSchemasRequest
+	(*CompareSchemasResponse)(nil),        // 25: steep.repl.v1.CompareSchemasResponse
+	(*SchemaComparison)(nil),              // 26: steep.repl.v1.SchemaComparison
+	(*ColumnDifference)(nil),              // 27: steep.repl.v1.ColumnDifference
+	(*GetSchemaFingerprintsRequest)(nil),  // 28: steep.repl.v1.GetSchemaFingerprintsRequest
+	(*GetSchemaFingerprintsResponse)(nil), // 29: steep.repl.v1.GetSchemaFingerprintsResponse
+	(*TableFingerprint)(nil),              // 30: steep.repl.v1.TableFingerprint
+	(*GenerateSnapshotRequest)(nil),       // 31: steep.repl.v1.GenerateSnapshotRequest
+	(*ApplySnapshotRequest)(nil),          // 32: steep.repl.v1.ApplySnapshotRequest
+	(*SnapshotProgress)(nil),              // 33: steep.repl.v1.SnapshotProgress
+	(*timestamppb.Timestamp)(nil),         // 34: google.protobuf.Timestamp
 }
 var file_internal_repl_grpc_proto_init_proto_depIdxs = []int32{
 	1,  // 0: steep.repl.v1.StartInitRequest.method:type_name -> steep.repl.v1.InitMethod
@@ -2472,7 +2661,7 @@ var file_internal_repl_grpc_proto_init_proto_depIdxs = []int32{
 	5,  // 2: steep.repl.v1.StartInitRequest.source_node_info:type_name -> steep.repl.v1.SourceNodeInfo
 	2,  // 3: steep.repl.v1.InitOptions.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
 	0,  // 4: steep.repl.v1.StartInitResponse.state:type_name -> steep.repl.v1.InitState
-	31, // 5: steep.repl.v1.PrepareInitResponse.created_at:type_name -> google.protobuf.Timestamp
+	34, // 5: steep.repl.v1.PrepareInitResponse.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 6: steep.repl.v1.CompleteInitRequest.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
 	5,  // 7: steep.repl.v1.CompleteInitRequest.source_node_info:type_name -> steep.repl.v1.SourceNodeInfo
 	0,  // 8: steep.repl.v1.CompleteInitResponse.state:type_name -> steep.repl.v1.InitState
@@ -2480,9 +2669,9 @@ var file_internal_repl_grpc_proto_init_proto_depIdxs = []int32{
 	0,  // 10: steep.repl.v1.CancelInitResponse.previous_state:type_name -> steep.repl.v1.InitState
 	18, // 11: steep.repl.v1.GetProgressResponse.progress:type_name -> steep.repl.v1.InitProgress
 	18, // 12: steep.repl.v1.ProgressUpdate.progress:type_name -> steep.repl.v1.InitProgress
-	31, // 13: steep.repl.v1.ProgressUpdate.timestamp:type_name -> google.protobuf.Timestamp
+	34, // 13: steep.repl.v1.ProgressUpdate.timestamp:type_name -> google.protobuf.Timestamp
 	0,  // 14: steep.repl.v1.InitProgress.state:type_name -> steep.repl.v1.InitState
-	31, // 15: steep.repl.v1.InitProgress.started_at:type_name -> google.protobuf.Timestamp
+	34, // 15: steep.repl.v1.InitProgress.started_at:type_name -> google.protobuf.Timestamp
 	19, // 16: steep.repl.v1.InitProgress.completed_tables:type_name -> steep.repl.v1.TableProgress
 	21, // 17: steep.repl.v1.StartReinitRequest.scope:type_name -> steep.repl.v1.ReinitScope
 	22, // 18: steep.repl.v1.ReinitScope.tables:type_name -> steep.repl.v1.TableList
@@ -2490,31 +2679,34 @@ var file_internal_repl_grpc_proto_init_proto_depIdxs = []int32{
 	26, // 20: steep.repl.v1.CompareSchemasResponse.comparisons:type_name -> steep.repl.v1.SchemaComparison
 	3,  // 21: steep.repl.v1.SchemaComparison.status:type_name -> steep.repl.v1.ComparisonStatus
 	27, // 22: steep.repl.v1.SchemaComparison.differences:type_name -> steep.repl.v1.ColumnDifference
-	4,  // 23: steep.repl.v1.InitService.StartInit:input_type -> steep.repl.v1.StartInitRequest
-	8,  // 24: steep.repl.v1.InitService.PrepareInit:input_type -> steep.repl.v1.PrepareInitRequest
-	10, // 25: steep.repl.v1.InitService.CompleteInit:input_type -> steep.repl.v1.CompleteInitRequest
-	12, // 26: steep.repl.v1.InitService.CancelInit:input_type -> steep.repl.v1.CancelInitRequest
-	14, // 27: steep.repl.v1.InitService.GetProgress:input_type -> steep.repl.v1.GetProgressRequest
-	16, // 28: steep.repl.v1.InitService.StreamProgress:input_type -> steep.repl.v1.StreamProgressRequest
-	20, // 29: steep.repl.v1.InitService.StartReinit:input_type -> steep.repl.v1.StartReinitRequest
-	24, // 30: steep.repl.v1.InitService.CompareSchemas:input_type -> steep.repl.v1.CompareSchemasRequest
-	28, // 31: steep.repl.v1.InitService.GenerateSnapshot:input_type -> steep.repl.v1.GenerateSnapshotRequest
-	29, // 32: steep.repl.v1.InitService.ApplySnapshot:input_type -> steep.repl.v1.ApplySnapshotRequest
-	7,  // 33: steep.repl.v1.InitService.StartInit:output_type -> steep.repl.v1.StartInitResponse
-	9,  // 34: steep.repl.v1.InitService.PrepareInit:output_type -> steep.repl.v1.PrepareInitResponse
-	11, // 35: steep.repl.v1.InitService.CompleteInit:output_type -> steep.repl.v1.CompleteInitResponse
-	13, // 36: steep.repl.v1.InitService.CancelInit:output_type -> steep.repl.v1.CancelInitResponse
-	15, // 37: steep.repl.v1.InitService.GetProgress:output_type -> steep.repl.v1.GetProgressResponse
-	17, // 38: steep.repl.v1.InitService.StreamProgress:output_type -> steep.repl.v1.ProgressUpdate
-	23, // 39: steep.repl.v1.InitService.StartReinit:output_type -> steep.repl.v1.StartReinitResponse
-	25, // 40: steep.repl.v1.InitService.CompareSchemas:output_type -> steep.repl.v1.CompareSchemasResponse
-	30, // 41: steep.repl.v1.InitService.GenerateSnapshot:output_type -> steep.repl.v1.SnapshotProgress
-	30, // 42: steep.repl.v1.InitService.ApplySnapshot:output_type -> steep.repl.v1.SnapshotProgress
-	33, // [33:43] is the sub-list for method output_type
-	23, // [23:33] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	30, // 23: steep.repl.v1.GetSchemaFingerprintsResponse.fingerprints:type_name -> steep.repl.v1.TableFingerprint
+	4,  // 24: steep.repl.v1.InitService.StartInit:input_type -> steep.repl.v1.StartInitRequest
+	8,  // 25: steep.repl.v1.InitService.PrepareInit:input_type -> steep.repl.v1.PrepareInitRequest
+	10, // 26: steep.repl.v1.InitService.CompleteInit:input_type -> steep.repl.v1.CompleteInitRequest
+	12, // 27: steep.repl.v1.InitService.CancelInit:input_type -> steep.repl.v1.CancelInitRequest
+	14, // 28: steep.repl.v1.InitService.GetProgress:input_type -> steep.repl.v1.GetProgressRequest
+	16, // 29: steep.repl.v1.InitService.StreamProgress:input_type -> steep.repl.v1.StreamProgressRequest
+	20, // 30: steep.repl.v1.InitService.StartReinit:input_type -> steep.repl.v1.StartReinitRequest
+	24, // 31: steep.repl.v1.InitService.CompareSchemas:input_type -> steep.repl.v1.CompareSchemasRequest
+	28, // 32: steep.repl.v1.InitService.GetSchemaFingerprints:input_type -> steep.repl.v1.GetSchemaFingerprintsRequest
+	31, // 33: steep.repl.v1.InitService.GenerateSnapshot:input_type -> steep.repl.v1.GenerateSnapshotRequest
+	32, // 34: steep.repl.v1.InitService.ApplySnapshot:input_type -> steep.repl.v1.ApplySnapshotRequest
+	7,  // 35: steep.repl.v1.InitService.StartInit:output_type -> steep.repl.v1.StartInitResponse
+	9,  // 36: steep.repl.v1.InitService.PrepareInit:output_type -> steep.repl.v1.PrepareInitResponse
+	11, // 37: steep.repl.v1.InitService.CompleteInit:output_type -> steep.repl.v1.CompleteInitResponse
+	13, // 38: steep.repl.v1.InitService.CancelInit:output_type -> steep.repl.v1.CancelInitResponse
+	15, // 39: steep.repl.v1.InitService.GetProgress:output_type -> steep.repl.v1.GetProgressResponse
+	17, // 40: steep.repl.v1.InitService.StreamProgress:output_type -> steep.repl.v1.ProgressUpdate
+	23, // 41: steep.repl.v1.InitService.StartReinit:output_type -> steep.repl.v1.StartReinitResponse
+	25, // 42: steep.repl.v1.InitService.CompareSchemas:output_type -> steep.repl.v1.CompareSchemasResponse
+	29, // 43: steep.repl.v1.InitService.GetSchemaFingerprints:output_type -> steep.repl.v1.GetSchemaFingerprintsResponse
+	33, // 44: steep.repl.v1.InitService.GenerateSnapshot:output_type -> steep.repl.v1.SnapshotProgress
+	33, // 45: steep.repl.v1.InitService.ApplySnapshot:output_type -> steep.repl.v1.SnapshotProgress
+	35, // [35:46] is the sub-list for method output_type
+	24, // [24:35] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_internal_repl_grpc_proto_init_proto_init() }
@@ -2533,7 +2725,7 @@ func file_internal_repl_grpc_proto_init_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_repl_grpc_proto_init_proto_rawDesc), len(file_internal_repl_grpc_proto_init_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   27,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -22,16 +22,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	InitService_StartInit_FullMethodName        = "/steep.repl.v1.InitService/StartInit"
-	InitService_PrepareInit_FullMethodName      = "/steep.repl.v1.InitService/PrepareInit"
-	InitService_CompleteInit_FullMethodName     = "/steep.repl.v1.InitService/CompleteInit"
-	InitService_CancelInit_FullMethodName       = "/steep.repl.v1.InitService/CancelInit"
-	InitService_GetProgress_FullMethodName      = "/steep.repl.v1.InitService/GetProgress"
-	InitService_StreamProgress_FullMethodName   = "/steep.repl.v1.InitService/StreamProgress"
-	InitService_StartReinit_FullMethodName      = "/steep.repl.v1.InitService/StartReinit"
-	InitService_CompareSchemas_FullMethodName   = "/steep.repl.v1.InitService/CompareSchemas"
-	InitService_GenerateSnapshot_FullMethodName = "/steep.repl.v1.InitService/GenerateSnapshot"
-	InitService_ApplySnapshot_FullMethodName    = "/steep.repl.v1.InitService/ApplySnapshot"
+	InitService_StartInit_FullMethodName             = "/steep.repl.v1.InitService/StartInit"
+	InitService_PrepareInit_FullMethodName           = "/steep.repl.v1.InitService/PrepareInit"
+	InitService_CompleteInit_FullMethodName          = "/steep.repl.v1.InitService/CompleteInit"
+	InitService_CancelInit_FullMethodName            = "/steep.repl.v1.InitService/CancelInit"
+	InitService_GetProgress_FullMethodName           = "/steep.repl.v1.InitService/GetProgress"
+	InitService_StreamProgress_FullMethodName        = "/steep.repl.v1.InitService/StreamProgress"
+	InitService_StartReinit_FullMethodName           = "/steep.repl.v1.InitService/StartReinit"
+	InitService_CompareSchemas_FullMethodName        = "/steep.repl.v1.InitService/CompareSchemas"
+	InitService_GetSchemaFingerprints_FullMethodName = "/steep.repl.v1.InitService/GetSchemaFingerprints"
+	InitService_GenerateSnapshot_FullMethodName      = "/steep.repl.v1.InitService/GenerateSnapshot"
+	InitService_ApplySnapshot_FullMethodName         = "/steep.repl.v1.InitService/ApplySnapshot"
 )
 
 // InitServiceClient is the client API for InitService service.
@@ -54,6 +55,8 @@ type InitServiceClient interface {
 	StartReinit(ctx context.Context, in *StartReinitRequest, opts ...grpc.CallOption) (*StartReinitResponse, error)
 	// Compare schemas between nodes
 	CompareSchemas(ctx context.Context, in *CompareSchemasRequest, opts ...grpc.CallOption) (*CompareSchemasResponse, error)
+	// Get schema fingerprints from this node's database
+	GetSchemaFingerprints(ctx context.Context, in *GetSchemaFingerprintsRequest, opts ...grpc.CallOption) (*GetSchemaFingerprintsResponse, error)
 	// Generate snapshot (two-phase, phase 1)
 	GenerateSnapshot(ctx context.Context, in *GenerateSnapshotRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotProgress], error)
 	// Apply snapshot (two-phase, phase 2)
@@ -157,6 +160,16 @@ func (c *initServiceClient) CompareSchemas(ctx context.Context, in *CompareSchem
 	return out, nil
 }
 
+func (c *initServiceClient) GetSchemaFingerprints(ctx context.Context, in *GetSchemaFingerprintsRequest, opts ...grpc.CallOption) (*GetSchemaFingerprintsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSchemaFingerprintsResponse)
+	err := c.cc.Invoke(ctx, InitService_GetSchemaFingerprints_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *initServiceClient) GenerateSnapshot(ctx context.Context, in *GenerateSnapshotRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotProgress], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &InitService_ServiceDesc.Streams[1], InitService_GenerateSnapshot_FullMethodName, cOpts...)
@@ -215,6 +228,8 @@ type InitServiceServer interface {
 	StartReinit(context.Context, *StartReinitRequest) (*StartReinitResponse, error)
 	// Compare schemas between nodes
 	CompareSchemas(context.Context, *CompareSchemasRequest) (*CompareSchemasResponse, error)
+	// Get schema fingerprints from this node's database
+	GetSchemaFingerprints(context.Context, *GetSchemaFingerprintsRequest) (*GetSchemaFingerprintsResponse, error)
 	// Generate snapshot (two-phase, phase 1)
 	GenerateSnapshot(*GenerateSnapshotRequest, grpc.ServerStreamingServer[SnapshotProgress]) error
 	// Apply snapshot (two-phase, phase 2)
@@ -252,6 +267,9 @@ func (UnimplementedInitServiceServer) StartReinit(context.Context, *StartReinitR
 }
 func (UnimplementedInitServiceServer) CompareSchemas(context.Context, *CompareSchemasRequest) (*CompareSchemasResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CompareSchemas not implemented")
+}
+func (UnimplementedInitServiceServer) GetSchemaFingerprints(context.Context, *GetSchemaFingerprintsRequest) (*GetSchemaFingerprintsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSchemaFingerprints not implemented")
 }
 func (UnimplementedInitServiceServer) GenerateSnapshot(*GenerateSnapshotRequest, grpc.ServerStreamingServer[SnapshotProgress]) error {
 	return status.Error(codes.Unimplemented, "method GenerateSnapshot not implemented")
@@ -417,6 +435,24 @@ func _InitService_CompareSchemas_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InitService_GetSchemaFingerprints_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSchemaFingerprintsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InitServiceServer).GetSchemaFingerprints(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InitService_GetSchemaFingerprints_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InitServiceServer).GetSchemaFingerprints(ctx, req.(*GetSchemaFingerprintsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _InitService_GenerateSnapshot_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(GenerateSnapshotRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -473,6 +509,10 @@ var InitService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CompareSchemas",
 			Handler:    _InitService_CompareSchemas_Handler,
+		},
+		{
+			MethodName: "GetSchemaFingerprints",
+			Handler:    _InitService_GetSchemaFingerprints_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

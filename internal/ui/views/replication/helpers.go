@@ -169,14 +169,16 @@ func (v *ReplicationView) renderFooter() string {
 			hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [D]rop [h]elp")
 		case TabLogical:
 			hints = styles.FooterHintStyle.Render("[j/k]nav [p]ubs/subs [d]etail [h]elp")
+		case TabNodes:
+			hints = styles.FooterHintStyle.Render("[j/k]nav [d]etails [C]ancel [h]elp")
 		case TabSetup:
 			hints = styles.FooterHintStyle.Render("[c]heck [e]dit [p]hysical l[o]gical con[n]str [h]elp")
 		}
 	}
 
-	// Right side: sort info + count (not shown for Setup tab)
+	// Right side: sort info + count (not shown for Setup/Nodes tabs)
 	var rightSide string
-	if v.activeTab != TabSetup {
+	if v.activeTab != TabSetup && v.activeTab != TabNodes {
 		arrow := "↓"
 		if v.sortAsc {
 			arrow = "↑"
@@ -200,6 +202,9 @@ func (v *ReplicationView) renderFooter() string {
 		}
 
 		rightSide = styles.FooterCountStyle.Render(sortInfo + "  " + count + windowInfo)
+	} else if v.activeTab == TabNodes && len(v.clusterNodes) > 0 {
+		count := fmt.Sprintf("%d / %d nodes", v.nodeSelectedIdx+1, len(v.clusterNodes))
+		rightSide = styles.FooterCountStyle.Render(count)
 	}
 
 	gap := v.width - lipgloss.Width(hints) - lipgloss.Width(rightSide) - 4

@@ -15,6 +15,7 @@ const (
 	TabOverview ViewTab = iota
 	TabSlots
 	TabLogical
+	TabNodes
 	TabSetup
 )
 
@@ -27,6 +28,8 @@ func (t ViewTab) String() string {
 		return "Slots"
 	case TabLogical:
 		return "Logical"
+	case TabNodes:
+		return "Nodes"
 	case TabSetup:
 		return "Setup"
 	default:
@@ -43,6 +46,7 @@ func TabBar(activeTab ViewTab, width int) string {
 		{"Overview", TabOverview},
 		{"Slots", TabSlots},
 		{"Logical", TabLogical},
+		{"Nodes", TabNodes},
 		{"Setup", TabSetup},
 	}
 
@@ -88,10 +92,10 @@ func TabBar(activeTab ViewTab, width int) string {
 
 // NextTab returns the next tab (wraps around).
 func NextTab(current ViewTab) ViewTab {
-	return ViewTab((int(current) + 1) % 4)
+	return ViewTab((int(current) + 1) % 5)
 }
 
 // PrevTab returns the previous tab (wraps around).
 func PrevTab(current ViewTab) ViewTab {
-	return ViewTab((int(current) + 3) % 4)
+	return ViewTab((int(current) + 4) % 5)
 }

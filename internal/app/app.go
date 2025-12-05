@@ -19,6 +19,7 @@ import (
 	"github.com/willibrandon/steep/internal/metrics"
 	"github.com/willibrandon/steep/internal/monitors"
 	querymonitor "github.com/willibrandon/steep/internal/monitors/queries"
+	"github.com/willibrandon/steep/internal/repl/ipc"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 	"github.com/willibrandon/steep/internal/ui"
 	"github.com/willibrandon/steep/internal/ui/components"
@@ -1067,6 +1068,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.replicationView.Update(msg)
 		return m, nil
 
+	case ui.CancelInitRequestMsg:
+		// Cancel initialization via IPC to daemon
+		return m, m.cancelNodeInit(msg.NodeID)
+
+	case ui.CancelInitResultMsg:
+		// Forward to replication view
+		m.replicationView.Update(msg)
+		return m, nil
+
 	case ui.DeadlockScanProgressMsg:
 		// Forward progress to locks view
 		m.locksView.Update(msg)
@@ -2087,6 +2097,45 @@ func (m Model) testConnection(connString string) tea.Cmd {
 			Success: true,
 			Message: "Connected to " + shortVersion,
 			Error:   nil,
+		}
+	}
+}
+
+// cancelNodeInit cancels an in-progress node initialization via IPC to the daemon.
+func (m Model) cancelNodeInit(nodeID string) tea.Cmd {
+	return func() tea.Msg {
+		// Try to connect to the daemon via IPC
+		client, err := ipc.NewClient("")
+		if err != nil {
+			return ui.CancelInitResultMsg{
+				NodeID:  nodeID,
+				Success: false,
+				Error:   fmt.Errorf("daemon not running: %w", err),
+			}
+		}
+		defer client.Close()
+
+		// Call cancel
+		result, err := client.CancelInit(nodeID)
+		if err != nil {
+			return ui.CancelInitResultMsg{
+				NodeID:  nodeID,
+				Success: false,
+				Error:   err,
+			}
+		}
+
+		if !result.Success {
+			return ui.CancelInitResultMsg{
+				NodeID:  nodeID,
+				Success: false,
+				Error:   fmt.Errorf("%s", result.Message),
+			}
+		}
+
+		return ui.CancelInitResultMsg{
+			NodeID:  nodeID,
+			Success: true,
 		}
 	}
 }

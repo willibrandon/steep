@@ -11,6 +11,7 @@ import (
 
 	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/ui"
+	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
 	"github.com/willibrandon/steep/internal/ui/views/replication/setup"
 )
@@ -31,6 +32,8 @@ const (
 	ModeConfirmWizardExecute
 	ModeConfirmAlterSystem
 	ModeConnStringBuilder
+	ModeNodeProgress      // Detailed init progress overlay
+	ModeConfirmCancelInit // Confirm cancel initialization
 )
 
 // SortColumn represents the available sort columns for replicas.
@@ -139,6 +142,14 @@ type ReplicationView struct {
 
 	// Config editor state
 	configEditor *setup.ConfigEditorState
+
+	// Nodes tab state
+	clusterNodes     []ClusterNode
+	nodeSelectedIdx  int
+	nodeScrollOffset int
+
+	// Progress overlay state
+	progressOverlay *components.InitProgressOverlay
 }
 
 // NewReplicationView creates a new replication view.
@@ -152,6 +163,7 @@ func NewReplicationView() *ReplicationView {
 		timeWindow:       5 * time.Minute,
 		logicalFocusPubs: true,
 		topologyExpanded: make(map[string]bool),
+		progressOverlay:  components.NewInitProgressOverlay(),
 	}
 }
 
@@ -223,6 +235,8 @@ func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if v.mode == ModeDetail && v.activeTab == TabSlots {
 				v.prepareSlotDetail()
 			}
+			// Update cluster nodes from the data
+			v.updateClusterNodes(msg.Data.ClusterNodes)
 			// Fetch SQLite lag history periodically when using longer windows
 			if v.timeWindow > time.Minute {
 				// Refresh every 30 seconds
@@ -253,6 +267,18 @@ func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.showToast("Command executed successfully", false)
 		} else {
 			v.showToast("Command execution failed", true)
+		}
+
+	case ui.CancelInitResultMsg:
+		// Handle cancel result from daemon
+		if v.mode == ModeConfirmCancelInit || v.mode == ModeNodeProgress {
+			v.mode = ModeNormal
+			v.progressOverlay.Hide()
+		}
+		if msg.Error != nil {
+			v.showToast("Cancel failed: "+msg.Error.Error(), true)
+		} else if msg.Success {
+			v.showToast(fmt.Sprintf("Initialization cancelled for %s", msg.NodeID), false)
 		}
 
 	case ui.LagHistoryResponseMsg:
@@ -405,6 +431,12 @@ func (v *ReplicationView) View() string {
 			content = v.renderDetail()
 		} else {
 			content = v.renderLogical()
+		}
+	case TabNodes:
+		if v.mode == ModeNodeProgress {
+			content = v.renderNodeProgressOverlay()
+		} else {
+			content = v.renderNodes()
 		}
 	case TabSetup:
 		content = v.renderSetup()

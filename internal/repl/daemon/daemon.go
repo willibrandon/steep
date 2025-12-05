@@ -12,9 +12,12 @@ import (
 	"github.com/willibrandon/steep/internal/repl/config"
 	"github.com/willibrandon/steep/internal/repl/db"
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
+	pb "github.com/willibrandon/steep/internal/repl/grpc/proto"
 	"github.com/willibrandon/steep/internal/repl/health"
 	replinit "github.com/willibrandon/steep/internal/repl/init"
 	"github.com/willibrandon/steep/internal/repl/ipc"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Version is set by ldflags during build.
@@ -191,6 +194,10 @@ func (d *Daemon) Start() error {
 		d.logger.Println("HTTP health server disabled")
 	}
 
+	// Start cross-node health check goroutine
+	d.wg.Add(1)
+	go d.runCrossNodeHealthCheck()
+
 	d.setState(StateRunning)
 	d.logger.Println("steep-repl daemon started successfully")
 
@@ -311,6 +318,15 @@ func (d *Daemon) InitManager() *replinit.Manager {
 	return d.initManager
 }
 
+// CancelInit cancels an in-progress initialization for the given node.
+// This implements the ipc.DaemonProvider interface.
+func (d *Daemon) CancelInit(ctx context.Context, nodeID string) error {
+	if d.initManager == nil {
+		return fmt.Errorf("init manager not initialized")
+	}
+	return d.initManager.CancelInit(ctx, nodeID)
+}
+
 // Uptime returns how long the daemon has been running.
 func (d *Daemon) Uptime() time.Duration {
 	if d.startTime.IsZero() {
@@ -323,15 +339,20 @@ func (d *Daemon) Uptime() time.Duration {
 // Uses UPSERT to handle both initial registration and reconnection.
 func (d *Daemon) registerSelf() error {
 	query := `
-		INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status, last_seen)
-		VALUES ($1, $2, $3, $4, $5, 'healthy', NOW())
+		INSERT INTO steep_repl.nodes (node_id, node_name, host, port, grpc_host, grpc_port, priority, status, last_seen)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'healthy', NOW())
 		ON CONFLICT (node_id) DO UPDATE SET
 			node_name = EXCLUDED.node_name,
 			host = EXCLUDED.host,
 			port = EXCLUDED.port,
+			grpc_host = EXCLUDED.grpc_host,
+			grpc_port = EXCLUDED.grpc_port,
 			status = 'healthy',
 			last_seen = NOW()
 	`
+
+	// Use PostgreSQL host as the gRPC host (daemon listens on same host)
+	grpcHost := d.config.PostgreSQL.Host
 
 	// Use the PostgreSQL host/port from config as this node's reachable address
 	return d.pool.Exec(d.ctx, query,
@@ -339,6 +360,8 @@ func (d *Daemon) registerSelf() error {
 		d.config.NodeName,
 		d.config.PostgreSQL.Host,
 		d.config.PostgreSQL.Port,
+		grpcHost,
+		d.config.GRPC.Port,
 		50, // Default priority
 	)
 }
@@ -497,6 +520,10 @@ func (p *daemonIPCProvider) HealthCheckPool(ctx context.Context) error {
 	return pool.HealthCheck(ctx)
 }
 
+func (p *daemonIPCProvider) CancelInit(ctx context.Context, nodeID string) error {
+	return p.d.CancelInit(ctx, nodeID)
+}
+
 // daemonGRPCProvider implements replgrpc.DaemonProvider to avoid import cycles.
 type daemonGRPCProvider struct {
 	d *Daemon
@@ -579,4 +606,122 @@ func (p *daemonHTTPProvider) GetGRPCPort() int {
 
 func (p *daemonHTTPProvider) IsIPCRunning() bool {
 	return p.d.ipcServer != nil
+}
+
+// runCrossNodeHealthCheck periodically checks the health of other nodes in the cluster.
+func (d *Daemon) runCrossNodeHealthCheck() {
+	defer d.wg.Done()
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	// Run immediately on startup
+	d.checkOtherNodes()
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			d.checkOtherNodes()
+		}
+	}
+}
+
+// checkOtherNodes queries other nodes and updates their status based on health checks.
+func (d *Daemon) checkOtherNodes() {
+	if d.pool == nil || !d.pool.IsConnected() {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(d.ctx, 5*time.Second)
+	defer cancel()
+
+	// Get all nodes except self
+	rows, err := d.pool.Pool().Query(ctx, `
+		SELECT node_id, grpc_host, grpc_port
+		FROM steep_repl.nodes
+		WHERE node_id != $1 AND grpc_host IS NOT NULL AND grpc_port IS NOT NULL
+	`, d.config.NodeID)
+	if err != nil {
+		if d.debug {
+			d.logger.Printf("Failed to query nodes: %v", err)
+		}
+		return
+	}
+	defer rows.Close()
+
+	type nodeInfo struct {
+		nodeID   string
+		grpcHost string
+		grpcPort int
+	}
+
+	var nodes []nodeInfo
+	for rows.Next() {
+		var n nodeInfo
+		if err := rows.Scan(&n.nodeID, &n.grpcHost, &n.grpcPort); err != nil {
+			continue
+		}
+		nodes = append(nodes, n)
+	}
+	rows.Close()
+
+	// Check each node
+	for _, n := range nodes {
+		status := d.checkNodeHealth(n.nodeID, n.grpcHost, n.grpcPort)
+		d.updateNodeStatus(n.nodeID, status)
+	}
+}
+
+// checkNodeHealth performs a gRPC health check against a remote node.
+func (d *Daemon) checkNodeHealth(nodeID, host string, port int) string {
+	ctx, cancel := context.WithTimeout(d.ctx, 3*time.Second)
+	defer cancel()
+
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := grpc.DialContext(ctx, addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		if d.debug {
+			d.logger.Printf("Failed to connect to node %s at %s: %v", nodeID, addr, err)
+		}
+		return "unreachable"
+	}
+	defer conn.Close()
+
+	client := pb.NewCoordinatorClient(conn)
+	resp, err := client.HealthCheck(ctx, &pb.HealthCheckRequest{})
+	if err != nil {
+		if d.debug {
+			d.logger.Printf("Health check failed for node %s: %v", nodeID, err)
+		}
+		return "degraded"
+	}
+
+	switch resp.Status {
+	case pb.HealthCheckResponse_SERVING:
+		return "healthy"
+	case pb.HealthCheckResponse_NOT_SERVING:
+		return "degraded"
+	default:
+		return "unknown"
+	}
+}
+
+// updateNodeStatus updates the status and last_seen for a node in the database.
+func (d *Daemon) updateNodeStatus(nodeID, status string) {
+	ctx, cancel := context.WithTimeout(d.ctx, 2*time.Second)
+	defer cancel()
+
+	err := d.pool.Exec(ctx, `
+		UPDATE steep_repl.nodes
+		SET status = $1, last_seen = NOW()
+		WHERE node_id = $2
+	`, status, nodeID)
+	if err != nil && d.debug {
+		d.logger.Printf("Failed to update node %s status: %v", nodeID, err)
+	}
 }

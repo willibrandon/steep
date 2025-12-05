@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -164,6 +165,7 @@ func (s *InitServer) CompleteInit(ctx context.Context, req *pb.CompleteInitReque
 		SourcePort:      int(req.SourceNodeInfo.Port),
 		SourceDatabase:  req.SourceNodeInfo.Database,
 		SourceUser:      req.SourceNodeInfo.User,
+		SourceRemote:    req.SourceRemote,
 		SchemaSyncMode:  protoSchemaSyncToConfig(req.SchemaSyncMode),
 		SkipSchemaCheck: req.SkipSchemaCheck,
 	}
@@ -390,10 +392,46 @@ func (s *InitServer) CompareSchemas(ctx context.Context, req *pb.CompareSchemasR
 
 	// This is a skeleton - actual implementation in T057
 	return &pb.CompareSchemasResponse{
-		Success:      false,
-		Error:        "not implemented: CompareSchemas (see T057)",
-		MatchCount:   0,
+		Success:       false,
+		Error:         "not implemented: CompareSchemas (see T057)",
+		MatchCount:    0,
 		MismatchCount: 0,
+	}, nil
+}
+
+// GetSchemaFingerprints returns schema fingerprints for this node's database.
+// Used for remote schema verification without direct database connection.
+func (s *InitServer) GetSchemaFingerprints(ctx context.Context, req *pb.GetSchemaFingerprintsRequest) (*pb.GetSchemaFingerprintsResponse, error) {
+	s.logRequest("GetSchemaFingerprints", "")
+
+	fingerprints, err := s.manager.GetTableFingerprints(ctx)
+	if err != nil {
+		return &pb.GetSchemaFingerprintsResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// Convert map to slice of TableFingerprint
+	var result []*pb.TableFingerprint
+	for key, fp := range fingerprints {
+		parts := strings.SplitN(key, ".", 2)
+		schema := "public"
+		table := key
+		if len(parts) == 2 {
+			schema = parts[0]
+			table = parts[1]
+		}
+		result = append(result, &pb.TableFingerprint{
+			SchemaName:  schema,
+			TableName:   table,
+			Fingerprint: fp,
+		})
+	}
+
+	return &pb.GetSchemaFingerprintsResponse{
+		Success:      true,
+		Fingerprints: result,
 	}, nil
 }
 
