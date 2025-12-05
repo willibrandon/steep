@@ -1,0 +1,304 @@
+// Node Initialization gRPC Service Definitions
+// Extends steep.repl.v1 with initialization operations
+
+syntax = "proto3";
+
+package steep.repl.v1;
+
+option go_package = "github.com/willibrandon/steep/internal/repl/grpc/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Initialization Service
+// =============================================================================
+
+service InitService {
+    // Start automatic snapshot initialization
+    rpc StartInit(StartInitRequest) returns (StartInitResponse);
+
+    // Prepare for manual initialization (creates slot, returns LSN)
+    rpc PrepareInit(PrepareInitRequest) returns (PrepareInitResponse);
+
+    // Complete manual initialization
+    rpc CompleteInit(CompleteInitRequest) returns (CompleteInitResponse);
+
+    // Cancel in-progress initialization
+    rpc CancelInit(CancelInitRequest) returns (CancelInitResponse);
+
+    // Get current initialization progress
+    rpc GetProgress(GetProgressRequest) returns (GetProgressResponse);
+
+    // Stream real-time progress updates
+    rpc StreamProgress(StreamProgressRequest) returns (stream ProgressUpdate);
+
+    // Start reinitialization
+    rpc StartReinit(StartReinitRequest) returns (StartReinitResponse);
+
+    // Compare schemas between nodes
+    rpc CompareSchemas(CompareSchemasRequest) returns (CompareSchemasResponse);
+
+    // Generate snapshot (two-phase, phase 1)
+    rpc GenerateSnapshot(GenerateSnapshotRequest) returns (stream SnapshotProgress);
+
+    // Apply snapshot (two-phase, phase 2)
+    rpc ApplySnapshot(ApplySnapshotRequest) returns (stream SnapshotProgress);
+}
+
+// =============================================================================
+// Enums
+// =============================================================================
+
+enum InitState {
+    INIT_STATE_UNSPECIFIED = 0;
+    INIT_STATE_UNINITIALIZED = 1;
+    INIT_STATE_PREPARING = 2;
+    INIT_STATE_COPYING = 3;
+    INIT_STATE_CATCHING_UP = 4;
+    INIT_STATE_SYNCHRONIZED = 5;
+    INIT_STATE_DIVERGED = 6;
+    INIT_STATE_FAILED = 7;
+    INIT_STATE_REINITIALIZING = 8;
+}
+
+enum InitMethod {
+    INIT_METHOD_UNSPECIFIED = 0;
+    INIT_METHOD_SNAPSHOT = 1;      // Automatic via copy_data=true
+    INIT_METHOD_MANUAL = 2;        // User-provided backup
+    INIT_METHOD_TWO_PHASE = 3;     // Generate then apply
+    INIT_METHOD_DIRECT = 4;        // Combined two-phase (smaller DBs)
+}
+
+enum SchemaSyncMode {
+    SCHEMA_SYNC_UNSPECIFIED = 0;
+    SCHEMA_SYNC_STRICT = 1;        // Fail on mismatch
+    SCHEMA_SYNC_AUTO = 2;          // Apply DDL to fix
+    SCHEMA_SYNC_MANUAL = 3;        // Warn only
+}
+
+enum ComparisonStatus {
+    COMPARISON_STATUS_UNSPECIFIED = 0;
+    COMPARISON_STATUS_MATCH = 1;
+    COMPARISON_STATUS_MISMATCH = 2;
+    COMPARISON_STATUS_LOCAL_ONLY = 3;
+    COMPARISON_STATUS_REMOTE_ONLY = 4;
+}
+
+// =============================================================================
+// Start Initialization
+// =============================================================================
+
+message StartInitRequest {
+    string target_node_id = 1;
+    string source_node_id = 2;
+    InitMethod method = 3;
+    InitOptions options = 4;
+}
+
+message InitOptions {
+    int32 parallel_workers = 1;
+    SchemaSyncMode schema_sync_mode = 2;
+    bool force = 3;                    // Truncate existing data if present
+    string large_table_method = 4;     // pg_dump, copy, basebackup
+    int64 large_table_threshold = 5;   // Bytes
+}
+
+message StartInitResponse {
+    bool success = 1;
+    string error = 2;
+    InitState state = 3;
+}
+
+// =============================================================================
+// Prepare/Complete Manual Init
+// =============================================================================
+
+message PrepareInitRequest {
+    string node_id = 1;
+    string slot_name = 2;
+}
+
+message PrepareInitResponse {
+    bool success = 1;
+    string error = 2;
+    string slot_name = 3;
+    string lsn = 4;
+    google.protobuf.Timestamp created_at = 5;
+}
+
+message CompleteInitRequest {
+    string target_node_id = 1;
+    string source_node_id = 2;
+    string source_lsn = 3;
+    SchemaSyncMode schema_sync_mode = 4;
+}
+
+message CompleteInitResponse {
+    bool success = 1;
+    string error = 2;
+    InitState state = 3;
+    repeated SchemaComparison schema_mismatches = 4;
+}
+
+// =============================================================================
+// Cancel Initialization
+// =============================================================================
+
+message CancelInitRequest {
+    string node_id = 1;
+    bool cleanup_partial = 2;         // Truncate partially copied tables
+}
+
+message CancelInitResponse {
+    bool success = 1;
+    string error = 2;
+    InitState previous_state = 3;
+}
+
+// =============================================================================
+// Progress Tracking
+// =============================================================================
+
+message GetProgressRequest {
+    string node_id = 1;
+}
+
+message GetProgressResponse {
+    bool has_progress = 1;
+    InitProgress progress = 2;
+}
+
+message StreamProgressRequest {
+    string node_id = 1;
+    int32 interval_ms = 2;            // Update interval (default 1000)
+}
+
+message ProgressUpdate {
+    InitProgress progress = 1;
+    google.protobuf.Timestamp timestamp = 2;
+}
+
+message InitProgress {
+    string node_id = 1;
+    InitState state = 2;
+    string phase = 3;                  // generation, application, catching_up
+    float overall_percent = 4;
+    int32 tables_total = 5;
+    int32 tables_completed = 6;
+    string current_table = 7;
+    float current_table_percent = 8;
+    int64 rows_copied = 9;
+    int64 bytes_copied = 10;
+    float throughput_rows_sec = 11;
+    google.protobuf.Timestamp started_at = 12;
+    int32 eta_seconds = 13;
+    int32 parallel_workers = 14;
+    string error_message = 15;
+    repeated TableProgress completed_tables = 16;
+    repeated string pending_tables = 17;
+}
+
+message TableProgress {
+    string schema = 1;
+    string table = 2;
+    int64 rows = 3;
+    int64 bytes = 4;
+    int32 duration_ms = 5;
+}
+
+// =============================================================================
+// Reinitialization
+// =============================================================================
+
+message StartReinitRequest {
+    string node_id = 1;
+    ReinitScope scope = 2;
+}
+
+message ReinitScope {
+    oneof scope {
+        bool full = 1;                 // Full node reinit
+        TableList tables = 2;          // Specific tables
+        string schema = 3;             // Entire schema
+    }
+}
+
+message TableList {
+    repeated string tables = 1;        // Format: schema.table
+}
+
+message StartReinitResponse {
+    bool success = 1;
+    string error = 2;
+    InitState state = 3;
+    int32 tables_affected = 4;
+}
+
+// =============================================================================
+// Schema Comparison
+// =============================================================================
+
+message CompareSchemasRequest {
+    string local_node_id = 1;
+    string remote_node_id = 2;
+    repeated string schemas = 3;       // Empty = all schemas
+}
+
+message CompareSchemasResponse {
+    bool success = 1;
+    string error = 2;
+    repeated SchemaComparison comparisons = 3;
+    int32 match_count = 4;
+    int32 mismatch_count = 5;
+    int32 local_only_count = 6;
+    int32 remote_only_count = 7;
+}
+
+message SchemaComparison {
+    string table_schema = 1;
+    string table_name = 2;
+    string local_fingerprint = 3;
+    string remote_fingerprint = 4;
+    ComparisonStatus status = 5;
+    repeated ColumnDifference differences = 6;
+}
+
+message ColumnDifference {
+    string column_name = 1;
+    string difference_type = 2;        // missing, extra, type_change, default_change
+    string local_definition = 3;
+    string remote_definition = 4;
+}
+
+// =============================================================================
+// Two-Phase Snapshot
+// =============================================================================
+
+message GenerateSnapshotRequest {
+    string source_node_id = 1;
+    string output_path = 2;
+    int32 parallel_workers = 3;
+    string compression = 4;            // none, gzip, lz4, zstd
+}
+
+message ApplySnapshotRequest {
+    string target_node_id = 1;
+    string input_path = 2;
+    string source_node_id = 3;         // For subscription creation
+    int32 parallel_workers = 4;
+    bool verify_checksums = 5;
+}
+
+message SnapshotProgress {
+    string snapshot_id = 1;
+    string phase = 2;                  // schema, data, sequences, subscription
+    float overall_percent = 3;
+    string current_table = 4;
+    float current_table_percent = 5;
+    int64 bytes_processed = 6;
+    float throughput_mb_sec = 7;
+    int32 eta_seconds = 8;
+    string lsn = 9;                    // Captured/applied LSN
+    bool complete = 10;
+    string error = 11;
+}

@@ -354,6 +354,8 @@ These reference implementations are available for studying UI/UX patterns before
 - Rust + pgrx 0.16.1 for PostgreSQL extension (014-repl-foundation)
 - PostgreSQL 18 (steep_repl schema tables: nodes, coordinator_state, audit_log) (014-repl-foundation)
 - Docker (ghcr.io/willibrandon/pg18-steep-repl for integration tests) (014-repl-foundation)
+- Go 1.25.4 (per go.mod), Rust + pgrx 0.16.1 (PostgreSQL extension) + pgx/pgxpool (database), bubbletea/bubbles/lipgloss (TUI), grpc-go/protobuf (daemon communication), viper (config) (015-node-init)
+- PostgreSQL 18 (steep_repl schema - nodes, coordinator_state, audit_log + new tables), YAML config (015-node-init)
 
 ## Recent Changes
 - 014-repl-foundation: steep-repl replication daemon with gRPC and IPC interfaces
