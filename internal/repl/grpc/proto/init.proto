@@ -93,6 +93,17 @@ message StartInitRequest {
     string source_node_id = 2;
     InitMethod method = 3;
     InitOptions options = 4;
+    // Source node connection info - auto-registers source if not already known
+    SourceNodeInfo source_node_info = 5;
+}
+
+// Connection info for the source node (for auto-registration)
+message SourceNodeInfo {
+    string host = 1;
+    int32 port = 2;
+    string database = 3;
+    string user = 4;
+    // Password should come from PGPASSWORD env var, not proto
 }
 
 message InitOptions {

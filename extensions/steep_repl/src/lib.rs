@@ -191,7 +191,7 @@ CREATE TABLE steep_repl.init_progress (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     parallel_workers INTEGER DEFAULT 1,
     error_message TEXT,
-    CONSTRAINT progress_phase_check CHECK (phase IN ('generation', 'application', 'catching_up')),
+    CONSTRAINT progress_phase_check CHECK (phase IN ('preparing', 'copying', 'catching_up', 'complete', 'failed')),
     CONSTRAINT progress_overall_percent_check CHECK (overall_percent BETWEEN 0 AND 100),
     CONSTRAINT progress_tables_total_check CHECK (tables_total >= 0),
     CONSTRAINT progress_tables_completed_check CHECK (tables_completed >= 0),
@@ -205,7 +205,7 @@ CREATE TABLE steep_repl.init_progress (
 
 COMMENT ON TABLE steep_repl.init_progress IS 'Real-time initialization progress tracking';
 COMMENT ON COLUMN steep_repl.init_progress.node_id IS 'Node being initialized';
-COMMENT ON COLUMN steep_repl.init_progress.phase IS 'Current phase: generation, application, catching_up';
+COMMENT ON COLUMN steep_repl.init_progress.phase IS 'Current phase: preparing, copying, catching_up, complete, failed';
 COMMENT ON COLUMN steep_repl.init_progress.overall_percent IS 'Overall progress 0-100';
 COMMENT ON COLUMN steep_repl.init_progress.tables_total IS 'Total tables to process';
 COMMENT ON COLUMN steep_repl.init_progress.tables_completed IS 'Tables finished';
@@ -704,7 +704,7 @@ mod tests {
         // Insert progress record
         Spi::run(
             "INSERT INTO steep_repl.init_progress (node_id, phase, overall_percent, tables_total)
-             VALUES ('test-node-progress', 'application', 50.0, 10)"
+             VALUES ('test-node-progress', 'copying', 50.0, 10)"
         ).expect("progress insert should succeed");
 
         let result = Spi::get_one::<f32>(

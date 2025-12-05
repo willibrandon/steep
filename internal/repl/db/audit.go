@@ -21,6 +21,10 @@ const (
 	ActionStateUpdated       AuditAction = "state.updated"
 	ActionDaemonStarted      AuditAction = "daemon.started"
 	ActionDaemonStopped      AuditAction = "daemon.stopped"
+	ActionInitStarted        AuditAction = "init.started"
+	ActionInitCompleted      AuditAction = "init.completed"
+	ActionInitCancelled      AuditAction = "init.cancelled"
+	ActionInitFailed         AuditAction = "init.failed"
 )
 
 // AuditTargetType defines the type of target entity.
@@ -31,6 +35,7 @@ const (
 	TargetTypeNode   AuditTargetType = "node"
 	TargetTypeState  AuditTargetType = "state"
 	TargetTypeDaemon AuditTargetType = "daemon"
+	TargetTypeInit   AuditTargetType = "init"
 )
 
 // AuditEntry represents an entry to be written to the audit log.
@@ -194,6 +199,92 @@ func buildActor() string {
 	}
 
 	return fmt.Sprintf("%s@%s", user, hostname)
+}
+
+// LogInitStarted logs an init.started event.
+func (w *AuditWriter) LogInitStarted(ctx context.Context, targetNodeID, sourceNodeID, method string) error {
+	targetType := TargetTypeInit
+	targetID := targetNodeID
+
+	entry := AuditEntry{
+		Action:     ActionInitStarted,
+		Actor:      buildActor(),
+		TargetType: &targetType,
+		TargetID:   &targetID,
+		NewValue: map[string]any{
+			"target_node": targetNodeID,
+			"source_node": sourceNodeID,
+			"method":      method,
+			"started_at":  time.Now().UTC().Format(time.RFC3339),
+		},
+		Success: true,
+	}
+
+	return w.Write(ctx, entry)
+}
+
+// LogInitCompleted logs an init.completed event.
+func (w *AuditWriter) LogInitCompleted(ctx context.Context, targetNodeID string, duration time.Duration) error {
+	targetType := TargetTypeInit
+	targetID := targetNodeID
+
+	entry := AuditEntry{
+		Action:     ActionInitCompleted,
+		Actor:      buildActor(),
+		TargetType: &targetType,
+		TargetID:   &targetID,
+		NewValue: map[string]any{
+			"target_node":  targetNodeID,
+			"duration":     duration.String(),
+			"completed_at": time.Now().UTC().Format(time.RFC3339),
+		},
+		Success: true,
+	}
+
+	return w.Write(ctx, entry)
+}
+
+// LogInitCancelled logs an init.cancelled event.
+func (w *AuditWriter) LogInitCancelled(ctx context.Context, targetNodeID string) error {
+	targetType := TargetTypeInit
+	targetID := targetNodeID
+
+	entry := AuditEntry{
+		Action:     ActionInitCancelled,
+		Actor:      buildActor(),
+		TargetType: &targetType,
+		TargetID:   &targetID,
+		NewValue: map[string]any{
+			"target_node":  targetNodeID,
+			"cancelled_at": time.Now().UTC().Format(time.RFC3339),
+		},
+		Success: true,
+	}
+
+	return w.Write(ctx, entry)
+}
+
+// LogInitFailed logs an init.failed event.
+func (w *AuditWriter) LogInitFailed(ctx context.Context, targetNodeID string, err error) error {
+	targetType := TargetTypeInit
+	targetID := targetNodeID
+	errMsg := err.Error()
+
+	entry := AuditEntry{
+		Action:       ActionInitFailed,
+		Actor:        buildActor(),
+		TargetType:   &targetType,
+		TargetID:     &targetID,
+		ErrorMessage: &errMsg,
+		NewValue: map[string]any{
+			"target_node": targetNodeID,
+			"error":       errMsg,
+			"failed_at":   time.Now().UTC().Format(time.RFC3339),
+		},
+		Success: false,
+	}
+
+	return w.Write(ctx, entry)
 }
 
 // Query audit log entries with filters.

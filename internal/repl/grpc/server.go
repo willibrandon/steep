@@ -50,6 +50,9 @@ type Server struct {
 
 	mu      sync.Mutex
 	running bool
+
+	// initServer is registered for node initialization operations
+	initServer *InitServer
 }
 
 // NewServer creates a new gRPC server.
@@ -88,6 +91,12 @@ func (s *Server) Start(ctx context.Context) error {
 
 	s.server = grpc.NewServer(opts...)
 	pb.RegisterCoordinatorServer(s.server, s)
+
+	// Register InitServer if set
+	if s.initServer != nil {
+		pb.RegisterInitServiceServer(s.server, s.initServer)
+		s.logger.Println("InitService registered with gRPC server")
+	}
 
 	// Create listener
 	addr := fmt.Sprintf(":%d", s.config.Port)
@@ -129,6 +138,12 @@ func (s *Server) Stop() error {
 // Port returns the server port.
 func (s *Server) Port() int {
 	return s.config.Port
+}
+
+// SetInitServer sets the InitServer to be registered when Start() is called.
+// Must be called BEFORE Start().
+func (s *Server) SetInitServer(initServer *InitServer) {
+	s.initServer = initServer
 }
 
 // HealthCheck implements the Coordinator.HealthCheck RPC.

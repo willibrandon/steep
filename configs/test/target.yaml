@@ -1,0 +1,23 @@
+repl:
+  enabled: true
+  node_id: "target-node"
+  node_name: "Target Node"
+
+  postgresql:
+    host: localhost
+    port: 15433
+    database: testdb
+    user: test
+    sslmode: disable
+
+  grpc:
+    port: 15461
+
+  ipc:
+    enabled: true
+    path: /tmp/steep-repl-target.sock
+
+  http:
+    enabled: false
+
+debug: true

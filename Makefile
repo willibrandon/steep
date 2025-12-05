@@ -118,6 +118,13 @@ else
 endif
 	@echo "Clean complete"
 
+clean-repl-ext: ## Clean steep_repl extension build artifacts
+	@echo "Cleaning steep_repl extension..."
+	cd $(REPL_EXT_DIR) && cargo clean
+	@echo "Extension clean complete"
+
+clean-all: clean clean-repl-ext ## Clean all build artifacts including extension
+
 run: build ## Build and run the application
 	@echo "Running $(BINARY_NAME)..."
 	@$(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) --banner --debug

@@ -297,9 +297,14 @@ func TestIPC_NodesListEmpty(t *testing.T) {
 		t.Fatalf("ListNodes failed: %v", err)
 	}
 
-	// Should be empty (no nodes registered yet)
-	if len(result.Nodes) != 0 {
-		t.Errorf("Expected 0 nodes, got %d", len(result.Nodes))
+	// Should have exactly 1 node (daemon self-registration)
+	if len(result.Nodes) != 1 {
+		t.Errorf("Expected 1 node (daemon self-registration), got %d", len(result.Nodes))
+	}
+
+	// Verify it's the daemon's own node
+	if len(result.Nodes) > 0 && result.Nodes[0].NodeID != "ipc-nodes-test" {
+		t.Errorf("Expected daemon node 'ipc-nodes-test', got %q", result.Nodes[0].NodeID)
 	}
 }
 

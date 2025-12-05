@@ -66,19 +66,19 @@
 
 ### Tests for User Story 1
 
-- [ ] T018 [P] [US1] Integration test for automatic init workflow in tests/integration/repl/init_test.go (start init, verify state transitions, verify data copied)
-- [ ] T019 [P] [US1] Integration test for init cancellation in tests/integration/repl/init_test.go (cancel mid-copy, verify cleanup, verify UNINITIALIZED state)
+- [x] T018 [P] [US1] Integration test for automatic init workflow in tests/integration/repl/init_test.go (start init, verify state transitions, verify data copied)
+- [x] T019 [P] [US1] Integration test for init cancellation in tests/integration/repl/init_test.go (cancel mid-copy, verify cleanup, verify UNINITIALIZED state)
 
 ### Implementation for User Story 1
 
-- [ ] T020 [US1] Implement StartInit RPC handler in internal/repl/grpc/handlers.go (validate nodes, check schemas, create subscription)
-- [ ] T021 [US1] Implement snapshot initialization logic in internal/repl/init/snapshot.go (CREATE SUBSCRIPTION with copy_data=true)
-- [ ] T022 [US1] Implement state transition persistence in internal/repl/init/manager.go (UNINITIALIZED -> PREPARING -> COPYING -> CATCHING_UP -> SYNCHRONIZED)
-- [ ] T023 [US1] Implement CancelInit RPC handler in internal/repl/grpc/handlers.go (drop subscription, cleanup partial data, reset state)
-- [ ] T024 [US1] Add progress polling for pg_subscription_rel sync state in internal/repl/init/progress.go (track per-table i/d/s/r states)
-- [ ] T025 [US1] Add large table detection and handling in internal/repl/init/snapshot.go (threshold check, alternate method for >10GB tables)
-- [ ] T026 [US1] Add init command CLI implementation in cmd/steep-repl/main.go (`steep-repl init <target> --from <source> [--method snapshot] [--parallel N]`)
-- [ ] T027 [US1] Emit structured JSON logs for all state transitions in internal/repl/init/snapshot.go (init.started, init.state_change, init.completed)
+- [x] T020 [US1] Implement StartInit RPC handler in internal/repl/grpc/init_handlers.go (validate nodes, check schemas, create subscription)
+- [x] T021 [US1] Implement snapshot initialization logic in internal/repl/init/snapshot.go (CREATE SUBSCRIPTION with copy_data=true)
+- [x] T022 [US1] Implement state transition persistence in internal/repl/init/manager.go (UNINITIALIZED -> PREPARING -> COPYING -> CATCHING_UP -> SYNCHRONIZED)
+- [x] T023 [US1] Implement CancelInit RPC handler in internal/repl/grpc/init_handlers.go (drop subscription, cleanup partial data, reset state)
+- [x] T024 [US1] Add progress polling for pg_subscription_rel sync state in internal/repl/init/snapshot.go (track per-table i/d/s/r states)
+- [x] T025 [US1] Add large table detection and handling in internal/repl/init/snapshot.go (threshold check, alternate method for >10GB tables)
+- [x] T026 [US1] Add init command CLI implementation in cmd/steep-repl/main.go (`steep-repl init <target> --from <source> [--method snapshot] [--parallel N]`)
+- [x] T027 [US1] Emit structured JSON logs for all state transitions in internal/repl/init/snapshot.go (init.started, init.state_change, init.completed)
 
 **Checkpoint**: Automatic snapshot initialization works end-to-end with state tracking and cancellation
 

@@ -321,17 +321,18 @@ func TestGRPC_GetNodes(t *testing.T) {
 
 	client := pb.NewCoordinatorClient(conn)
 
-	// Initially no nodes
+	// Initially only the daemon's own node (auto-registered on startup)
 	resp, err := client.GetNodes(ctx, &pb.GetNodesRequest{})
 	if err != nil {
 		t.Fatalf("GetNodes failed: %v", err)
 	}
 
-	if len(resp.Nodes) != 0 {
-		t.Errorf("Expected 0 nodes initially, got %d", len(resp.Nodes))
+	initialCount := len(resp.Nodes)
+	if initialCount != 1 {
+		t.Errorf("Expected 1 node initially (daemon self-registration), got %d", initialCount)
 	}
 
-	// Register multiple nodes
+	// Register multiple additional nodes
 	for i, node := range []struct {
 		id       string
 		name     string
@@ -353,14 +354,15 @@ func TestGRPC_GetNodes(t *testing.T) {
 		}
 	}
 
-	// Get all nodes
+	// Get all nodes (initial + 3 registered)
 	resp, err = client.GetNodes(ctx, &pb.GetNodesRequest{})
 	if err != nil {
 		t.Fatalf("GetNodes failed: %v", err)
 	}
 
-	if len(resp.Nodes) != 3 {
-		t.Errorf("Expected 3 nodes, got %d", len(resp.Nodes))
+	expectedCount := initialCount + 3
+	if len(resp.Nodes) != expectedCount {
+		t.Errorf("Expected %d nodes, got %d", expectedCount, len(resp.Nodes))
 	}
 
 	// Verify nodes are ordered by priority DESC

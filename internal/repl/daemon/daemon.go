@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/willibrandon/steep/internal/repl/db"
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
 	"github.com/willibrandon/steep/internal/repl/health"
+	replinit "github.com/willibrandon/steep/internal/repl/init"
 	"github.com/willibrandon/steep/internal/repl/ipc"
 )
 
@@ -58,6 +60,9 @@ type Daemon struct {
 
 	// HTTP health server for load balancer integration
 	httpServer *health.Server
+
+	// InitManager for node initialization operations
+	initManager *replinit.Manager
 }
 
 // New creates a new Daemon instance with the given configuration.
@@ -102,6 +107,12 @@ func (d *Daemon) Start() error {
 	// Initialize audit writer
 	d.auditWriter = db.NewAuditWriter(pool)
 
+	// Auto-register this node in steep_repl.nodes
+	if err := d.registerSelf(); err != nil {
+		return fmt.Errorf("failed to register node: %w", err)
+	}
+	d.logger.Printf("Registered node %s (%s)", d.config.NodeID, d.config.NodeName)
+
 	// Log daemon.started event
 	if err := d.auditWriter.LogDaemonStarted(d.ctx, d.config.NodeID, d.config.NodeName, Version); err != nil {
 		d.logger.Printf("Warning: failed to log daemon.started event: %v", err)
@@ -133,6 +144,12 @@ func (d *Daemon) Start() error {
 		d.logger.Println("IPC server disabled")
 	}
 
+	// Initialize the InitManager for node initialization operations
+	// This must be done before starting the gRPC server so InitService can be registered
+	slogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	d.initManager = replinit.NewManager(pool.Pool(), &d.config.Initialization, &d.config.PostgreSQL, d.auditWriter, slogger)
+	d.logger.Println("InitManager initialized")
+
 	// Start gRPC server for node-to-node communication
 	grpcConfig := replgrpc.ServerConfig{
 		Port:     d.config.GRPC.Port,
@@ -146,6 +163,10 @@ func (d *Daemon) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to create gRPC server: %w", err)
 	}
+
+	// Register InitServer with gRPC server before starting
+	initServer := replgrpc.NewInitServer(d.initManager, d.logger, d.debug)
+	grpcServer.SetInitServer(initServer)
 
 	if err := grpcServer.Start(d.ctx); err != nil {
 		return fmt.Errorf("failed to start gRPC server: %w", err)
@@ -205,6 +226,14 @@ func (d *Daemon) Stop() error {
 		d.logger.Println("All components stopped gracefully")
 	case <-time.After(30 * time.Second):
 		d.logger.Println("Shutdown timeout - forcing stop")
+	}
+
+	// Stop InitManager
+	if d.initManager != nil {
+		if err := d.initManager.Close(); err != nil {
+			d.logger.Printf("Warning: failed to close InitManager: %v", err)
+		}
+		d.initManager = nil
 	}
 
 	// Stop gRPC server
@@ -277,12 +306,41 @@ func (d *Daemon) AuditWriter() *db.AuditWriter {
 	return d.auditWriter
 }
 
+// InitManager returns the node initialization manager.
+func (d *Daemon) InitManager() *replinit.Manager {
+	return d.initManager
+}
+
 // Uptime returns how long the daemon has been running.
 func (d *Daemon) Uptime() time.Duration {
 	if d.startTime.IsZero() {
 		return 0
 	}
 	return time.Since(d.startTime)
+}
+
+// registerSelf registers this daemon's node in steep_repl.nodes.
+// Uses UPSERT to handle both initial registration and reconnection.
+func (d *Daemon) registerSelf() error {
+	query := `
+		INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status, last_seen)
+		VALUES ($1, $2, $3, $4, $5, 'healthy', NOW())
+		ON CONFLICT (node_id) DO UPDATE SET
+			node_name = EXCLUDED.node_name,
+			host = EXCLUDED.host,
+			port = EXCLUDED.port,
+			status = 'healthy',
+			last_seen = NOW()
+	`
+
+	// Use the PostgreSQL host/port from config as this node's reachable address
+	return d.pool.Exec(d.ctx, query,
+		d.config.NodeID,
+		d.config.NodeName,
+		d.config.PostgreSQL.Host,
+		d.config.PostgreSQL.Port,
+		50, // Default priority
+	)
 }
 
 // Status returns a summary of the daemon's current status.

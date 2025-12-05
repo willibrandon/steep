@@ -16,6 +16,7 @@ import (
 	"github.com/willibrandon/steep/internal/repl/daemon"
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
 	"github.com/willibrandon/steep/internal/repl/grpc/certs"
+	pb "github.com/willibrandon/steep/internal/repl/grpc/proto"
 )
 
 var (
@@ -684,6 +685,8 @@ Examples:
 		newInitPrepareCmd(),
 		newInitCompleteCmd(),
 		newInitCancelCmd(),
+		newInitProgressCmd(),
+		newInitReinitCmd(),
 	)
 
 	return cmd
@@ -696,6 +699,14 @@ func newInitStartCmd() *cobra.Command {
 		method          string
 		parallelWorkers int
 		schemaSync      string
+		remoteAddr      string
+		caFile          string
+		insecure        bool
+		// Source node connection info for auto-registration
+		sourceHost     string
+		sourcePort     int
+		sourceDatabase string
+		sourceUser     string
 	)
 
 	cmd := &cobra.Command{
@@ -705,7 +716,10 @@ func newInitStartCmd() *cobra.Command {
 with copy_data=true. Recommended for databases under 100GB.
 
 The target node will be initialized from the source node's data. Progress
-can be monitored via the TUI or 'steep-repl status' command.`,
+can be monitored via the TUI or 'steep-repl status' command.
+
+The --source-host flag is required to specify how the target can connect to
+the source PostgreSQL for replication.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			targetNodeID := args[0]
@@ -713,26 +727,134 @@ can be monitored via the TUI or 'steep-repl status' command.`,
 			if sourceNodeID == "" {
 				return fmt.Errorf("--from flag is required")
 			}
+			if sourceHost == "" {
+				return fmt.Errorf("--source-host flag is required")
+			}
 
 			fmt.Printf("Starting initialization of %s from %s...\n", targetNodeID, sourceNodeID)
 			fmt.Printf("  Method: %s\n", method)
 			fmt.Printf("  Parallel workers: %d\n", parallelWorkers)
 			fmt.Printf("  Schema sync: %s\n", schemaSync)
+			fmt.Printf("  Source: %s:%d\n", sourceHost, sourcePort)
 			fmt.Println()
 
-			// Skeleton - actual gRPC call implemented in T026
-			fmt.Println("Not implemented: init start (see T026)")
-			return nil
+			sourceInfo := &pb.SourceNodeInfo{
+				Host:     sourceHost,
+				Port:     int32(sourcePort),
+				Database: sourceDatabase,
+				User:     sourceUser,
+			}
+
+			// If remote address specified, use gRPC
+			if remoteAddr != "" {
+				return runInitStartGRPC(targetNodeID, sourceNodeID, method, parallelWorkers, schemaSync, remoteAddr, caFile, insecure, sourceInfo)
+			}
+
+			// Otherwise try IPC
+			return runInitStartIPC(targetNodeID, sourceNodeID, method, parallelWorkers, schemaSync, sourceInfo)
 		},
 	}
 
+	// Source node flags (required)
 	cmd.Flags().StringVar(&sourceNodeID, "from", "", "source node ID to initialize from (required)")
+	cmd.Flags().StringVar(&sourceHost, "source-host", "", "source PostgreSQL host (required)")
+	cmd.Flags().IntVar(&sourcePort, "source-port", 5432, "source PostgreSQL port")
+	cmd.Flags().StringVar(&sourceDatabase, "source-database", "", "source PostgreSQL database")
+	cmd.Flags().StringVar(&sourceUser, "source-user", "", "source PostgreSQL user")
+	_ = cmd.MarkFlagRequired("from")
+	_ = cmd.MarkFlagRequired("source-host")
+
+	// Init options
 	cmd.Flags().StringVar(&method, "method", "snapshot", "initialization method: snapshot, manual, two-phase, direct")
 	cmd.Flags().IntVar(&parallelWorkers, "parallel", 4, "number of parallel workers (1-16)")
 	cmd.Flags().StringVar(&schemaSync, "schema-sync", "strict", "schema sync mode: strict, auto, manual")
-	_ = cmd.MarkFlagRequired("from")
+
+	// Connection flags
+	cmd.Flags().StringVar(&remoteAddr, "remote", "", "remote daemon address (host:port) for gRPC")
+	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
 
 	return cmd
+}
+
+// runInitStartGRPC starts initialization via gRPC.
+func runInitStartGRPC(targetNodeID, sourceNodeID, method string, parallelWorkers int, schemaSync, remoteAddr, caFile string, insecure bool, sourceInfo *pb.SourceNodeInfo) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	clientCfg := replgrpc.ClientConfig{
+		Address: remoteAddr,
+		Timeout: 30 * time.Second,
+	}
+	if !insecure {
+		clientCfg.CAFile = caFile
+	}
+
+	client, err := replgrpc.NewClient(ctx, clientCfg)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	defer client.Close()
+
+	// Convert method string to proto enum
+	var pbMethod pb.InitMethod
+	switch method {
+	case "snapshot":
+		pbMethod = pb.InitMethod_INIT_METHOD_SNAPSHOT
+	case "manual":
+		pbMethod = pb.InitMethod_INIT_METHOD_MANUAL
+	case "two-phase":
+		pbMethod = pb.InitMethod_INIT_METHOD_TWO_PHASE
+	case "direct":
+		pbMethod = pb.InitMethod_INIT_METHOD_DIRECT
+	default:
+		pbMethod = pb.InitMethod_INIT_METHOD_SNAPSHOT
+	}
+
+	// Convert schema sync to proto enum
+	var pbSchemaSync pb.SchemaSyncMode
+	switch schemaSync {
+	case "strict":
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_STRICT
+	case "auto":
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_AUTO
+	case "manual":
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_MANUAL
+	default:
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_STRICT
+	}
+
+	resp, err := client.StartInit(ctx, &pb.StartInitRequest{
+		TargetNodeId:   targetNodeID,
+		SourceNodeId:   sourceNodeID,
+		Method:         pbMethod,
+		SourceNodeInfo: sourceInfo,
+		Options: &pb.InitOptions{
+			ParallelWorkers: int32(parallelWorkers),
+			SchemaSyncMode:  pbSchemaSync,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("gRPC call failed: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("initialization failed: %s", resp.Error)
+	}
+
+	fmt.Println("Initialization started successfully")
+	fmt.Printf("Monitor progress with: steep-repl init progress --node %s --remote %s --insecure\n", targetNodeID, remoteAddr)
+	return nil
+}
+
+// runInitStartIPC starts initialization via IPC (local daemon).
+func runInitStartIPC(targetNodeID, sourceNodeID, method string, parallelWorkers int, schemaSync string, sourceInfo *pb.SourceNodeInfo) error {
+	// For local daemon, we need to implement IPC call
+	// For now, show error message
+	fmt.Println("Error: IPC not implemented for init start")
+	fmt.Println("Use --remote flag to connect to a running daemon via gRPC:")
+	fmt.Printf("  steep-repl init start %s --from %s --source-host <host> --remote localhost:15461 --insecure\n", targetNodeID, sourceNodeID)
+	return nil
 }
 
 // newInitPrepareCmd creates the init prepare subcommand for manual initialization.
@@ -838,7 +960,12 @@ to start replication from the recorded LSN.`,
 
 // newInitCancelCmd creates the init cancel subcommand.
 func newInitCancelCmd() *cobra.Command {
-	var nodeID string
+	var (
+		nodeID     string
+		remoteAddr string
+		caFile     string
+		insecure   bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "cancel",
@@ -856,14 +983,292 @@ Use this if initialization is taking too long or has stalled.`,
 
 			fmt.Printf("Cancelling initialization for node %s...\n", nodeID)
 
-			// Skeleton - actual gRPC call implemented in T023
-			fmt.Println("Not implemented: init cancel (see T023)")
+			// If remote address specified, use gRPC
+			if remoteAddr != "" {
+				return runInitCancelGRPC(nodeID, remoteAddr, caFile, insecure)
+			}
+
+			// Otherwise show error
+			fmt.Println("Error: IPC not implemented for init cancel")
+			fmt.Println("Use --remote flag to connect to a running daemon via gRPC:")
+			fmt.Printf("  steep-repl init cancel --node %s --remote localhost:5433 --insecure\n", nodeID)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&nodeID, "node", "", "node ID to cancel initialization for (required)")
+	cmd.Flags().StringVar(&remoteAddr, "remote", "", "remote daemon address (host:port) for gRPC")
+	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
 	_ = cmd.MarkFlagRequired("node")
 
 	return cmd
+}
+
+// runInitCancelGRPC cancels initialization via gRPC.
+func runInitCancelGRPC(nodeID, remoteAddr, caFile string, insecure bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	clientCfg := replgrpc.ClientConfig{
+		Address: remoteAddr,
+		Timeout: 30 * time.Second,
+	}
+	if !insecure {
+		clientCfg.CAFile = caFile
+	}
+
+	client, err := replgrpc.NewClient(ctx, clientCfg)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	defer client.Close()
+
+	resp, err := client.CancelInit(ctx, &pb.CancelInitRequest{
+		NodeId: nodeID,
+	})
+	if err != nil {
+		return fmt.Errorf("gRPC call failed: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("cancellation failed: %s", resp.Error)
+	}
+
+	fmt.Println("Initialization cancelled successfully")
+	return nil
+}
+
+// newInitProgressCmd creates the init progress subcommand to check initialization progress.
+func newInitProgressCmd() *cobra.Command {
+	var (
+		nodeID     string
+		remoteAddr string
+		caFile     string
+		insecure   bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "progress",
+		Short: "Check initialization progress",
+		Long: `Check the current initialization progress for a node.
+
+Shows the current state, phase, progress percentage, and other details
+about an ongoing or completed initialization.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if nodeID == "" {
+				return fmt.Errorf("--node flag is required")
+			}
+
+			// If remote address specified, use gRPC
+			if remoteAddr != "" {
+				return runInitProgressGRPC(nodeID, remoteAddr, caFile, insecure)
+			}
+
+			// Otherwise show error
+			fmt.Println("Error: IPC not implemented for init progress")
+			fmt.Println("Use --remote flag to connect to a running daemon via gRPC:")
+			fmt.Printf("  steep-repl init progress --node %s --remote localhost:5433 --insecure\n", nodeID)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&nodeID, "node", "", "node ID to check progress for (required)")
+	cmd.Flags().StringVar(&remoteAddr, "remote", "", "remote daemon address (host:port) for gRPC")
+	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
+	_ = cmd.MarkFlagRequired("node")
+
+	return cmd
+}
+
+// runInitProgressGRPC gets progress via gRPC.
+func runInitProgressGRPC(nodeID, remoteAddr, caFile string, insecure bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	clientCfg := replgrpc.ClientConfig{
+		Address: remoteAddr,
+		Timeout: 30 * time.Second,
+	}
+	if !insecure {
+		clientCfg.CAFile = caFile
+	}
+
+	client, err := replgrpc.NewClient(ctx, clientCfg)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	defer client.Close()
+
+	resp, err := client.GetProgress(ctx, &pb.GetProgressRequest{
+		NodeId: nodeID,
+	})
+	if err != nil {
+		return fmt.Errorf("gRPC call failed: %w", err)
+	}
+
+	if !resp.HasProgress {
+		fmt.Printf("No initialization in progress for node %s\n", nodeID)
+		return nil
+	}
+
+	p := resp.Progress
+	fmt.Printf("Node:     %s\n", p.NodeId)
+	fmt.Printf("State:    %s\n", p.State.String())
+	fmt.Printf("Phase:    %s\n", p.Phase)
+	fmt.Printf("Progress: %.1f%%\n", p.OverallPercent)
+
+	if p.TablesTotal > 0 {
+		fmt.Printf("Tables:   %d/%d completed\n", p.TablesCompleted, p.TablesTotal)
+	}
+	if p.CurrentTable != "" {
+		fmt.Printf("Current:  %s (%.1f%%)\n", p.CurrentTable, p.CurrentTablePercent)
+	}
+	if p.RowsCopied > 0 {
+		fmt.Printf("Rows:     %d copied\n", p.RowsCopied)
+	}
+	if p.BytesCopied > 0 {
+		fmt.Printf("Bytes:    %d copied\n", p.BytesCopied)
+	}
+	if p.ThroughputRowsSec > 0 {
+		fmt.Printf("Speed:    %.0f rows/sec\n", p.ThroughputRowsSec)
+	}
+	if p.EtaSeconds > 0 {
+		fmt.Printf("ETA:      %d seconds\n", p.EtaSeconds)
+	}
+	if p.ErrorMessage != "" {
+		fmt.Printf("Error:    %s\n", p.ErrorMessage)
+	}
+
+	return nil
+}
+
+// newInitReinitCmd creates the init reinit subcommand to reinitialize a node.
+func newInitReinitCmd() *cobra.Command {
+	var (
+		nodeID     string
+		full       bool
+		tables     []string
+		schema     string
+		remoteAddr string
+		caFile     string
+		insecure   bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "reinit",
+		Short: "Reinitialize a node",
+		Long: `Reinitialize a node that is already synchronized or has diverged.
+
+This resets the node state and allows it to be initialized again.
+You can reinitialize the full node, specific tables, or an entire schema.
+
+Examples:
+  # Full reinit
+  steep-repl init reinit --node target-node --full --remote localhost:15461 --insecure
+
+  # Reinit specific tables
+  steep-repl init reinit --node target-node --tables public.users,public.orders --remote localhost:15461 --insecure
+
+  # Reinit entire schema
+  steep-repl init reinit --node target-node --schema public --remote localhost:15461 --insecure`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if nodeID == "" {
+				return fmt.Errorf("--node flag is required")
+			}
+
+			// Validate scope - exactly one must be specified
+			scopeCount := 0
+			if full {
+				scopeCount++
+			}
+			if len(tables) > 0 {
+				scopeCount++
+			}
+			if schema != "" {
+				scopeCount++
+			}
+			if scopeCount == 0 {
+				return fmt.Errorf("one of --full, --tables, or --schema is required")
+			}
+			if scopeCount > 1 {
+				return fmt.Errorf("only one of --full, --tables, or --schema can be specified")
+			}
+
+			fmt.Printf("Reinitializing node %s...\n", nodeID)
+
+			// If remote address specified, use gRPC
+			if remoteAddr != "" {
+				return runInitReinitGRPC(nodeID, full, tables, schema, remoteAddr, caFile, insecure)
+			}
+
+			// Otherwise show error
+			fmt.Println("Error: IPC not implemented for init reinit")
+			fmt.Println("Use --remote flag to connect to a running daemon via gRPC:")
+			fmt.Printf("  steep-repl init reinit --node %s --full --remote localhost:5433 --insecure\n", nodeID)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&nodeID, "node", "", "node ID to reinitialize (required)")
+	cmd.Flags().BoolVar(&full, "full", false, "full node reinitialization")
+	cmd.Flags().StringSliceVar(&tables, "tables", nil, "specific tables to reinitialize (comma-separated, format: schema.table)")
+	cmd.Flags().StringVar(&schema, "schema", "", "entire schema to reinitialize")
+	cmd.Flags().StringVar(&remoteAddr, "remote", "", "remote daemon address (host:port) for gRPC")
+	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
+	_ = cmd.MarkFlagRequired("node")
+
+	return cmd
+}
+
+// runInitReinitGRPC starts reinitialization via gRPC.
+func runInitReinitGRPC(nodeID string, full bool, tables []string, schema, remoteAddr, caFile string, insecure bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	clientCfg := replgrpc.ClientConfig{
+		Address: remoteAddr,
+		Timeout: 30 * time.Second,
+	}
+	if !insecure {
+		clientCfg.CAFile = caFile
+	}
+
+	client, err := replgrpc.NewClient(ctx, clientCfg)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	defer client.Close()
+
+	req := &pb.StartReinitRequest{
+		NodeId: nodeID,
+		Scope:  &pb.ReinitScope{},
+	}
+
+	if full {
+		req.Scope.Scope = &pb.ReinitScope_Full{Full: true}
+	} else if len(tables) > 0 {
+		req.Scope.Scope = &pb.ReinitScope_Tables{Tables: &pb.TableList{Tables: tables}}
+	} else if schema != "" {
+		req.Scope.Scope = &pb.ReinitScope_Schema{Schema: schema}
+	}
+
+	resp, err := client.StartReinit(ctx, req)
+	if err != nil {
+		return fmt.Errorf("gRPC call failed: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("reinitialization failed: %s", resp.Error)
+	}
+
+	fmt.Println("Reinitialization started successfully")
+	fmt.Printf("New state: %s\n", resp.State.String())
+	if resp.TablesAffected > 0 {
+		fmt.Printf("Tables affected: %d\n", resp.TablesAffected)
+	}
+	fmt.Printf("Now run 'init start' to begin initialization again.\n")
+	return nil
 }

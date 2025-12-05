@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,9 +16,11 @@ import (
 
 // Manager orchestrates node initialization operations.
 type Manager struct {
-	pool   *pgxpool.Pool
-	config *config.InitConfig
-	logger *Logger
+	pool        *pgxpool.Pool
+	config      *config.InitConfig
+	pgConfig    *config.PostgreSQLConfig // PostgreSQL connection config for replication
+	logger      *Logger
+	auditWriter AuditWriter // Interface for audit logging
 
 	mu       sync.RWMutex
 	active   map[string]*Operation // node_id -> active operation
@@ -27,6 +30,11 @@ type Manager struct {
 	snapshot *SnapshotInitializer
 	manual   *ManualInitializer
 	reinit   *Reinitializer
+}
+
+// AuditWriter is the interface for writing audit log entries.
+type AuditWriter interface {
+	LogInitCancelled(ctx context.Context, targetNodeID string) error
 }
 
 // Operation represents an in-progress initialization operation.
@@ -65,13 +73,15 @@ type StartInitRequest struct {
 }
 
 // NewManager creates a new initialization manager.
-func NewManager(pool *pgxpool.Pool, cfg *config.InitConfig, slogger *slog.Logger) *Manager {
+func NewManager(pool *pgxpool.Pool, cfg *config.InitConfig, pgCfg *config.PostgreSQLConfig, auditWriter AuditWriter, slogger *slog.Logger) *Manager {
 	m := &Manager{
-		pool:     pool,
-		config:   cfg,
-		logger:   NewLogger(slogger),
-		active:   make(map[string]*Operation),
-		progress: make(chan ProgressUpdate, 100),
+		pool:        pool,
+		config:      cfg,
+		pgConfig:    pgCfg,
+		auditWriter: auditWriter,
+		logger:      NewLogger(slogger),
+		active:      make(map[string]*Operation),
+		progress:    make(chan ProgressUpdate, 100),
 	}
 
 	// Initialize sub-initializers
@@ -114,7 +124,8 @@ func (m *Manager) StartInit(ctx context.Context, req StartInitRequest) error {
 	m.logger.LogInitStarted(req.TargetNodeID, req.SourceNodeID, string(req.Method))
 
 	// Register active operation
-	opCtx, cancel := context.WithCancel(ctx)
+	// Use a background context so the operation survives the RPC returning
+	opCtx, cancel := context.WithCancel(context.Background())
 	op := &Operation{
 		NodeID:     req.TargetNodeID,
 		SourceNode: req.SourceNodeID,
@@ -132,7 +143,9 @@ func (m *Manager) StartInit(ctx context.Context, req StartInitRequest) error {
 	switch req.Method {
 	case config.InitMethodSnapshot:
 		opts := SnapshotOptions{
-			ParallelWorkers: req.ParallelWorkers,
+			ParallelWorkers:     req.ParallelWorkers,
+			LargeTableThreshold: m.parseSizeThreshold(m.config.LargeTableThreshold),
+			LargeTableMethod:    m.config.LargeTableMethod,
 		}
 		if opts.ParallelWorkers <= 0 {
 			opts.ParallelWorkers = 4
@@ -174,6 +187,19 @@ func (m *Manager) CancelInit(ctx context.Context, nodeID string) error {
 		NodeID: nodeID,
 	})
 
+	// Write to audit log
+	if m.auditWriter != nil {
+		if err := m.auditWriter.LogInitCancelled(ctx, nodeID); err != nil {
+			// Log error but don't fail the cancel operation
+			m.logger.Log(InitEvent{
+				Level:  "warn",
+				Event:  "init.audit_write_failed",
+				NodeID: nodeID,
+				Error:  err.Error(),
+			})
+		}
+	}
+
 	return nil
 }
 
@@ -208,6 +234,19 @@ func (m *Manager) GetProgress(ctx context.Context, nodeID string) (*models.InitP
 	p.ErrorMessage = errorMessage
 
 	return &p, nil
+}
+
+// GetNodeState returns the current init_state for a node.
+func (m *Manager) GetNodeState(ctx context.Context, nodeID string) (models.InitState, error) {
+	var state models.InitState
+	err := m.pool.QueryRow(ctx,
+		"SELECT init_state FROM steep_repl.nodes WHERE node_id = $1",
+		nodeID,
+	).Scan(&state)
+	if err != nil {
+		return "", fmt.Errorf("failed to get node state: %w", err)
+	}
+	return state, nil
 }
 
 // UpdateState updates the initialization state for a node.
@@ -251,6 +290,11 @@ func (m *Manager) unregisterOperation(nodeID string) {
 	delete(m.active, nodeID)
 }
 
+// StartReinit starts reinitialization for a node.
+func (m *Manager) StartReinit(ctx context.Context, opts ReinitOptions) error {
+	return m.reinit.Start(ctx, opts)
+}
+
 // sendProgress sends a progress update to subscribers.
 func (m *Manager) sendProgress(update ProgressUpdate) {
 	select {
@@ -273,4 +317,93 @@ func (m *Manager) Close() error {
 
 	close(m.progress)
 	return nil
+}
+
+// SourceNodeInfo contains connection info for registering a source node.
+type SourceNodeInfo struct {
+	Host     string
+	Port     int
+	Database string
+	User     string
+}
+
+// RegisterSourceNode registers the source node in steep_repl.nodes if not already present.
+// This allows the target to know how to connect to the source for replication.
+func (m *Manager) RegisterSourceNode(ctx context.Context, nodeID string, info SourceNodeInfo) error {
+	query := `
+		INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status, init_state, last_seen)
+		VALUES ($1, $2, $3, $4, 100, 'healthy', 'synchronized', NOW())
+		ON CONFLICT (node_id) DO UPDATE SET
+			host = EXCLUDED.host,
+			port = EXCLUDED.port,
+			init_state = 'synchronized',
+			last_seen = NOW()
+	`
+
+	// Use nodeID as node_name if not provided separately
+	nodeName := nodeID
+	if info.Host != "" {
+		nodeName = fmt.Sprintf("%s (%s)", nodeID, info.Host)
+	}
+
+	_, err := m.pool.Exec(ctx, query,
+		nodeID,
+		nodeName,
+		info.Host,
+		info.Port,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to register source node: %w", err)
+	}
+
+	m.logger.Log(InitEvent{
+		Event:  "init.source_registered",
+		NodeID: nodeID,
+		Details: map[string]any{
+			"host": info.Host,
+			"port": info.Port,
+		},
+	})
+
+	return nil
+}
+
+// parseSizeThreshold parses a human-readable size string (e.g., "10GB", "500MB")
+// and returns the size in bytes. Returns 0 if empty or invalid.
+func (m *Manager) parseSizeThreshold(s string) int64 {
+	if s == "" {
+		return 0
+	}
+
+	s = strings.TrimSpace(strings.ToUpper(s))
+
+	var multiplier int64 = 1
+	var numStr string
+
+	switch {
+	case strings.HasSuffix(s, "TB"):
+		multiplier = 1024 * 1024 * 1024 * 1024
+		numStr = strings.TrimSuffix(s, "TB")
+	case strings.HasSuffix(s, "GB"):
+		multiplier = 1024 * 1024 * 1024
+		numStr = strings.TrimSuffix(s, "GB")
+	case strings.HasSuffix(s, "MB"):
+		multiplier = 1024 * 1024
+		numStr = strings.TrimSuffix(s, "MB")
+	case strings.HasSuffix(s, "KB"):
+		multiplier = 1024
+		numStr = strings.TrimSuffix(s, "KB")
+	case strings.HasSuffix(s, "B"):
+		numStr = strings.TrimSuffix(s, "B")
+	default:
+		numStr = s
+	}
+
+	numStr = strings.TrimSpace(numStr)
+	var num float64
+	if _, err := fmt.Sscanf(numStr, "%f", &num); err != nil {
+		return 0
+	}
+
+	return int64(num * float64(multiplier))
 }

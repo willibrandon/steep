@@ -5,7 +5,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.0
 // - protoc             v6.33.1
-// source: init.proto
+// source: internal/repl/grpc/proto/init.proto
 
 package proto
 
@@ -492,5 +492,5 @@ var InitService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "init.proto",
+	Metadata: "internal/repl/grpc/proto/init.proto",
 }

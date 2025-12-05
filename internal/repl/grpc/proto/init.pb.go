@@ -5,7 +5,7 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        v6.33.1
-// source: init.proto
+// source: internal/repl/grpc/proto/init.proto
 
 package proto
 
@@ -76,11 +76,11 @@ func (x InitState) String() string {
 }
 
 func (InitState) Descriptor() protoreflect.EnumDescriptor {
-	return file_init_proto_enumTypes[0].Descriptor()
+	return file_internal_repl_grpc_proto_init_proto_enumTypes[0].Descriptor()
 }
 
 func (InitState) Type() protoreflect.EnumType {
-	return &file_init_proto_enumTypes[0]
+	return &file_internal_repl_grpc_proto_init_proto_enumTypes[0]
 }
 
 func (x InitState) Number() protoreflect.EnumNumber {
@@ -89,7 +89,7 @@ func (x InitState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use InitState.Descriptor instead.
 func (InitState) EnumDescriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{0}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{0}
 }
 
 type InitMethod int32
@@ -131,11 +131,11 @@ func (x InitMethod) String() string {
 }
 
 func (InitMethod) Descriptor() protoreflect.EnumDescriptor {
-	return file_init_proto_enumTypes[1].Descriptor()
+	return file_internal_repl_grpc_proto_init_proto_enumTypes[1].Descriptor()
 }
 
 func (InitMethod) Type() protoreflect.EnumType {
-	return &file_init_proto_enumTypes[1]
+	return &file_internal_repl_grpc_proto_init_proto_enumTypes[1]
 }
 
 func (x InitMethod) Number() protoreflect.EnumNumber {
@@ -144,7 +144,7 @@ func (x InitMethod) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use InitMethod.Descriptor instead.
 func (InitMethod) EnumDescriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{1}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{1}
 }
 
 type SchemaSyncMode int32
@@ -183,11 +183,11 @@ func (x SchemaSyncMode) String() string {
 }
 
 func (SchemaSyncMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_init_proto_enumTypes[2].Descriptor()
+	return file_internal_repl_grpc_proto_init_proto_enumTypes[2].Descriptor()
 }
 
 func (SchemaSyncMode) Type() protoreflect.EnumType {
-	return &file_init_proto_enumTypes[2]
+	return &file_internal_repl_grpc_proto_init_proto_enumTypes[2]
 }
 
 func (x SchemaSyncMode) Number() protoreflect.EnumNumber {
@@ -196,7 +196,7 @@ func (x SchemaSyncMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SchemaSyncMode.Descriptor instead.
 func (SchemaSyncMode) EnumDescriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{2}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{2}
 }
 
 type ComparisonStatus int32
@@ -238,11 +238,11 @@ func (x ComparisonStatus) String() string {
 }
 
 func (ComparisonStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_init_proto_enumTypes[3].Descriptor()
+	return file_internal_repl_grpc_proto_init_proto_enumTypes[3].Descriptor()
 }
 
 func (ComparisonStatus) Type() protoreflect.EnumType {
-	return &file_init_proto_enumTypes[3]
+	return &file_internal_repl_grpc_proto_init_proto_enumTypes[3]
 }
 
 func (x ComparisonStatus) Number() protoreflect.EnumNumber {
@@ -251,22 +251,24 @@ func (x ComparisonStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ComparisonStatus.Descriptor instead.
 func (ComparisonStatus) EnumDescriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{3}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{3}
 }
 
 type StartInitRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TargetNodeId  string                 `protobuf:"bytes,1,opt,name=target_node_id,json=targetNodeId,proto3" json:"target_node_id,omitempty"`
-	SourceNodeId  string                 `protobuf:"bytes,2,opt,name=source_node_id,json=sourceNodeId,proto3" json:"source_node_id,omitempty"`
-	Method        InitMethod             `protobuf:"varint,3,opt,name=method,proto3,enum=steep.repl.v1.InitMethod" json:"method,omitempty"`
-	Options       *InitOptions           `protobuf:"bytes,4,opt,name=options,proto3" json:"options,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	TargetNodeId string                 `protobuf:"bytes,1,opt,name=target_node_id,json=targetNodeId,proto3" json:"target_node_id,omitempty"`
+	SourceNodeId string                 `protobuf:"bytes,2,opt,name=source_node_id,json=sourceNodeId,proto3" json:"source_node_id,omitempty"`
+	Method       InitMethod             `protobuf:"varint,3,opt,name=method,proto3,enum=steep.repl.v1.InitMethod" json:"method,omitempty"`
+	Options      *InitOptions           `protobuf:"bytes,4,opt,name=options,proto3" json:"options,omitempty"`
+	// Source node connection info - auto-registers source if not already known
+	SourceNodeInfo *SourceNodeInfo `protobuf:"bytes,5,opt,name=source_node_info,json=sourceNodeInfo,proto3" json:"source_node_info,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *StartInitRequest) Reset() {
 	*x = StartInitRequest{}
-	mi := &file_init_proto_msgTypes[0]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -278,7 +280,7 @@ func (x *StartInitRequest) String() string {
 func (*StartInitRequest) ProtoMessage() {}
 
 func (x *StartInitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[0]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -291,7 +293,7 @@ func (x *StartInitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartInitRequest.ProtoReflect.Descriptor instead.
 func (*StartInitRequest) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{0}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *StartInitRequest) GetTargetNodeId() string {
@@ -322,6 +324,82 @@ func (x *StartInitRequest) GetOptions() *InitOptions {
 	return nil
 }
 
+func (x *StartInitRequest) GetSourceNodeInfo() *SourceNodeInfo {
+	if x != nil {
+		return x.SourceNodeInfo
+	}
+	return nil
+}
+
+// Connection info for the source node (for auto-registration)
+type SourceNodeInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Host          string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
+	Port          int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	Database      string                 `protobuf:"bytes,3,opt,name=database,proto3" json:"database,omitempty"`
+	User          string                 `protobuf:"bytes,4,opt,name=user,proto3" json:"user,omitempty"` // Password should come from PGPASSWORD env var, not proto
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SourceNodeInfo) Reset() {
+	*x = SourceNodeInfo{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceNodeInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceNodeInfo) ProtoMessage() {}
+
+func (x *SourceNodeInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SourceNodeInfo.ProtoReflect.Descriptor instead.
+func (*SourceNodeInfo) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *SourceNodeInfo) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *SourceNodeInfo) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *SourceNodeInfo) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *SourceNodeInfo) GetUser() string {
+	if x != nil {
+		return x.User
+	}
+	return ""
+}
+
 type InitOptions struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	ParallelWorkers     int32                  `protobuf:"varint,1,opt,name=parallel_workers,json=parallelWorkers,proto3" json:"parallel_workers,omitempty"`
@@ -335,7 +413,7 @@ type InitOptions struct {
 
 func (x *InitOptions) Reset() {
 	*x = InitOptions{}
-	mi := &file_init_proto_msgTypes[1]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -347,7 +425,7 @@ func (x *InitOptions) String() string {
 func (*InitOptions) ProtoMessage() {}
 
 func (x *InitOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[1]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -360,7 +438,7 @@ func (x *InitOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitOptions.ProtoReflect.Descriptor instead.
 func (*InitOptions) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{1}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *InitOptions) GetParallelWorkers() int32 {
@@ -409,7 +487,7 @@ type StartInitResponse struct {
 
 func (x *StartInitResponse) Reset() {
 	*x = StartInitResponse{}
-	mi := &file_init_proto_msgTypes[2]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -421,7 +499,7 @@ func (x *StartInitResponse) String() string {
 func (*StartInitResponse) ProtoMessage() {}
 
 func (x *StartInitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[2]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -434,7 +512,7 @@ func (x *StartInitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartInitResponse.ProtoReflect.Descriptor instead.
 func (*StartInitResponse) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{2}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *StartInitResponse) GetSuccess() bool {
@@ -468,7 +546,7 @@ type PrepareInitRequest struct {
 
 func (x *PrepareInitRequest) Reset() {
 	*x = PrepareInitRequest{}
-	mi := &file_init_proto_msgTypes[3]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -480,7 +558,7 @@ func (x *PrepareInitRequest) String() string {
 func (*PrepareInitRequest) ProtoMessage() {}
 
 func (x *PrepareInitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[3]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -493,7 +571,7 @@ func (x *PrepareInitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareInitRequest.ProtoReflect.Descriptor instead.
 func (*PrepareInitRequest) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{3}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *PrepareInitRequest) GetNodeId() string {
@@ -523,7 +601,7 @@ type PrepareInitResponse struct {
 
 func (x *PrepareInitResponse) Reset() {
 	*x = PrepareInitResponse{}
-	mi := &file_init_proto_msgTypes[4]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -535,7 +613,7 @@ func (x *PrepareInitResponse) String() string {
 func (*PrepareInitResponse) ProtoMessage() {}
 
 func (x *PrepareInitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[4]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -548,7 +626,7 @@ func (x *PrepareInitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareInitResponse.ProtoReflect.Descriptor instead.
 func (*PrepareInitResponse) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{4}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *PrepareInitResponse) GetSuccess() bool {
@@ -598,7 +676,7 @@ type CompleteInitRequest struct {
 
 func (x *CompleteInitRequest) Reset() {
 	*x = CompleteInitRequest{}
-	mi := &file_init_proto_msgTypes[5]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -610,7 +688,7 @@ func (x *CompleteInitRequest) String() string {
 func (*CompleteInitRequest) ProtoMessage() {}
 
 func (x *CompleteInitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[5]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -623,7 +701,7 @@ func (x *CompleteInitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteInitRequest.ProtoReflect.Descriptor instead.
 func (*CompleteInitRequest) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{5}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CompleteInitRequest) GetTargetNodeId() string {
@@ -666,7 +744,7 @@ type CompleteInitResponse struct {
 
 func (x *CompleteInitResponse) Reset() {
 	*x = CompleteInitResponse{}
-	mi := &file_init_proto_msgTypes[6]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -678,7 +756,7 @@ func (x *CompleteInitResponse) String() string {
 func (*CompleteInitResponse) ProtoMessage() {}
 
 func (x *CompleteInitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[6]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -691,7 +769,7 @@ func (x *CompleteInitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteInitResponse.ProtoReflect.Descriptor instead.
 func (*CompleteInitResponse) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{6}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CompleteInitResponse) GetSuccess() bool {
@@ -732,7 +810,7 @@ type CancelInitRequest struct {
 
 func (x *CancelInitRequest) Reset() {
 	*x = CancelInitRequest{}
-	mi := &file_init_proto_msgTypes[7]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -744,7 +822,7 @@ func (x *CancelInitRequest) String() string {
 func (*CancelInitRequest) ProtoMessage() {}
 
 func (x *CancelInitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[7]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -757,7 +835,7 @@ func (x *CancelInitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelInitRequest.ProtoReflect.Descriptor instead.
 func (*CancelInitRequest) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{7}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *CancelInitRequest) GetNodeId() string {
@@ -785,7 +863,7 @@ type CancelInitResponse struct {
 
 func (x *CancelInitResponse) Reset() {
 	*x = CancelInitResponse{}
-	mi := &file_init_proto_msgTypes[8]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -797,7 +875,7 @@ func (x *CancelInitResponse) String() string {
 func (*CancelInitResponse) ProtoMessage() {}
 
 func (x *CancelInitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[8]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -810,7 +888,7 @@ func (x *CancelInitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelInitResponse.ProtoReflect.Descriptor instead.
 func (*CancelInitResponse) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{8}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *CancelInitResponse) GetSuccess() bool {
@@ -843,7 +921,7 @@ type GetProgressRequest struct {
 
 func (x *GetProgressRequest) Reset() {
 	*x = GetProgressRequest{}
-	mi := &file_init_proto_msgTypes[9]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -855,7 +933,7 @@ func (x *GetProgressRequest) String() string {
 func (*GetProgressRequest) ProtoMessage() {}
 
 func (x *GetProgressRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[9]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -868,7 +946,7 @@ func (x *GetProgressRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProgressRequest.ProtoReflect.Descriptor instead.
 func (*GetProgressRequest) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{9}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetProgressRequest) GetNodeId() string {
@@ -888,7 +966,7 @@ type GetProgressResponse struct {
 
 func (x *GetProgressResponse) Reset() {
 	*x = GetProgressResponse{}
-	mi := &file_init_proto_msgTypes[10]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -900,7 +978,7 @@ func (x *GetProgressResponse) String() string {
 func (*GetProgressResponse) ProtoMessage() {}
 
 func (x *GetProgressResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[10]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -913,7 +991,7 @@ func (x *GetProgressResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProgressResponse.ProtoReflect.Descriptor instead.
 func (*GetProgressResponse) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{10}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GetProgressResponse) GetHasProgress() bool {
@@ -940,7 +1018,7 @@ type StreamProgressRequest struct {
 
 func (x *StreamProgressRequest) Reset() {
 	*x = StreamProgressRequest{}
-	mi := &file_init_proto_msgTypes[11]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -952,7 +1030,7 @@ func (x *StreamProgressRequest) String() string {
 func (*StreamProgressRequest) ProtoMessage() {}
 
 func (x *StreamProgressRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[11]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -965,7 +1043,7 @@ func (x *StreamProgressRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamProgressRequest.ProtoReflect.Descriptor instead.
 func (*StreamProgressRequest) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{11}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *StreamProgressRequest) GetNodeId() string {
@@ -992,7 +1070,7 @@ type ProgressUpdate struct {
 
 func (x *ProgressUpdate) Reset() {
 	*x = ProgressUpdate{}
-	mi := &file_init_proto_msgTypes[12]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1004,7 +1082,7 @@ func (x *ProgressUpdate) String() string {
 func (*ProgressUpdate) ProtoMessage() {}
 
 func (x *ProgressUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[12]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1017,7 +1095,7 @@ func (x *ProgressUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProgressUpdate.ProtoReflect.Descriptor instead.
 func (*ProgressUpdate) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{12}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ProgressUpdate) GetProgress() *InitProgress {
@@ -1059,7 +1137,7 @@ type InitProgress struct {
 
 func (x *InitProgress) Reset() {
 	*x = InitProgress{}
-	mi := &file_init_proto_msgTypes[13]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1071,7 +1149,7 @@ func (x *InitProgress) String() string {
 func (*InitProgress) ProtoMessage() {}
 
 func (x *InitProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[13]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1084,7 +1162,7 @@ func (x *InitProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitProgress.ProtoReflect.Descriptor instead.
 func (*InitProgress) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{13}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *InitProgress) GetNodeId() string {
@@ -1219,7 +1297,7 @@ type TableProgress struct {
 
 func (x *TableProgress) Reset() {
 	*x = TableProgress{}
-	mi := &file_init_proto_msgTypes[14]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1231,7 +1309,7 @@ func (x *TableProgress) String() string {
 func (*TableProgress) ProtoMessage() {}
 
 func (x *TableProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[14]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1244,7 +1322,7 @@ func (x *TableProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableProgress.ProtoReflect.Descriptor instead.
 func (*TableProgress) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{14}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TableProgress) GetSchema() string {
@@ -1292,7 +1370,7 @@ type StartReinitRequest struct {
 
 func (x *StartReinitRequest) Reset() {
 	*x = StartReinitRequest{}
-	mi := &file_init_proto_msgTypes[15]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1304,7 +1382,7 @@ func (x *StartReinitRequest) String() string {
 func (*StartReinitRequest) ProtoMessage() {}
 
 func (x *StartReinitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[15]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1317,7 +1395,7 @@ func (x *StartReinitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartReinitRequest.ProtoReflect.Descriptor instead.
 func (*StartReinitRequest) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{15}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *StartReinitRequest) GetNodeId() string {
@@ -1348,7 +1426,7 @@ type ReinitScope struct {
 
 func (x *ReinitScope) Reset() {
 	*x = ReinitScope{}
-	mi := &file_init_proto_msgTypes[16]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1360,7 +1438,7 @@ func (x *ReinitScope) String() string {
 func (*ReinitScope) ProtoMessage() {}
 
 func (x *ReinitScope) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[16]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1373,7 +1451,7 @@ func (x *ReinitScope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReinitScope.ProtoReflect.Descriptor instead.
 func (*ReinitScope) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{16}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ReinitScope) GetScope() isReinitScope_Scope {
@@ -1441,7 +1519,7 @@ type TableList struct {
 
 func (x *TableList) Reset() {
 	*x = TableList{}
-	mi := &file_init_proto_msgTypes[17]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1453,7 +1531,7 @@ func (x *TableList) String() string {
 func (*TableList) ProtoMessage() {}
 
 func (x *TableList) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[17]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1466,7 +1544,7 @@ func (x *TableList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableList.ProtoReflect.Descriptor instead.
 func (*TableList) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{17}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *TableList) GetTables() []string {
@@ -1488,7 +1566,7 @@ type StartReinitResponse struct {
 
 func (x *StartReinitResponse) Reset() {
 	*x = StartReinitResponse{}
-	mi := &file_init_proto_msgTypes[18]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1500,7 +1578,7 @@ func (x *StartReinitResponse) String() string {
 func (*StartReinitResponse) ProtoMessage() {}
 
 func (x *StartReinitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[18]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1513,7 +1591,7 @@ func (x *StartReinitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartReinitResponse.ProtoReflect.Descriptor instead.
 func (*StartReinitResponse) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{18}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *StartReinitResponse) GetSuccess() bool {
@@ -1555,7 +1633,7 @@ type CompareSchemasRequest struct {
 
 func (x *CompareSchemasRequest) Reset() {
 	*x = CompareSchemasRequest{}
-	mi := &file_init_proto_msgTypes[19]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1567,7 +1645,7 @@ func (x *CompareSchemasRequest) String() string {
 func (*CompareSchemasRequest) ProtoMessage() {}
 
 func (x *CompareSchemasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[19]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1580,7 +1658,7 @@ func (x *CompareSchemasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompareSchemasRequest.ProtoReflect.Descriptor instead.
 func (*CompareSchemasRequest) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{19}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *CompareSchemasRequest) GetLocalNodeId() string {
@@ -1619,7 +1697,7 @@ type CompareSchemasResponse struct {
 
 func (x *CompareSchemasResponse) Reset() {
 	*x = CompareSchemasResponse{}
-	mi := &file_init_proto_msgTypes[20]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1631,7 +1709,7 @@ func (x *CompareSchemasResponse) String() string {
 func (*CompareSchemasResponse) ProtoMessage() {}
 
 func (x *CompareSchemasResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[20]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1644,7 +1722,7 @@ func (x *CompareSchemasResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompareSchemasResponse.ProtoReflect.Descriptor instead.
 func (*CompareSchemasResponse) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{20}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CompareSchemasResponse) GetSuccess() bool {
@@ -1710,7 +1788,7 @@ type SchemaComparison struct {
 
 func (x *SchemaComparison) Reset() {
 	*x = SchemaComparison{}
-	mi := &file_init_proto_msgTypes[21]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1722,7 +1800,7 @@ func (x *SchemaComparison) String() string {
 func (*SchemaComparison) ProtoMessage() {}
 
 func (x *SchemaComparison) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[21]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1735,7 +1813,7 @@ func (x *SchemaComparison) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SchemaComparison.ProtoReflect.Descriptor instead.
 func (*SchemaComparison) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{21}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *SchemaComparison) GetTableSchema() string {
@@ -1792,7 +1870,7 @@ type ColumnDifference struct {
 
 func (x *ColumnDifference) Reset() {
 	*x = ColumnDifference{}
-	mi := &file_init_proto_msgTypes[22]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1804,7 +1882,7 @@ func (x *ColumnDifference) String() string {
 func (*ColumnDifference) ProtoMessage() {}
 
 func (x *ColumnDifference) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[22]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1817,7 +1895,7 @@ func (x *ColumnDifference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ColumnDifference.ProtoReflect.Descriptor instead.
 func (*ColumnDifference) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{22}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ColumnDifference) GetColumnName() string {
@@ -1860,7 +1938,7 @@ type GenerateSnapshotRequest struct {
 
 func (x *GenerateSnapshotRequest) Reset() {
 	*x = GenerateSnapshotRequest{}
-	mi := &file_init_proto_msgTypes[23]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1872,7 +1950,7 @@ func (x *GenerateSnapshotRequest) String() string {
 func (*GenerateSnapshotRequest) ProtoMessage() {}
 
 func (x *GenerateSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[23]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1885,7 +1963,7 @@ func (x *GenerateSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*GenerateSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{23}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GenerateSnapshotRequest) GetSourceNodeId() string {
@@ -1929,7 +2007,7 @@ type ApplySnapshotRequest struct {
 
 func (x *ApplySnapshotRequest) Reset() {
 	*x = ApplySnapshotRequest{}
-	mi := &file_init_proto_msgTypes[24]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1941,7 +2019,7 @@ func (x *ApplySnapshotRequest) String() string {
 func (*ApplySnapshotRequest) ProtoMessage() {}
 
 func (x *ApplySnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[24]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1954,7 +2032,7 @@ func (x *ApplySnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplySnapshotRequest.ProtoReflect.Descriptor instead.
 func (*ApplySnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{24}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ApplySnapshotRequest) GetTargetNodeId() string {
@@ -2011,7 +2089,7 @@ type SnapshotProgress struct {
 
 func (x *SnapshotProgress) Reset() {
 	*x = SnapshotProgress{}
-	mi := &file_init_proto_msgTypes[25]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2023,7 +2101,7 @@ func (x *SnapshotProgress) String() string {
 func (*SnapshotProgress) ProtoMessage() {}
 
 func (x *SnapshotProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_init_proto_msgTypes[25]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2036,7 +2114,7 @@ func (x *SnapshotProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotProgress.ProtoReflect.Descriptor instead.
 func (*SnapshotProgress) Descriptor() ([]byte, []int) {
-	return file_init_proto_rawDescGZIP(), []int{25}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *SnapshotProgress) GetSnapshotId() string {
@@ -2116,17 +2194,22 @@ func (x *SnapshotProgress) GetError() string {
 	return ""
 }
 
-var File_init_proto protoreflect.FileDescriptor
+var File_internal_repl_grpc_proto_init_proto protoreflect.FileDescriptor
 
-const file_init_proto_rawDesc = "" +
+const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\n" +
-	"\n" +
-	"init.proto\x12\rsteep.repl.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc7\x01\n" +
+	"#internal/repl/grpc/proto/init.proto\x12\rsteep.repl.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x90\x02\n" +
 	"\x10StartInitRequest\x12$\n" +
 	"\x0etarget_node_id\x18\x01 \x01(\tR\ftargetNodeId\x12$\n" +
 	"\x0esource_node_id\x18\x02 \x01(\tR\fsourceNodeId\x121\n" +
 	"\x06method\x18\x03 \x01(\x0e2\x19.steep.repl.v1.InitMethodR\x06method\x124\n" +
-	"\aoptions\x18\x04 \x01(\v2\x1a.steep.repl.v1.InitOptionsR\aoptions\"\xf9\x01\n" +
+	"\aoptions\x18\x04 \x01(\v2\x1a.steep.repl.v1.InitOptionsR\aoptions\x12G\n" +
+	"\x10source_node_info\x18\x05 \x01(\v2\x1d.steep.repl.v1.SourceNodeInfoR\x0esourceNodeInfo\"h\n" +
+	"\x0eSourceNodeInfo\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x1a\n" +
+	"\bdatabase\x18\x03 \x01(\tR\bdatabase\x12\x12\n" +
+	"\x04user\x18\x04 \x01(\tR\x04user\"\xf9\x01\n" +
 	"\vInitOptions\x12)\n" +
 	"\x10parallel_workers\x18\x01 \x01(\x05R\x0fparallelWorkers\x12G\n" +
 	"\x10schema_sync_mode\x18\x02 \x01(\x0e2\x1d.steep.repl.v1.SchemaSyncModeR\x0eschemaSyncMode\x12\x14\n" +
@@ -2318,107 +2401,109 @@ const file_init_proto_rawDesc = "" +
 	"\rApplySnapshot\x12#.steep.repl.v1.ApplySnapshotRequest\x1a\x1f.steep.repl.v1.SnapshotProgress0\x01B Z\x1esteep/internal/repl/grpc/protob\x06proto3"
 
 var (
-	file_init_proto_rawDescOnce sync.Once
-	file_init_proto_rawDescData []byte
+	file_internal_repl_grpc_proto_init_proto_rawDescOnce sync.Once
+	file_internal_repl_grpc_proto_init_proto_rawDescData []byte
 )
 
-func file_init_proto_rawDescGZIP() []byte {
-	file_init_proto_rawDescOnce.Do(func() {
-		file_init_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_init_proto_rawDesc), len(file_init_proto_rawDesc)))
+func file_internal_repl_grpc_proto_init_proto_rawDescGZIP() []byte {
+	file_internal_repl_grpc_proto_init_proto_rawDescOnce.Do(func() {
+		file_internal_repl_grpc_proto_init_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_internal_repl_grpc_proto_init_proto_rawDesc), len(file_internal_repl_grpc_proto_init_proto_rawDesc)))
 	})
-	return file_init_proto_rawDescData
+	return file_internal_repl_grpc_proto_init_proto_rawDescData
 }
 
-var file_init_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_init_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
-var file_init_proto_goTypes = []any{
+var file_internal_repl_grpc_proto_init_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_internal_repl_grpc_proto_init_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_internal_repl_grpc_proto_init_proto_goTypes = []any{
 	(InitState)(0),                  // 0: steep.repl.v1.InitState
 	(InitMethod)(0),                 // 1: steep.repl.v1.InitMethod
 	(SchemaSyncMode)(0),             // 2: steep.repl.v1.SchemaSyncMode
 	(ComparisonStatus)(0),           // 3: steep.repl.v1.ComparisonStatus
 	(*StartInitRequest)(nil),        // 4: steep.repl.v1.StartInitRequest
-	(*InitOptions)(nil),             // 5: steep.repl.v1.InitOptions
-	(*StartInitResponse)(nil),       // 6: steep.repl.v1.StartInitResponse
-	(*PrepareInitRequest)(nil),      // 7: steep.repl.v1.PrepareInitRequest
-	(*PrepareInitResponse)(nil),     // 8: steep.repl.v1.PrepareInitResponse
-	(*CompleteInitRequest)(nil),     // 9: steep.repl.v1.CompleteInitRequest
-	(*CompleteInitResponse)(nil),    // 10: steep.repl.v1.CompleteInitResponse
-	(*CancelInitRequest)(nil),       // 11: steep.repl.v1.CancelInitRequest
-	(*CancelInitResponse)(nil),      // 12: steep.repl.v1.CancelInitResponse
-	(*GetProgressRequest)(nil),      // 13: steep.repl.v1.GetProgressRequest
-	(*GetProgressResponse)(nil),     // 14: steep.repl.v1.GetProgressResponse
-	(*StreamProgressRequest)(nil),   // 15: steep.repl.v1.StreamProgressRequest
-	(*ProgressUpdate)(nil),          // 16: steep.repl.v1.ProgressUpdate
-	(*InitProgress)(nil),            // 17: steep.repl.v1.InitProgress
-	(*TableProgress)(nil),           // 18: steep.repl.v1.TableProgress
-	(*StartReinitRequest)(nil),      // 19: steep.repl.v1.StartReinitRequest
-	(*ReinitScope)(nil),             // 20: steep.repl.v1.ReinitScope
-	(*TableList)(nil),               // 21: steep.repl.v1.TableList
-	(*StartReinitResponse)(nil),     // 22: steep.repl.v1.StartReinitResponse
-	(*CompareSchemasRequest)(nil),   // 23: steep.repl.v1.CompareSchemasRequest
-	(*CompareSchemasResponse)(nil),  // 24: steep.repl.v1.CompareSchemasResponse
-	(*SchemaComparison)(nil),        // 25: steep.repl.v1.SchemaComparison
-	(*ColumnDifference)(nil),        // 26: steep.repl.v1.ColumnDifference
-	(*GenerateSnapshotRequest)(nil), // 27: steep.repl.v1.GenerateSnapshotRequest
-	(*ApplySnapshotRequest)(nil),    // 28: steep.repl.v1.ApplySnapshotRequest
-	(*SnapshotProgress)(nil),        // 29: steep.repl.v1.SnapshotProgress
-	(*timestamppb.Timestamp)(nil),   // 30: google.protobuf.Timestamp
+	(*SourceNodeInfo)(nil),          // 5: steep.repl.v1.SourceNodeInfo
+	(*InitOptions)(nil),             // 6: steep.repl.v1.InitOptions
+	(*StartInitResponse)(nil),       // 7: steep.repl.v1.StartInitResponse
+	(*PrepareInitRequest)(nil),      // 8: steep.repl.v1.PrepareInitRequest
+	(*PrepareInitResponse)(nil),     // 9: steep.repl.v1.PrepareInitResponse
+	(*CompleteInitRequest)(nil),     // 10: steep.repl.v1.CompleteInitRequest
+	(*CompleteInitResponse)(nil),    // 11: steep.repl.v1.CompleteInitResponse
+	(*CancelInitRequest)(nil),       // 12: steep.repl.v1.CancelInitRequest
+	(*CancelInitResponse)(nil),      // 13: steep.repl.v1.CancelInitResponse
+	(*GetProgressRequest)(nil),      // 14: steep.repl.v1.GetProgressRequest
+	(*GetProgressResponse)(nil),     // 15: steep.repl.v1.GetProgressResponse
+	(*StreamProgressRequest)(nil),   // 16: steep.repl.v1.StreamProgressRequest
+	(*ProgressUpdate)(nil),          // 17: steep.repl.v1.ProgressUpdate
+	(*InitProgress)(nil),            // 18: steep.repl.v1.InitProgress
+	(*TableProgress)(nil),           // 19: steep.repl.v1.TableProgress
+	(*StartReinitRequest)(nil),      // 20: steep.repl.v1.StartReinitRequest
+	(*ReinitScope)(nil),             // 21: steep.repl.v1.ReinitScope
+	(*TableList)(nil),               // 22: steep.repl.v1.TableList
+	(*StartReinitResponse)(nil),     // 23: steep.repl.v1.StartReinitResponse
+	(*CompareSchemasRequest)(nil),   // 24: steep.repl.v1.CompareSchemasRequest
+	(*CompareSchemasResponse)(nil),  // 25: steep.repl.v1.CompareSchemasResponse
+	(*SchemaComparison)(nil),        // 26: steep.repl.v1.SchemaComparison
+	(*ColumnDifference)(nil),        // 27: steep.repl.v1.ColumnDifference
+	(*GenerateSnapshotRequest)(nil), // 28: steep.repl.v1.GenerateSnapshotRequest
+	(*ApplySnapshotRequest)(nil),    // 29: steep.repl.v1.ApplySnapshotRequest
+	(*SnapshotProgress)(nil),        // 30: steep.repl.v1.SnapshotProgress
+	(*timestamppb.Timestamp)(nil),   // 31: google.protobuf.Timestamp
 }
-var file_init_proto_depIdxs = []int32{
+var file_internal_repl_grpc_proto_init_proto_depIdxs = []int32{
 	1,  // 0: steep.repl.v1.StartInitRequest.method:type_name -> steep.repl.v1.InitMethod
-	5,  // 1: steep.repl.v1.StartInitRequest.options:type_name -> steep.repl.v1.InitOptions
-	2,  // 2: steep.repl.v1.InitOptions.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
-	0,  // 3: steep.repl.v1.StartInitResponse.state:type_name -> steep.repl.v1.InitState
-	30, // 4: steep.repl.v1.PrepareInitResponse.created_at:type_name -> google.protobuf.Timestamp
-	2,  // 5: steep.repl.v1.CompleteInitRequest.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
-	0,  // 6: steep.repl.v1.CompleteInitResponse.state:type_name -> steep.repl.v1.InitState
-	25, // 7: steep.repl.v1.CompleteInitResponse.schema_mismatches:type_name -> steep.repl.v1.SchemaComparison
-	0,  // 8: steep.repl.v1.CancelInitResponse.previous_state:type_name -> steep.repl.v1.InitState
-	17, // 9: steep.repl.v1.GetProgressResponse.progress:type_name -> steep.repl.v1.InitProgress
-	17, // 10: steep.repl.v1.ProgressUpdate.progress:type_name -> steep.repl.v1.InitProgress
-	30, // 11: steep.repl.v1.ProgressUpdate.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 12: steep.repl.v1.InitProgress.state:type_name -> steep.repl.v1.InitState
-	30, // 13: steep.repl.v1.InitProgress.started_at:type_name -> google.protobuf.Timestamp
-	18, // 14: steep.repl.v1.InitProgress.completed_tables:type_name -> steep.repl.v1.TableProgress
-	20, // 15: steep.repl.v1.StartReinitRequest.scope:type_name -> steep.repl.v1.ReinitScope
-	21, // 16: steep.repl.v1.ReinitScope.tables:type_name -> steep.repl.v1.TableList
-	0,  // 17: steep.repl.v1.StartReinitResponse.state:type_name -> steep.repl.v1.InitState
-	25, // 18: steep.repl.v1.CompareSchemasResponse.comparisons:type_name -> steep.repl.v1.SchemaComparison
-	3,  // 19: steep.repl.v1.SchemaComparison.status:type_name -> steep.repl.v1.ComparisonStatus
-	26, // 20: steep.repl.v1.SchemaComparison.differences:type_name -> steep.repl.v1.ColumnDifference
-	4,  // 21: steep.repl.v1.InitService.StartInit:input_type -> steep.repl.v1.StartInitRequest
-	7,  // 22: steep.repl.v1.InitService.PrepareInit:input_type -> steep.repl.v1.PrepareInitRequest
-	9,  // 23: steep.repl.v1.InitService.CompleteInit:input_type -> steep.repl.v1.CompleteInitRequest
-	11, // 24: steep.repl.v1.InitService.CancelInit:input_type -> steep.repl.v1.CancelInitRequest
-	13, // 25: steep.repl.v1.InitService.GetProgress:input_type -> steep.repl.v1.GetProgressRequest
-	15, // 26: steep.repl.v1.InitService.StreamProgress:input_type -> steep.repl.v1.StreamProgressRequest
-	19, // 27: steep.repl.v1.InitService.StartReinit:input_type -> steep.repl.v1.StartReinitRequest
-	23, // 28: steep.repl.v1.InitService.CompareSchemas:input_type -> steep.repl.v1.CompareSchemasRequest
-	27, // 29: steep.repl.v1.InitService.GenerateSnapshot:input_type -> steep.repl.v1.GenerateSnapshotRequest
-	28, // 30: steep.repl.v1.InitService.ApplySnapshot:input_type -> steep.repl.v1.ApplySnapshotRequest
-	6,  // 31: steep.repl.v1.InitService.StartInit:output_type -> steep.repl.v1.StartInitResponse
-	8,  // 32: steep.repl.v1.InitService.PrepareInit:output_type -> steep.repl.v1.PrepareInitResponse
-	10, // 33: steep.repl.v1.InitService.CompleteInit:output_type -> steep.repl.v1.CompleteInitResponse
-	12, // 34: steep.repl.v1.InitService.CancelInit:output_type -> steep.repl.v1.CancelInitResponse
-	14, // 35: steep.repl.v1.InitService.GetProgress:output_type -> steep.repl.v1.GetProgressResponse
-	16, // 36: steep.repl.v1.InitService.StreamProgress:output_type -> steep.repl.v1.ProgressUpdate
-	22, // 37: steep.repl.v1.InitService.StartReinit:output_type -> steep.repl.v1.StartReinitResponse
-	24, // 38: steep.repl.v1.InitService.CompareSchemas:output_type -> steep.repl.v1.CompareSchemasResponse
-	29, // 39: steep.repl.v1.InitService.GenerateSnapshot:output_type -> steep.repl.v1.SnapshotProgress
-	29, // 40: steep.repl.v1.InitService.ApplySnapshot:output_type -> steep.repl.v1.SnapshotProgress
-	31, // [31:41] is the sub-list for method output_type
-	21, // [21:31] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	6,  // 1: steep.repl.v1.StartInitRequest.options:type_name -> steep.repl.v1.InitOptions
+	5,  // 2: steep.repl.v1.StartInitRequest.source_node_info:type_name -> steep.repl.v1.SourceNodeInfo
+	2,  // 3: steep.repl.v1.InitOptions.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
+	0,  // 4: steep.repl.v1.StartInitResponse.state:type_name -> steep.repl.v1.InitState
+	31, // 5: steep.repl.v1.PrepareInitResponse.created_at:type_name -> google.protobuf.Timestamp
+	2,  // 6: steep.repl.v1.CompleteInitRequest.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
+	0,  // 7: steep.repl.v1.CompleteInitResponse.state:type_name -> steep.repl.v1.InitState
+	26, // 8: steep.repl.v1.CompleteInitResponse.schema_mismatches:type_name -> steep.repl.v1.SchemaComparison
+	0,  // 9: steep.repl.v1.CancelInitResponse.previous_state:type_name -> steep.repl.v1.InitState
+	18, // 10: steep.repl.v1.GetProgressResponse.progress:type_name -> steep.repl.v1.InitProgress
+	18, // 11: steep.repl.v1.ProgressUpdate.progress:type_name -> steep.repl.v1.InitProgress
+	31, // 12: steep.repl.v1.ProgressUpdate.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 13: steep.repl.v1.InitProgress.state:type_name -> steep.repl.v1.InitState
+	31, // 14: steep.repl.v1.InitProgress.started_at:type_name -> google.protobuf.Timestamp
+	19, // 15: steep.repl.v1.InitProgress.completed_tables:type_name -> steep.repl.v1.TableProgress
+	21, // 16: steep.repl.v1.StartReinitRequest.scope:type_name -> steep.repl.v1.ReinitScope
+	22, // 17: steep.repl.v1.ReinitScope.tables:type_name -> steep.repl.v1.TableList
+	0,  // 18: steep.repl.v1.StartReinitResponse.state:type_name -> steep.repl.v1.InitState
+	26, // 19: steep.repl.v1.CompareSchemasResponse.comparisons:type_name -> steep.repl.v1.SchemaComparison
+	3,  // 20: steep.repl.v1.SchemaComparison.status:type_name -> steep.repl.v1.ComparisonStatus
+	27, // 21: steep.repl.v1.SchemaComparison.differences:type_name -> steep.repl.v1.ColumnDifference
+	4,  // 22: steep.repl.v1.InitService.StartInit:input_type -> steep.repl.v1.StartInitRequest
+	8,  // 23: steep.repl.v1.InitService.PrepareInit:input_type -> steep.repl.v1.PrepareInitRequest
+	10, // 24: steep.repl.v1.InitService.CompleteInit:input_type -> steep.repl.v1.CompleteInitRequest
+	12, // 25: steep.repl.v1.InitService.CancelInit:input_type -> steep.repl.v1.CancelInitRequest
+	14, // 26: steep.repl.v1.InitService.GetProgress:input_type -> steep.repl.v1.GetProgressRequest
+	16, // 27: steep.repl.v1.InitService.StreamProgress:input_type -> steep.repl.v1.StreamProgressRequest
+	20, // 28: steep.repl.v1.InitService.StartReinit:input_type -> steep.repl.v1.StartReinitRequest
+	24, // 29: steep.repl.v1.InitService.CompareSchemas:input_type -> steep.repl.v1.CompareSchemasRequest
+	28, // 30: steep.repl.v1.InitService.GenerateSnapshot:input_type -> steep.repl.v1.GenerateSnapshotRequest
+	29, // 31: steep.repl.v1.InitService.ApplySnapshot:input_type -> steep.repl.v1.ApplySnapshotRequest
+	7,  // 32: steep.repl.v1.InitService.StartInit:output_type -> steep.repl.v1.StartInitResponse
+	9,  // 33: steep.repl.v1.InitService.PrepareInit:output_type -> steep.repl.v1.PrepareInitResponse
+	11, // 34: steep.repl.v1.InitService.CompleteInit:output_type -> steep.repl.v1.CompleteInitResponse
+	13, // 35: steep.repl.v1.InitService.CancelInit:output_type -> steep.repl.v1.CancelInitResponse
+	15, // 36: steep.repl.v1.InitService.GetProgress:output_type -> steep.repl.v1.GetProgressResponse
+	17, // 37: steep.repl.v1.InitService.StreamProgress:output_type -> steep.repl.v1.ProgressUpdate
+	23, // 38: steep.repl.v1.InitService.StartReinit:output_type -> steep.repl.v1.StartReinitResponse
+	25, // 39: steep.repl.v1.InitService.CompareSchemas:output_type -> steep.repl.v1.CompareSchemasResponse
+	30, // 40: steep.repl.v1.InitService.GenerateSnapshot:output_type -> steep.repl.v1.SnapshotProgress
+	30, // 41: steep.repl.v1.InitService.ApplySnapshot:output_type -> steep.repl.v1.SnapshotProgress
+	32, // [32:42] is the sub-list for method output_type
+	22, // [22:32] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
-func init() { file_init_proto_init() }
-func file_init_proto_init() {
-	if File_init_proto != nil {
+func init() { file_internal_repl_grpc_proto_init_proto_init() }
+func file_internal_repl_grpc_proto_init_proto_init() {
+	if File_internal_repl_grpc_proto_init_proto != nil {
 		return
 	}
-	file_init_proto_msgTypes[16].OneofWrappers = []any{
+	file_internal_repl_grpc_proto_init_proto_msgTypes[17].OneofWrappers = []any{
 		(*ReinitScope_Full)(nil),
 		(*ReinitScope_Tables)(nil),
 		(*ReinitScope_Schema)(nil),
@@ -2427,18 +2512,18 @@ func file_init_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_init_proto_rawDesc), len(file_init_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_repl_grpc_proto_init_proto_rawDesc), len(file_internal_repl_grpc_proto_init_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   26,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_init_proto_goTypes,
-		DependencyIndexes: file_init_proto_depIdxs,
-		EnumInfos:         file_init_proto_enumTypes,
-		MessageInfos:      file_init_proto_msgTypes,
+		GoTypes:           file_internal_repl_grpc_proto_init_proto_goTypes,
+		DependencyIndexes: file_internal_repl_grpc_proto_init_proto_depIdxs,
+		EnumInfos:         file_internal_repl_grpc_proto_init_proto_enumTypes,
+		MessageInfos:      file_internal_repl_grpc_proto_init_proto_msgTypes,
 	}.Build()
-	File_init_proto = out.File
-	file_init_proto_goTypes = nil
-	file_init_proto_depIdxs = nil
+	File_internal_repl_grpc_proto_init_proto = out.File
+	file_internal_repl_grpc_proto_init_proto_goTypes = nil
+	file_internal_repl_grpc_proto_init_proto_depIdxs = nil
 }

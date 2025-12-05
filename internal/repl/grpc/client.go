@@ -12,8 +12,9 @@ import (
 
 // Client is a gRPC client for communicating with remote steep-repl nodes.
 type Client struct {
-	conn   *grpc.ClientConn
-	client pb.CoordinatorClient
+	conn       *grpc.ClientConn
+	client     pb.CoordinatorClient
+	initClient pb.InitServiceClient
 }
 
 // ClientConfig holds gRPC client configuration.
@@ -40,8 +41,9 @@ func NewClient(ctx context.Context, config ClientConfig) (*Client, error) {
 	}
 
 	return &Client{
-		conn:   conn,
-		client: pb.NewCoordinatorClient(conn),
+		conn:       conn,
+		client:     pb.NewCoordinatorClient(conn),
+		initClient: pb.NewInitServiceClient(conn),
 	}, nil
 }
 
@@ -97,6 +99,36 @@ type ComponentStatus struct {
 	Healthy bool
 	Status  string
 	Message string
+}
+
+// StartInit starts initialization via the InitService.
+func (c *Client) StartInit(ctx context.Context, req *pb.StartInitRequest) (*pb.StartInitResponse, error) {
+	return c.initClient.StartInit(ctx, req)
+}
+
+// CancelInit cancels an in-progress initialization.
+func (c *Client) CancelInit(ctx context.Context, req *pb.CancelInitRequest) (*pb.CancelInitResponse, error) {
+	return c.initClient.CancelInit(ctx, req)
+}
+
+// GetProgress retrieves initialization progress.
+func (c *Client) GetProgress(ctx context.Context, req *pb.GetProgressRequest) (*pb.GetProgressResponse, error) {
+	return c.initClient.GetProgress(ctx, req)
+}
+
+// PrepareInit prepares for initialization.
+func (c *Client) PrepareInit(ctx context.Context, req *pb.PrepareInitRequest) (*pb.PrepareInitResponse, error) {
+	return c.initClient.PrepareInit(ctx, req)
+}
+
+// CompleteInit completes initialization.
+func (c *Client) CompleteInit(ctx context.Context, req *pb.CompleteInitRequest) (*pb.CompleteInitResponse, error) {
+	return c.initClient.CompleteInit(ctx, req)
+}
+
+// StartReinit starts reinitialization.
+func (c *Client) StartReinit(ctx context.Context, req *pb.StartReinitRequest) (*pb.StartReinitResponse, error) {
+	return c.initClient.StartReinit(ctx, req)
 }
 
 // GetHealthCheckResult performs a health check and returns a formatted result.

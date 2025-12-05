@@ -39,6 +39,13 @@ type ReinitOptions struct {
 
 // Start begins reinitialization for the specified scope.
 func (r *Reinitializer) Start(ctx context.Context, opts ReinitOptions) error {
+	// For full reinit, we do a simple reset to UNINITIALIZED
+	// This drops the subscription and resets state so init can run again
+	if opts.Scope.Full {
+		return r.fullReinit(ctx, opts.NodeID)
+	}
+
+	// Table/schema-level reinit is more complex - not yet implemented
 	// Update node state to REINITIALIZING
 	if err := r.updateState(ctx, opts.NodeID, models.InitStateReinitializing); err != nil {
 		return fmt.Errorf("failed to update state: %w", err)
@@ -65,6 +72,95 @@ func (r *Reinitializer) Start(ctx context.Context, opts ReinitOptions) error {
 	// Resume replication
 	if err := r.resumeReplication(ctx, opts.NodeID, tables); err != nil {
 		return fmt.Errorf("failed to resume replication: %w", err)
+	}
+
+	return nil
+}
+
+// fullReinit performs a full node reinitialization by dropping subscriptions,
+// truncating replicated tables, and resetting state to UNINITIALIZED.
+func (r *Reinitializer) fullReinit(ctx context.Context, nodeID string) error {
+	// Find and drop any existing subscriptions for this node
+	// Sanitize nodeID the same way as snapshot.go does for subscription names
+	sanitizedID := sanitizeIdentifier(nodeID)
+	query := `SELECT subname FROM pg_subscription WHERE subname LIKE $1`
+	pattern := "steep_sub_" + sanitizedID + "_%"
+
+	rows, err := r.pool.Query(ctx, query, pattern)
+	if err != nil {
+		return fmt.Errorf("failed to query subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	var dropped int
+	for rows.Next() {
+		var subName string
+		if err := rows.Scan(&subName); err != nil {
+			continue
+		}
+		// Drop the subscription
+		dropQuery := fmt.Sprintf("DROP SUBSCRIPTION IF EXISTS %s", subName)
+		if _, err := r.pool.Exec(ctx, dropQuery); err != nil {
+			return fmt.Errorf("failed to drop subscription %s: %w", subName, err)
+		}
+		dropped++
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating subscriptions: %w", err)
+	}
+
+	// Truncate all user tables so they can be re-copied by the next init
+	// This is necessary because CREATE SUBSCRIPTION with copy_data=true will
+	// try to COPY all data, which fails if the target table already has data
+	if err := r.truncateUserTables(ctx); err != nil {
+		return fmt.Errorf("failed to truncate user tables: %w", err)
+	}
+
+	// Clear progress record
+	_, _ = r.pool.Exec(ctx, "DELETE FROM steep_repl.init_progress WHERE node_id = $1", nodeID)
+
+	// Reset node state to UNINITIALIZED
+	if err := r.updateState(ctx, nodeID, models.InitStateUninitialized); err != nil {
+		return fmt.Errorf("failed to reset state: %w", err)
+	}
+
+	return nil
+}
+
+// truncateUserTables truncates all user tables (excluding system schemas).
+func (r *Reinitializer) truncateUserTables(ctx context.Context) error {
+	// Get list of user tables
+	rows, err := r.pool.Query(ctx, `
+		SELECT schemaname || '.' || tablename as full_name
+		FROM pg_tables
+		WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'steep_repl')
+		ORDER BY schemaname, tablename
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to query tables: %w", err)
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return fmt.Errorf("failed to scan table name: %w", err)
+		}
+		tables = append(tables, tableName)
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating tables: %w", err)
+	}
+
+	// Truncate each table with CASCADE to handle foreign keys
+	for _, table := range tables {
+		truncateQuery := fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table)
+		if _, err := r.pool.Exec(ctx, truncateQuery); err != nil {
+			return fmt.Errorf("failed to truncate %s: %w", table, err)
+		}
 	}
 
 	return nil
