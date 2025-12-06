@@ -201,10 +201,12 @@ func (p *InitProgressOverlay) View() string {
 		lines = append(lines, labelStyle.Render("Elapsed:")+valueStyle.Render(formatDuration(elapsed)))
 	}
 
-	// ETA
+	// ETA - show "0s" during active states instead of hiding when ETA reaches 0
 	if pr.ETASeconds > 0 {
 		eta := time.Duration(pr.ETASeconds) * time.Second
 		lines = append(lines, labelStyle.Render("ETA:")+valueStyle.Render(formatDuration(eta)))
+	} else if pr.ETASeconds == 0 && isActiveState(pr.State) {
+		lines = append(lines, labelStyle.Render("ETA:")+valueStyle.Render("0s"))
 	}
 
 	// Error message
@@ -377,10 +379,12 @@ func RenderCompactProgress(progress *InitProgressData) string {
 		parts = append(parts, fmt.Sprintf("(%d/%d)", progress.TablesCompleted, progress.TablesTotal))
 	}
 
-	// ETA if available
+	// ETA if available - show "0s" during active states instead of hiding
 	if progress.ETASeconds > 0 {
 		eta := time.Duration(progress.ETASeconds) * time.Second
 		parts = append(parts, fmt.Sprintf("ETA: %s", formatDuration(eta)))
+	} else if progress.ETASeconds == 0 && isActiveState(progress.State) {
+		parts = append(parts, "ETA: 0s")
 	}
 
 	return strings.Join(parts, " ")

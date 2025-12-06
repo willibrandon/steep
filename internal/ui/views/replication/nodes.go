@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
@@ -140,7 +141,7 @@ func (v *ReplicationView) renderNodeRow(node ClusterNode, selected bool, headers
 			progressStr := formatNodeProgress(node.Progress)
 			row.WriteString(baseStyle.Render(padRight(progressStr, h.Width)))
 		case "eta":
-			etaStr := formatNodeETA(node.Progress)
+			etaStr := formatNodeETA(node.InitState, node.Progress)
 			row.WriteString(baseStyle.Render(padRight(etaStr, h.Width)))
 		}
 	}
@@ -230,8 +231,18 @@ func formatNodeProgress(progress *components.InitProgressData) string {
 }
 
 // formatNodeETA formats ETA for display.
-func formatNodeETA(progress *components.InitProgressData) string {
-	if progress == nil || progress.ETASeconds <= 0 {
+// During active initialization states (reinitializing, etc.), shows "0s" instead of "-"
+// when ETA reaches 0 to provide smoother visual transition before completion.
+func formatNodeETA(initState string, progress *components.InitProgressData) string {
+	if progress == nil {
+		return "-"
+	}
+	// During active states, show "0s" when ETA is 0 instead of "-"
+	// This prevents the brief "-" display just before completion
+	if progress.ETASeconds == 0 && isInitializing(initState) {
+		return "0s"
+	}
+	if progress.ETASeconds <= 0 {
 		return "-"
 	}
 	eta := time.Duration(progress.ETASeconds) * time.Second
@@ -276,6 +287,17 @@ func (v *ReplicationView) renderNodeProgressOverlay() string {
 
 // updateClusterNodes converts models.ClusterNode slice to the view's ClusterNode slice.
 func (v *ReplicationView) updateClusterNodes(nodes []models.ClusterNode) {
+	// Only log when there are interesting states (not synchronized)
+	for _, n := range nodes {
+		if n.InitState != "synchronized" {
+			logger.Debug("updateClusterNodes: node state",
+				"node_id", n.NodeID,
+				"node_name", n.NodeName,
+				"init_state", n.InitState,
+			)
+		}
+	}
+
 	v.clusterNodes = make([]ClusterNode, len(nodes))
 	for i, n := range nodes {
 		var progress *components.InitProgressData

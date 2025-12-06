@@ -138,17 +138,17 @@
 
 ### Tests for User Story 4
 
-- [ ] T045 [P] [US4] Integration test for partial reinit by table list in tests/integration/repl/reinit_test.go
+- [X] T045 [P] [US4] Integration test for partial reinit by table list in tests/integration/repl/reinit_test.go
 
 ### Implementation for User Story 4
 
-- [ ] T046 [US4] Implement StartReinit RPC handler in internal/repl/grpc/handlers.go (validate scope, start reinit)
-- [ ] T047 [US4] Implement reinit logic in internal/repl/init/reinit.go (pause replication, truncate, recopy, resume)
-- [ ] T048 [US4] Add table-scope reinit in internal/repl/init/reinit.go (--tables flag processing, selective TRUNCATE/COPY)
-- [ ] T049 [US4] Add schema-scope reinit in internal/repl/init/reinit.go (--schema flag processing, iterate tables)
-- [ ] T050 [US4] Add full reinit in internal/repl/init/reinit.go (--full flag processing, complete node reinit)
-- [ ] T051 [US4] Add reinit CLI command in cmd/steep-repl/main.go (`steep-repl reinit --node <node> [--tables X,Y] [--schema S] [--full]`)
-- [ ] T052 [US4] Add REINITIALIZING state handling and UI indication in internal/ui/views/replication.go
+- [X] T046 [US4] Implement StartReinit RPC handler in internal/repl/grpc/handlers.go (validate scope, start reinit)
+- [X] T047 [US4] Implement reinit logic in internal/repl/init/reinit.go (pause replication, truncate, recopy, resume)
+- [X] T048 [US4] Add table-scope reinit in internal/repl/init/reinit.go (--tables flag processing, selective TRUNCATE/COPY)
+- [X] T049 [US4] Add schema-scope reinit in internal/repl/init/reinit.go (--schema flag processing, iterate tables)
+- [X] T050 [US4] Add full reinit in internal/repl/init/reinit.go (--full flag processing, complete node reinit)
+- [X] T051 [US4] Add reinit CLI command in cmd/steep-repl/main.go (`steep-repl reinit --node <node> [--tables X,Y] [--schema S] [--full]`)
+- [X] T052 [US4] Add REINITIALIZING state handling and UI indication in internal/ui/views/replication.go
 
 **Checkpoint**: Partial reinitialization works for tables, schemas, or full node
 

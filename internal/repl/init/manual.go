@@ -46,18 +46,20 @@ type PrepareResult struct {
 // Prepare creates a replication slot and records the LSN for manual initialization.
 // This should be called on the SOURCE node before the user runs pg_basebackup/pg_dump.
 func (m *ManualInitializer) Prepare(ctx context.Context, nodeID, slotName string, expiresDuration time.Duration) (*PrepareResult, error) {
-	// Check if there's already an active subscription slot for this source
-	// This indicates replication is already set up and the prepared slot won't be needed
+	// Check if there's already an active subscription slot FOR THIS SPECIFIC NODE
+	// Pattern: steep_sub_<nodeID>_from_<source> means nodeID is subscribing FROM source
+	// If such a slot exists, the node already has replication set up
+	sanitizedNodeID := sanitizeIdentifier(nodeID)
+	pattern := "steep_sub_" + sanitizedNodeID + "_from_%"
 	var activeSubSlot string
 	err := m.pool.QueryRow(ctx, `
 		SELECT slot_name FROM pg_replication_slots
 		WHERE slot_type = 'logical'
-		AND active = true
-		AND slot_name LIKE 'steep_sub_%'
+		AND slot_name LIKE $1
 		LIMIT 1
-	`).Scan(&activeSubSlot)
+	`, pattern).Scan(&activeSubSlot)
 	if err == nil && activeSubSlot != "" {
-		return nil, fmt.Errorf("replication already active via slot %q; prepared slot would be orphaned", activeSubSlot)
+		return nil, fmt.Errorf("replication already active for node %q via slot %q", nodeID, activeSubSlot)
 	}
 
 	// First check if slot already exists
@@ -198,10 +200,68 @@ func (m *ManualInitializer) Complete(ctx context.Context, opts CompleteOptions) 
 		},
 	})
 
+	// Clean up any unused prepared slots for this node
+	m.cleanupUnusedPrepareSlots(ctx, opts.TargetNodeID)
+
 	// Start catch-up monitoring in background
 	go m.monitorCatchUp(context.Background(), opts.TargetNodeID)
 
 	return nil
+}
+
+// cleanupUnusedPrepareSlots drops any prepared init slots that weren't used.
+// This handles the case where a user ran 'prepare' but then completed init
+// using a different source, leaving the prepared slot orphaned.
+func (m *ManualInitializer) cleanupUnusedPrepareSlots(ctx context.Context, nodeID string) {
+	// Find any init slots for this node in our tracking table
+	rows, err := m.pool.Query(ctx, `
+		SELECT slot_name FROM steep_repl.init_slots
+		WHERE node_id = $1
+		AND used_by_node IS NULL
+	`, nodeID)
+	if err != nil {
+		return // Best effort cleanup
+	}
+	defer rows.Close()
+
+	var slots []string
+	for rows.Next() {
+		var slotName string
+		if err := rows.Scan(&slotName); err != nil {
+			continue
+		}
+		slots = append(slots, slotName)
+	}
+
+	// Drop each unused slot from PostgreSQL and our tracking table
+	for _, slotName := range slots {
+		// Drop from pg_replication_slots
+		dropQuery := fmt.Sprintf("SELECT pg_drop_replication_slot('%s')", slotName)
+		if _, err := m.pool.Exec(ctx, dropQuery); err != nil {
+			// Log but continue - slot may already be gone
+			m.manager.logger.Log(InitEvent{
+				Level:  "warn",
+				Event:  "init.slot_cleanup_failed",
+				NodeID: nodeID,
+				Details: map[string]any{
+					"slot_name": slotName,
+					"error":     err.Error(),
+				},
+			})
+			continue
+		}
+
+		// Remove from tracking table
+		m.pool.Exec(ctx, "DELETE FROM steep_repl.init_slots WHERE slot_name = $1", slotName)
+
+		m.manager.logger.Log(InitEvent{
+			Event:  "init.slot_cleaned_up",
+			NodeID: nodeID,
+			Details: map[string]any{
+				"slot_name": slotName,
+			},
+		})
+	}
 }
 
 // lookupSlotLSN looks up the LSN from a prepared slot in init_slots table.

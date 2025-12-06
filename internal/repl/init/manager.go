@@ -297,7 +297,7 @@ func (m *Manager) unregisterOperation(nodeID string) {
 }
 
 // StartReinit starts reinitialization for a node.
-func (m *Manager) StartReinit(ctx context.Context, opts ReinitOptions) error {
+func (m *Manager) StartReinit(ctx context.Context, opts ReinitOptions) (*ReinitResult, error) {
 	return m.reinit.Start(ctx, opts)
 }
 

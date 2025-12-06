@@ -3,6 +3,7 @@ module github.com/willibrandon/steep
 go 1.25.4
 
 require (
+	github.com/VividCortex/ewma v1.2.0
 	github.com/alecthomas/chroma/v2 v2.20.0
 	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7
 	github.com/charmbracelet/bubbletea v1.3.10

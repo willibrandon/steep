@@ -488,7 +488,6 @@ func fetchDeadlockHistory(monitor *monitors.DeadlockMonitor, program *tea.Progra
 	}
 	return func() tea.Msg {
 		ctx := context.Background()
-		logger.Info("fetchDeadlockHistory: starting parse")
 		// Parse any new entries with progress reporting
 		monitor.ParseOnceWithProgress(ctx, func(current, total int) {
 			if program != nil {
@@ -498,10 +497,11 @@ func fetchDeadlockHistory(monitor *monitors.DeadlockMonitor, program *tea.Progra
 				})
 			}
 		})
-		logger.Info("fetchDeadlockHistory: parse complete, getting recent deadlocks")
 		// Get recent deadlocks (last 30 days, limit 100)
 		deadlocks, err := monitor.GetRecentDeadlocks(ctx, 30, 100)
-		logger.Info("fetchDeadlockHistory: complete", "count", len(deadlocks), "error", err)
+		if err != nil {
+			logger.Error("fetchDeadlockHistory: failed to get recent deadlocks", "error", err)
+		}
 		return ui.DeadlockHistoryMsg{
 			Deadlocks: deadlocks,
 			Enabled:   monitor.IsEnabled(),

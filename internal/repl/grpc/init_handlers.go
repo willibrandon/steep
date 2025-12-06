@@ -365,7 +365,8 @@ func (s *InitServer) StartReinit(ctx context.Context, req *pb.StartReinitRequest
 	}
 
 	// Start reinit via manager
-	if err := s.manager.StartReinit(ctx, opts); err != nil {
+	result, err := s.manager.StartReinit(ctx, opts)
+	if err != nil {
 		return &pb.StartReinitResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -373,8 +374,9 @@ func (s *InitServer) StartReinit(ctx context.Context, req *pb.StartReinitRequest
 	}
 
 	return &pb.StartReinitResponse{
-		Success: true,
-		State:   pb.InitState_INIT_STATE_UNINITIALIZED,
+		Success:        true,
+		State:          modelStateToProto(result.FinalState),
+		TablesAffected: int32(result.TablesAffected),
 	}, nil
 }
 

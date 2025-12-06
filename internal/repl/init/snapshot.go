@@ -142,14 +142,8 @@ func (s *SnapshotInitializer) runInit(ctx context.Context, targetNode, sourceNod
 	// Update progress with total tables
 	s.updateProgressTables(ctx, targetNode, len(tables), 0)
 
-	// Extract table names for sync monitoring
-	tableNames := make([]string, len(tables))
-	for i, t := range tables {
-		tableNames[i] = t.FullName
-	}
-
 	// Monitor subscription sync progress until complete
-	if err := s.monitorSubscriptionSync(ctx, targetNode, subscriptionName, tableNames); err != nil {
+	if err := s.monitorSubscriptionSync(ctx, targetNode, subscriptionName); err != nil {
 		s.handleInitFailure(ctx, targetNode, fmt.Errorf("subscription sync failed: %w", err))
 		return
 	}
@@ -272,34 +266,6 @@ type TableInfo struct {
 	IsLarge    bool
 }
 
-// getPublicationTables retrieves the list of tables in the source node's publication.
-func (s *SnapshotInitializer) getPublicationTables(ctx context.Context, sourceNode string) ([]string, error) {
-	// Query the pg_publication_tables view to get tables in the publication
-	// Note: This requires a connection to the source node's database
-	// For now, return all user tables from pg_tables
-	rows, err := s.pool.Query(ctx, `
-		SELECT schemaname || '.' || tablename as full_name
-		FROM pg_tables
-		WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'steep_repl')
-		ORDER BY schemaname, tablename
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var tables []string
-	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			return nil, err
-		}
-		tables = append(tables, tableName)
-	}
-
-	return tables, rows.Err()
-}
-
 // getPublicationTablesWithSize retrieves tables with size information.
 // Implements T025 large table detection.
 func (s *SnapshotInitializer) getPublicationTablesWithSize(ctx context.Context, threshold int64) ([]TableInfo, error) {
@@ -351,64 +317,6 @@ func (s *SnapshotInitializer) largeTableNames(tables []TableInfo) []string {
 	return names
 }
 
-// detectLargeTables identifies tables that exceed the size threshold.
-// Implements T025 large table detection.
-func (s *SnapshotInitializer) detectLargeTables(ctx context.Context, threshold int64) ([]TableInfo, error) {
-	if threshold <= 0 {
-		// No threshold, no large tables
-		return nil, nil
-	}
-
-	rows, err := s.pool.Query(ctx, `
-		SELECT
-			schemaname,
-			tablename,
-			schemaname || '.' || tablename as full_name,
-			pg_table_size(schemaname || '.' || tablename) as size_bytes
-		FROM pg_tables
-		WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'steep_repl')
-		  AND pg_table_size(schemaname || '.' || tablename) > $1
-		ORDER BY size_bytes DESC
-	`, threshold)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var largeTables []TableInfo
-	for rows.Next() {
-		var t TableInfo
-		if err := rows.Scan(&t.SchemaName, &t.TableName, &t.FullName, &t.SizeBytes); err != nil {
-			return nil, err
-		}
-		t.IsLarge = true
-		largeTables = append(largeTables, t)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	// Log large table detection
-	if len(largeTables) > 0 {
-		tableNames := make([]string, len(largeTables))
-		for i, t := range largeTables {
-			tableNames[i] = t.FullName
-		}
-		s.manager.logger.Log(InitEvent{
-			Level: "warn",
-			Event: "init.large_tables_detected",
-			Details: map[string]any{
-				"threshold_bytes": threshold,
-				"table_count":     len(largeTables),
-				"tables":          tableNames,
-			},
-		})
-	}
-
-	return largeTables, nil
-}
-
 // getTotalDatabaseSize returns the total size of user tables.
 func (s *SnapshotInitializer) getTotalDatabaseSize(ctx context.Context) (int64, error) {
 	var totalSize int64
@@ -432,11 +340,12 @@ func (s *SnapshotInitializer) createSubscription(ctx context.Context, targetNode
 
 	// Create subscription with copy_data=true
 	// This initiates automatic snapshot transfer
+	// Use origin='none' to prevent changes from being re-replicated in bidirectional setups
 	query := fmt.Sprintf(`
 		CREATE SUBSCRIPTION %s
 		CONNECTION '%s'
 		PUBLICATION %s
-		WITH (copy_data = true, create_slot = true)
+		WITH (copy_data = true, create_slot = true, origin = 'none')
 	`, subName, connStr, pubName)
 
 	_, err := s.pool.Exec(ctx, query)
@@ -490,7 +399,7 @@ func (s *SnapshotInitializer) updateProgressTables(ctx context.Context, nodeID s
 
 // monitorSubscriptionSync monitors the subscription sync progress.
 // Implements T024 polling logic for pg_subscription_rel sync states.
-func (s *SnapshotInitializer) monitorSubscriptionSync(ctx context.Context, targetNode, subName string, tables []string) error {
+func (s *SnapshotInitializer) monitorSubscriptionSync(ctx context.Context, targetNode, subName string) error {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -566,16 +475,6 @@ func (s *SnapshotInitializer) monitorSubscriptionSync(ctx context.Context, targe
 			}
 		}
 	}
-}
-
-// updateProgress updates the overall progress percent.
-func (s *SnapshotInitializer) updateProgress(ctx context.Context, nodeID string, percent float32, tablesCompleted int) {
-	query := `
-		UPDATE steep_repl.init_progress
-		SET overall_percent = $2, tables_completed = $3, updated_at = NOW()
-		WHERE node_id = $1
-	`
-	_, _ = s.pool.Exec(ctx, query, nodeID, percent, tablesCompleted)
 }
 
 // updateFullProgress updates all progress fields including ETA and throughput.

@@ -72,7 +72,7 @@ func (s InitState) CanTransitionTo(target InitState) bool {
 		InitStateSynchronized:   {InitStateDiverged},
 		InitStateDiverged:       {InitStateReinitializing, InitStateFailed},
 		InitStateFailed:         {InitStateUninitialized, InitStatePreparing, InitStateReinitializing},
-		InitStateReinitializing: {InitStateCopying, InitStateFailed},
+		InitStateReinitializing: {InitStateCopying, InitStateSynchronized, InitStateFailed},
 	}
 
 	allowed, ok := transitions[s]

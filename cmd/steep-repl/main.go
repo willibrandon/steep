@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/willibrandon/steep/internal/logger"
 	"github.com/willibrandon/steep/internal/repl/config"
 	"github.com/willibrandon/steep/internal/repl/daemon"
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
@@ -102,6 +103,23 @@ func runForeground() error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 		os.Exit(daemon.ExitConfigError)
+	}
+
+	// Initialize logger for debug logging in repl packages
+	logLevel := logger.LevelInfo
+	if debug {
+		logLevel = logger.LevelDebug
+	}
+	// Use ~/.config/steep/ for consistency with TUI
+	logFile := ""
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		logFile = filepath.Join(homeDir, ".config", "steep", "steep-repl.log")
+	}
+	logger.InitLogger(logLevel, logFile)
+	defer logger.Close()
+	if debug && logFile != "" {
+		fmt.Fprintf(os.Stderr, "Debug mode: Logs written to %s\n", logFile)
+		logger.Debug("steep-repl daemon starting", "version", version, "config", configPath)
 	}
 
 	// Create daemon
@@ -1444,6 +1462,11 @@ func runInitReinitGRPC(nodeID string, full bool, tables []string, schema, remote
 	if resp.TablesAffected > 0 {
 		fmt.Printf("Tables affected: %d\n", resp.TablesAffected)
 	}
-	fmt.Printf("Now run 'init start' to begin initialization again.\n")
+
+	// Only suggest init start for full reinit (state = UNINITIALIZED)
+	// Partial reinit handles re-copying automatically
+	if resp.State == pb.InitState_INIT_STATE_UNINITIALIZED {
+		fmt.Printf("Now run 'init start' to begin initialization again.\n")
+	}
 	return nil
 }

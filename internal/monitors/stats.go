@@ -104,9 +104,6 @@ func (m *StatsMonitor) FetchOnce(ctx context.Context) ui.MetricsDataMsg {
 		m.metricsRecorder.Record("tps", metrics.TPS)
 		m.metricsRecorder.Record("connections", float64(metrics.ConnectionCount))
 		m.metricsRecorder.Record("cache_hit_ratio", metrics.CacheHitRatio)
-		logger.Debug("stats monitor: recorded metrics", "tps", metrics.TPS, "connections", metrics.ConnectionCount, "cache_hit", metrics.CacheHitRatio)
-	} else {
-		logger.Debug("stats monitor: no metrics recorder set")
 	}
 
 	return ui.MetricsDataMsg{

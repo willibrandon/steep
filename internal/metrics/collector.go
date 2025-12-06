@@ -166,21 +166,16 @@ func (c *Collector) GetValues(metricName string, window TimeWindow) []float64 {
 	c.mu.RUnlock()
 
 	if !ok {
-		logger.Debug("metrics: GetValues - series not found", "metric", metricName)
 		return nil
 	}
 
 	// For short windows, use in-memory buffer only
 	if !window.RequiresPersistence() {
-		values := series.Buffer.GetValuesForWindow(window)
-		logger.Debug("metrics: GetValues - from buffer", "metric", metricName, "window", window, "count", len(values))
-		return values
+		return series.Buffer.GetValuesForWindow(window)
 	}
 
 	// For longer windows, merge with persistent storage
-	values := c.getMergedValues(metricName, window)
-	logger.Debug("metrics: GetValues - merged", "metric", metricName, "window", window, "count", len(values))
-	return values
+	return c.getMergedValues(metricName, window)
 }
 
 // GetDataPoints returns full DataPoint structs for the time window.

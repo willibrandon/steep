@@ -144,7 +144,6 @@ func (m *ReplicationMonitor) FetchOnce(ctx context.Context) ui.ReplicationDataMs
 		logger.Error("GetSlots failed", "error", err)
 	} else {
 		data.Slots = slots
-		logger.Debug("GetSlots", "count", len(slots))
 	}
 
 	// Fetch publications (primary only for outgoing)

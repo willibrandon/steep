@@ -70,7 +70,11 @@ CREATE TABLE steep_repl.nodes (
     init_source_node TEXT REFERENCES steep_repl.nodes(node_id),
     init_started_at TIMESTAMPTZ,
     init_completed_at TIMESTAMPTZ,
+    -- Throughput metrics for ETA calculation (015-node-init)
+    last_sync_throughput_bytes_sec REAL,
+    last_sync_at TIMESTAMPTZ,
     CONSTRAINT nodes_priority_check CHECK (priority >= 1 AND priority <= 100),
+    CONSTRAINT nodes_throughput_check CHECK (last_sync_throughput_bytes_sec IS NULL OR last_sync_throughput_bytes_sec >= 0),
     CONSTRAINT nodes_port_check CHECK (port >= 1 AND port <= 65535),
     CONSTRAINT nodes_grpc_port_check CHECK (grpc_port IS NULL OR (grpc_port >= 1 AND grpc_port <= 65535)),
     CONSTRAINT nodes_host_check CHECK (host <> ''),
@@ -94,6 +98,8 @@ COMMENT ON COLUMN steep_repl.nodes.init_state IS 'Initialization state (uninitia
 COMMENT ON COLUMN steep_repl.nodes.init_source_node IS 'Source node for initialization data copy';
 COMMENT ON COLUMN steep_repl.nodes.init_started_at IS 'When initialization began';
 COMMENT ON COLUMN steep_repl.nodes.init_completed_at IS 'When initialization completed successfully';
+COMMENT ON COLUMN steep_repl.nodes.last_sync_throughput_bytes_sec IS 'EWMA throughput from last successful sync (bytes/sec)';
+COMMENT ON COLUMN steep_repl.nodes.last_sync_at IS 'When last sync operation completed';
 
 -- Indexes for nodes table
 CREATE INDEX idx_nodes_status ON steep_repl.nodes(status);
@@ -496,6 +502,8 @@ mod tests {
             ("init_source_node", "text"),
             ("init_started_at", "timestamp with time zone"),
             ("init_completed_at", "timestamp with time zone"),
+            ("last_sync_throughput_bytes_sec", "real"),
+            ("last_sync_at", "timestamp with time zone"),
         ];
 
         for (col_name, col_type) in columns {
@@ -615,6 +623,19 @@ mod tests {
             )"
         );
         assert_eq!(result, Ok(Some(true)), "init_state check constraint should exist");
+
+        // Check that throughput constraint exists
+        let result = Spi::get_one::<bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM pg_constraint c
+                JOIN pg_class r ON c.conrelid = r.oid
+                JOIN pg_namespace n ON r.relnamespace = n.oid
+                WHERE n.nspname = 'steep_repl'
+                AND r.relname = 'nodes'
+                AND c.conname = 'nodes_throughput_check'
+            )"
+        );
+        assert_eq!(result, Ok(Some(true)), "throughput check constraint should exist");
     }
 
     #[pg_test]

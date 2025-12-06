@@ -210,29 +210,37 @@ func Close() {
 	}
 }
 
+// getLogger returns the global logger, or the default slog logger if not initialized.
+func getLogger() *slog.Logger {
+	if Log != nil {
+		return Log
+	}
+	return slog.Default()
+}
+
 // Debug logs a debug message
 func Debug(msg string, args ...any) {
-	Log.Debug(msg, args...)
+	getLogger().Debug(msg, args...)
 }
 
 // Info logs an info message
 func Info(msg string, args ...any) {
-	Log.Info(msg, args...)
+	getLogger().Info(msg, args...)
 }
 
 // Warn logs a warning message
 func Warn(msg string, args ...any) {
-	Log.Warn(msg, args...)
+	getLogger().Warn(msg, args...)
 }
 
 // Error logs an error message
 func Error(msg string, args ...any) {
-	Log.Error(msg, args...)
+	getLogger().Error(msg, args...)
 }
 
 // With creates a new logger with additional attributes
 func With(args ...any) *slog.Logger {
-	return Log.With(args...)
+	return getLogger().With(args...)
 }
 
 // GetCounts returns the current warning and error counts.

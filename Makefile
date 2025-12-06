@@ -23,6 +23,9 @@ GOTEST=$(GOCMD) test
 GOCLEAN=$(GOCMD) clean
 GOGET=$(GOCMD) get
 
+# Optional runtime arguments (e.g., make run-dev ARGS="--debug")
+ARGS ?=
+
 # Detect .exe suffix on Windows
 ifeq ($(OS),Windows_NT)
     BINARY_EXT=.exe
@@ -91,6 +94,9 @@ test-integration: ## Run integration tests only
 	@echo "Running integration tests..."
 	$(GOTEST) -v -count=1 ./tests/integration/...
 
+test-all: test test-repl ## Run all tests including repl extension tests
+	@echo "All tests completed."
+
 bench: ## Run performance benchmarks
 	@echo "Running benchmarks..."
 	$(GOTEST) -bench=. -benchmem ./tests/integration/queries/ -run=^$$
@@ -127,19 +133,19 @@ clean-all: clean clean-repl-ext ## Clean all build artifacts including extension
 
 run: build ## Build and run the application
 	@echo "Running $(BINARY_NAME)..."
-	@$(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) --banner --debug
+	@$(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) --banner $(ARGS)
 
-run-dev: build ## Run with local config.yaml and debug (for Docker replication testing)
-	@echo "Running $(BINARY_NAME) with local config and debug..."
-	@$(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) --config ./config.yaml --debug
+run-dev: build ## Run with local config.yaml (for Docker replication testing)
+	@echo "Running $(BINARY_NAME) with local config..."
+	@$(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) --config ./config.yaml $(ARGS)
 
-run-agent: build-agent ## Run agent in foreground with debug
+run-agent: build-agent ## Run agent in foreground
 	@echo "Running $(AGENT_BINARY_NAME) in foreground..."
-	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run --debug
+	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run $(ARGS)
 
-run-agent-dev: build-agent ## Run agent with local config.yaml and debug (for Docker replication testing)
-	@echo "Running $(AGENT_BINARY_NAME) with local config and debug..."
-	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run --config ./config.yaml --debug
+run-agent-dev: build-agent ## Run agent with local config.yaml (for Docker replication testing)
+	@echo "Running $(AGENT_BINARY_NAME) with local config..."
+	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run --config ./config.yaml $(ARGS)
 
 test-agent: build-agent ## Run agent-specific tests
 	@echo "Running agent tests..."
@@ -178,9 +184,9 @@ stop-agent: ## Stop the running agent service
 status-agent: ## Show agent service status
 	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) status
 
-run-repl: build-repl-daemon ## Run repl daemon in foreground with debug
+run-repl: build-repl-daemon ## Run repl daemon in foreground
 	@echo "Running $(REPL_BINARY_NAME) in foreground..."
-	@$(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT) run --debug
+	@$(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT) run $(ARGS)
 
 install-repl: build-repl-daemon ## Install repl daemon as a system service (user mode)
 	@echo "Installing $(REPL_BINARY_NAME) as user service..."

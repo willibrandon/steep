@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/willibrandon/steep/internal/db/models"
+	"github.com/willibrandon/steep/internal/logger"
 )
 
 // =============================================================================
@@ -22,6 +23,7 @@ func IsPrimary(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
 	var isInRecovery bool
 	err := pool.QueryRow(ctx, "/* steep:internal */ SELECT pg_is_in_recovery()").Scan(&isInRecovery)
 	if err != nil {
+		logger.Error("IsPrimary: failed to check recovery status", "error", err)
 		return false, fmt.Errorf("check recovery status: %w", err)
 	}
 	return !isInRecovery, nil
@@ -58,6 +60,7 @@ func GetReplicas(ctx context.Context, pool *pgxpool.Pool) ([]models.Replica, err
 
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
+		logger.Error("GetReplicas: failed to query pg_stat_replication", "error", err)
 		return nil, fmt.Errorf("query pg_stat_replication: %w", err)
 	}
 	defer rows.Close()
@@ -84,6 +87,7 @@ func GetReplicas(ctx context.Context, pool *pgxpool.Pool) ([]models.Replica, err
 			&r.BackendStart,
 		)
 		if err != nil {
+			logger.Error("GetReplicas: failed to scan replica row", "error", err)
 			return nil, fmt.Errorf("scan replica row: %w", err)
 		}
 
@@ -96,6 +100,7 @@ func GetReplicas(ctx context.Context, pool *pgxpool.Pool) ([]models.Replica, err
 	}
 
 	if err := rows.Err(); err != nil {
+		logger.Error("GetReplicas: error iterating replicas", "error", err)
 		return nil, fmt.Errorf("iterate replicas: %w", err)
 	}
 
@@ -114,6 +119,7 @@ func GetSlots(ctx context.Context, pool *pgxpool.Pool) ([]models.ReplicationSlot
 	var pgVersionStr string
 	err := pool.QueryRow(ctx, "SHOW server_version_num").Scan(&pgVersionStr)
 	if err != nil {
+		logger.Error("GetSlots: failed to get server version", "error", err)
 		return nil, fmt.Errorf("get server version: %w", err)
 	}
 	var pgVersion int
@@ -158,6 +164,7 @@ func GetSlots(ctx context.Context, pool *pgxpool.Pool) ([]models.ReplicationSlot
 
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
+		logger.Error("GetSlots: failed to query pg_replication_slots", "error", err)
 		return nil, fmt.Errorf("query pg_replication_slots: %w", err)
 	}
 	defer rows.Close()
@@ -180,6 +187,7 @@ func GetSlots(ctx context.Context, pool *pgxpool.Pool) ([]models.ReplicationSlot
 			&s.SafeWALSize,
 		)
 		if err != nil {
+			logger.Error("GetSlots: failed to scan slot row", "error", err)
 			return nil, fmt.Errorf("scan slot row: %w", err)
 		}
 
@@ -188,6 +196,7 @@ func GetSlots(ctx context.Context, pool *pgxpool.Pool) ([]models.ReplicationSlot
 	}
 
 	if err := rows.Err(); err != nil {
+		logger.Error("GetSlots: error iterating slots", "error", err)
 		return nil, fmt.Errorf("iterate slots: %w", err)
 	}
 
@@ -222,6 +231,7 @@ func GetPublications(ctx context.Context, pool *pgxpool.Pool) ([]models.Publicat
 		if strings.Contains(err.Error(), "does not exist") {
 			return []models.Publication{}, nil
 		}
+		logger.Error("GetPublications: failed to query pg_publication", "error", err)
 		return nil, fmt.Errorf("query pg_publication: %w", err)
 	}
 	defer rows.Close()
@@ -239,12 +249,14 @@ func GetPublications(ctx context.Context, pool *pgxpool.Pool) ([]models.Publicat
 			&p.TableCount,
 		)
 		if err != nil {
+			logger.Error("GetPublications: failed to scan publication row", "error", err)
 			return nil, fmt.Errorf("scan publication row: %w", err)
 		}
 		publications = append(publications, p)
 	}
 
 	if err := rows.Err(); err != nil {
+		logger.Error("GetPublications: error iterating publications", "error", err)
 		return nil, fmt.Errorf("iterate publications: %w", err)
 	}
 
@@ -252,6 +264,7 @@ func GetPublications(ctx context.Context, pool *pgxpool.Pool) ([]models.Publicat
 	for i := range publications {
 		tables, err := getPublicationTables(ctx, pool, publications[i].Name)
 		if err != nil {
+			logger.Error("GetPublications: failed to get publication tables", "publication", publications[i].Name, "error", err)
 			return nil, err
 		}
 		publications[i].Tables = tables
@@ -271,6 +284,7 @@ func getPublicationTables(ctx context.Context, pool *pgxpool.Pool, pubName strin
 
 	rows, err := pool.Query(ctx, query, pubName)
 	if err != nil {
+		logger.Error("getPublicationTables: failed to query tables", "publication", pubName, "error", err)
 		return nil, fmt.Errorf("query publication tables for %s: %w", pubName, err)
 	}
 	defer rows.Close()
@@ -279,12 +293,17 @@ func getPublicationTables(ctx context.Context, pool *pgxpool.Pool, pubName strin
 	for rows.Next() {
 		var tableName string
 		if err := rows.Scan(&tableName); err != nil {
+			logger.Error("getPublicationTables: failed to scan table name", "publication", pubName, "error", err)
 			return nil, fmt.Errorf("scan table name: %w", err)
 		}
 		tables = append(tables, tableName)
 	}
 
-	return tables, rows.Err()
+	if err := rows.Err(); err != nil {
+		logger.Error("getPublicationTables: error iterating tables", "publication", pubName, "error", err)
+		return nil, err
+	}
+	return tables, nil
 }
 
 // =============================================================================
@@ -299,6 +318,7 @@ func GetSubscriptions(ctx context.Context, pool *pgxpool.Pool) ([]models.Subscri
 	var pgVersionStr string
 	err := pool.QueryRow(ctx, "SHOW server_version_num").Scan(&pgVersionStr)
 	if err != nil {
+		logger.Error("GetSubscriptions: failed to get server version", "error", err)
 		return nil, fmt.Errorf("get server version: %w", err)
 	}
 	var pgVersion int
@@ -347,6 +367,7 @@ func GetSubscriptions(ctx context.Context, pool *pgxpool.Pool) ([]models.Subscri
 		if strings.Contains(err.Error(), "does not exist") {
 			return []models.Subscription{}, nil
 		}
+		logger.Error("GetSubscriptions: failed to query pg_subscription", "error", err)
 		return nil, fmt.Errorf("query pg_subscription: %w", err)
 	}
 	defer rows.Close()
@@ -368,6 +389,7 @@ func GetSubscriptions(ctx context.Context, pool *pgxpool.Pool) ([]models.Subscri
 			&s.LastMsgReceiptTime,
 		)
 		if err != nil {
+			logger.Error("GetSubscriptions: failed to scan subscription row", "error", err)
 			return nil, fmt.Errorf("scan subscription row: %w", err)
 		}
 
@@ -376,6 +398,7 @@ func GetSubscriptions(ctx context.Context, pool *pgxpool.Pool) ([]models.Subscri
 	}
 
 	if err := rows.Err(); err != nil {
+		logger.Error("GetSubscriptions: error iterating subscriptions", "error", err)
 		return nil, fmt.Errorf("iterate subscriptions: %w", err)
 	}
 
@@ -404,6 +427,7 @@ func GetReplicationConfig(ctx context.Context, pool *pgxpool.Pool) (*models.Repl
 
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
+		logger.Error("GetReplicationConfig: failed to query pg_settings", "error", err)
 		return nil, fmt.Errorf("query pg_settings: %w", err)
 	}
 	defer rows.Close()
@@ -421,6 +445,7 @@ func GetReplicationConfig(ctx context.Context, pool *pgxpool.Pool) (*models.Repl
 		var name, setting, unit, context string
 		err := rows.Scan(&name, &setting, &unit, &context)
 		if err != nil {
+			logger.Error("GetReplicationConfig: failed to scan setting row", "error", err)
 			return nil, fmt.Errorf("scan setting row: %w", err)
 		}
 
@@ -456,6 +481,7 @@ func GetReplicationConfig(ctx context.Context, pool *pgxpool.Pool) (*models.Repl
 	}
 
 	if err := rows.Err(); err != nil {
+		logger.Error("GetReplicationConfig: error iterating settings", "error", err)
 		return nil, fmt.Errorf("iterate settings: %w", err)
 	}
 
@@ -472,6 +498,7 @@ func GetWALReceiverStatus(ctx context.Context, pool *pgxpool.Pool) (*models.WALR
 	// First check if we're on a standby
 	isPrimary, err := IsPrimary(ctx, pool)
 	if err != nil {
+		logger.Error("GetWALReceiverStatus: failed to check if primary", "error", err)
 		return nil, err
 	}
 	if isPrimary {
@@ -483,6 +510,7 @@ func GetWALReceiverStatus(ctx context.Context, pool *pgxpool.Pool) (*models.WALR
 	var pgVersionStr string
 	err = pool.QueryRow(ctx, "SHOW server_version_num").Scan(&pgVersionStr)
 	if err != nil {
+		logger.Error("GetWALReceiverStatus: failed to get server version", "error", err)
 		return nil, fmt.Errorf("get server version: %w", err)
 	}
 	var pgVersion int
@@ -528,6 +556,7 @@ func GetWALReceiverStatus(ctx context.Context, pool *pgxpool.Pool) (*models.WALR
 		if err == pgx.ErrNoRows {
 			return nil, nil // No active WAL receiver
 		}
+		logger.Error("GetWALReceiverStatus: failed to query pg_stat_wal_receiver", "error", err)
 		return nil, fmt.Errorf("query pg_stat_wal_receiver: %w", err)
 	}
 
@@ -549,6 +578,7 @@ func GetReplicationUsers(ctx context.Context, pool *pgxpool.Pool) ([]string, err
 
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
+		logger.Error("GetReplicationUsers: failed to query replication users", "error", err)
 		return nil, fmt.Errorf("query replication users: %w", err)
 	}
 	defer rows.Close()
@@ -557,12 +587,17 @@ func GetReplicationUsers(ctx context.Context, pool *pgxpool.Pool) ([]string, err
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
+			logger.Error("GetReplicationUsers: failed to scan user", "error", err)
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		users = append(users, name)
 	}
 
-	return users, rows.Err()
+	if err := rows.Err(); err != nil {
+		logger.Error("GetReplicationUsers: error iterating users", "error", err)
+		return nil, err
+	}
+	return users, nil
 }
 
 // CreateReplicationUser creates a new replication user.
@@ -576,6 +611,7 @@ func CreateReplicationUser(ctx context.Context, pool *pgxpool.Pool, username, pa
 
 	_, err := pool.Exec(ctx, query)
 	if err != nil {
+		logger.Error("CreateReplicationUser: failed to create user", "username", username, "error", err)
 		return fmt.Errorf("create replication user: %w", err)
 	}
 
@@ -586,6 +622,7 @@ func CreateReplicationUser(ctx context.Context, pool *pgxpool.Pool, username, pa
 func DropReplicationSlot(ctx context.Context, pool *pgxpool.Pool, slotName string) error {
 	_, err := pool.Exec(ctx, "SELECT pg_drop_replication_slot($1)", slotName)
 	if err != nil {
+		logger.Error("DropReplicationSlot: failed to drop slot", "slot_name", slotName, "error", err)
 		return fmt.Errorf("drop replication slot %s: %w", slotName, err)
 	}
 	return nil
@@ -603,6 +640,7 @@ func IsSuperuser(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
 	var isSuperuser bool
 	err := pool.QueryRow(ctx, "SELECT current_setting('is_superuser') = 'on'").Scan(&isSuperuser)
 	if err != nil {
+		logger.Error("IsSuperuser: failed to check superuser status", "error", err)
 		return false, fmt.Errorf("check superuser: %w", err)
 	}
 	return isSuperuser, nil
@@ -613,6 +651,7 @@ func ReplicationUserExists(ctx context.Context, pool *pgxpool.Pool, username str
 	var exists bool
 	err := pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", username).Scan(&exists)
 	if err != nil {
+		logger.Error("ReplicationUserExists: failed to check if user exists", "username", username, "error", err)
 		return false, fmt.Errorf("check user exists: %w", err)
 	}
 	return exists, nil
@@ -634,6 +673,7 @@ func GetClusterNodes(ctx context.Context, pool *pgxpool.Pool) ([]models.ClusterN
 		)
 	`).Scan(&schemaExists)
 	if err != nil {
+		logger.Error("GetClusterNodes: failed to check steep_repl schema", "error", err)
 		return nil, fmt.Errorf("check steep_repl schema: %w", err)
 	}
 	if !schemaExists {
@@ -649,6 +689,7 @@ func GetClusterNodes(ctx context.Context, pool *pgxpool.Pool) ([]models.ClusterN
 		)
 	`).Scan(&tableExists)
 	if err != nil {
+		logger.Error("GetClusterNodes: failed to check steep_repl.nodes table", "error", err)
 		return nil, fmt.Errorf("check steep_repl.nodes table: %w", err)
 	}
 	if !tableExists {
@@ -726,6 +767,7 @@ func GetClusterNodes(ctx context.Context, pool *pgxpool.Pool) ([]models.ClusterN
 
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
+		logger.Error("GetClusterNodes: failed to query steep_repl.nodes", "error", err)
 		return nil, fmt.Errorf("query steep_repl.nodes: %w", err)
 	}
 	defer rows.Close()
@@ -767,6 +809,7 @@ func GetClusterNodes(ctx context.Context, pool *pgxpool.Pool) ([]models.ClusterN
 			&errorMessage,
 		)
 		if err != nil {
+			logger.Error("GetClusterNodes: failed to scan node row", "error", err)
 			return nil, fmt.Errorf("scan node row: %w", err)
 		}
 
@@ -788,10 +831,24 @@ func GetClusterNodes(ctx context.Context, pool *pgxpool.Pool) ([]models.ClusterN
 			}
 		}
 
+		// Only log interesting states (not synchronized) to reduce noise
+		if n.InitState != "synchronized" {
+			logger.Debug("GetClusterNodes: scanned node",
+				"node_id", n.NodeID,
+				"node_name", n.NodeName,
+				"init_state", n.InitState,
+				"status", n.Status,
+				"has_progress", phase != nil,
+				"phase", derefString(phase),
+				"overall_pct", derefFloat64(overallPct),
+				"eta_seconds", derefInt(etaSeconds),
+			)
+		}
 		nodes = append(nodes, n)
 	}
 
 	if err := rows.Err(); err != nil {
+		logger.Error("GetClusterNodes: error iterating nodes", "error", err)
 		return nil, fmt.Errorf("iterate nodes: %w", err)
 	}
 
