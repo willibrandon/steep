@@ -1,4 +1,4 @@
-.PHONY: build build-agent build-repl build-repl-daemon build-repl-ext build-all test test-short test-integration test-agent test-repl test-repl-integration test-coverage bench clean run run-dev run-agent run-agent-dev install-agent uninstall-agent start-agent stop-agent status-agent run-repl install-repl uninstall-repl start-repl stop-repl status-repl help
+.PHONY: build build-agent build-repl build-repl-daemon build-repl-ext build-all test test-short test-integration test-agent test-repl test-repl-ext-regress test-repl-integration test-coverage bench clean run run-dev run-agent run-agent-dev install-agent uninstall-agent start-agent stop-agent status-agent run-repl install-repl uninstall-repl start-repl stop-repl status-repl help
 
 # Force cmd.exe on Windows to avoid shell inconsistencies
 ifeq ($(OS),Windows_NT)
@@ -97,7 +97,7 @@ test-integration: ## Run integration tests only
 	@echo "Running integration tests..."
 	$(GOTEST) -v -count=1 ./tests/integration/...
 
-test-all: test test-repl ## Run all tests including repl extension tests
+test-all: test test-repl-ext test-repl-ext-regress ## Run all tests including repl extension tests
 	@echo "All tests completed."
 
 bench: ## Run performance benchmarks
@@ -154,12 +154,20 @@ test-agent: build-agent ## Run agent-specific tests
 	@echo "Running agent tests..."
 	$(GOTEST) -v -count=1 ./internal/agent/...
 
-test-repl: ## Run steep_repl extension tests (requires PG18)
+test-repl-ext: ## Run steep_repl extension tests (requires PG18)
 	@echo "Running steep_repl extension tests..."
 ifeq ($(OS),Windows_NT)
 	cd $(REPL_EXT_DIR) && cargo pgrx test pg18
 else
 	cd $(REPL_EXT_DIR) && SDKROOT=$$(xcrun --show-sdk-path 2>/dev/null || echo "") cargo pgrx test pg18
+endif
+
+test-repl-ext-regress: ## Run steep_repl pg_regress SQL tests (requires PG18)
+	@echo "Running steep_repl pg_regress tests..."
+ifeq ($(OS),Windows_NT)
+	cd $(REPL_EXT_DIR) && cargo pgrx regress pg18
+else
+	cd $(REPL_EXT_DIR) && SDKROOT=$$(xcrun --show-sdk-path 2>/dev/null || echo "") cargo pgrx regress pg18
 endif
 
 test-repl-integration: ## Run steep-repl integration tests (requires Docker)
