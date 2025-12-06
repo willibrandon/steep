@@ -315,6 +315,18 @@ func (v *ReplicationView) renderReplicaRow(r models.Replica, selected bool, head
 			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(r.State, h.Width), h.Width)))
 		case "sync":
 			row.WriteString(syncStyle.Render(padRight(r.SyncState.String(), h.Width)))
+		case "sent_lsn":
+			lsn := r.SentLSN
+			if lsn == "" {
+				lsn = "-"
+			}
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(lsn, h.Width), h.Width)))
+		case "replay_lsn":
+			lsn := r.ReplayLSN
+			if lsn == "" {
+				lsn = "-"
+			}
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(lsn, h.Width), h.Width)))
 		case "byte_lag":
 			row.WriteString(lagStyle.Render(padRight(r.FormatByteLag(), h.Width)))
 		case "time_lag":
@@ -375,40 +387,83 @@ type ColumnConfig struct {
 
 // getAdaptiveHeaders returns headers adapted to terminal width.
 // T100: Ensure views render correctly at 80x24 minimum terminal size
+// Wide mode (>140): Shows LSN columns
+// Normal mode (85-140): Standard columns with trend
+// Narrow mode (70-85): No trend column
+// Minimum (<70): Essential columns only
 func (v *ReplicationView) getAdaptiveHeaders() []ColumnConfig {
-	// Full set of columns
-	allHeaders := []ColumnConfig{
-		{"Name", 18, "name"},
-		{"Client", 14, "client"},
-		{"State", 10, "state"},
-		{"Sync", 8, "sync"},
-		{"Byte Lag", 10, "byte_lag"},
-		{"Time Lag", 9, "time_lag"},
-		{"Trend", 14, "trend"},
+	// Fixed width columns
+	const (
+		clientWidth  = 15
+		stateWidth   = 10
+		syncWidth    = 8
+		byteLagWidth = 10
+		timeLagWidth = 9
+		trendWidth   = 14
+		lsnWidth     = 12
+	)
+
+	// Wide mode (>140): Add LSN columns, expand Name
+	if v.width >= 140 {
+		fixedWidth := clientWidth + stateWidth + syncWidth + byteLagWidth + timeLagWidth + trendWidth + lsnWidth*2
+		nameWidth := max(18, (v.width-fixedWidth)/2) // Split remaining between Name and extra space
+		if nameWidth > 30 {
+			nameWidth = 30
+		}
+		return []ColumnConfig{
+			{"Name", nameWidth, "name"},
+			{"Client", clientWidth, "client"},
+			{"State", stateWidth, "state"},
+			{"Sync", syncWidth, "sync"},
+			{"Sent LSN", lsnWidth, "sent_lsn"},
+			{"Replay LSN", lsnWidth, "replay_lsn"},
+			{"Byte Lag", byteLagWidth, "byte_lag"},
+			{"Time Lag", timeLagWidth, "time_lag"},
+			{"Trend", trendWidth, "trend"},
+		}
 	}
 
-	// Calculate total width needed
-	totalWidth := 0
-	for _, h := range allHeaders {
-		totalWidth += h.Width
+	// Normal mode (85-140): Standard columns with trend, expand Name
+	if v.width >= 85 {
+		fixedWidth := clientWidth + stateWidth + syncWidth + byteLagWidth + timeLagWidth + trendWidth
+		nameWidth := max(18, v.width-fixedWidth-2)
+		if nameWidth > 35 {
+			nameWidth = 35
+		}
+		return []ColumnConfig{
+			{"Name", nameWidth, "name"},
+			{"Client", clientWidth, "client"},
+			{"State", stateWidth, "state"},
+			{"Sync", syncWidth, "sync"},
+			{"Byte Lag", byteLagWidth, "byte_lag"},
+			{"Time Lag", timeLagWidth, "time_lag"},
+			{"Trend", trendWidth, "trend"},
+		}
 	}
 
-	// If terminal is wide enough, return all columns
-	if v.width >= totalWidth+2 {
-		return allHeaders
-	}
-
-	// Drop Trend column for narrower terminals (80 chars)
+	// Narrow mode (70-85): No trend column
 	if v.width >= 70 {
-		return allHeaders[:6] // All except Trend
+		fixedWidth := clientWidth + stateWidth + syncWidth + byteLagWidth + timeLagWidth
+		nameWidth := max(18, v.width-fixedWidth-2)
+		if nameWidth > 25 {
+			nameWidth = 25
+		}
+		return []ColumnConfig{
+			{"Name", nameWidth, "name"},
+			{"Client", clientWidth, "client"},
+			{"State", stateWidth, "state"},
+			{"Sync", syncWidth, "sync"},
+			{"Byte Lag", byteLagWidth, "byte_lag"},
+			{"Time Lag", timeLagWidth, "time_lag"},
+		}
 	}
 
-	// Drop Client and Trend for very narrow terminals (<70)
+	// Minimum (<70): Essential columns only
 	return []ColumnConfig{
 		{"Name", 18, "name"},
-		{"State", 10, "state"},
-		{"Sync", 8, "sync"},
-		{"Byte Lag", 10, "byte_lag"},
-		{"Time Lag", 9, "time_lag"},
+		{"State", stateWidth, "state"},
+		{"Sync", syncWidth, "sync"},
+		{"Byte Lag", byteLagWidth, "byte_lag"},
+		{"Time Lag", timeLagWidth, "time_lag"},
 	}
 }

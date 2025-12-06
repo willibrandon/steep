@@ -22,10 +22,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Coordinator_HealthCheck_FullMethodName  = "/steep.repl.v1.Coordinator/HealthCheck"
-	Coordinator_RegisterNode_FullMethodName = "/steep.repl.v1.Coordinator/RegisterNode"
-	Coordinator_GetNodes_FullMethodName     = "/steep.repl.v1.Coordinator/GetNodes"
-	Coordinator_Heartbeat_FullMethodName    = "/steep.repl.v1.Coordinator/Heartbeat"
+	Coordinator_HealthCheck_FullMethodName      = "/steep.repl.v1.Coordinator/HealthCheck"
+	Coordinator_RegisterNode_FullMethodName     = "/steep.repl.v1.Coordinator/RegisterNode"
+	Coordinator_GetNodes_FullMethodName         = "/steep.repl.v1.Coordinator/GetNodes"
+	Coordinator_Heartbeat_FullMethodName        = "/steep.repl.v1.Coordinator/Heartbeat"
+	Coordinator_SyncNodeMetadata_FullMethodName = "/steep.repl.v1.Coordinator/SyncNodeMetadata"
 )
 
 // CoordinatorClient is the client API for Coordinator service.
@@ -41,6 +42,8 @@ type CoordinatorClient interface {
 	GetNodes(ctx context.Context, in *GetNodesRequest, opts ...grpc.CallOption) (*GetNodesResponse, error)
 	// Heartbeat for node liveness detection
 	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
+	// Sync node metadata (init state, source node, etc.) across cluster
+	SyncNodeMetadata(ctx context.Context, in *SyncNodeMetadataRequest, opts ...grpc.CallOption) (*SyncNodeMetadataResponse, error)
 }
 
 type coordinatorClient struct {
@@ -91,6 +94,16 @@ func (c *coordinatorClient) Heartbeat(ctx context.Context, in *HeartbeatRequest,
 	return out, nil
 }
 
+func (c *coordinatorClient) SyncNodeMetadata(ctx context.Context, in *SyncNodeMetadataRequest, opts ...grpc.CallOption) (*SyncNodeMetadataResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SyncNodeMetadataResponse)
+	err := c.cc.Invoke(ctx, Coordinator_SyncNodeMetadata_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServer is the server API for Coordinator service.
 // All implementations must embed UnimplementedCoordinatorServer
 // for forward compatibility.
@@ -104,6 +117,8 @@ type CoordinatorServer interface {
 	GetNodes(context.Context, *GetNodesRequest) (*GetNodesResponse, error)
 	// Heartbeat for node liveness detection
 	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
+	// Sync node metadata (init state, source node, etc.) across cluster
+	SyncNodeMetadata(context.Context, *SyncNodeMetadataRequest) (*SyncNodeMetadataResponse, error)
 	mustEmbedUnimplementedCoordinatorServer()
 }
 
@@ -125,6 +140,9 @@ func (UnimplementedCoordinatorServer) GetNodes(context.Context, *GetNodesRequest
 }
 func (UnimplementedCoordinatorServer) Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Heartbeat not implemented")
+}
+func (UnimplementedCoordinatorServer) SyncNodeMetadata(context.Context, *SyncNodeMetadataRequest) (*SyncNodeMetadataResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SyncNodeMetadata not implemented")
 }
 func (UnimplementedCoordinatorServer) mustEmbedUnimplementedCoordinatorServer() {}
 func (UnimplementedCoordinatorServer) testEmbeddedByValue()                     {}
@@ -219,6 +237,24 @@ func _Coordinator_Heartbeat_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Coordinator_SyncNodeMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SyncNodeMetadataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServer).SyncNodeMetadata(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Coordinator_SyncNodeMetadata_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServer).SyncNodeMetadata(ctx, req.(*SyncNodeMetadataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Coordinator_ServiceDesc is the grpc.ServiceDesc for Coordinator service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -241,6 +277,10 @@ var Coordinator_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Heartbeat",
 			Handler:    _Coordinator_Heartbeat_Handler,
+		},
+		{
+			MethodName: "SyncNodeMetadata",
+			Handler:    _Coordinator_SyncNodeMetadata_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

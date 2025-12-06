@@ -24,6 +24,9 @@ service Coordinator {
 
   // Heartbeat for node liveness detection
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // Sync node metadata (init state, source node, etc.) across cluster
+  rpc SyncNodeMetadata(SyncNodeMetadataRequest) returns (SyncNodeMetadataResponse);
 }
 
 // =============================================================================
@@ -129,4 +132,32 @@ message HeartbeatResponse {
   // Cluster updates since last heartbeat
   string coordinator_id = 2;
   repeated NodeInfo updated_nodes = 3;
+}
+
+// =============================================================================
+// Node Metadata Sync Messages
+// =============================================================================
+
+message SyncNodeMetadataRequest {
+  // The node sending its metadata
+  NodeMetadata metadata = 1;
+}
+
+message SyncNodeMetadataResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message NodeMetadata {
+  string node_id = 1;
+  string node_name = 2;
+  string status = 3;                        // healthy, degraded, unreachable, offline
+  string init_state = 4;                    // uninitialized, preparing, copying, catching_up, synchronized, diverged, failed, reinitializing
+  string init_source_node = 5;              // node_id of the source used for initialization
+  google.protobuf.Timestamp init_started_at = 6;
+  google.protobuf.Timestamp init_completed_at = 7;
+  google.protobuf.Timestamp last_seen = 8;
+  string grpc_host = 9;                     // gRPC host for node-to-node communication
+  int32 grpc_port = 10;                     // gRPC port for node-to-node communication
+  int32 priority = 11;                      // Node priority (1-100, higher = preferred)
 }

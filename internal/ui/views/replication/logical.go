@@ -61,6 +61,137 @@ func (v *ReplicationView) renderLogical() string {
 		return lipgloss.Place(v.width, v.height-5, lipgloss.Center, lipgloss.Center, msg)
 	}
 
+	// Wide mode (>140): Side-by-side layout
+	if v.width >= 140 {
+		return v.renderLogicalWide()
+	}
+
+	// Normal/narrow mode: Stacked layout
+	return v.renderLogicalStacked()
+}
+
+// renderLogicalWide renders publications and subscriptions side-by-side.
+func (v *ReplicationView) renderLogicalWide() string {
+	// Reserve: status(3) + title(1) + tabs(1) + footer(3) = 8
+	contentHeight := v.height - 8
+
+	// Split width between publications and subscriptions
+	halfWidth := (v.width - 3) / 2 // -3 for separator
+
+	// Build publications panel
+	pubContent := v.renderPublicationsPanel(halfWidth, contentHeight)
+
+	// Build subscriptions panel
+	subContent := v.renderSubscriptionsPanel(halfWidth, contentHeight)
+
+	// Join horizontally with a vertical separator
+	separator := lipgloss.NewStyle().
+		Foreground(styles.ColorMuted).
+		Render(strings.Repeat("│\n", contentHeight-1) + "│")
+
+	content := lipgloss.JoinHorizontal(lipgloss.Top,
+		pubContent,
+		separator,
+		subContent,
+	)
+
+	return content + "\n" + v.renderFooter()
+}
+
+// renderPublicationsPanel renders the publications section for wide mode.
+func (v *ReplicationView) renderPublicationsPanel(width, height int) string {
+	var b strings.Builder
+
+	// Header
+	pubHeader := "Publications"
+	if v.logicalFocusPubs {
+		pubHeader = "▶ " + pubHeader
+	} else {
+		pubHeader = "  " + pubHeader
+	}
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent).Render(pubHeader))
+	b.WriteString("\n")
+
+	if len(v.data.Publications) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  No publications"))
+		b.WriteString("\n")
+	} else {
+		// Adaptive headers for wide mode
+		headers := v.getPubHeaders(width)
+
+		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+		var headerRow strings.Builder
+		for _, h := range headers {
+			headerRow.WriteString(headerStyle.Render(padRight(h.Name, h.Width)))
+		}
+		b.WriteString(headerRow.String())
+		b.WriteString("\n")
+
+		maxRows := height - 3
+		for i, pub := range v.data.Publications {
+			if i >= maxRows {
+				break
+			}
+			selected := v.logicalFocusPubs && i == v.pubSelectedIdx
+			b.WriteString(v.renderPubRowAdaptive(pub, selected, headers))
+			b.WriteString("\n")
+		}
+	}
+
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Render(b.String())
+}
+
+// renderSubscriptionsPanel renders the subscriptions section for wide mode.
+func (v *ReplicationView) renderSubscriptionsPanel(width, height int) string {
+	var b strings.Builder
+
+	// Header
+	subHeader := "Subscriptions"
+	if !v.logicalFocusPubs {
+		subHeader = "▶ " + subHeader
+	} else {
+		subHeader = "  " + subHeader
+	}
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent).Render(subHeader))
+	b.WriteString("\n")
+
+	if len(v.data.Subscriptions) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  No subscriptions"))
+		b.WriteString("\n")
+	} else {
+		// Adaptive headers for wide mode
+		headers := v.getSubHeaders(width)
+
+		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+		var headerRow strings.Builder
+		for _, h := range headers {
+			headerRow.WriteString(headerStyle.Render(padRight(h.Name, h.Width)))
+		}
+		b.WriteString(headerRow.String())
+		b.WriteString("\n")
+
+		maxRows := height - 3
+		for i, sub := range v.data.Subscriptions {
+			if i >= maxRows {
+				break
+			}
+			selected := !v.logicalFocusPubs && i == v.subSelectedIdx
+			b.WriteString(v.renderSubRowAdaptive(sub, selected, headers))
+			b.WriteString("\n")
+		}
+	}
+
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Render(b.String())
+}
+
+// renderLogicalStacked renders publications and subscriptions stacked vertically.
+func (v *ReplicationView) renderLogicalStacked() string {
 	var b strings.Builder
 
 	// Split view: publications on top, subscriptions on bottom
@@ -81,21 +212,13 @@ func (v *ReplicationView) renderLogical() string {
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  No publications"))
 		b.WriteString("\n")
 	} else {
-		// Publication table headers
-		pubHeaders := []struct {
-			name  string
-			width int
-		}{
-			{"Name", 22},
-			{"Tables", 8},
-			{"All", 5},
-			{"Operations", 20},
-			{"Subscribers", 12},
-		}
+		// Adaptive headers
+		pubHeaders := v.getPubHeaders(v.width)
+
 		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
 		var headerRow strings.Builder
 		for _, h := range pubHeaders {
-			headerRow.WriteString(headerStyle.Render(padRight(h.name, h.width)))
+			headerRow.WriteString(headerStyle.Render(padRight(h.Name, h.Width)))
 		}
 		b.WriteString(headerRow.String())
 		b.WriteString("\n")
@@ -105,7 +228,7 @@ func (v *ReplicationView) renderLogical() string {
 				break
 			}
 			selected := v.logicalFocusPubs && i == v.pubSelectedIdx
-			b.WriteString(v.renderPubRow(pub, selected, pubHeaders))
+			b.WriteString(v.renderPubRowAdaptive(pub, selected, pubHeaders))
 			b.WriteString("\n")
 		}
 	}
@@ -126,20 +249,13 @@ func (v *ReplicationView) renderLogical() string {
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  No subscriptions"))
 		b.WriteString("\n")
 	} else {
-		// Subscription table headers
-		subHeaders := []struct {
-			name  string
-			width int
-		}{
-			{"Name", 22},
-			{"Enabled", 9},
-			{"Publications", 20},
-			{"Lag", 12},
-		}
+		// Adaptive headers
+		subHeaders := v.getSubHeaders(v.width)
+
 		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
 		var headerRow strings.Builder
 		for _, h := range subHeaders {
-			headerRow.WriteString(headerStyle.Render(padRight(h.name, h.width)))
+			headerRow.WriteString(headerStyle.Render(padRight(h.Name, h.Width)))
 		}
 		b.WriteString(headerRow.String())
 		b.WriteString("\n")
@@ -149,7 +265,7 @@ func (v *ReplicationView) renderLogical() string {
 				break
 			}
 			selected := !v.logicalFocusPubs && i == v.subSelectedIdx
-			b.WriteString(v.renderSubRow(sub, selected, subHeaders))
+			b.WriteString(v.renderSubRowAdaptive(sub, selected, subHeaders))
 			b.WriteString("\n")
 		}
 	}
@@ -164,11 +280,104 @@ func (v *ReplicationView) renderLogical() string {
 	return content + "\n" + v.renderFooter()
 }
 
-// renderPubRow renders a publication row with styling.
-func (v *ReplicationView) renderPubRow(p models.Publication, selected bool, headers []struct {
-	name  string
-	width int
-}) string {
+// Shared column widths for visual alignment between Publications and Subscriptions tables.
+// Layout alignment:
+//   Publications: Name | Tables+All | Operations | Subscribers
+//   Subscriptions: Name | Enabled    | Pubs       | Lag
+// The Name columns match, middle columns roughly align, trailing columns match.
+const (
+	logicalNameMinWidth = 25  // Minimum Name column width
+	logicalNameMaxWidth = 40  // Maximum Name column width
+	logicalTrailWidth   = 12  // Trailing column (Subscribers/Lag)
+	logicalMidWidth     = 20  // Middle flex column (Operations/Publications)
+)
+
+// getPubHeaders returns adaptive headers for publication table.
+func (v *ReplicationView) getPubHeaders(availWidth int) []ColumnConfig {
+	const (
+		tablesWidth = 8
+		allWidth    = 5
+	)
+
+	// Wide mode: Expand Name column
+	if availWidth >= 85 {
+		fixedWidth := tablesWidth + allWidth + logicalMidWidth + logicalTrailWidth
+		nameWidth := max(logicalNameMinWidth, availWidth-fixedWidth-2)
+		if nameWidth > logicalNameMaxWidth {
+			nameWidth = logicalNameMaxWidth
+		}
+		return []ColumnConfig{
+			{"Name", nameWidth, "name"},
+			{"Tables", tablesWidth, "tables"},
+			{"All", allWidth, "all"},
+			{"Operations", logicalMidWidth, "operations"},
+			{"Subscribers", logicalTrailWidth, "subscribers"},
+		}
+	}
+
+	// Narrow: Hide Subscribers column
+	if availWidth >= 60 {
+		return []ColumnConfig{
+			{"Name", logicalNameMinWidth, "name"},
+			{"Tables", tablesWidth, "tables"},
+			{"All", allWidth, "all"},
+			{"Operations", logicalMidWidth, "operations"},
+		}
+	}
+
+	// Minimum
+	return []ColumnConfig{
+		{"Name", 22, "name"},
+		{"Tables", tablesWidth, "tables"},
+		{"Ops", 12, "operations"},
+	}
+}
+
+// getSubHeaders returns adaptive headers for subscription table.
+func (v *ReplicationView) getSubHeaders(availWidth int) []ColumnConfig {
+	const (
+		enabledWidth = 9
+	)
+
+	// Wide mode: Match Name width with Publications, flex Publications column
+	if availWidth >= 85 {
+		// Calculate Name width to match Publications table
+		fixedWidth := enabledWidth + logicalTrailWidth
+		remaining := availWidth - fixedWidth - 2
+
+		// Give Name the same proportion as in Publications
+		// Pubs fixed: 8+5+20+12 = 45, so Name gets availWidth - 45 - 2
+		pubFixedWidth := 8 + 5 + logicalMidWidth + logicalTrailWidth
+		nameWidth := max(logicalNameMinWidth, availWidth-pubFixedWidth-2)
+		if nameWidth > logicalNameMaxWidth {
+			nameWidth = logicalNameMaxWidth
+		}
+
+		// Publications column gets the rest
+		pubsWidth := remaining - nameWidth
+		if pubsWidth < logicalMidWidth {
+			pubsWidth = logicalMidWidth
+		}
+
+		return []ColumnConfig{
+			{"Name", nameWidth, "name"},
+			{"Enabled", enabledWidth, "enabled"},
+			{"Publications", pubsWidth, "publications"},
+			{"Lag", logicalTrailWidth, "lag"},
+		}
+	}
+
+	// Narrow: Fixed widths matching Publications
+	return []ColumnConfig{
+		{"Name", logicalNameMinWidth, "name"},
+		{"Enabled", enabledWidth, "enabled"},
+		{"Publications", logicalMidWidth, "publications"},
+		{"Lag", logicalTrailWidth, "lag"},
+	}
+}
+
+// renderPubRowAdaptive renders a publication row with adaptive columns.
+func (v *ReplicationView) renderPubRowAdaptive(p models.Publication, selected bool, headers []ColumnConfig) string {
 	baseStyle := lipgloss.NewStyle()
 	if selected {
 		baseStyle = baseStyle.Background(lipgloss.Color("236"))
@@ -202,21 +411,28 @@ func (v *ReplicationView) renderPubRow(p models.Publication, selected bool, head
 		subStr = "0"
 	}
 
+	// Build row dynamically based on available columns
 	var row strings.Builder
-	row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(p.Name, headers[0].width), headers[0].width)))
-	row.WriteString(baseStyle.Render(padRight(fmt.Sprintf("%d", p.TableCount), headers[1].width)))
-	row.WriteString(allTablesStyle.Render(padRight(allTablesStr, headers[2].width)))
-	row.WriteString(opsStyle.Render(padRight(ops, headers[3].width)))
-	row.WriteString(subStyle.Render(padRight(subStr, headers[4].width)))
+	for _, h := range headers {
+		switch h.Key {
+		case "name":
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(p.Name, h.Width), h.Width)))
+		case "tables":
+			row.WriteString(baseStyle.Render(padRight(fmt.Sprintf("%d", p.TableCount), h.Width)))
+		case "all":
+			row.WriteString(allTablesStyle.Render(padRight(allTablesStr, h.Width)))
+		case "operations":
+			row.WriteString(opsStyle.Render(padRight(truncateWithEllipsis(ops, h.Width), h.Width)))
+		case "subscribers":
+			row.WriteString(subStyle.Render(padRight(subStr, h.Width)))
+		}
+	}
 
 	return row.String()
 }
 
-// renderSubRow renders a subscription row with styling.
-func (v *ReplicationView) renderSubRow(s models.Subscription, selected bool, headers []struct {
-	name  string
-	width int
-}) string {
+// renderSubRowAdaptive renders a subscription row with adaptive columns.
+func (v *ReplicationView) renderSubRowAdaptive(s models.Subscription, selected bool, headers []ColumnConfig) string {
 	baseStyle := lipgloss.NewStyle()
 	if selected {
 		baseStyle = baseStyle.Background(lipgloss.Color("236"))
@@ -232,12 +448,6 @@ func (v *ReplicationView) renderSubRow(s models.Subscription, selected bool, hea
 		enabledStyle = enabledStyle.Foreground(lipgloss.Color("214")) // Yellow
 	}
 
-	// Publications list
-	pubsStr := strings.Join(s.Publications, ", ")
-	if len(pubsStr) > headers[2].width {
-		pubsStr = truncateWithEllipsis(pubsStr, headers[2].width)
-	}
-
 	// Lag styling
 	lagStyle := baseStyle
 	lagStr := s.FormatByteLag()
@@ -249,11 +459,21 @@ func (v *ReplicationView) renderSubRow(s models.Subscription, selected bool, hea
 		lagStyle = lagStyle.Foreground(lipgloss.Color("42")) // Green
 	}
 
+	// Build row dynamically based on available columns
 	var row strings.Builder
-	row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(s.Name, headers[0].width), headers[0].width)))
-	row.WriteString(enabledStyle.Render(padRight(enabledStr, headers[1].width)))
-	row.WriteString(baseStyle.Render(padRight(pubsStr, headers[2].width)))
-	row.WriteString(lagStyle.Render(padRight(lagStr, headers[3].width)))
+	for _, h := range headers {
+		switch h.Key {
+		case "name":
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(s.Name, h.Width), h.Width)))
+		case "enabled":
+			row.WriteString(enabledStyle.Render(padRight(enabledStr, h.Width)))
+		case "publications":
+			pubsStr := strings.Join(s.Publications, ", ")
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(pubsStr, h.Width), h.Width)))
+		case "lag":
+			row.WriteString(lagStyle.Render(padRight(lagStr, h.Width)))
+		}
+	}
 
 	return row.String()
 }

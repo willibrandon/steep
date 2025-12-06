@@ -23,6 +23,9 @@ GOTEST=$(GOCMD) test
 GOCLEAN=$(GOCMD) clean
 GOGET=$(GOCMD) get
 
+# Steep configuration file path
+CONFIG=~/.config/steep/config.yaml
+
 # Optional runtime arguments (e.g., make run-dev ARGS="--debug")
 ARGS ?=
 
@@ -135,17 +138,17 @@ run: build ## Build and run the application
 	@echo "Running $(BINARY_NAME)..."
 	@$(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) --banner $(ARGS)
 
-run-dev: build ## Run with local config.yaml (for Docker replication testing)
-	@echo "Running $(BINARY_NAME) with local config..."
-	@$(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) --config ./config.yaml $(ARGS)
+run-dev: build ## Run with config.yaml
+	@echo "Running $(BINARY_NAME) with config" $(CONFIG) "..."
+	@$(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT) --config $(CONFIG) $(ARGS)
 
 run-agent: build-agent ## Run agent in foreground
 	@echo "Running $(AGENT_BINARY_NAME) in foreground..."
 	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run $(ARGS)
 
-run-agent-dev: build-agent ## Run agent with local config.yaml (for Docker replication testing)
-	@echo "Running $(AGENT_BINARY_NAME) with local config..."
-	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run --config ./config.yaml $(ARGS)
+run-agent-dev: build-agent ## Run agent with config.yaml
+	@echo "Running $(AGENT_BINARY_NAME) with config" $(CONFIG) "..."
+	@$(BUILD_DIR)/$(AGENT_BINARY_NAME)$(BINARY_EXT) run --config $(CONFIG) $(ARGS)
 
 test-agent: build-agent ## Run agent-specific tests
 	@echo "Running agent tests..."

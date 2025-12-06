@@ -134,49 +134,122 @@ func (v *ReplicationView) renderNodeRow(node ClusterNode, selected bool, headers
 			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(hostPort, h.Width), h.Width)))
 		case "status":
 			row.WriteString(statusStyle.Render(padRight(node.Status, h.Width)))
+		case "priority":
+			row.WriteString(baseStyle.Render(padRight(fmt.Sprintf("%d", node.Priority), h.Width)))
 		case "init_state":
 			stateDisplay := formatInitState(node.InitState, node.Progress)
 			row.WriteString(initStateStyle.Render(padRight(truncateWithEllipsis(stateDisplay, h.Width), h.Width)))
+		case "source":
+			source := node.InitSourceNode
+			if source == "" {
+				source = "-"
+			}
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(source, h.Width), h.Width)))
 		case "progress":
 			progressStr := formatNodeProgress(node.Progress)
 			row.WriteString(baseStyle.Render(padRight(progressStr, h.Width)))
 		case "eta":
 			etaStr := formatNodeETA(node.InitState, node.Progress)
 			row.WriteString(baseStyle.Render(padRight(etaStr, h.Width)))
+		case "last_seen":
+			lastSeen := "-"
+			if node.LastSeen != nil {
+				lastSeen = formatLastSeen(*node.LastSeen)
+			}
+			row.WriteString(baseStyle.Render(padRight(lastSeen, h.Width)))
 		}
 	}
 
 	return row.String()
 }
 
-// getNodeTableHeaders returns headers for the node table.
+// getNodeTableHeaders returns headers adapted to terminal width.
+// Wide mode (>140): Shows Priority, Source, Last Seen columns with flex widths
+// Normal mode (85-140): Standard columns with flex Name
+// Narrow mode (<85): Essential columns only
 func (v *ReplicationView) getNodeTableHeaders() []ColumnConfig {
-	allHeaders := []ColumnConfig{
-		{"Node", 16, "name"},
-		{"Host:Port", 20, "host"},
-		{"Status", 10, "status"},
-		{"Init State", 14, "init_state"},
-		{"Progress", 12, "progress"},
-		{"ETA", 10, "eta"},
+	// Fixed width columns (minimum sizes)
+	const (
+		hostMinWidth   = 20
+		statusWidth    = 10
+		initStateWidth = 15 // "Init State" + padding
+		progressWidth  = 12
+		etaWidth       = 10
+		priorityWidth  = 10 // "Priority" (8) + 2 padding
+		sourceMinWidth = 16
+		lastSeenWidth  = 12
+	)
+
+	// Wide mode (>140): Add Priority, Source, Last Seen columns
+	// Distribute extra space to Name, Host:Port, and Source columns
+	if v.width >= 140 {
+		fixedWidth := statusWidth + initStateWidth + progressWidth + etaWidth + priorityWidth + lastSeenWidth
+		flexWidth := v.width - fixedWidth - 2
+
+		// Distribute flex space: 40% Name, 30% Host:Port, 30% Source
+		nameWidth := max(20, flexWidth*40/100)
+		hostWidth := max(hostMinWidth, flexWidth*30/100)
+		sourceWidth := max(sourceMinWidth, flexWidth*30/100)
+
+		// Cap maximums for readability
+		if nameWidth > 50 {
+			nameWidth = 50
+		}
+		if hostWidth > 30 {
+			hostWidth = 30
+		}
+		if sourceWidth > 30 {
+			sourceWidth = 30
+		}
+
+		return []ColumnConfig{
+			{"Node", nameWidth, "name"},
+			{"Host:Port", hostWidth, "host"},
+			{"Status", statusWidth, "status"},
+			{"Priority", priorityWidth, "priority"},
+			{"Init State", initStateWidth, "init_state"},
+			{"Source", sourceWidth, "source"},
+			{"Progress", progressWidth, "progress"},
+			{"ETA", etaWidth, "eta"},
+			{"Last Seen", lastSeenWidth, "last_seen"},
+		}
 	}
 
-	// Adapt for terminal width
-	totalWidth := 0
-	for _, h := range allHeaders {
-		totalWidth += h.Width
+	// Normal mode (85-140): Standard columns with flex Name
+	if v.width >= 85 {
+		fixedWidth := hostMinWidth + statusWidth + initStateWidth + progressWidth + etaWidth
+		nameWidth := max(16, v.width-fixedWidth-2)
+		if nameWidth > 40 {
+			nameWidth = 40
+		}
+		return []ColumnConfig{
+			{"Node", nameWidth, "name"},
+			{"Host:Port", hostMinWidth, "host"},
+			{"Status", statusWidth, "status"},
+			{"Init State", initStateWidth, "init_state"},
+			{"Progress", progressWidth, "progress"},
+			{"ETA", etaWidth, "eta"},
+		}
 	}
 
-	if v.width >= totalWidth+2 {
-		return allHeaders
-	}
-
-	// Drop ETA for narrow terminals
+	// Narrow mode (72-85): No ETA column
 	if v.width >= 72 {
-		return allHeaders[:5]
+		return []ColumnConfig{
+			{"Node", 16, "name"},
+			{"Host:Port", hostMinWidth, "host"},
+			{"Status", statusWidth, "status"},
+			{"Init State", initStateWidth, "init_state"},
+			{"Progress", progressWidth, "progress"},
+		}
 	}
 
-	// Drop Progress and ETA for very narrow
-	return allHeaders[:4]
+	// Minimum (<72): Essential columns only
+	return []ColumnConfig{
+		{"Node", 16, "name"},
+		{"Host:Port", hostMinWidth, "host"},
+		{"Status", statusWidth, "status"},
+		{"Init State", initStateWidth, "init_state"},
+	}
 }
 
 // nodeStatusColor returns the appropriate color for a node status.
@@ -396,4 +469,19 @@ func (v *ReplicationView) buildNodeProgressData(node ClusterNode) *components.In
 	}
 
 	return data
+}
+
+// formatLastSeen formats the last seen time relative to now.
+func formatLastSeen(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
 }

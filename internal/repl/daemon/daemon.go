@@ -18,6 +18,7 @@ import (
 	"github.com/willibrandon/steep/internal/repl/ipc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Version is set by ldflags during build.
@@ -608,7 +609,8 @@ func (p *daemonHTTPProvider) IsIPCRunning() bool {
 	return p.d.ipcServer != nil
 }
 
-// runCrossNodeHealthCheck periodically checks the health of other nodes in the cluster.
+// runCrossNodeHealthCheck periodically checks the health of other nodes in the cluster
+// and updates this node's own heartbeat.
 func (d *Daemon) runCrossNodeHealthCheck() {
 	defer d.wg.Done()
 
@@ -616,6 +618,7 @@ func (d *Daemon) runCrossNodeHealthCheck() {
 	defer ticker.Stop()
 
 	// Run immediately on startup
+	d.updateSelfHeartbeat()
 	d.checkOtherNodes()
 
 	for {
@@ -623,8 +626,28 @@ func (d *Daemon) runCrossNodeHealthCheck() {
 		case <-d.ctx.Done():
 			return
 		case <-ticker.C:
+			d.updateSelfHeartbeat()
 			d.checkOtherNodes()
 		}
+	}
+}
+
+// updateSelfHeartbeat updates this node's own last_seen timestamp.
+func (d *Daemon) updateSelfHeartbeat() {
+	if d.pool == nil || !d.pool.IsConnected() {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(d.ctx, 2*time.Second)
+	defer cancel()
+
+	err := d.pool.Exec(ctx, `
+		UPDATE steep_repl.nodes
+		SET last_seen = NOW()
+		WHERE node_id = $1
+	`, d.config.NodeID)
+	if err != nil && d.debug {
+		d.logger.Printf("Failed to update self heartbeat: %v", err)
 	}
 }
 
@@ -667,10 +690,18 @@ func (d *Daemon) checkOtherNodes() {
 	}
 	rows.Close()
 
-	// Check each node
+	// Get this node's metadata for syncing
+	selfMetadata := d.getSelfMetadata()
+
+	// Check each node and sync metadata
 	for _, n := range nodes {
 		status := d.checkNodeHealth(n.nodeID, n.grpcHost, n.grpcPort)
 		d.updateNodeStatus(n.nodeID, status)
+
+		// If node is reachable, sync our metadata to it
+		if status == "healthy" && selfMetadata != nil {
+			d.syncMetadataToNode(n.grpcHost, n.grpcPort, selfMetadata)
+		}
 	}
 }
 
@@ -723,5 +754,104 @@ func (d *Daemon) updateNodeStatus(nodeID, status string) {
 	`, status, nodeID)
 	if err != nil && d.debug {
 		d.logger.Printf("Failed to update node %s status: %v", nodeID, err)
+	}
+}
+
+// getSelfMetadata retrieves this node's metadata from the database for syncing to other nodes.
+func (d *Daemon) getSelfMetadata() *pb.NodeMetadata {
+	if d.pool == nil || !d.pool.IsConnected() {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(d.ctx, 2*time.Second)
+	defer cancel()
+
+	var meta pb.NodeMetadata
+	var initState, initSourceNode, grpcHost *string
+	var grpcPort *int32
+	var initStartedAt, initCompletedAt, lastSeen *time.Time
+
+	err := d.pool.Pool().QueryRow(ctx, `
+		SELECT node_id, node_name, status, init_state, init_source_node,
+		       init_started_at, init_completed_at, last_seen, grpc_host, grpc_port, priority
+		FROM steep_repl.nodes
+		WHERE node_id = $1
+	`, d.config.NodeID).Scan(
+		&meta.NodeId,
+		&meta.NodeName,
+		&meta.Status,
+		&initState,
+		&initSourceNode,
+		&initStartedAt,
+		&initCompletedAt,
+		&lastSeen,
+		&grpcHost,
+		&grpcPort,
+		&meta.Priority,
+	)
+	if err != nil {
+		if d.debug {
+			d.logger.Printf("Failed to get self metadata: %v", err)
+		}
+		return nil
+	}
+
+	// Convert nullable fields
+	if initState != nil {
+		meta.InitState = *initState
+	}
+	if initSourceNode != nil {
+		meta.InitSourceNode = *initSourceNode
+	}
+	if initStartedAt != nil {
+		meta.InitStartedAt = timestamppb.New(*initStartedAt)
+	}
+	if initCompletedAt != nil {
+		meta.InitCompletedAt = timestamppb.New(*initCompletedAt)
+	}
+	if lastSeen != nil {
+		meta.LastSeen = timestamppb.New(*lastSeen)
+	}
+	if grpcHost != nil {
+		meta.GrpcHost = *grpcHost
+	}
+	if grpcPort != nil {
+		meta.GrpcPort = *grpcPort
+	}
+
+	return &meta
+}
+
+// syncMetadataToNode pushes this node's metadata to a remote node via gRPC.
+func (d *Daemon) syncMetadataToNode(host string, port int, meta *pb.NodeMetadata) {
+	ctx, cancel := context.WithTimeout(d.ctx, 3*time.Second)
+	defer cancel()
+
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := grpc.DialContext(ctx, addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		if d.debug {
+			d.logger.Printf("Failed to connect to %s for metadata sync: %v", addr, err)
+		}
+		return
+	}
+	defer conn.Close()
+
+	client := pb.NewCoordinatorClient(conn)
+	resp, err := client.SyncNodeMetadata(ctx, &pb.SyncNodeMetadataRequest{
+		Metadata: meta,
+	})
+	if err != nil {
+		if d.debug {
+			d.logger.Printf("Failed to sync metadata to %s: %v", addr, err)
+		}
+		return
+	}
+
+	if !resp.Success && d.debug {
+		d.logger.Printf("Metadata sync to %s failed: %s", addr, resp.Error)
 	}
 }

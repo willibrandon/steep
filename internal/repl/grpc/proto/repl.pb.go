@@ -791,6 +791,227 @@ func (x *HeartbeatResponse) GetUpdatedNodes() []*NodeInfo {
 	return nil
 }
 
+type SyncNodeMetadataRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The node sending its metadata
+	Metadata      *NodeMetadata `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncNodeMetadataRequest) Reset() {
+	*x = SyncNodeMetadataRequest{}
+	mi := &file_internal_repl_grpc_proto_repl_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncNodeMetadataRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncNodeMetadataRequest) ProtoMessage() {}
+
+func (x *SyncNodeMetadataRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_repl_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncNodeMetadataRequest.ProtoReflect.Descriptor instead.
+func (*SyncNodeMetadataRequest) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_repl_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SyncNodeMetadataRequest) GetMetadata() *NodeMetadata {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+type SyncNodeMetadataResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncNodeMetadataResponse) Reset() {
+	*x = SyncNodeMetadataResponse{}
+	mi := &file_internal_repl_grpc_proto_repl_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncNodeMetadataResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncNodeMetadataResponse) ProtoMessage() {}
+
+func (x *SyncNodeMetadataResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_repl_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncNodeMetadataResponse.ProtoReflect.Descriptor instead.
+func (*SyncNodeMetadataResponse) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_repl_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SyncNodeMetadataResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *SyncNodeMetadataResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type NodeMetadata struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	NodeId          string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	NodeName        string                 `protobuf:"bytes,2,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	Status          string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`                                         // healthy, degraded, unreachable, offline
+	InitState       string                 `protobuf:"bytes,4,opt,name=init_state,json=initState,proto3" json:"init_state,omitempty"`                  // uninitialized, preparing, copying, catching_up, synchronized, diverged, failed, reinitializing
+	InitSourceNode  string                 `protobuf:"bytes,5,opt,name=init_source_node,json=initSourceNode,proto3" json:"init_source_node,omitempty"` // node_id of the source used for initialization
+	InitStartedAt   *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=init_started_at,json=initStartedAt,proto3" json:"init_started_at,omitempty"`
+	InitCompletedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=init_completed_at,json=initCompletedAt,proto3" json:"init_completed_at,omitempty"`
+	LastSeen        *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	GrpcHost        string                 `protobuf:"bytes,9,opt,name=grpc_host,json=grpcHost,proto3" json:"grpc_host,omitempty"`   // gRPC host for node-to-node communication
+	GrpcPort        int32                  `protobuf:"varint,10,opt,name=grpc_port,json=grpcPort,proto3" json:"grpc_port,omitempty"` // gRPC port for node-to-node communication
+	Priority        int32                  `protobuf:"varint,11,opt,name=priority,proto3" json:"priority,omitempty"`                 // Node priority (1-100, higher = preferred)
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *NodeMetadata) Reset() {
+	*x = NodeMetadata{}
+	mi := &file_internal_repl_grpc_proto_repl_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodeMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodeMetadata) ProtoMessage() {}
+
+func (x *NodeMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_repl_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodeMetadata.ProtoReflect.Descriptor instead.
+func (*NodeMetadata) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_repl_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *NodeMetadata) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *NodeMetadata) GetNodeName() string {
+	if x != nil {
+		return x.NodeName
+	}
+	return ""
+}
+
+func (x *NodeMetadata) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *NodeMetadata) GetInitState() string {
+	if x != nil {
+		return x.InitState
+	}
+	return ""
+}
+
+func (x *NodeMetadata) GetInitSourceNode() string {
+	if x != nil {
+		return x.InitSourceNode
+	}
+	return ""
+}
+
+func (x *NodeMetadata) GetInitStartedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.InitStartedAt
+	}
+	return nil
+}
+
+func (x *NodeMetadata) GetInitCompletedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.InitCompletedAt
+	}
+	return nil
+}
+
+func (x *NodeMetadata) GetLastSeen() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastSeen
+	}
+	return nil
+}
+
+func (x *NodeMetadata) GetGrpcHost() string {
+	if x != nil {
+		return x.GrpcHost
+	}
+	return ""
+}
+
+func (x *NodeMetadata) GetGrpcPort() int32 {
+	if x != nil {
+		return x.GrpcPort
+	}
+	return 0
+}
+
+func (x *NodeMetadata) GetPriority() int32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
+}
+
 var File_internal_repl_grpc_proto_repl_proto protoreflect.FileDescriptor
 
 const file_internal_repl_grpc_proto_repl_proto_rawDesc = "" +
@@ -857,12 +1078,32 @@ const file_internal_repl_grpc_proto_repl_proto_rawDesc = "" +
 	"\x11HeartbeatResponse\x12\"\n" +
 	"\facknowledged\x18\x01 \x01(\bR\facknowledged\x12%\n" +
 	"\x0ecoordinator_id\x18\x02 \x01(\tR\rcoordinatorId\x12<\n" +
-	"\rupdated_nodes\x18\x03 \x03(\v2\x17.steep.repl.v1.NodeInfoR\fupdatedNodes2\xd9\x02\n" +
+	"\rupdated_nodes\x18\x03 \x03(\v2\x17.steep.repl.v1.NodeInfoR\fupdatedNodes\"R\n" +
+	"\x17SyncNodeMetadataRequest\x127\n" +
+	"\bmetadata\x18\x01 \x01(\v2\x1b.steep.repl.v1.NodeMetadataR\bmetadata\"J\n" +
+	"\x18SyncNodeMetadataResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xc0\x03\n" +
+	"\fNodeMetadata\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1b\n" +
+	"\tnode_name\x18\x02 \x01(\tR\bnodeName\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"init_state\x18\x04 \x01(\tR\tinitState\x12(\n" +
+	"\x10init_source_node\x18\x05 \x01(\tR\x0einitSourceNode\x12B\n" +
+	"\x0finit_started_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\rinitStartedAt\x12F\n" +
+	"\x11init_completed_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x0finitCompletedAt\x127\n" +
+	"\tlast_seen\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x12\x1b\n" +
+	"\tgrpc_host\x18\t \x01(\tR\bgrpcHost\x12\x1b\n" +
+	"\tgrpc_port\x18\n" +
+	" \x01(\x05R\bgrpcPort\x12\x1a\n" +
+	"\bpriority\x18\v \x01(\x05R\bpriority2\xbe\x03\n" +
 	"\vCoordinator\x12T\n" +
 	"\vHealthCheck\x12!.steep.repl.v1.HealthCheckRequest\x1a\".steep.repl.v1.HealthCheckResponse\x12W\n" +
 	"\fRegisterNode\x12\".steep.repl.v1.RegisterNodeRequest\x1a#.steep.repl.v1.RegisterNodeResponse\x12K\n" +
 	"\bGetNodes\x12\x1e.steep.repl.v1.GetNodesRequest\x1a\x1f.steep.repl.v1.GetNodesResponse\x12N\n" +
-	"\tHeartbeat\x12\x1f.steep.repl.v1.HeartbeatRequest\x1a .steep.repl.v1.HeartbeatResponseB Z\x1esteep/internal/repl/grpc/protob\x06proto3"
+	"\tHeartbeat\x12\x1f.steep.repl.v1.HeartbeatRequest\x1a .steep.repl.v1.HeartbeatResponse\x12c\n" +
+	"\x10SyncNodeMetadata\x12&.steep.repl.v1.SyncNodeMetadataRequest\x1a'.steep.repl.v1.SyncNodeMetadataResponseB Z\x1esteep/internal/repl/grpc/protob\x06proto3"
 
 var (
 	file_internal_repl_grpc_proto_repl_proto_rawDescOnce sync.Once
@@ -877,7 +1118,7 @@ func file_internal_repl_grpc_proto_repl_proto_rawDescGZIP() []byte {
 }
 
 var file_internal_repl_grpc_proto_repl_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_internal_repl_grpc_proto_repl_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_internal_repl_grpc_proto_repl_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_internal_repl_grpc_proto_repl_proto_goTypes = []any{
 	(HealthCheckResponse_ServingStatus)(0), // 0: steep.repl.v1.HealthCheckResponse.ServingStatus
 	(*HealthCheckRequest)(nil),             // 1: steep.repl.v1.HealthCheckRequest
@@ -891,32 +1132,41 @@ var file_internal_repl_grpc_proto_repl_proto_goTypes = []any{
 	(*HeartbeatRequest)(nil),               // 9: steep.repl.v1.HeartbeatRequest
 	(*NodeStatus)(nil),                     // 10: steep.repl.v1.NodeStatus
 	(*HeartbeatResponse)(nil),              // 11: steep.repl.v1.HeartbeatResponse
-	nil,                                    // 12: steep.repl.v1.HealthCheckResponse.ComponentsEntry
-	(*timestamppb.Timestamp)(nil),          // 13: google.protobuf.Timestamp
+	(*SyncNodeMetadataRequest)(nil),        // 12: steep.repl.v1.SyncNodeMetadataRequest
+	(*SyncNodeMetadataResponse)(nil),       // 13: steep.repl.v1.SyncNodeMetadataResponse
+	(*NodeMetadata)(nil),                   // 14: steep.repl.v1.NodeMetadata
+	nil,                                    // 15: steep.repl.v1.HealthCheckResponse.ComponentsEntry
+	(*timestamppb.Timestamp)(nil),          // 16: google.protobuf.Timestamp
 }
 var file_internal_repl_grpc_proto_repl_proto_depIdxs = []int32{
 	0,  // 0: steep.repl.v1.HealthCheckResponse.status:type_name -> steep.repl.v1.HealthCheckResponse.ServingStatus
-	12, // 1: steep.repl.v1.HealthCheckResponse.components:type_name -> steep.repl.v1.HealthCheckResponse.ComponentsEntry
-	13, // 2: steep.repl.v1.HealthCheckResponse.uptime_since:type_name -> google.protobuf.Timestamp
+	15, // 1: steep.repl.v1.HealthCheckResponse.components:type_name -> steep.repl.v1.HealthCheckResponse.ComponentsEntry
+	16, // 2: steep.repl.v1.HealthCheckResponse.uptime_since:type_name -> google.protobuf.Timestamp
 	8,  // 3: steep.repl.v1.RegisterNodeResponse.nodes:type_name -> steep.repl.v1.NodeInfo
 	8,  // 4: steep.repl.v1.GetNodesResponse.nodes:type_name -> steep.repl.v1.NodeInfo
-	13, // 5: steep.repl.v1.NodeInfo.last_seen:type_name -> google.protobuf.Timestamp
+	16, // 5: steep.repl.v1.NodeInfo.last_seen:type_name -> google.protobuf.Timestamp
 	10, // 6: steep.repl.v1.HeartbeatRequest.node_status:type_name -> steep.repl.v1.NodeStatus
 	8,  // 7: steep.repl.v1.HeartbeatResponse.updated_nodes:type_name -> steep.repl.v1.NodeInfo
-	3,  // 8: steep.repl.v1.HealthCheckResponse.ComponentsEntry.value:type_name -> steep.repl.v1.ComponentHealth
-	1,  // 9: steep.repl.v1.Coordinator.HealthCheck:input_type -> steep.repl.v1.HealthCheckRequest
-	4,  // 10: steep.repl.v1.Coordinator.RegisterNode:input_type -> steep.repl.v1.RegisterNodeRequest
-	6,  // 11: steep.repl.v1.Coordinator.GetNodes:input_type -> steep.repl.v1.GetNodesRequest
-	9,  // 12: steep.repl.v1.Coordinator.Heartbeat:input_type -> steep.repl.v1.HeartbeatRequest
-	2,  // 13: steep.repl.v1.Coordinator.HealthCheck:output_type -> steep.repl.v1.HealthCheckResponse
-	5,  // 14: steep.repl.v1.Coordinator.RegisterNode:output_type -> steep.repl.v1.RegisterNodeResponse
-	7,  // 15: steep.repl.v1.Coordinator.GetNodes:output_type -> steep.repl.v1.GetNodesResponse
-	11, // 16: steep.repl.v1.Coordinator.Heartbeat:output_type -> steep.repl.v1.HeartbeatResponse
-	13, // [13:17] is the sub-list for method output_type
-	9,  // [9:13] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	14, // 8: steep.repl.v1.SyncNodeMetadataRequest.metadata:type_name -> steep.repl.v1.NodeMetadata
+	16, // 9: steep.repl.v1.NodeMetadata.init_started_at:type_name -> google.protobuf.Timestamp
+	16, // 10: steep.repl.v1.NodeMetadata.init_completed_at:type_name -> google.protobuf.Timestamp
+	16, // 11: steep.repl.v1.NodeMetadata.last_seen:type_name -> google.protobuf.Timestamp
+	3,  // 12: steep.repl.v1.HealthCheckResponse.ComponentsEntry.value:type_name -> steep.repl.v1.ComponentHealth
+	1,  // 13: steep.repl.v1.Coordinator.HealthCheck:input_type -> steep.repl.v1.HealthCheckRequest
+	4,  // 14: steep.repl.v1.Coordinator.RegisterNode:input_type -> steep.repl.v1.RegisterNodeRequest
+	6,  // 15: steep.repl.v1.Coordinator.GetNodes:input_type -> steep.repl.v1.GetNodesRequest
+	9,  // 16: steep.repl.v1.Coordinator.Heartbeat:input_type -> steep.repl.v1.HeartbeatRequest
+	12, // 17: steep.repl.v1.Coordinator.SyncNodeMetadata:input_type -> steep.repl.v1.SyncNodeMetadataRequest
+	2,  // 18: steep.repl.v1.Coordinator.HealthCheck:output_type -> steep.repl.v1.HealthCheckResponse
+	5,  // 19: steep.repl.v1.Coordinator.RegisterNode:output_type -> steep.repl.v1.RegisterNodeResponse
+	7,  // 20: steep.repl.v1.Coordinator.GetNodes:output_type -> steep.repl.v1.GetNodesResponse
+	11, // 21: steep.repl.v1.Coordinator.Heartbeat:output_type -> steep.repl.v1.HeartbeatResponse
+	13, // 22: steep.repl.v1.Coordinator.SyncNodeMetadata:output_type -> steep.repl.v1.SyncNodeMetadataResponse
+	18, // [18:23] is the sub-list for method output_type
+	13, // [13:18] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_internal_repl_grpc_proto_repl_proto_init() }
@@ -930,7 +1180,7 @@ func file_internal_repl_grpc_proto_repl_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_repl_grpc_proto_repl_proto_rawDesc), len(file_internal_repl_grpc_proto_repl_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   12,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

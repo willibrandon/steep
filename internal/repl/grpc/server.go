@@ -283,6 +283,87 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 	}, nil
 }
 
+// SyncNodeMetadata implements the Coordinator.SyncNodeMetadata RPC.
+// This allows nodes to push their init metadata to other nodes in the cluster.
+func (s *Server) SyncNodeMetadata(ctx context.Context, req *pb.SyncNodeMetadataRequest) (*pb.SyncNodeMetadataResponse, error) {
+	if req.Metadata == nil {
+		return &pb.SyncNodeMetadataResponse{
+			Success: false,
+			Error:   "metadata is required",
+		}, nil
+	}
+
+	s.logRequest(ctx, "SyncNodeMetadata", req.Metadata.NodeId)
+
+	pool := s.provider.GetPool()
+	if pool == nil || !pool.IsConnected() {
+		return &pb.SyncNodeMetadataResponse{
+			Success: false,
+			Error:   "PostgreSQL not connected",
+		}, nil
+	}
+
+	meta := req.Metadata
+
+	// Convert timestamps
+	var initStartedAt, initCompletedAt, lastSeen *time.Time
+	if meta.InitStartedAt != nil && meta.InitStartedAt.IsValid() {
+		t := meta.InitStartedAt.AsTime()
+		initStartedAt = &t
+	}
+	if meta.InitCompletedAt != nil && meta.InitCompletedAt.IsValid() {
+		t := meta.InitCompletedAt.AsTime()
+		initCompletedAt = &t
+	}
+	if meta.LastSeen != nil && meta.LastSeen.IsValid() {
+		t := meta.LastSeen.AsTime()
+		lastSeen = &t
+	}
+
+	// Update the node's init metadata in the local database
+	// Only update fields that are present in the request
+	sql := `
+		UPDATE steep_repl.nodes
+		SET node_name = COALESCE(NULLIF($2, ''), node_name),
+		    init_state = COALESCE(NULLIF($3, ''), init_state),
+		    init_source_node = COALESCE(NULLIF($4, ''), init_source_node),
+		    init_started_at = COALESCE($5, init_started_at),
+		    init_completed_at = COALESCE($6, init_completed_at),
+		    last_seen = COALESCE($7, last_seen),
+		    grpc_host = COALESCE(NULLIF($8, ''), grpc_host),
+		    grpc_port = COALESCE(NULLIF($9, 0), grpc_port),
+		    priority = COALESCE(NULLIF($10, 0), priority)
+		WHERE node_id = $1
+	`
+
+	err := pool.Exec(ctx, sql,
+		meta.NodeId,
+		meta.NodeName,
+		meta.InitState,
+		meta.InitSourceNode,
+		initStartedAt,
+		initCompletedAt,
+		lastSeen,
+		meta.GrpcHost,
+		meta.GrpcPort,
+		meta.Priority,
+	)
+	if err != nil {
+		s.logger.Printf("Failed to sync metadata for node %s: %v", meta.NodeId, err)
+		return &pb.SyncNodeMetadataResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to sync metadata: %v", err),
+		}, nil
+	}
+
+	if s.debug {
+		s.logger.Printf("Synced metadata for node %s: init_state=%s, init_source_node=%s",
+			meta.NodeId, meta.InitState, meta.InitSourceNode)
+	}
+
+	return &pb.SyncNodeMetadataResponse{Success: true}, nil
+}
+
 // getNodes retrieves nodes from the database.
 func (s *Server) getNodes(ctx context.Context, pool *db.Pool, statusFilter []string) ([]*pb.NodeInfo, string, error) {
 	sql := `

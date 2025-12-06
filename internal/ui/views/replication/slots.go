@@ -21,23 +21,14 @@ func (v *ReplicationView) renderSlots() string {
 
 	var b strings.Builder
 
-	// Column headers
-	headers := []struct {
-		name  string
-		width int
-	}{
-		{"Name", 25},
-		{"Type", 10},
-		{"Active", 8},
-		{"Retained", 12},
-		{"WAL Status", 12},
-	}
+	// Column headers - adaptive for terminal width
+	headers := v.getSlotHeaders()
 
 	// Header row
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
 	var headerRow strings.Builder
 	for _, h := range headers {
-		headerRow.WriteString(headerStyle.Render(padRight(h.name, h.width)))
+		headerRow.WriteString(headerStyle.Render(padRight(h.Name, h.Width)))
 	}
 	b.WriteString(headerRow.String())
 	b.WriteString("\n")
@@ -68,11 +59,68 @@ func (v *ReplicationView) renderSlots() string {
 	return content + "\n" + v.renderFooter()
 }
 
+// getSlotHeaders returns headers adapted to terminal width.
+// Wide mode (>140): Shows LSN columns
+// Normal mode (85-140): Standard columns with flex Name
+// Narrow mode (<85): Essential columns only
+func (v *ReplicationView) getSlotHeaders() []ColumnConfig {
+	// Fixed width columns
+	const (
+		typeWidth      = 10
+		activeWidth    = 8
+		retainedWidth  = 12
+		walStatusWidth = 12
+		lsnWidth       = 14
+		databaseWidth  = 15
+	)
+
+	// Wide mode (>140): Add LSN and Database columns
+	if v.width >= 140 {
+		fixedWidth := typeWidth + activeWidth + retainedWidth + walStatusWidth + lsnWidth*2 + databaseWidth
+		nameWidth := max(20, (v.width-fixedWidth)/2)
+		if nameWidth > 35 {
+			nameWidth = 35
+		}
+		return []ColumnConfig{
+			{"Name", nameWidth, "name"},
+			{"Type", typeWidth, "type"},
+			{"Database", databaseWidth, "database"},
+			{"Active", activeWidth, "active"},
+			{"Restart LSN", lsnWidth, "restart_lsn"},
+			{"Confirmed LSN", lsnWidth, "confirmed_lsn"},
+			{"Retained", retainedWidth, "retained"},
+			{"WAL Status", walStatusWidth, "wal_status"},
+		}
+	}
+
+	// Normal mode (85-140): Standard columns with flex Name
+	if v.width >= 85 {
+		fixedWidth := typeWidth + activeWidth + retainedWidth + walStatusWidth
+		nameWidth := max(25, v.width-fixedWidth-2)
+		if nameWidth > 40 {
+			nameWidth = 40
+		}
+		return []ColumnConfig{
+			{"Name", nameWidth, "name"},
+			{"Type", typeWidth, "type"},
+			{"Active", activeWidth, "active"},
+			{"Retained", retainedWidth, "retained"},
+			{"WAL Status", walStatusWidth, "wal_status"},
+		}
+	}
+
+	// Narrow mode (<85): Essential columns only
+	return []ColumnConfig{
+		{"Name", 25, "name"},
+		{"Type", typeWidth, "type"},
+		{"Active", activeWidth, "active"},
+		{"Retained", retainedWidth, "retained"},
+		{"WAL Status", walStatusWidth, "wal_status"},
+	}
+}
+
 // renderSlotRow renders a single slot row.
-func (v *ReplicationView) renderSlotRow(s models.ReplicationSlot, selected bool, headers []struct {
-	name  string
-	width int
-}) string {
+func (v *ReplicationView) renderSlotRow(s models.ReplicationSlot, selected bool, headers []ColumnConfig) string {
 	baseStyle := lipgloss.NewStyle()
 	if selected {
 		baseStyle = baseStyle.Background(lipgloss.Color("236"))
@@ -122,12 +170,40 @@ func (v *ReplicationView) renderSlotRow(s models.ReplicationSlot, selected bool,
 		walStyle = walStyle.Foreground(lipgloss.Color("214"))
 	}
 
+	// Build row dynamically based on available columns
 	var row strings.Builder
-	row.WriteString(nameStyle.Render(padRight(truncateWithEllipsis(slotName, headers[0].width), headers[0].width)))
-	row.WriteString(baseStyle.Render(padRight(s.SlotType.String(), headers[1].width)))
-	row.WriteString(activeStyle.Render(padRight(activeStr, headers[2].width)))
-	row.WriteString(retainedStyle.Render(padRight(retainedStr, headers[3].width)))
-	row.WriteString(walStyle.Render(padRight(s.WALStatus, headers[4].width)))
+	for _, h := range headers {
+		switch h.Key {
+		case "name":
+			row.WriteString(nameStyle.Render(padRight(truncateWithEllipsis(slotName, h.Width), h.Width)))
+		case "type":
+			row.WriteString(baseStyle.Render(padRight(s.SlotType.String(), h.Width)))
+		case "database":
+			db := s.Database
+			if db == "" {
+				db = "-"
+			}
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(db, h.Width), h.Width)))
+		case "active":
+			row.WriteString(activeStyle.Render(padRight(activeStr, h.Width)))
+		case "restart_lsn":
+			lsn := s.RestartLSN
+			if lsn == "" {
+				lsn = "-"
+			}
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(lsn, h.Width), h.Width)))
+		case "confirmed_lsn":
+			lsn := s.ConfirmedFlushLSN
+			if lsn == "" {
+				lsn = "-"
+			}
+			row.WriteString(baseStyle.Render(padRight(truncateWithEllipsis(lsn, h.Width), h.Width)))
+		case "retained":
+			row.WriteString(retainedStyle.Render(padRight(retainedStr, h.Width)))
+		case "wal_status":
+			row.WriteString(walStyle.Render(padRight(s.WALStatus, h.Width)))
+		}
+	}
 
 	return row.String()
 }
