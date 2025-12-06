@@ -164,18 +164,18 @@
 
 ### Tests for User Story 5
 
-- [ ] T053 [P] [US5] Integration test for fingerprint computation in tests/integration/repl/schema_test.go
-- [ ] T054 [P] [US5] Integration test for schema comparison in tests/integration/repl/schema_test.go (match, mismatch, local_only, remote_only)
+- [X] T053 [P] [US5] Integration test for fingerprint computation in tests/integration/repl/schema_test.go
+- [X] T054 [P] [US5] Integration test for schema comparison in tests/integration/repl/schema_test.go (match, mismatch, local_only, remote_only)
 
 ### Implementation for User Story 5
 
-- [ ] T055 [US5] Implement compare_fingerprints(peer_node) SQL function in extensions/steep_repl/src/lib.rs (uses postgres_fdw or dblink)
-- [ ] T056 [US5] Create schema.go in internal/repl/init/ for fingerprint operations (capture, compare, diff)
-- [ ] T057 [US5] Implement CompareSchemas RPC handler in internal/repl/grpc/handlers.go
-- [ ] T058 [US5] Add schema compare CLI command in cmd/steep-repl/main.go (`steep-repl schema compare <node-a> <node-b>`)
-- [ ] T059 [US5] Add schema diff CLI command in cmd/steep-repl/main.go (`steep-repl schema diff <node-a> <node-b> <table>`)
-- [ ] T060 [US5] Add schema capture CLI command in cmd/steep-repl/main.go (`steep-repl schema capture --node <node>`)
-- [ ] T061 [US5] Integrate schema check before init in internal/repl/init/manager.go (fail fast on mismatch in strict mode, use source daemon gRPC for remote fingerprints)
+- [X] T055 [US5] Implement compare_fingerprints(peer_node) SQL function in extensions/steep_repl/src/lib.rs (uses postgres_fdw or dblink)
+- [X] T056 [US5] Create schema.go in internal/repl/init/ for fingerprint operations (capture, compare, diff)
+- [X] T057 [US5] Implement CompareSchemas RPC handler in internal/repl/grpc/handlers.go
+- [X] T058 [US5] Add schema compare CLI command in cmd/steep-repl/main.go (`steep-repl schema compare <node-a> <node-b>`)
+- [X] T059 [US5] Add schema diff CLI command in cmd/steep-repl/main.go (`steep-repl schema diff <node-a> <node-b> <table>`)
+- [X] T060 [US5] Add schema capture CLI command in cmd/steep-repl/main.go (`steep-repl schema capture --node <node>`)
+- [X] T061 [US5] Integrate schema check before init in internal/repl/init/manager.go (fail fast on mismatch in strict mode, use source daemon gRPC for remote fingerprints)
 
 **Checkpoint**: Schema fingerprinting detects drift with detailed diff output
 

@@ -41,6 +41,12 @@ service InitService {
     // Get schema fingerprints from this node's database
     rpc GetSchemaFingerprints(GetSchemaFingerprintsRequest) returns (GetSchemaFingerprintsResponse);
 
+    // Get column-level differences for a specific table
+    rpc GetColumnDiff(GetColumnDiffRequest) returns (GetColumnDiffResponse);
+
+    // Capture fingerprints for tables in the local database
+    rpc CaptureFingerprints(CaptureFingerprintsRequest) returns (CaptureFingerprintsResponse);
+
     // Generate snapshot (two-phase, phase 1)
     rpc GenerateSnapshot(GenerateSnapshotRequest) returns (stream SnapshotProgress);
 
@@ -305,6 +311,39 @@ message TableFingerprint {
     string schema_name = 1;
     string table_name = 2;
     string fingerprint = 3;            // SHA256 hash of column definitions
+    string column_definitions = 4;     // JSON array of column info for diff display
+}
+
+// =============================================================================
+// Column Diff (for detailed schema comparison)
+// =============================================================================
+
+message GetColumnDiffRequest {
+    string peer_node_id = 1;            // Remote node to compare against
+    string table_schema = 2;            // Schema name (e.g., "public")
+    string table_name = 3;              // Table name (e.g., "users")
+}
+
+message GetColumnDiffResponse {
+    bool success = 1;
+    string error = 2;
+    repeated ColumnDifference differences = 3;
+}
+
+// =============================================================================
+// Capture Fingerprints
+// =============================================================================
+
+message CaptureFingerprintsRequest {
+    string node_id = 1;                 // Node ID to associate fingerprints with
+    repeated string schemas = 2;        // Schemas to capture (empty = all)
+}
+
+message CaptureFingerprintsResponse {
+    bool success = 1;
+    string error = 2;
+    int32 table_count = 3;              // Number of tables fingerprinted
+    repeated TableFingerprint fingerprints = 4;  // Captured fingerprints
 }
 
 // =============================================================================

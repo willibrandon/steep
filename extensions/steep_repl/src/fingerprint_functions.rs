@@ -22,11 +22,12 @@ $$ LANGUAGE sql STABLE;
 
 COMMENT ON FUNCTION steep_repl.compute_fingerprint(TEXT, TEXT) IS 'Compute SHA256 fingerprint of table column definitions';
 
--- Capture fingerprint for a table (insert or update)
-CREATE FUNCTION steep_repl.capture_fingerprint(p_schema TEXT, p_table TEXT)
+-- Capture fingerprint for a table (insert or update) with node_id
+CREATE FUNCTION steep_repl.capture_fingerprint(p_node_id TEXT, p_schema TEXT, p_table TEXT)
 RETURNS steep_repl.schema_fingerprints AS $$
-    INSERT INTO steep_repl.schema_fingerprints (table_schema, table_name, fingerprint, column_count, column_definitions)
+    INSERT INTO steep_repl.schema_fingerprints (node_id, table_schema, table_name, fingerprint, column_count, column_definitions)
     SELECT
+        p_node_id,
         p_schema,
         p_table,
         steep_repl.compute_fingerprint(p_schema, p_table),
@@ -40,8 +41,8 @@ RETURNS steep_repl.schema_fingerprints AS $$
         ) ORDER BY ordinal_position)
     FROM information_schema.columns
     WHERE table_schema = p_schema AND table_name = p_table
-    GROUP BY 1, 2
-    ON CONFLICT (table_schema, table_name) DO UPDATE SET
+    GROUP BY 1, 2, 3
+    ON CONFLICT (node_id, table_schema, table_name) DO UPDATE SET
         fingerprint = EXCLUDED.fingerprint,
         column_count = EXCLUDED.column_count,
         column_definitions = EXCLUDED.column_definitions,
@@ -49,10 +50,10 @@ RETURNS steep_repl.schema_fingerprints AS $$
     RETURNING *;
 $$ LANGUAGE sql;
 
-COMMENT ON FUNCTION steep_repl.capture_fingerprint(TEXT, TEXT) IS 'Capture and store schema fingerprint for a table';
+COMMENT ON FUNCTION steep_repl.capture_fingerprint(TEXT, TEXT, TEXT) IS 'Capture and store schema fingerprint for a table with node_id';
 
--- Capture all user tables
-CREATE FUNCTION steep_repl.capture_all_fingerprints()
+-- Capture all user tables for a specific node
+CREATE FUNCTION steep_repl.capture_all_fingerprints(p_node_id TEXT)
 RETURNS INTEGER AS $$
 DECLARE
     v_count INTEGER := 0;
@@ -63,19 +64,19 @@ BEGIN
         FROM pg_tables
         WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'steep_repl')
     LOOP
-        PERFORM steep_repl.capture_fingerprint(rec.schemaname, rec.tablename);
+        PERFORM steep_repl.capture_fingerprint(p_node_id, rec.schemaname, rec.tablename);
         v_count := v_count + 1;
     END LOOP;
     RETURN v_count;
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION steep_repl.capture_all_fingerprints() IS 'Capture fingerprints for all user tables';
+COMMENT ON FUNCTION steep_repl.capture_all_fingerprints(TEXT) IS 'Capture fingerprints for all user tables for a specific node';
 
 -- Compare fingerprints with a peer node via dblink
 -- Returns a table of comparison results
 -- Requires dblink extension and peer node connection info in steep_repl.nodes
-CREATE FUNCTION steep_repl.compare_fingerprints(p_peer_node TEXT)
+CREATE FUNCTION steep_repl.compare_fingerprints(p_local_node TEXT, p_peer_node TEXT)
 RETURNS TABLE (
     table_schema TEXT,
     table_name TEXT,
@@ -112,7 +113,7 @@ BEGIN
     );
 
     -- Capture local fingerprints first
-    PERFORM steep_repl.capture_all_fingerprints();
+    PERFORM steep_repl.capture_all_fingerprints(p_local_node);
 
     -- Create temp table for remote fingerprints
     CREATE TEMP TABLE IF NOT EXISTS _remote_fps (
@@ -156,12 +157,13 @@ BEGIN
     FROM steep_repl.schema_fingerprints l
     FULL OUTER JOIN _remote_fps r
         ON l.table_schema = r.table_schema AND l.table_name = r.table_name
+    WHERE l.node_id = p_local_node OR l.node_id IS NULL
     ORDER BY table_schema, table_name;
 
 END;
 $function$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION steep_repl.compare_fingerprints(TEXT) IS 'Compare schema fingerprints with a peer node via dblink';
+COMMENT ON FUNCTION steep_repl.compare_fingerprints(TEXT, TEXT) IS 'Compare schema fingerprints with a peer node via dblink';
 
 -- Get detailed column differences between local and remote table
 -- Used when compare_fingerprints returns MISMATCH status
@@ -364,19 +366,19 @@ mod tests {
         Spi::run("CREATE TABLE IF NOT EXISTS public.test_capture_table (id INT, name TEXT, created_at TIMESTAMP)")
             .expect("create test table");
 
-        // Capture fingerprint
-        Spi::run("SELECT steep_repl.capture_fingerprint('public', 'test_capture_table')")
+        // Capture fingerprint with node_id
+        Spi::run("SELECT steep_repl.capture_fingerprint('test-node', 'public', 'test_capture_table')")
             .expect("capture fingerprint should succeed");
 
         // Verify it's stored
         let result = Spi::get_one::<i32>(
             "SELECT column_count FROM steep_repl.schema_fingerprints
-             WHERE table_schema = 'public' AND table_name = 'test_capture_table'"
+             WHERE node_id = 'test-node' AND table_schema = 'public' AND table_name = 'test_capture_table'"
         );
         assert_eq!(result, Ok(Some(3)), "should have 3 columns");
 
         // Cleanup
-        Spi::run("DELETE FROM steep_repl.schema_fingerprints WHERE table_schema = 'public' AND table_name = 'test_capture_table'")
+        Spi::run("DELETE FROM steep_repl.schema_fingerprints WHERE node_id = 'test-node' AND table_schema = 'public' AND table_name = 'test_capture_table'")
             .expect("cleanup fingerprint should succeed");
         Spi::run("DROP TABLE IF EXISTS public.test_capture_table").expect("cleanup test table");
     }
@@ -387,13 +389,13 @@ mod tests {
         Spi::run("CREATE TABLE IF NOT EXISTS public.test_update_table (id INT)")
             .expect("create test table");
 
-        // Capture fingerprint
-        Spi::run("SELECT steep_repl.capture_fingerprint('public', 'test_update_table')")
+        // Capture fingerprint with node_id
+        Spi::run("SELECT steep_repl.capture_fingerprint('test-node', 'public', 'test_update_table')")
             .expect("first capture should succeed");
 
         let result = Spi::get_one::<i32>(
             "SELECT column_count FROM steep_repl.schema_fingerprints
-             WHERE table_schema = 'public' AND table_name = 'test_update_table'"
+             WHERE node_id = 'test-node' AND table_schema = 'public' AND table_name = 'test_update_table'"
         );
         assert_eq!(result, Ok(Some(1)), "should have 1 column initially");
 
@@ -402,17 +404,17 @@ mod tests {
             .expect("alter table should succeed");
 
         // Re-capture fingerprint
-        Spi::run("SELECT steep_repl.capture_fingerprint('public', 'test_update_table')")
+        Spi::run("SELECT steep_repl.capture_fingerprint('test-node', 'public', 'test_update_table')")
             .expect("second capture should succeed");
 
         let result = Spi::get_one::<i32>(
             "SELECT column_count FROM steep_repl.schema_fingerprints
-             WHERE table_schema = 'public' AND table_name = 'test_update_table'"
+             WHERE node_id = 'test-node' AND table_schema = 'public' AND table_name = 'test_update_table'"
         );
         assert_eq!(result, Ok(Some(2)), "should have 2 columns after alter");
 
         // Cleanup
-        Spi::run("DELETE FROM steep_repl.schema_fingerprints WHERE table_schema = 'public' AND table_name = 'test_update_table'")
+        Spi::run("DELETE FROM steep_repl.schema_fingerprints WHERE node_id = 'test-node' AND table_schema = 'public' AND table_name = 'test_update_table'")
             .expect("cleanup fingerprint should succeed");
         Spi::run("DROP TABLE IF EXISTS public.test_update_table").expect("cleanup test table");
     }
@@ -423,8 +425,8 @@ mod tests {
         Spi::run("CREATE TABLE IF NOT EXISTS public.test_all_1 (id INT)").expect("create test table 1");
         Spi::run("CREATE TABLE IF NOT EXISTS public.test_all_2 (id INT)").expect("create test table 2");
 
-        // Capture all fingerprints
-        let result = Spi::get_one::<i32>("SELECT steep_repl.capture_all_fingerprints()");
+        // Capture all fingerprints with node_id
+        let result = Spi::get_one::<i32>("SELECT steep_repl.capture_all_fingerprints('test-node')");
 
         match result {
             Ok(Some(count)) => {
@@ -434,7 +436,7 @@ mod tests {
         }
 
         // Cleanup
-        Spi::run("DELETE FROM steep_repl.schema_fingerprints WHERE table_schema = 'public' AND table_name LIKE 'test_all_%'")
+        Spi::run("DELETE FROM steep_repl.schema_fingerprints WHERE node_id = 'test-node' AND table_schema = 'public' AND table_name LIKE 'test_all_%'")
             .expect("cleanup fingerprints should succeed");
         Spi::run("DROP TABLE IF EXISTS public.test_all_1").expect("cleanup test table 1");
         Spi::run("DROP TABLE IF EXISTS public.test_all_2").expect("cleanup test table 2");

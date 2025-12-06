@@ -168,3 +168,23 @@ func (c *Client) GetHealthCheckResult(ctx context.Context) (*HealthCheckResult, 
 
 	return result, nil
 }
+
+// GetSchemaFingerprints retrieves schema fingerprints for all tables.
+func (c *Client) GetSchemaFingerprints(ctx context.Context, req *pb.GetSchemaFingerprintsRequest) (*pb.GetSchemaFingerprintsResponse, error) {
+	return c.initClient.GetSchemaFingerprints(ctx, req)
+}
+
+// CompareSchemas compares schemas between the local node and a remote node.
+func (c *Client) CompareSchemas(ctx context.Context, req *pb.CompareSchemasRequest) (*pb.CompareSchemasResponse, error) {
+	return c.initClient.CompareSchemas(ctx, req)
+}
+
+// GetColumnDiff retrieves column-level differences for a specific table.
+func (c *Client) GetColumnDiff(ctx context.Context, req *pb.GetColumnDiffRequest) (*pb.GetColumnDiffResponse, error) {
+	return c.initClient.GetColumnDiff(ctx, req)
+}
+
+// CaptureFingerprints captures and stores fingerprints for all tables.
+func (c *Client) CaptureFingerprints(ctx context.Context, req *pb.CaptureFingerprintsRequest) (*pb.CaptureFingerprintsResponse, error) {
+	return c.initClient.CaptureFingerprints(ctx, req)
+}

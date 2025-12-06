@@ -381,7 +381,8 @@ func (s *InitServer) StartReinit(ctx context.Context, req *pb.StartReinitRequest
 }
 
 // CompareSchemas handles the CompareSchemas RPC.
-// Implemented in T057 (Phase 7: User Story 5).
+// Compares schema fingerprints between the local database and a remote node.
+// The remote node's fingerprints are retrieved via gRPC GetSchemaFingerprints.
 func (s *InitServer) CompareSchemas(ctx context.Context, req *pb.CompareSchemasRequest) (*pb.CompareSchemasResponse, error) {
 	s.logRequest("CompareSchemas", fmt.Sprintf("%s vs %s", req.LocalNodeId, req.RemoteNodeId))
 
@@ -392,12 +393,46 @@ func (s *InitServer) CompareSchemas(ctx context.Context, req *pb.CompareSchemasR
 		return nil, status.Error(codes.InvalidArgument, "remote_node_id is required")
 	}
 
-	// This is a skeleton - actual implementation in T057
+	// Get the schema comparator from manager
+	result, err := s.manager.CompareSchemas(ctx, req.LocalNodeId, req.RemoteNodeId, req.Schemas)
+	if err != nil {
+		return &pb.CompareSchemasResponse{
+			Success: false,
+			Error:   fmt.Sprintf("schema comparison failed: %v", err),
+		}, nil
+	}
+
+	// Convert to proto
+	var comparisons []*pb.SchemaComparison
+	for _, comp := range result.Comparisons {
+		pbComp := &pb.SchemaComparison{
+			TableSchema:       comp.TableSchema,
+			TableName:         comp.TableName,
+			LocalFingerprint:  comp.LocalFingerprint,
+			RemoteFingerprint: comp.RemoteFingerprint,
+			Status:            comparisonStatusToProto(comp.Status),
+		}
+
+		// Convert differences
+		for _, diff := range comp.Differences {
+			pbComp.Differences = append(pbComp.Differences, &pb.ColumnDifference{
+				ColumnName:       diff.ColumnName,
+				DifferenceType:   diff.DifferenceType,
+				LocalDefinition:  diff.LocalDefinition,
+				RemoteDefinition: diff.RemoteDefinition,
+			})
+		}
+
+		comparisons = append(comparisons, pbComp)
+	}
+
 	return &pb.CompareSchemasResponse{
-		Success:       false,
-		Error:         "not implemented: CompareSchemas (see T057)",
-		MatchCount:    0,
-		MismatchCount: 0,
+		Success:         true,
+		Comparisons:     comparisons,
+		MatchCount:      int32(result.MatchCount),
+		MismatchCount:   int32(result.MismatchCount),
+		LocalOnlyCount:  int32(result.LocalOnlyCount),
+		RemoteOnlyCount: int32(result.RemoteOnlyCount),
 	}, nil
 }
 
@@ -406,7 +441,7 @@ func (s *InitServer) CompareSchemas(ctx context.Context, req *pb.CompareSchemasR
 func (s *InitServer) GetSchemaFingerprints(ctx context.Context, req *pb.GetSchemaFingerprintsRequest) (*pb.GetSchemaFingerprintsResponse, error) {
 	s.logRequest("GetSchemaFingerprints", "")
 
-	fingerprints, err := s.manager.GetTableFingerprints(ctx)
+	fingerprints, err := s.manager.GetTableFingerprintsWithDefs(ctx)
 	if err != nil {
 		return &pb.GetSchemaFingerprintsResponse{
 			Success: false,
@@ -416,7 +451,7 @@ func (s *InitServer) GetSchemaFingerprints(ctx context.Context, req *pb.GetSchem
 
 	// Convert map to slice of TableFingerprint
 	var result []*pb.TableFingerprint
-	for key, fp := range fingerprints {
+	for key, info := range fingerprints {
 		parts := strings.SplitN(key, ".", 2)
 		schema := "public"
 		table := key
@@ -425,15 +460,109 @@ func (s *InitServer) GetSchemaFingerprints(ctx context.Context, req *pb.GetSchem
 			table = parts[1]
 		}
 		result = append(result, &pb.TableFingerprint{
-			SchemaName:  schema,
-			TableName:   table,
-			Fingerprint: fp,
+			SchemaName:        schema,
+			TableName:         table,
+			Fingerprint:       info.Fingerprint,
+			ColumnDefinitions: info.ColumnDefinitions,
 		})
 	}
 
 	return &pb.GetSchemaFingerprintsResponse{
 		Success:      true,
 		Fingerprints: result,
+	}, nil
+}
+
+// GetColumnDiff handles the GetColumnDiff RPC.
+// Returns detailed column-level differences for a specific table.
+func (s *InitServer) GetColumnDiff(ctx context.Context, req *pb.GetColumnDiffRequest) (*pb.GetColumnDiffResponse, error) {
+	s.logRequest("GetColumnDiff", fmt.Sprintf("%s.%s vs %s", req.TableSchema, req.TableName, req.PeerNodeId))
+
+	if req.TableSchema == "" {
+		return nil, status.Error(codes.InvalidArgument, "table_schema is required")
+	}
+	if req.TableName == "" {
+		return nil, status.Error(codes.InvalidArgument, "table_name is required")
+	}
+	if req.PeerNodeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "peer_node_id is required")
+	}
+
+	// Get column differences from manager
+	diffs, err := s.manager.GetColumnDiff(ctx, req.PeerNodeId, req.TableSchema, req.TableName)
+	if err != nil {
+		return &pb.GetColumnDiffResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to get column diff: %v", err),
+		}, nil
+	}
+
+	// Convert to proto
+	var pbDiffs []*pb.ColumnDifference
+	for _, diff := range diffs {
+		pbDiffs = append(pbDiffs, &pb.ColumnDifference{
+			ColumnName:       diff.ColumnName,
+			DifferenceType:   diff.DifferenceType,
+			LocalDefinition:  diff.LocalDefinition,
+			RemoteDefinition: diff.RemoteDefinition,
+		})
+	}
+
+	return &pb.GetColumnDiffResponse{
+		Success:     true,
+		Differences: pbDiffs,
+	}, nil
+}
+
+// CaptureFingerprints handles the CaptureFingerprints RPC.
+// Captures and stores fingerprints for all tables in the specified schemas.
+func (s *InitServer) CaptureFingerprints(ctx context.Context, req *pb.CaptureFingerprintsRequest) (*pb.CaptureFingerprintsResponse, error) {
+	s.logRequest("CaptureFingerprints", req.NodeId)
+
+	if req.NodeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "node_id is required")
+	}
+
+	// Capture fingerprints via manager
+	err := s.manager.CaptureFingerprints(ctx, req.NodeId, req.Schemas)
+	if err != nil {
+		return &pb.CaptureFingerprintsResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to capture fingerprints: %v", err),
+		}, nil
+	}
+
+	// Get captured fingerprints
+	fingerprints, err := s.manager.GetTableFingerprints(ctx)
+	if err != nil {
+		return &pb.CaptureFingerprintsResponse{
+			Success:    true,
+			TableCount: 0, // Can't determine count, but capture succeeded
+		}, nil
+	}
+
+	// Convert to proto format
+	protoFingerprints := make([]*pb.TableFingerprint, 0, len(fingerprints))
+	for key, fp := range fingerprints {
+		// key is "schema.table" format
+		parts := strings.SplitN(key, ".", 2)
+		schemaName := "public"
+		tableName := key
+		if len(parts) == 2 {
+			schemaName = parts[0]
+			tableName = parts[1]
+		}
+		protoFingerprints = append(protoFingerprints, &pb.TableFingerprint{
+			SchemaName:  schemaName,
+			TableName:   tableName,
+			Fingerprint: fp,
+		})
+	}
+
+	return &pb.CaptureFingerprintsResponse{
+		Success:      true,
+		TableCount:   int32(len(fingerprints)),
+		Fingerprints: protoFingerprints,
 	}, nil
 }
 
@@ -533,5 +662,21 @@ func modelStateToProto(s models.InitState) pb.InitState {
 		return pb.InitState_INIT_STATE_REINITIALIZING
 	default:
 		return pb.InitState_INIT_STATE_UNSPECIFIED
+	}
+}
+
+// comparisonStatusToProto converts an init.ComparisonStatus to pb.ComparisonStatus.
+func comparisonStatusToProto(s replinit.ComparisonStatus) pb.ComparisonStatus {
+	switch s {
+	case replinit.ComparisonMatch:
+		return pb.ComparisonStatus_COMPARISON_STATUS_MATCH
+	case replinit.ComparisonMismatch:
+		return pb.ComparisonStatus_COMPARISON_STATUS_MISMATCH
+	case replinit.ComparisonLocalOnly:
+		return pb.ComparisonStatus_COMPARISON_STATUS_LOCAL_ONLY
+	case replinit.ComparisonRemoteOnly:
+		return pb.ComparisonStatus_COMPARISON_STATUS_REMOTE_ONLY
+	default:
+		return pb.ComparisonStatus_COMPARISON_STATUS_UNSPECIFIED
 	}
 }

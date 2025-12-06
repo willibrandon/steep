@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -465,10 +466,30 @@ func (m *ManualInitializer) getTableFingerprints(ctx context.Context, pool *pgxp
 	return GetTableFingerprints(ctx, pool)
 }
 
+// TableFingerprintInfo contains fingerprint and column definitions for a table.
+type TableFingerprintInfo struct {
+	Fingerprint       string
+	ColumnDefinitions string // JSON array
+}
+
 // GetTableFingerprints computes fingerprints for all user tables.
 // Exported for use by gRPC handlers.
 func GetTableFingerprints(ctx context.Context, pool *pgxpool.Pool) (map[string]string, error) {
-	fingerprints := make(map[string]string)
+	info, err := GetTableFingerprintsWithDefs(ctx, pool)
+	if err != nil {
+		return nil, err
+	}
+	// Return just the fingerprints for backwards compatibility
+	result := make(map[string]string)
+	for k, v := range info {
+		result[k] = v.Fingerprint
+	}
+	return result, nil
+}
+
+// GetTableFingerprintsWithDefs computes fingerprints and returns column definitions for all user tables.
+func GetTableFingerprintsWithDefs(ctx context.Context, pool *pgxpool.Pool) (map[string]TableFingerprintInfo, error) {
+	fingerprints := make(map[string]TableFingerprintInfo)
 
 	query := `
 		SELECT table_schema, table_name, column_name, data_type,
@@ -486,11 +507,11 @@ func GetTableFingerprints(ctx context.Context, pool *pgxpool.Pool) (map[string]s
 
 	// Group columns by table
 	type columnInfo struct {
-		Name      string
-		Type      string
-		Default   string
-		Nullable  string
-		Position  int
+		Name     string `json:"name"`
+		Type     string `json:"type"`
+		Default  string `json:"default"`
+		Nullable string `json:"nullable"`
+		Position int    `json:"position"`
 	}
 	tableColumns := make(map[string][]columnInfo)
 
@@ -531,7 +552,14 @@ func GetTableFingerprints(ctx context.Context, pool *pgxpool.Pool) (map[string]s
 
 		// Hash it
 		hash := sha256.Sum256([]byte(fpString))
-		fingerprints[key] = hex.EncodeToString(hash[:])
+
+		// JSON encode column definitions
+		colDefsJSON, _ := json.Marshal(columns)
+
+		fingerprints[key] = TableFingerprintInfo{
+			Fingerprint:       hex.EncodeToString(hash[:]),
+			ColumnDefinitions: string(colDefsJSON),
+		}
 	}
 
 	return fingerprints, nil

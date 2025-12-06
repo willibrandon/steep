@@ -242,6 +242,11 @@ func (m *Manager) GetTableFingerprints(ctx context.Context) (map[string]string, 
 	return GetTableFingerprints(ctx, m.pool)
 }
 
+// GetTableFingerprintsWithDefs returns fingerprints with column definitions for all user tables.
+func (m *Manager) GetTableFingerprintsWithDefs(ctx context.Context) (map[string]TableFingerprintInfo, error) {
+	return GetTableFingerprintsWithDefs(ctx, m.pool)
+}
+
 // GetNodeState returns the current init_state for a node.
 func (m *Manager) GetNodeState(ctx context.Context, nodeID string) (models.InitState, error) {
 	var state models.InitState
@@ -384,6 +389,48 @@ func (m *Manager) RegisterSourceNode(ctx context.Context, nodeID string, info So
 	})
 
 	return nil
+}
+
+// CompareSchemas compares schema fingerprints between the local node and a remote node.
+// It retrieves the remote fingerprints from the nodes table or via direct query,
+// then compares them against the local database schema.
+func (m *Manager) CompareSchemas(ctx context.Context, localNodeID, remoteNodeID string, schemas []string) (*CompareResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Create schema comparator
+	comparator := NewSchemaComparator(m.pool)
+
+	// Use the Compare method which handles both local and remote comparison
+	return comparator.Compare(ctx, localNodeID, remoteNodeID, schemas)
+}
+
+// CompareWithRemoteFingerprints compares local schema against remotely-provided fingerprints.
+// This is used when fingerprints are retrieved via gRPC GetSchemaFingerprints.
+func (m *Manager) CompareWithRemoteFingerprints(ctx context.Context, localNodeID string, remoteFingerprints map[string]string) (*CompareResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	comparator := NewSchemaComparator(m.pool)
+	return comparator.CompareWithRemote(ctx, localNodeID, remoteFingerprints)
+}
+
+// GetColumnDiff returns detailed column differences for a mismatched table.
+func (m *Manager) GetColumnDiff(ctx context.Context, peerNodeID, tableSchema, tableName string) ([]ColumnDifference, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	comparator := NewSchemaComparator(m.pool)
+	return comparator.GetDiff(ctx, peerNodeID, tableSchema, tableName)
+}
+
+// CaptureFingerprints captures fingerprints for all tables in the specified schemas.
+func (m *Manager) CaptureFingerprints(ctx context.Context, nodeID string, schemas []string) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	comparator := NewSchemaComparator(m.pool)
+	return comparator.CaptureFingerprints(ctx, nodeID, schemas)
 }
 
 // parseSizeThreshold parses a human-readable size string (e.g., "10GB", "500MB")

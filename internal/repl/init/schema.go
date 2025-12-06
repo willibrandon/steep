@@ -3,6 +3,7 @@ package init
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -160,7 +161,186 @@ func (s *SchemaComparator) Compare(ctx context.Context, localNodeID, remoteNodeI
 }
 
 // GetDiff returns detailed column differences for a mismatched table.
-// Implemented in T059 (Phase 7: User Story 5).
-func (s *SchemaComparator) GetDiff(ctx context.Context, localNodeID, remoteNodeID, tableSchema, tableName string) ([]ColumnDifference, error) {
-	return nil, fmt.Errorf("not implemented")
+// Uses the steep_repl.get_column_diff() SQL function to get differences via dblink.
+func (s *SchemaComparator) GetDiff(ctx context.Context, peerNodeID, tableSchema, tableName string) ([]ColumnDifference, error) {
+	query := `
+		SELECT column_name, difference_type, local_definition, remote_definition
+		FROM steep_repl.get_column_diff($1, $2, $3)
+		WHERE difference_type <> 'match'
+	`
+
+	rows, err := s.pool.Query(ctx, query, peerNodeID, tableSchema, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get column diff: %w", err)
+	}
+	defer rows.Close()
+
+	var diffs []ColumnDifference
+	for rows.Next() {
+		var diff ColumnDifference
+		if err := rows.Scan(
+			&diff.ColumnName,
+			&diff.DifferenceType,
+			&diff.LocalDefinition,
+			&diff.RemoteDefinition,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan column diff: %w", err)
+		}
+		diffs = append(diffs, diff)
+	}
+
+	return diffs, nil
+}
+
+// TableFingerprint represents a single table's fingerprint.
+type TableFingerprint struct {
+	SchemaName  string
+	TableName   string
+	Fingerprint string
+}
+
+// GetLocalFingerprints retrieves fingerprints for all local tables.
+// This is used when a remote node requests fingerprints via gRPC.
+func (s *SchemaComparator) GetLocalFingerprints(ctx context.Context, nodeID string) (map[string]string, error) {
+	// Capture all fingerprints first (now requires node_id)
+	_, err := s.pool.Exec(ctx, "SELECT steep_repl.capture_all_fingerprints($1)", nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to capture fingerprints: %w", err)
+	}
+
+	// Query the stored fingerprints for this node
+	query := `
+		SELECT table_schema, table_name, fingerprint
+		FROM steep_repl.schema_fingerprints
+		WHERE node_id = $1
+		ORDER BY table_schema, table_name
+	`
+
+	rows, err := s.pool.Query(ctx, query, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query fingerprints: %w", err)
+	}
+	defer rows.Close()
+
+	fingerprints := make(map[string]string)
+	for rows.Next() {
+		var schema, table, fp string
+		if err := rows.Scan(&schema, &table, &fp); err != nil {
+			return nil, fmt.Errorf("failed to scan fingerprint: %w", err)
+		}
+		key := schema + "." + table
+		fingerprints[key] = fp
+	}
+
+	return fingerprints, nil
+}
+
+// RemoteFingerprints represents fingerprints retrieved from a remote node.
+type RemoteFingerprints struct {
+	NodeID       string
+	Fingerprints map[string]string // key: "schema.table", value: fingerprint
+}
+
+// CompareWithRemote compares local fingerprints against remote fingerprints.
+// The remote fingerprints should be obtained via gRPC GetSchemaFingerprints.
+func (s *SchemaComparator) CompareWithRemote(ctx context.Context, localNodeID string, remoteFingerprints map[string]string) (*CompareResult, error) {
+	// Get local fingerprints
+	localFingerprints, err := s.GetLocalFingerprints(ctx, localNodeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get local fingerprints: %w", err)
+	}
+
+	result := &CompareResult{}
+
+	// Check all local tables
+	for key, localFP := range localFingerprints {
+		parts := strings.SplitN(key, ".", 2)
+		schema := "public"
+		table := key
+		if len(parts) == 2 {
+			schema = parts[0]
+			table = parts[1]
+		}
+
+		comp := SchemaComparison{
+			TableSchema:      schema,
+			TableName:        table,
+			LocalFingerprint: localFP,
+		}
+
+		if remoteFP, exists := remoteFingerprints[key]; exists {
+			comp.RemoteFingerprint = remoteFP
+			if localFP == remoteFP {
+				comp.Status = ComparisonMatch
+				result.MatchCount++
+			} else {
+				comp.Status = ComparisonMismatch
+				result.MismatchCount++
+			}
+		} else {
+			comp.Status = ComparisonLocalOnly
+			result.LocalOnlyCount++
+		}
+
+		result.Comparisons = append(result.Comparisons, comp)
+	}
+
+	// Check for remote-only tables
+	for key, remoteFP := range remoteFingerprints {
+		if _, exists := localFingerprints[key]; !exists {
+			parts := strings.SplitN(key, ".", 2)
+			schema := "public"
+			table := key
+			if len(parts) == 2 {
+				schema = parts[0]
+				table = parts[1]
+			}
+
+			comp := SchemaComparison{
+				TableSchema:       schema,
+				TableName:         table,
+				RemoteFingerprint: remoteFP,
+				Status:            ComparisonRemoteOnly,
+			}
+			result.Comparisons = append(result.Comparisons, comp)
+			result.RemoteOnlyCount++
+		}
+	}
+
+	return result, nil
+}
+
+// ComputeFingerprint computes the fingerprint for a single table.
+func (s *SchemaComparator) ComputeFingerprint(ctx context.Context, tableSchema, tableName string) (string, error) {
+	var fingerprint string
+	err := s.pool.QueryRow(ctx,
+		"SELECT steep_repl.compute_fingerprint($1, $2)",
+		tableSchema, tableName,
+	).Scan(&fingerprint)
+	if err != nil {
+		return "", fmt.Errorf("failed to compute fingerprint: %w", err)
+	}
+	return fingerprint, nil
+}
+
+// CaptureFingerprint captures and stores the fingerprint for a single table.
+func (s *SchemaComparator) CaptureFingerprint(ctx context.Context, tableSchema, tableName string) error {
+	_, err := s.pool.Exec(ctx,
+		"SELECT steep_repl.capture_fingerprint($1, $2)",
+		tableSchema, tableName,
+	)
+	return err
+}
+
+// HasMismatch returns true if the comparison result contains any mismatches.
+func (r *CompareResult) HasMismatch() bool {
+	return r.MismatchCount > 0 || r.LocalOnlyCount > 0 || r.RemoteOnlyCount > 0
+}
+
+// Summary returns a human-readable summary of the comparison result.
+func (r *CompareResult) Summary() string {
+	return fmt.Sprintf(
+		"match=%d, mismatch=%d, local_only=%d, remote_only=%d",
+		r.MatchCount, r.MismatchCount, r.LocalOnlyCount, r.RemoteOnlyCount,
+	)
 }

@@ -31,6 +31,8 @@ const (
 	InitService_StartReinit_FullMethodName           = "/steep.repl.v1.InitService/StartReinit"
 	InitService_CompareSchemas_FullMethodName        = "/steep.repl.v1.InitService/CompareSchemas"
 	InitService_GetSchemaFingerprints_FullMethodName = "/steep.repl.v1.InitService/GetSchemaFingerprints"
+	InitService_GetColumnDiff_FullMethodName         = "/steep.repl.v1.InitService/GetColumnDiff"
+	InitService_CaptureFingerprints_FullMethodName   = "/steep.repl.v1.InitService/CaptureFingerprints"
 	InitService_GenerateSnapshot_FullMethodName      = "/steep.repl.v1.InitService/GenerateSnapshot"
 	InitService_ApplySnapshot_FullMethodName         = "/steep.repl.v1.InitService/ApplySnapshot"
 )
@@ -57,6 +59,10 @@ type InitServiceClient interface {
 	CompareSchemas(ctx context.Context, in *CompareSchemasRequest, opts ...grpc.CallOption) (*CompareSchemasResponse, error)
 	// Get schema fingerprints from this node's database
 	GetSchemaFingerprints(ctx context.Context, in *GetSchemaFingerprintsRequest, opts ...grpc.CallOption) (*GetSchemaFingerprintsResponse, error)
+	// Get column-level differences for a specific table
+	GetColumnDiff(ctx context.Context, in *GetColumnDiffRequest, opts ...grpc.CallOption) (*GetColumnDiffResponse, error)
+	// Capture fingerprints for tables in the local database
+	CaptureFingerprints(ctx context.Context, in *CaptureFingerprintsRequest, opts ...grpc.CallOption) (*CaptureFingerprintsResponse, error)
 	// Generate snapshot (two-phase, phase 1)
 	GenerateSnapshot(ctx context.Context, in *GenerateSnapshotRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotProgress], error)
 	// Apply snapshot (two-phase, phase 2)
@@ -170,6 +176,26 @@ func (c *initServiceClient) GetSchemaFingerprints(ctx context.Context, in *GetSc
 	return out, nil
 }
 
+func (c *initServiceClient) GetColumnDiff(ctx context.Context, in *GetColumnDiffRequest, opts ...grpc.CallOption) (*GetColumnDiffResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetColumnDiffResponse)
+	err := c.cc.Invoke(ctx, InitService_GetColumnDiff_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *initServiceClient) CaptureFingerprints(ctx context.Context, in *CaptureFingerprintsRequest, opts ...grpc.CallOption) (*CaptureFingerprintsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CaptureFingerprintsResponse)
+	err := c.cc.Invoke(ctx, InitService_CaptureFingerprints_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *initServiceClient) GenerateSnapshot(ctx context.Context, in *GenerateSnapshotRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotProgress], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &InitService_ServiceDesc.Streams[1], InitService_GenerateSnapshot_FullMethodName, cOpts...)
@@ -230,6 +256,10 @@ type InitServiceServer interface {
 	CompareSchemas(context.Context, *CompareSchemasRequest) (*CompareSchemasResponse, error)
 	// Get schema fingerprints from this node's database
 	GetSchemaFingerprints(context.Context, *GetSchemaFingerprintsRequest) (*GetSchemaFingerprintsResponse, error)
+	// Get column-level differences for a specific table
+	GetColumnDiff(context.Context, *GetColumnDiffRequest) (*GetColumnDiffResponse, error)
+	// Capture fingerprints for tables in the local database
+	CaptureFingerprints(context.Context, *CaptureFingerprintsRequest) (*CaptureFingerprintsResponse, error)
 	// Generate snapshot (two-phase, phase 1)
 	GenerateSnapshot(*GenerateSnapshotRequest, grpc.ServerStreamingServer[SnapshotProgress]) error
 	// Apply snapshot (two-phase, phase 2)
@@ -270,6 +300,12 @@ func (UnimplementedInitServiceServer) CompareSchemas(context.Context, *CompareSc
 }
 func (UnimplementedInitServiceServer) GetSchemaFingerprints(context.Context, *GetSchemaFingerprintsRequest) (*GetSchemaFingerprintsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSchemaFingerprints not implemented")
+}
+func (UnimplementedInitServiceServer) GetColumnDiff(context.Context, *GetColumnDiffRequest) (*GetColumnDiffResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetColumnDiff not implemented")
+}
+func (UnimplementedInitServiceServer) CaptureFingerprints(context.Context, *CaptureFingerprintsRequest) (*CaptureFingerprintsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CaptureFingerprints not implemented")
 }
 func (UnimplementedInitServiceServer) GenerateSnapshot(*GenerateSnapshotRequest, grpc.ServerStreamingServer[SnapshotProgress]) error {
 	return status.Error(codes.Unimplemented, "method GenerateSnapshot not implemented")
@@ -453,6 +489,42 @@ func _InitService_GetSchemaFingerprints_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InitService_GetColumnDiff_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetColumnDiffRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InitServiceServer).GetColumnDiff(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InitService_GetColumnDiff_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InitServiceServer).GetColumnDiff(ctx, req.(*GetColumnDiffRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InitService_CaptureFingerprints_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CaptureFingerprintsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InitServiceServer).CaptureFingerprints(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InitService_CaptureFingerprints_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InitServiceServer).CaptureFingerprints(ctx, req.(*CaptureFingerprintsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _InitService_GenerateSnapshot_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(GenerateSnapshotRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -513,6 +585,14 @@ var InitService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetSchemaFingerprints",
 			Handler:    _InitService_GetSchemaFingerprints_Handler,
+		},
+		{
+			MethodName: "GetColumnDiff",
+			Handler:    _InitService_GetColumnDiff_Handler,
+		},
+		{
+			MethodName: "CaptureFingerprints",
+			Handler:    _InitService_CaptureFingerprints_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
