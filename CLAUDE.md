@@ -323,6 +323,13 @@ These reference implementations are available for studying UI/UX patterns before
 7. **VACUUM Blocking**: VACUUM operations can block; show progress and allow cancellation
 8. **Read-Only Mode**: Verify `--readonly` flag before executing destructive operations
 
+## Code Mismatches
+
+When you find a mismatch between code and its dependencies (e.g., Go code expects a database column that doesn't exist), fix the dependency to match the code. Do not question whether the mismatch should exist. The existing code is the source of truth.
+
+# Task Completion
+Complete every task as specified. Never suggest skipping, cutting, or marking tasks as "not needed." If a task is in the plan, it must be implemented. If you believe a task is truly impossible, explain why and ask for guidance - do not unilaterally decide to skip it.
+
 ## Active Technologies
 - Go 1.21+ (001-foundation)
 - PostgreSQL 11+ (target 18) for monitoring; YAML file for configuration (~/.config/steep/config.yaml) (001-foundation)
