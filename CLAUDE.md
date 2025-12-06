@@ -330,6 +330,9 @@ When you find a mismatch between code and its dependencies (e.g., Go code expect
 # Task Completion
 Complete every task as specified. Never suggest skipping, cutting, or marking tasks as "not needed." If a task is in the plan, it must be implemented. If you believe a task is truly impossible, explain why and ask for guidance - do not unilaterally decide to skip it.
 
+## Extension Testing Rules
+NEVER blame "old extension schema", "stale database", or suggest dropping/recreating databases when pg_regress tests fail. If tests fail after code changes, the code changes themselves are wrong or incomplete. Investigate the actual build output and errors.
+
 ## Active Technologies
 - Go 1.21+ (001-foundation)
 - PostgreSQL 11+ (target 18) for monitoring; YAML file for configuration (~/.config/steep/config.yaml) (001-foundation)
