@@ -66,7 +66,7 @@ ifeq ($(OS),Windows_NT)
 else
 	@mkdir -p $(BUILD_DIR)
 endif
-	$(GOBUILD) -o $(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT) cmd/steep-repl/main.go
+	$(GOBUILD) -o $(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT) ./cmd/steep-repl
 	@echo "Build complete: $(BUILD_DIR)/$(REPL_BINARY_NAME)$(BINARY_EXT)"
 
 build-repl-ext: ## Build the steep_repl PostgreSQL extension
