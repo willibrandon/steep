@@ -189,11 +189,11 @@
 
 ### Implementation for User Story 6
 
-- [ ] T062 [US6] Add schema_sync config section to internal/repl/config/config.go (mode: strict|auto|manual)
-- [ ] T063 [US6] Implement strict mode behavior in internal/repl/init/schema.go (fail with error listing differences)
-- [ ] T064 [US6] Implement auto mode behavior in internal/repl/init/schema.go (generate and apply DDL to fix mismatches)
-- [ ] T065 [US6] Implement manual mode behavior in internal/repl/init/schema.go (warn but proceed with confirmation)
-- [ ] T066 [US6] Add --schema-sync flag to init CLI commands in cmd/steep-repl/main.go (override config)
+- [X] T062 [US6] Add schema_sync config section to internal/repl/config/config.go (mode: strict|auto|manual)
+- [X] T063 [US6] Implement strict mode behavior in internal/repl/init/schema.go (fail with error listing differences)
+- [X] T064 [US6] Implement auto mode behavior in internal/repl/init/schema.go (generate and apply DDL to fix mismatches)
+- [X] T065 [US6] Implement manual mode behavior in internal/repl/init/schema.go (warn but proceed with confirmation)
+- [X] T066 [US6] Add --schema-sync flag to init CLI commands in cmd/steep-repl/main.go (override config)
 
 **Checkpoint**: Schema sync modes work as configured (strict/auto/manual)
 

@@ -143,12 +143,32 @@ type SchemaDifference struct {
 func (m *ManualInitializer) Complete(ctx context.Context, opts CompleteOptions) error {
 	// Verify schema matches BEFORE changing state (so retries work on validation failures)
 	if !opts.SkipSchemaCheck {
-		diffs, err := m.verifySchema(ctx, opts)
+		syncResult, err := m.handleSchemaSync(ctx, opts)
 		if err != nil {
 			return fmt.Errorf("schema verification failed: %w", err)
 		}
-		if len(diffs) > 0 && opts.SchemaSyncMode == config.SchemaSyncStrict {
-			return fmt.Errorf("schema mismatch detected: %d differences found (use --schema-sync=manual to proceed anyway)", len(diffs))
+		// Log schema sync result for observability
+		m.manager.logger.Log(InitEvent{
+			Event:  "init.schema_sync",
+			NodeID: opts.TargetNodeID,
+			Details: map[string]any{
+				"mode":         syncResult.Mode,
+				"action":       syncResult.Action,
+				"diff_count":   len(syncResult.Differences),
+				"applied_ddl":  syncResult.AppliedCount,
+				"skipped_ddl":  syncResult.SkippedCount,
+			},
+		})
+		// Log warning for manual mode
+		if syncResult.WarningMessage != "" {
+			m.manager.logger.Log(InitEvent{
+				Level:  "warn",
+				Event:  "init.schema_mismatch_warning",
+				NodeID: opts.TargetNodeID,
+				Details: map[string]any{
+					"warning": syncResult.WarningMessage,
+				},
+			})
 		}
 	}
 
@@ -358,81 +378,121 @@ func (m *ManualInitializer) verifySlotExists(ctx context.Context, opts CompleteO
 	return nil
 }
 
-// verifySchema compares schema between local and source tables.
-// It uses fingerprinting to detect differences.
-func (m *ManualInitializer) verifySchema(ctx context.Context, opts CompleteOptions) ([]SchemaDifference, error) {
-	var diffs []SchemaDifference
-
-	// Get local tables
-	localTables, err := m.getTableFingerprints(ctx, m.pool)
+// handleSchemaSync handles schema synchronization based on the configured mode.
+// It returns a SchemaSyncResult and an error if the mode requires failing.
+func (m *ManualInitializer) handleSchemaSync(ctx context.Context, opts CompleteOptions) (*SchemaSyncResult, error) {
+	// Get local and remote fingerprints
+	localFingerprints, err := GetTableFingerprintsWithDefs(ctx, m.pool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get local table fingerprints: %w", err)
 	}
 
-	// Get remote tables via gRPC if SourceRemote is provided, otherwise direct connection
-	var remoteTables map[string]string
+	// Get remote fingerprints (with column definitions for auto mode)
+	var remoteFingerprints map[string]TableFingerprintInfo
 	if opts.SourceRemote != "" {
-		remoteTables, err = m.getRemoteTableFingerprintsViaGRPC(ctx, opts.SourceRemote)
+		remoteFingerprints, err = m.getRemoteTableFingerprintsWithDefsViaGRPC(ctx, opts.SourceRemote)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get source table fingerprints via gRPC: %w", err)
 		}
 	} else {
-		// Fall back to direct connection (legacy behavior)
+		// Fall back to direct connection
 		connStr := fmt.Sprintf("host=%s port=%d dbname=%s user=%s sslmode=disable",
 			opts.SourceHost, opts.SourcePort, opts.SourceDatabase, opts.SourceUser)
-
 		sourcePool, err := pgxpool.New(ctx, connStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to source for schema comparison: %w", err)
 		}
 		defer sourcePool.Close()
-
-		remoteTables, err = m.getTableFingerprints(ctx, sourcePool)
+		remoteFingerprints, err = GetTableFingerprintsWithDefs(ctx, sourcePool)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get source table fingerprints: %w", err)
 		}
 	}
 
-	// Compare tables
-	for key, localFP := range localTables {
-		if remoteFP, ok := remoteTables[key]; ok {
-			if localFP != remoteFP {
-				parts := strings.SplitN(key, ".", 2)
-				diffs = append(diffs, SchemaDifference{
-					TableSchema: parts[0],
-					TableName:   parts[1],
-					Type:        "column_mismatch",
-					Details:     fmt.Sprintf("local fingerprint %s != remote fingerprint %s", localFP[:16], remoteFP[:16]),
-				})
-			}
-		} else {
-			parts := strings.SplitN(key, ".", 2)
-			diffs = append(diffs, SchemaDifference{
-				TableSchema: parts[0],
-				TableName:   parts[1],
-				Type:        "missing_remote",
-				Details:     "table exists locally but not on source",
-			})
-		}
-	}
+	// Build comparison result
+	compareResult := m.buildCompareResult(localFingerprints, remoteFingerprints)
 
-	for key := range remoteTables {
-		if _, ok := localTables[key]; !ok {
-			parts := strings.SplitN(key, ".", 2)
-			diffs = append(diffs, SchemaDifference{
-				TableSchema: parts[0],
-				TableName:   parts[1],
-				Type:        "missing_local",
-				Details:     "table exists on source but not locally",
-			})
-		}
-	}
+	// Create sync handler
+	handler := NewSchemaSyncHandler(m.pool)
 
-	return diffs, nil
+	// Handle based on mode
+	switch opts.SchemaSyncMode {
+	case config.SchemaSyncStrict:
+		return handler.HandleStrict(ctx, compareResult)
+	case config.SchemaSyncAuto:
+		return handler.HandleAuto(ctx, compareResult, remoteFingerprints)
+	case config.SchemaSyncManual:
+		return handler.HandleManual(ctx, compareResult)
+	default:
+		// Default to strict mode
+		return handler.HandleStrict(ctx, compareResult)
+	}
 }
 
-// getRemoteTableFingerprintsViaGRPC fetches schema fingerprints from a remote daemon via gRPC.
-func (m *ManualInitializer) getRemoteTableFingerprintsViaGRPC(ctx context.Context, remoteAddr string) (map[string]string, error) {
+// buildCompareResult builds a CompareResult from local and remote fingerprints.
+func (m *ManualInitializer) buildCompareResult(local, remote map[string]TableFingerprintInfo) *CompareResult {
+	result := &CompareResult{}
+
+	// Check local tables against remote
+	for key, localInfo := range local {
+		parts := strings.SplitN(key, ".", 2)
+		schema := "public"
+		table := key
+		if len(parts) == 2 {
+			schema = parts[0]
+			table = parts[1]
+		}
+
+		comp := SchemaComparison{
+			TableSchema:      schema,
+			TableName:        table,
+			LocalFingerprint: localInfo.Fingerprint,
+		}
+
+		if remoteInfo, exists := remote[key]; exists {
+			comp.RemoteFingerprint = remoteInfo.Fingerprint
+			if localInfo.Fingerprint == remoteInfo.Fingerprint {
+				comp.Status = ComparisonMatch
+				result.MatchCount++
+			} else {
+				comp.Status = ComparisonMismatch
+				result.MismatchCount++
+			}
+		} else {
+			comp.Status = ComparisonLocalOnly
+			result.LocalOnlyCount++
+		}
+
+		result.Comparisons = append(result.Comparisons, comp)
+	}
+
+	// Check for remote-only tables
+	for key, remoteInfo := range remote {
+		if _, exists := local[key]; !exists {
+			parts := strings.SplitN(key, ".", 2)
+			schema := "public"
+			table := key
+			if len(parts) == 2 {
+				schema = parts[0]
+				table = parts[1]
+			}
+
+			comp := SchemaComparison{
+				TableSchema:       schema,
+				TableName:         table,
+				RemoteFingerprint: remoteInfo.Fingerprint,
+				Status:            ComparisonRemoteOnly,
+			}
+			result.Comparisons = append(result.Comparisons, comp)
+			result.RemoteOnlyCount++
+		}
+	}
+
+	return result
+}
+
+// getRemoteTableFingerprintsWithDefsViaGRPC fetches schema fingerprints with column definitions from a remote daemon via gRPC.
+func (m *ManualInitializer) getRemoteTableFingerprintsWithDefsViaGRPC(ctx context.Context, remoteAddr string) (map[string]TableFingerprintInfo, error) {
 	// Connect to remote daemon
 	conn, err := grpc.NewClient(remoteAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -451,19 +511,17 @@ func (m *ManualInitializer) getRemoteTableFingerprintsViaGRPC(ctx context.Contex
 		return nil, fmt.Errorf("source daemon error: %s", resp.Error)
 	}
 
-	// Convert response to map
-	fingerprints := make(map[string]string)
+	// Convert response to map with column definitions
+	fingerprints := make(map[string]TableFingerprintInfo)
 	for _, fp := range resp.Fingerprints {
 		key := fp.SchemaName + "." + fp.TableName
-		fingerprints[key] = fp.Fingerprint
+		fingerprints[key] = TableFingerprintInfo{
+			Fingerprint:       fp.Fingerprint,
+			ColumnDefinitions: fp.ColumnDefinitions,
+		}
 	}
 
 	return fingerprints, nil
-}
-
-// getTableFingerprints computes fingerprints for all user tables.
-func (m *ManualInitializer) getTableFingerprints(ctx context.Context, pool *pgxpool.Pool) (map[string]string, error) {
-	return GetTableFingerprints(ctx, pool)
 }
 
 // TableFingerprintInfo contains fingerprint and column definitions for a table.

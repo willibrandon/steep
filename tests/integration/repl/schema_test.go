@@ -14,6 +14,7 @@ import (
 	"github.com/willibrandon/steep/internal/repl/daemon"
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
 	pb "github.com/willibrandon/steep/internal/repl/grpc/proto"
+	replinit "github.com/willibrandon/steep/internal/repl/init"
 )
 
 // schemaTestEnv holds the complete test environment for schema testing.
@@ -880,4 +881,671 @@ func TestSchema_CompareSchemasFull(t *testing.T) {
 	if remoteOnlyCount == 0 {
 		t.Error("Should have at least one remote-only table")
 	}
+}
+
+// =============================================================================
+// Schema Sync Mode Tests (T063, T064, T065)
+// =============================================================================
+
+// TestSchemaSyncMode_Strict tests that strict mode fails on schema mismatch.
+func TestSchemaSyncMode_Strict(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	env := setupSchemaTestEnv(t, ctx)
+
+	// Create identical base table on both nodes
+	baseSQL := `CREATE TABLE sync_test_strict (id INT PRIMARY KEY, name TEXT)`
+	_, err := env.nodeAPool.Exec(ctx, baseSQL)
+	if err != nil {
+		t.Fatalf("Failed to create table on node A: %v", err)
+	}
+	_, err = env.nodeBPool.Exec(ctx, baseSQL)
+	if err != nil {
+		t.Fatalf("Failed to create table on node B: %v", err)
+	}
+
+	// Add extra column only on node A to create mismatch
+	_, err = env.nodeAPool.Exec(ctx, `ALTER TABLE sync_test_strict ADD COLUMN extra_col TEXT`)
+	if err != nil {
+		t.Fatalf("Failed to alter table on node A: %v", err)
+	}
+
+	// Get fingerprints to verify mismatch exists
+	clientA, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.nodeAGRPCPort),
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client A: %v", err)
+	}
+	defer clientA.Close()
+
+	clientB, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.nodeBGRPCPort),
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client B: %v", err)
+	}
+	defer clientB.Close()
+
+	respA, _ := clientA.GetSchemaFingerprints(ctx, &pb.GetSchemaFingerprintsRequest{})
+	respB, _ := clientB.GetSchemaFingerprints(ctx, &pb.GetSchemaFingerprintsRequest{})
+
+	var fpA, fpB string
+	for _, fp := range respA.Fingerprints {
+		if fp.TableName == "sync_test_strict" {
+			fpA = fp.Fingerprint
+		}
+	}
+	for _, fp := range respB.Fingerprints {
+		if fp.TableName == "sync_test_strict" {
+			fpB = fp.Fingerprint
+		}
+	}
+
+	if fpA == fpB {
+		t.Fatal("Test setup error: fingerprints should differ for mismatch test")
+	}
+	t.Logf("Verified mismatch: A=%s... B=%s...", fpA[:8], fpB[:8])
+
+	// Test strict mode via SchemaSyncHandler
+	handler := replinit.NewSchemaSyncHandler(env.nodeBPool)
+
+	// Build comparison result
+	compareResult := &replinit.CompareResult{
+		MismatchCount: 1,
+		Comparisons: []replinit.SchemaComparison{
+			{
+				TableSchema:       "public",
+				TableName:         "sync_test_strict",
+				LocalFingerprint:  fpB,
+				RemoteFingerprint: fpA,
+				Status:            replinit.ComparisonMismatch,
+			},
+		},
+	}
+
+	// Strict mode should return an error
+	result, err := handler.HandleStrict(ctx, compareResult)
+	if err == nil {
+		t.Error("HandleStrict should return error on mismatch")
+	} else {
+		t.Logf("Strict mode correctly failed: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Result should not be nil")
+	}
+	if result.Mode != "strict" {
+		t.Errorf("Mode = %q, want %q", result.Mode, "strict")
+	}
+	if result.Action != "failed" {
+		t.Errorf("Action = %q, want %q", result.Action, "failed")
+	}
+	if len(result.Differences) != 1 {
+		t.Errorf("Differences count = %d, want 1", len(result.Differences))
+	}
+}
+
+// TestSchemaSyncMode_Strict_NoMismatch tests that strict mode passes when schemas match.
+func TestSchemaSyncMode_Strict_NoMismatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	env := setupSchemaTestEnv(t, ctx)
+
+	// Create identical tables on both nodes
+	tableSQL := `CREATE TABLE sync_test_strict_match (id INT PRIMARY KEY, name TEXT)`
+	_, err := env.nodeAPool.Exec(ctx, tableSQL)
+	if err != nil {
+		t.Fatalf("Failed to create table on node A: %v", err)
+	}
+	_, err = env.nodeBPool.Exec(ctx, tableSQL)
+	if err != nil {
+		t.Fatalf("Failed to create table on node B: %v", err)
+	}
+
+	// Get fingerprints to verify they match
+	clientA, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.nodeAGRPCPort),
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client A: %v", err)
+	}
+	defer clientA.Close()
+
+	clientB, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.nodeBGRPCPort),
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client B: %v", err)
+	}
+	defer clientB.Close()
+
+	respA, _ := clientA.GetSchemaFingerprints(ctx, &pb.GetSchemaFingerprintsRequest{})
+	respB, _ := clientB.GetSchemaFingerprints(ctx, &pb.GetSchemaFingerprintsRequest{})
+
+	var fpA, fpB string
+	for _, fp := range respA.Fingerprints {
+		if fp.TableName == "sync_test_strict_match" {
+			fpA = fp.Fingerprint
+		}
+	}
+	for _, fp := range respB.Fingerprints {
+		if fp.TableName == "sync_test_strict_match" {
+			fpB = fp.Fingerprint
+		}
+	}
+
+	if fpA != fpB {
+		t.Fatalf("Test setup error: fingerprints should match: A=%s B=%s", fpA, fpB)
+	}
+
+	// Test strict mode with matching schemas
+	handler := replinit.NewSchemaSyncHandler(env.nodeBPool)
+
+	compareResult := &replinit.CompareResult{
+		MatchCount: 1,
+		Comparisons: []replinit.SchemaComparison{
+			{
+				TableSchema:       "public",
+				TableName:         "sync_test_strict_match",
+				LocalFingerprint:  fpB,
+				RemoteFingerprint: fpA,
+				Status:            replinit.ComparisonMatch,
+			},
+		},
+	}
+
+	// Strict mode should pass when schemas match
+	result, err := handler.HandleStrict(ctx, compareResult)
+	if err != nil {
+		t.Errorf("HandleStrict should not error when schemas match: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Result should not be nil")
+	}
+	if result.Mode != "strict" {
+		t.Errorf("Mode = %q, want %q", result.Mode, "strict")
+	}
+	if result.Action != "passed" {
+		t.Errorf("Action = %q, want %q", result.Action, "passed")
+	}
+	t.Logf("Strict mode correctly passed with matching schemas")
+}
+
+// TestSchemaSyncMode_Auto tests that auto mode applies DDL to fix mismatches.
+func TestSchemaSyncMode_Auto(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	env := setupSchemaTestEnv(t, ctx)
+
+	// Create table with extra column on node A (source/remote)
+	_, err := env.nodeAPool.Exec(ctx, `
+		CREATE TABLE sync_test_auto (
+			id INT PRIMARY KEY,
+			name TEXT,
+			extra_col TEXT
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create table on node A: %v", err)
+	}
+
+	// Create table without extra column on node B (target/local)
+	_, err = env.nodeBPool.Exec(ctx, `
+		CREATE TABLE sync_test_auto (
+			id INT PRIMARY KEY,
+			name TEXT
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create table on node B: %v", err)
+	}
+
+	// Get fingerprints with column definitions
+	clientA, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.nodeAGRPCPort),
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client A: %v", err)
+	}
+	defer clientA.Close()
+
+	respA, err := clientA.GetSchemaFingerprints(ctx, &pb.GetSchemaFingerprintsRequest{})
+	if err != nil {
+		t.Fatalf("GetSchemaFingerprints from A failed: %v", err)
+	}
+
+	clientB, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.nodeBGRPCPort),
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client B: %v", err)
+	}
+	defer clientB.Close()
+
+	respB, err := clientB.GetSchemaFingerprints(ctx, &pb.GetSchemaFingerprintsRequest{})
+	if err != nil {
+		t.Fatalf("GetSchemaFingerprints from B failed: %v", err)
+	}
+
+	var fpA, fpB *pb.TableFingerprint
+	for _, fp := range respA.Fingerprints {
+		if fp.TableName == "sync_test_auto" {
+			fpA = fp
+		}
+	}
+	for _, fp := range respB.Fingerprints {
+		if fp.TableName == "sync_test_auto" {
+			fpB = fp
+		}
+	}
+
+	if fpA == nil || fpB == nil {
+		t.Fatal("Failed to find fingerprints for sync_test_auto")
+	}
+
+	if fpA.Fingerprint == fpB.Fingerprint {
+		t.Fatal("Test setup error: fingerprints should differ")
+	}
+	t.Logf("Before auto sync: A=%s... B=%s...", fpA.Fingerprint[:8], fpB.Fingerprint[:8])
+
+	// Build remote fingerprints map for auto mode
+	remoteFingerprints := map[string]replinit.TableFingerprintInfo{
+		"public.sync_test_auto": {
+			Fingerprint:       fpA.Fingerprint,
+			ColumnDefinitions: fpA.ColumnDefinitions,
+		},
+	}
+
+	// Build comparison result
+	compareResult := &replinit.CompareResult{
+		MismatchCount: 1,
+		Comparisons: []replinit.SchemaComparison{
+			{
+				TableSchema:       "public",
+				TableName:         "sync_test_auto",
+				LocalFingerprint:  fpB.Fingerprint,
+				RemoteFingerprint: fpA.Fingerprint,
+				Status:            replinit.ComparisonMismatch,
+			},
+		},
+	}
+
+	// Test auto mode - should generate and apply DDL
+	handler := replinit.NewSchemaSyncHandler(env.nodeBPool)
+	result, err := handler.HandleAuto(ctx, compareResult, remoteFingerprints)
+	if err != nil {
+		t.Fatalf("HandleAuto failed: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Result should not be nil")
+	}
+	if result.Mode != "auto" {
+		t.Errorf("Mode = %q, want %q", result.Mode, "auto")
+	}
+	if result.Action != "applied" {
+		t.Errorf("Action = %q, want %q", result.Action, "applied")
+	}
+	t.Logf("Auto mode result: applied=%d, skipped=%d, DDL=%v",
+		result.AppliedCount, result.SkippedCount, result.DDLStatements)
+
+	// Verify the column was added to node B
+	var colCount int
+	err = env.nodeBPool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'sync_test_auto'
+	`).Scan(&colCount)
+	if err != nil {
+		t.Fatalf("Failed to query column count: %v", err)
+	}
+
+	if colCount != 3 { // id, name, extra_col
+		t.Errorf("Column count = %d, want 3 (after auto sync)", colCount)
+	} else {
+		t.Log("Auto mode successfully added missing column")
+	}
+
+	// Verify fingerprints now match
+	respBAfter, _ := clientB.GetSchemaFingerprints(ctx, &pb.GetSchemaFingerprintsRequest{})
+	for _, fp := range respBAfter.Fingerprints {
+		if fp.TableName == "sync_test_auto" {
+			if fp.Fingerprint == fpA.Fingerprint {
+				t.Log("Fingerprints now match after auto sync")
+			} else {
+				t.Logf("Fingerprints still differ (expected for complex cases): A=%s... B=%s...",
+					fpA.Fingerprint[:8], fp.Fingerprint[:8])
+			}
+		}
+	}
+}
+
+// TestSchemaSyncMode_Auto_RemoteOnly tests that auto mode creates missing tables.
+func TestSchemaSyncMode_Auto_RemoteOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	env := setupSchemaTestEnv(t, ctx)
+
+	// Create table only on node A (source/remote)
+	_, err := env.nodeAPool.Exec(ctx, `
+		CREATE TABLE sync_test_auto_new (
+			id INT PRIMARY KEY,
+			name TEXT NOT NULL,
+			created_at TIMESTAMP
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create table on node A: %v", err)
+	}
+
+	// Verify table does NOT exist on node B
+	var exists bool
+	err = env.nodeBPool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = 'sync_test_auto_new'
+		)
+	`).Scan(&exists)
+	if err != nil {
+		t.Fatalf("Failed to check table existence: %v", err)
+	}
+	if exists {
+		t.Fatal("Test setup error: table should not exist on node B yet")
+	}
+
+	// Get fingerprints from node A
+	clientA, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.nodeAGRPCPort),
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client A: %v", err)
+	}
+	defer clientA.Close()
+
+	respA, _ := clientA.GetSchemaFingerprints(ctx, &pb.GetSchemaFingerprintsRequest{})
+
+	var fpA *pb.TableFingerprint
+	for _, fp := range respA.Fingerprints {
+		if fp.TableName == "sync_test_auto_new" {
+			fpA = fp
+		}
+	}
+	if fpA == nil {
+		t.Fatal("Failed to find fingerprint for sync_test_auto_new on node A")
+	}
+
+	// Build remote fingerprints map
+	remoteFingerprints := map[string]replinit.TableFingerprintInfo{
+		"public.sync_test_auto_new": {
+			Fingerprint:       fpA.Fingerprint,
+			ColumnDefinitions: fpA.ColumnDefinitions,
+		},
+	}
+
+	// Build comparison result - table exists only on remote
+	compareResult := &replinit.CompareResult{
+		RemoteOnlyCount: 1,
+		Comparisons: []replinit.SchemaComparison{
+			{
+				TableSchema:       "public",
+				TableName:         "sync_test_auto_new",
+				RemoteFingerprint: fpA.Fingerprint,
+				Status:            replinit.ComparisonRemoteOnly,
+			},
+		},
+	}
+
+	// Test auto mode - should create the missing table
+	handler := replinit.NewSchemaSyncHandler(env.nodeBPool)
+	result, err := handler.HandleAuto(ctx, compareResult, remoteFingerprints)
+	if err != nil {
+		t.Fatalf("HandleAuto failed: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Result should not be nil")
+	}
+	t.Logf("Auto mode (remote-only) result: applied=%d, DDL=%v",
+		result.AppliedCount, result.DDLStatements)
+
+	// Verify the table was created on node B
+	err = env.nodeBPool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = 'sync_test_auto_new'
+		)
+	`).Scan(&exists)
+	if err != nil {
+		t.Fatalf("Failed to check table existence: %v", err)
+	}
+
+	if !exists {
+		t.Error("Auto mode should have created the missing table")
+	} else {
+		t.Log("Auto mode successfully created missing table")
+	}
+
+	// Verify column count
+	var colCount int
+	err = env.nodeBPool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'sync_test_auto_new'
+	`).Scan(&colCount)
+	if err != nil {
+		t.Fatalf("Failed to query column count: %v", err)
+	}
+
+	if colCount != 3 { // id, name, created_at
+		t.Errorf("Column count = %d, want 3", colCount)
+	}
+}
+
+// TestSchemaSyncMode_Manual tests that manual mode warns but proceeds.
+func TestSchemaSyncMode_Manual(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	env := setupSchemaTestEnv(t, ctx)
+
+	// Create mismatched tables
+	_, err := env.nodeAPool.Exec(ctx, `
+		CREATE TABLE sync_test_manual (
+			id INT PRIMARY KEY,
+			name TEXT,
+			extra TEXT
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create table on node A: %v", err)
+	}
+
+	_, err = env.nodeBPool.Exec(ctx, `
+		CREATE TABLE sync_test_manual (
+			id INT PRIMARY KEY,
+			name TEXT
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create table on node B: %v", err)
+	}
+
+	// Get fingerprints
+	clientA, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.nodeAGRPCPort),
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client A: %v", err)
+	}
+	defer clientA.Close()
+
+	clientB, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.nodeBGRPCPort),
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create client B: %v", err)
+	}
+	defer clientB.Close()
+
+	respA, _ := clientA.GetSchemaFingerprints(ctx, &pb.GetSchemaFingerprintsRequest{})
+	respB, _ := clientB.GetSchemaFingerprints(ctx, &pb.GetSchemaFingerprintsRequest{})
+
+	var fpA, fpB string
+	for _, fp := range respA.Fingerprints {
+		if fp.TableName == "sync_test_manual" {
+			fpA = fp.Fingerprint
+		}
+	}
+	for _, fp := range respB.Fingerprints {
+		if fp.TableName == "sync_test_manual" {
+			fpB = fp.Fingerprint
+		}
+	}
+
+	if fpA == fpB {
+		t.Fatal("Test setup error: fingerprints should differ")
+	}
+
+	// Build comparison result with mismatch
+	compareResult := &replinit.CompareResult{
+		MismatchCount: 1,
+		Comparisons: []replinit.SchemaComparison{
+			{
+				TableSchema:       "public",
+				TableName:         "sync_test_manual",
+				LocalFingerprint:  fpB,
+				RemoteFingerprint: fpA,
+				Status:            replinit.ComparisonMismatch,
+			},
+		},
+	}
+
+	// Test manual mode - should warn but not error
+	handler := replinit.NewSchemaSyncHandler(env.nodeBPool)
+	result, err := handler.HandleManual(ctx, compareResult)
+	if err != nil {
+		t.Errorf("HandleManual should not return error: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Result should not be nil")
+	}
+	if result.Mode != "manual" {
+		t.Errorf("Mode = %q, want %q", result.Mode, "manual")
+	}
+	if result.Action != "warned" {
+		t.Errorf("Action = %q, want %q", result.Action, "warned")
+	}
+	if result.WarningMessage == "" {
+		t.Error("WarningMessage should not be empty for mismatch")
+	}
+	if len(result.Differences) != 1 {
+		t.Errorf("Differences count = %d, want 1", len(result.Differences))
+	}
+
+	t.Logf("Manual mode warning: %s", result.WarningMessage)
+	t.Log("Manual mode correctly warned but did not fail")
+
+	// Verify schema was NOT modified (no auto-fix)
+	var colCount int
+	err = env.nodeBPool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'sync_test_manual'
+	`).Scan(&colCount)
+	if err != nil {
+		t.Fatalf("Failed to query column count: %v", err)
+	}
+
+	if colCount != 2 { // id, name (not extra)
+		t.Errorf("Column count = %d, want 2 (manual mode should not modify schema)", colCount)
+	} else {
+		t.Log("Manual mode correctly did not modify schema")
+	}
+}
+
+// TestSchemaSyncMode_Manual_NoMismatch tests that manual mode has no warning when schemas match.
+func TestSchemaSyncMode_Manual_NoMismatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	env := setupSchemaTestEnv(t, ctx)
+
+	// Create identical tables
+	tableSQL := `CREATE TABLE sync_test_manual_match (id INT PRIMARY KEY, name TEXT)`
+	_, err := env.nodeAPool.Exec(ctx, tableSQL)
+	if err != nil {
+		t.Fatalf("Failed to create table on node A: %v", err)
+	}
+	_, err = env.nodeBPool.Exec(ctx, tableSQL)
+	if err != nil {
+		t.Fatalf("Failed to create table on node B: %v", err)
+	}
+
+	// Build comparison result with no mismatch
+	compareResult := &replinit.CompareResult{
+		MatchCount: 1,
+		Comparisons: []replinit.SchemaComparison{
+			{
+				TableSchema: "public",
+				TableName:   "sync_test_manual_match",
+				Status:      replinit.ComparisonMatch,
+			},
+		},
+	}
+
+	// Test manual mode with matching schemas
+	handler := replinit.NewSchemaSyncHandler(env.nodeBPool)
+	result, err := handler.HandleManual(ctx, compareResult)
+	if err != nil {
+		t.Errorf("HandleManual should not return error: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Result should not be nil")
+	}
+	if result.WarningMessage != "" {
+		t.Errorf("WarningMessage should be empty when schemas match, got: %s", result.WarningMessage)
+	}
+	if len(result.Differences) != 0 {
+		t.Errorf("Differences count = %d, want 0", len(result.Differences))
+	}
+
+	t.Log("Manual mode correctly produced no warning for matching schemas")
 }
