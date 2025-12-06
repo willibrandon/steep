@@ -160,6 +160,8 @@
 
 **Independent Test**: Create table mismatch between nodes, run schema comparison, verify diff is reported
 
+**CRITICAL**: Schema verification during init MUST use the source daemon's gRPC (GetSchemaFingerprints RPC) to fetch remote fingerprints. The target daemon cannot connect directly to the source PostgreSQL because the source host may be a hostname that only resolves within the source's network context. The source daemon runs alongside its PostgreSQL and can resolve local connections.
+
 ### Tests for User Story 5
 
 - [ ] T053 [P] [US5] Integration test for fingerprint computation in tests/integration/repl/schema_test.go
@@ -173,7 +175,7 @@
 - [ ] T058 [US5] Add schema compare CLI command in cmd/steep-repl/main.go (`steep-repl schema compare <node-a> <node-b>`)
 - [ ] T059 [US5] Add schema diff CLI command in cmd/steep-repl/main.go (`steep-repl schema diff <node-a> <node-b> <table>`)
 - [ ] T060 [US5] Add schema capture CLI command in cmd/steep-repl/main.go (`steep-repl schema capture --node <node>`)
-- [ ] T061 [US5] Integrate schema check before init in internal/repl/init/manager.go (fail fast on mismatch in strict mode)
+- [ ] T061 [US5] Integrate schema check before init in internal/repl/init/manager.go (fail fast on mismatch in strict mode, use source daemon gRPC for remote fingerprints)
 
 **Checkpoint**: Schema fingerprinting detects drift with detailed diff output
 
