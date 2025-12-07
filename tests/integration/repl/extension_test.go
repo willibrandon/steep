@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // tempSocketPath creates a short socket path in /tmp to avoid Unix socket path length limits.
-// Returns the socket path and a cleanup function.
 func tempSocketPath(t *testing.T) string {
 	t.Helper()
 	b := make([]byte, 4)
@@ -91,108 +91,125 @@ func setupPostgresWithExtension(t *testing.T, ctx context.Context) *pgxpool.Pool
 	return pool
 }
 
-// TestExtension_CreateExtension verifies the steep_repl extension can be created.
-func TestExtension_CreateExtension(t *testing.T) {
+// =============================================================================
+// Extension Test Suite - shares a single container across all tests
+// =============================================================================
+
+type ExtensionTestSuite struct {
+	suite.Suite
+	ctx       context.Context
+	cancel    context.CancelFunc
+	container testcontainers.Container
+	pool      *pgxpool.Pool
+}
+
+func TestExtensionSuite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	suite.Run(t, new(ExtensionTestSuite))
+}
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
+func (s *ExtensionTestSuite) SetupSuite() {
+	s.ctx, s.cancel = context.WithTimeout(context.Background(), 5*time.Minute)
 
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
+	const testPassword = "test"
+	os.Setenv("PGPASSWORD", testPassword)
+
+	req := testcontainers.ContainerRequest{
+		Image:        "ghcr.io/willibrandon/pg18-steep-repl:latest",
+		ExposedPorts: []string{"5432/tcp"},
+		Env: map[string]string{
+			"POSTGRES_USER":     "test",
+			"POSTGRES_PASSWORD": testPassword,
+			"POSTGRES_DB":       "testdb",
+		},
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
+			WithStartupTimeout(60 * time.Second),
 	}
 
-	// Verify the extension is installed
+	container, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	s.Require().NoError(err, "Failed to start PostgreSQL container")
+	s.container = container
+
+	host, err := container.Host(s.ctx)
+	s.Require().NoError(err)
+
+	port, err := container.MappedPort(s.ctx, "5432")
+	s.Require().NoError(err)
+
+	connStr := fmt.Sprintf("postgres://test:%s@%s:%s/testdb?sslmode=disable", testPassword, host, port.Port())
+	pool, err := pgxpool.New(s.ctx, connStr)
+	s.Require().NoError(err)
+	s.pool = pool
+
+	s.T().Log("ExtensionTestSuite: Shared container ready")
+}
+
+func (s *ExtensionTestSuite) TearDownSuite() {
+	if s.pool != nil {
+		s.pool.Close()
+	}
+	if s.container != nil {
+		_ = s.container.Terminate(context.Background())
+	}
+	if s.cancel != nil {
+		s.cancel()
+	}
+}
+
+func (s *ExtensionTestSuite) SetupTest() {
+	// Drop and recreate extension for clean state each test
+	_, _ = s.pool.Exec(s.ctx, "DROP EXTENSION IF EXISTS steep_repl CASCADE")
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+func (s *ExtensionTestSuite) TestCreateExtension() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err, "Failed to create extension")
+
 	var installed bool
-	err = pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'steep_repl')").Scan(&installed)
-	if err != nil {
-		t.Fatalf("Failed to check extension: %v", err)
-	}
-
-	if !installed {
-		t.Error("Extension should be installed after CREATE EXTENSION")
-	}
+	err = s.pool.QueryRow(s.ctx, "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'steep_repl')").Scan(&installed)
+	s.Require().NoError(err)
+	s.Assert().True(installed, "Extension should be installed after CREATE EXTENSION")
 }
 
-// TestExtension_SchemaCreated verifies the steep_repl schema is created.
-func TestExtension_SchemaCreated(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *ExtensionTestSuite) TestSchemaCreated() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	// Verify schema exists
 	var schemaExists bool
-	err = pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'steep_repl')").Scan(&schemaExists)
-	if err != nil {
-		t.Fatalf("Failed to check schema: %v", err)
-	}
-
-	if !schemaExists {
-		t.Error("steep_repl schema should exist after extension creation")
-	}
+	err = s.pool.QueryRow(s.ctx, "SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'steep_repl')").Scan(&schemaExists)
+	s.Require().NoError(err)
+	s.Assert().True(schemaExists, "steep_repl schema should exist after extension creation")
 }
 
-// TestExtension_TablesCreated verifies all required tables are created.
-func TestExtension_TablesCreated(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *ExtensionTestSuite) TestTablesCreated() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	// Expected tables per data-model.md
 	expectedTables := []string{"nodes", "coordinator_state", "audit_log"}
 
 	for _, table := range expectedTables {
 		var tableExists bool
 		query := "SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'steep_repl' AND tablename = $1)"
-		err := pool.QueryRow(ctx, query, table).Scan(&tableExists)
-		if err != nil {
-			t.Fatalf("Failed to check table %s: %v", table, err)
-		}
-
-		if !tableExists {
-			t.Errorf("Table steep_repl.%s should exist", table)
-		}
+		err := s.pool.QueryRow(s.ctx, query, table).Scan(&tableExists)
+		s.Require().NoError(err, "Failed to check table %s", table)
+		s.Assert().True(tableExists, "Table steep_repl.%s should exist", table)
 	}
 }
 
-// TestExtension_NodesTableStructure verifies the nodes table has correct structure.
-func TestExtension_NodesTableStructure(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *ExtensionTestSuite) TestNodesTableStructure() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	// Check required columns exist
 	expectedColumns := []string{
 		"node_id", "node_name", "host", "port", "priority",
 		"is_coordinator", "status", "last_seen",
@@ -208,33 +225,16 @@ func TestExtension_NodesTableStructure(t *testing.T) {
 				  AND column_name = $1
 			)
 		`
-		err := pool.QueryRow(ctx, query, col).Scan(&columnExists)
-		if err != nil {
-			t.Fatalf("Failed to check column nodes.%s: %v", col, err)
-		}
-
-		if !columnExists {
-			t.Errorf("Column nodes.%s should exist", col)
-		}
+		err := s.pool.QueryRow(s.ctx, query, col).Scan(&columnExists)
+		s.Require().NoError(err, "Failed to check column nodes.%s", col)
+		s.Assert().True(columnExists, "Column nodes.%s should exist", col)
 	}
 }
 
-// TestExtension_AuditLogTableStructure verifies the audit_log table has correct structure.
-func TestExtension_AuditLogTableStructure(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *ExtensionTestSuite) TestAuditLogTableStructure() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	// Check required columns exist
 	expectedColumns := []string{
 		"id", "occurred_at", "action", "actor",
 		"target_type", "target_id", "old_value", "new_value",
@@ -251,33 +251,16 @@ func TestExtension_AuditLogTableStructure(t *testing.T) {
 				  AND column_name = $1
 			)
 		`
-		err := pool.QueryRow(ctx, query, col).Scan(&columnExists)
-		if err != nil {
-			t.Fatalf("Failed to check column audit_log.%s: %v", col, err)
-		}
-
-		if !columnExists {
-			t.Errorf("Column audit_log.%s should exist", col)
-		}
+		err := s.pool.QueryRow(s.ctx, query, col).Scan(&columnExists)
+		s.Require().NoError(err, "Failed to check column audit_log.%s", col)
+		s.Assert().True(columnExists, "Column audit_log.%s should exist", col)
 	}
 }
 
-// TestExtension_AuditLogIndexes verifies the audit_log table has expected indexes.
-func TestExtension_AuditLogIndexes(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *ExtensionTestSuite) TestAuditLogIndexes() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	// Check for indexes on commonly queried columns
 	expectedIndexes := []string{
 		"idx_audit_log_occurred_at",
 		"idx_audit_log_actor",
@@ -294,33 +277,16 @@ func TestExtension_AuditLogIndexes(t *testing.T) {
 				  AND indexname = $1
 			)
 		`
-		err := pool.QueryRow(ctx, query, indexName).Scan(&hasIndex)
-		if err != nil {
-			t.Fatalf("Failed to check index %s: %v", indexName, err)
-		}
-
-		if !hasIndex {
-			t.Errorf("Index %s should exist", indexName)
-		}
+		err := s.pool.QueryRow(s.ctx, query, indexName).Scan(&hasIndex)
+		s.Require().NoError(err, "Failed to check index %s", indexName)
+		s.Assert().True(hasIndex, "Index %s should exist", indexName)
 	}
 }
 
-// TestExtension_CoordinatorStateTable verifies the coordinator_state table structure.
-func TestExtension_CoordinatorStateTable(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *ExtensionTestSuite) TestCoordinatorStateTable() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	// Check required columns
 	expectedColumns := []string{"key", "value", "updated_at"}
 
 	for _, col := range expectedColumns {
@@ -333,241 +299,120 @@ func TestExtension_CoordinatorStateTable(t *testing.T) {
 				  AND column_name = $1
 			)
 		`
-		err := pool.QueryRow(ctx, query, col).Scan(&columnExists)
-		if err != nil {
-			t.Fatalf("Failed to check column coordinator_state.%s: %v", col, err)
-		}
-
-		if !columnExists {
-			t.Errorf("Column coordinator_state.%s should exist", col)
-		}
+		err := s.pool.QueryRow(s.ctx, query, col).Scan(&columnExists)
+		s.Require().NoError(err, "Failed to check column coordinator_state.%s", col)
+		s.Assert().True(columnExists, "Column coordinator_state.%s should exist", col)
 	}
 }
 
-// TestExtension_InsertNode verifies we can insert into the nodes table.
-func TestExtension_InsertNode(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *ExtensionTestSuite) TestInsertNode() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	// Insert a test node
-	_, err = pool.Exec(ctx, `
+	_, err = s.pool.Exec(s.ctx, `
 		INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
 		VALUES ('test-node-1', 'Test Node', 'localhost', 5433, 80, 'healthy')
 	`)
-	if err != nil {
-		t.Fatalf("Failed to insert node: %v", err)
-	}
+	s.Require().NoError(err, "Failed to insert node")
 
-	// Verify the insert
 	var nodeID, status string
-	err = pool.QueryRow(ctx, "SELECT node_id, status FROM steep_repl.nodes WHERE node_id = 'test-node-1'").Scan(&nodeID, &status)
-	if err != nil {
-		t.Fatalf("Failed to query node: %v", err)
-	}
+	err = s.pool.QueryRow(s.ctx, "SELECT node_id, status FROM steep_repl.nodes WHERE node_id = 'test-node-1'").Scan(&nodeID, &status)
+	s.Require().NoError(err)
 
-	if nodeID != "test-node-1" {
-		t.Errorf("node_id = %q, want 'test-node-1'", nodeID)
-	}
-	if status != "healthy" {
-		t.Errorf("status = %q, want 'healthy'", status)
-	}
+	s.Assert().Equal("test-node-1", nodeID)
+	s.Assert().Equal("healthy", status)
 }
 
-// TestExtension_InsertAuditLog verifies we can insert into the audit_log table.
-func TestExtension_InsertAuditLog(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *ExtensionTestSuite) TestInsertAuditLog() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	// Insert a test audit log entry
-	_, err = pool.Exec(ctx, `
+	_, err = s.pool.Exec(s.ctx, `
 		INSERT INTO steep_repl.audit_log (action, actor, target_type, target_id, success)
 		VALUES ('daemon.started', 'test-node', 'daemon', 'test-node-1', true)
 	`)
-	if err != nil {
-		t.Fatalf("Failed to insert audit log: %v", err)
-	}
+	s.Require().NoError(err, "Failed to insert audit log")
 
-	// Verify the insert
 	var action, actor string
 	var success bool
-	err = pool.QueryRow(ctx, `
+	err = s.pool.QueryRow(s.ctx, `
 		SELECT action, actor, success
 		FROM steep_repl.audit_log
 		WHERE actor = 'test-node'
 		ORDER BY occurred_at DESC
 		LIMIT 1
 	`).Scan(&action, &actor, &success)
-	if err != nil {
-		t.Fatalf("Failed to query audit log: %v", err)
-	}
+	s.Require().NoError(err)
 
-	if action != "daemon.started" {
-		t.Errorf("action = %q, want 'daemon.started'", action)
-	}
-	if !success {
-		t.Error("success should be true")
-	}
+	s.Assert().Equal("daemon.started", action)
+	s.Assert().True(success)
 }
 
-// TestExtension_NodesConstraints verifies the nodes table constraints work.
-func TestExtension_NodesConstraints(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
+func (s *ExtensionTestSuite) TestNodesConstraints() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
 	// Test priority constraint (must be 1-100)
-	_, err = pool.Exec(ctx, `
+	_, err = s.pool.Exec(s.ctx, `
 		INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
 		VALUES ('bad-priority', 'Bad Node', 'localhost', 5432, 0, 'healthy')
 	`)
-	if err == nil {
-		t.Error("Expected priority constraint violation for priority=0")
-	}
+	s.Assert().Error(err, "Expected priority constraint violation for priority=0")
 
 	// Test port constraint (must be 1-65535)
-	_, err = pool.Exec(ctx, `
+	_, err = s.pool.Exec(s.ctx, `
 		INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
 		VALUES ('bad-port', 'Bad Node', 'localhost', 0, 50, 'healthy')
 	`)
-	if err == nil {
-		t.Error("Expected port constraint violation for port=0")
-	}
+	s.Assert().Error(err, "Expected port constraint violation for port=0")
 
 	// Test status constraint (must be valid status)
-	_, err = pool.Exec(ctx, `
+	_, err = s.pool.Exec(s.ctx, `
 		INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
 		VALUES ('bad-status', 'Bad Node', 'localhost', 5432, 50, 'invalid_status')
 	`)
-	if err == nil {
-		t.Error("Expected status constraint violation for invalid status")
-	}
+	s.Assert().Error(err, "Expected status constraint violation for invalid status")
 
 	// Test host constraint (must not be empty)
-	_, err = pool.Exec(ctx, `
+	_, err = s.pool.Exec(s.ctx, `
 		INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
 		VALUES ('bad-host', 'Bad Node', '', 5432, 50, 'healthy')
 	`)
-	if err == nil {
-		t.Error("Expected host constraint violation for empty host")
-	}
+	s.Assert().Error(err, "Expected host constraint violation for empty host")
 }
 
-// TestExtension_DropExtension verifies the extension can be dropped cleanly.
-func TestExtension_DropExtension(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *ExtensionTestSuite) TestDropExtension() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
+	_, err = s.pool.Exec(s.ctx, "DROP EXTENSION steep_repl CASCADE")
+	s.Require().NoError(err, "Failed to drop extension")
 
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	// Drop the extension
-	_, err = pool.Exec(ctx, "DROP EXTENSION steep_repl CASCADE")
-	if err != nil {
-		t.Fatalf("Failed to drop extension: %v", err)
-	}
-
-	// Verify the extension is gone
 	var installed bool
-	err = pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'steep_repl')").Scan(&installed)
-	if err != nil {
-		t.Fatalf("Failed to check extension: %v", err)
-	}
-
-	if installed {
-		t.Error("Extension should be removed after DROP EXTENSION")
-	}
+	err = s.pool.QueryRow(s.ctx, "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'steep_repl')").Scan(&installed)
+	s.Require().NoError(err)
+	s.Assert().False(installed, "Extension should be removed after DROP EXTENSION")
 }
 
-// TestExtension_VersionFunction verifies the steep_repl_version() function works.
-func TestExtension_VersionFunction(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *ExtensionTestSuite) TestVersionFunction() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	// Call the version function
 	var version string
-	err = pool.QueryRow(ctx, "SELECT steep_repl_version()").Scan(&version)
-	if err != nil {
-		t.Fatalf("Failed to call steep_repl_version(): %v", err)
-	}
+	err = s.pool.QueryRow(s.ctx, "SELECT steep_repl_version()").Scan(&version)
+	s.Require().NoError(err, "Failed to call steep_repl_version()")
 
-	if version == "" {
-		t.Error("Version should not be empty")
-	}
-
-	// Should be a semver-like version
-	t.Logf("steep_repl version: %s", version)
+	s.Assert().NotEmpty(version, "Version should not be empty")
+	s.T().Logf("steep_repl version: %s", version)
 }
 
-// TestExtension_MinPGVersionFunction verifies the steep_repl_min_pg_version() function works.
-func TestExtension_MinPGVersionFunction(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *ExtensionTestSuite) TestMinPGVersionFunction() {
+	_, err := s.pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err)
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-
-	// Create the extension
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	// Call the min version function
 	var minVersion int
-	err = pool.QueryRow(ctx, "SELECT steep_repl_min_pg_version()").Scan(&minVersion)
-	if err != nil {
-		t.Fatalf("Failed to call steep_repl_min_pg_version(): %v", err)
-	}
+	err = s.pool.QueryRow(s.ctx, "SELECT steep_repl_min_pg_version()").Scan(&minVersion)
+	s.Require().NoError(err, "Failed to call steep_repl_min_pg_version()")
 
-	// Should require PG18 (180000)
-	if minVersion != 180000 {
-		t.Errorf("min_pg_version = %d, want 180000", minVersion)
-	}
+	s.Assert().Equal(180000, minVersion, "min_pg_version should be 180000")
 }

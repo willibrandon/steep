@@ -45,6 +45,7 @@ type Operation struct {
 	Method     config.InitMethod
 	StartedAt  time.Time
 	Cancel     context.CancelFunc
+	done       chan struct{} // closed when operation completes
 }
 
 // ProgressUpdate represents a progress update for streaming to TUI.
@@ -134,6 +135,7 @@ func (m *Manager) StartInit(ctx context.Context, req StartInitRequest) error {
 		Method:     req.Method,
 		StartedAt:  time.Now(),
 		Cancel:     cancel,
+		done:       make(chan struct{}),
 	}
 
 	m.mu.Lock()
@@ -232,6 +234,48 @@ func (m *Manager) ActiveCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.active)
+}
+
+// CancelAllAndWait cancels all active operations and waits for them to complete.
+// It returns the node IDs that were cancelled and any error if the wait times out.
+func (m *Manager) CancelAllAndWait(timeout time.Duration) ([]string, error) {
+	m.mu.Lock()
+	nodeIDs := make([]string, 0, len(m.active))
+	doneChans := make([]chan struct{}, 0, len(m.active))
+	for nodeID, op := range m.active {
+		nodeIDs = append(nodeIDs, nodeID)
+		doneChans = append(doneChans, op.done)
+		op.Cancel()
+	}
+	m.mu.Unlock()
+
+	// Log cancellations
+	for _, nodeID := range nodeIDs {
+		m.logger.Log(InitEvent{
+			Event:  EventInitCancelled,
+			NodeID: nodeID,
+		})
+	}
+
+	if len(doneChans) == 0 {
+		return nodeIDs, nil
+	}
+
+	// Wait for all operations to complete with timeout
+	done := make(chan struct{})
+	go func() {
+		for _, ch := range doneChans {
+			<-ch
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nodeIDs, nil
+	case <-time.After(timeout):
+		return nodeIDs, fmt.Errorf("timeout waiting for %d operations to complete", m.ActiveCount())
+	}
 }
 
 // ActiveNodeIDs returns a list of all node IDs with active operations.
@@ -344,11 +388,17 @@ func (m *Manager) registerOperation(nodeID string, op *Operation) {
 	m.active[nodeID] = op
 }
 
-// unregisterOperation removes an operation from the active map.
+// unregisterOperation removes an operation from the active map and signals completion.
 func (m *Manager) unregisterOperation(nodeID string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	op, exists := m.active[nodeID]
 	delete(m.active, nodeID)
+	m.mu.Unlock()
+
+	// Signal completion to any waiters
+	if exists && op.done != nil {
+		close(op.done)
+	}
 }
 
 // StartReinit starts reinitialization for a node.

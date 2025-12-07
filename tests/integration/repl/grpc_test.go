@@ -2,100 +2,146 @@ package repl_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/suite"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/willibrandon/steep/internal/repl/config"
 	"github.com/willibrandon/steep/internal/repl/daemon"
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
 	pb "github.com/willibrandon/steep/internal/repl/grpc/proto"
 )
 
-// TestGRPC_ServerStart verifies gRPC server starts and listens.
-func TestGRPC_ServerStart(t *testing.T) {
+// =============================================================================
+// gRPC Test Suite - shares a single container across all tests
+// =============================================================================
+
+type GRPCTestSuite struct {
+	suite.Suite
+	ctx        context.Context
+	cancel     context.CancelFunc
+	container  testcontainers.Container
+	pool       *pgxpool.Pool
+	connConfig *config.PostgreSQLConfig
+	// Per-test daemon (recreated for each test for isolation)
+	daemon     *daemon.Daemon
+	grpcPort   int
+	socketPath string
+}
+
+func TestGRPCSuite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	suite.Run(t, new(GRPCTestSuite))
+}
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
+func (s *GRPCTestSuite) SetupSuite() {
+	s.ctx, s.cancel = context.WithTimeout(context.Background(), 5*time.Minute)
+
+	const testPassword = "test"
+	os.Setenv("PGPASSWORD", testPassword)
+
+	req := testcontainers.ContainerRequest{
+		Image:        "ghcr.io/willibrandon/pg18-steep-repl:latest",
+		ExposedPorts: []string{"5432/tcp"},
+		Env: map[string]string{
+			"POSTGRES_USER":     "test",
+			"POSTGRES_PASSWORD": testPassword,
+			"POSTGRES_DB":       "testdb",
+		},
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
+			WithStartupTimeout(60 * time.Second),
+	}
+
+	container, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	s.Require().NoError(err, "Failed to start PostgreSQL container")
+	s.container = container
+
+	host, err := container.Host(s.ctx)
+	s.Require().NoError(err)
+
+	port, err := container.MappedPort(s.ctx, "5432")
+	s.Require().NoError(err)
+
+	connStr := fmt.Sprintf("postgres://test:%s@%s:%s/testdb?sslmode=disable", testPassword, host, port.Port())
+	pool, err := pgxpool.New(s.ctx, connStr)
+	s.Require().NoError(err)
+	s.pool = pool
+
+	// Create extension
+	_, err = pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err, "Failed to create extension")
+
+	// Store connection config for daemon creation
 	connConfig := pool.Config().ConnConfig
-
-	socketPath := tempSocketPath(t)
-
-	cfg := &config.Config{
-		NodeID:   "grpc-server-test",
-		NodeName: "gRPC Server Test",
-		PostgreSQL: config.PostgreSQLConfig{
-			Host:     connConfig.Host,
-			Port:     int(connConfig.Port),
-			Database: connConfig.Database,
-			User:     connConfig.User,
-		},
-		GRPC: config.GRPCConfig{
-			Port: 15450,
-		},
-		IPC: config.IPCConfig{
-			Enabled: true,
-			Path:    socketPath,
-		},
-		HTTP: config.HTTPConfig{
-			Enabled: false,
-		},
+	s.connConfig = &config.PostgreSQLConfig{
+		Host:     connConfig.Host,
+		Port:     int(connConfig.Port),
+		Database: connConfig.Database,
+		User:     connConfig.User,
 	}
 
-	d, err := daemon.New(cfg, true)
-	if err != nil {
-		t.Fatalf("Failed to create daemon: %v", err)
+	s.T().Log("GRPCTestSuite: Shared container ready")
+}
+
+func (s *GRPCTestSuite) TearDownSuite() {
+	if s.pool != nil {
+		s.pool.Close()
 	}
-
-	err = d.Start()
-	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
+	if s.container != nil {
+		_ = s.container.Terminate(context.Background())
 	}
-	defer d.Stop()
-
-	time.Sleep(500 * time.Millisecond)
-
-	// Verify gRPC server is running
-	status := d.Status()
-	if status.GRPC.Status != "listening" {
-		t.Errorf("gRPC status = %q, want 'listening'", status.GRPC.Status)
-	}
-
-	if status.GRPC.Port != cfg.GRPC.Port {
-		t.Errorf("gRPC port = %d, want %d", status.GRPC.Port, cfg.GRPC.Port)
+	if s.cancel != nil {
+		s.cancel()
 	}
 }
 
-// TestGRPC_HealthCheck verifies gRPC health check RPC.
-func TestGRPC_HealthCheck(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+func (s *GRPCTestSuite) SetupTest() {
+	// Clean up nodes table before each test
+	_, _ = s.pool.Exec(s.ctx, "DELETE FROM steep_repl.nodes")
+
+	// Generate unique socket path for this test
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	s.socketPath = fmt.Sprintf("/tmp/sr-%s.sock", hex.EncodeToString(b))
+
+	// Use a unique port for each test (base port + test index)
+	s.grpcPort = 15450
+}
+
+func (s *GRPCTestSuite) TearDownTest() {
+	if s.daemon != nil {
+		s.daemon.Stop()
+		s.daemon = nil
 	}
+	if s.socketPath != "" {
+		os.Remove(s.socketPath)
+	}
+}
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-	connConfig := pool.Config().ConnConfig
-
-	socketPath := tempSocketPath(t)
-
-	grpcPort := 15451
+func (s *GRPCTestSuite) createDaemon(nodeID, nodeName string) *daemon.Daemon {
 	cfg := &config.Config{
-		NodeID:   "grpc-health-test",
-		NodeName: "gRPC Health Test",
-		PostgreSQL: config.PostgreSQLConfig{
-			Host:     connConfig.Host,
-			Port:     int(connConfig.Port),
-			Database: connConfig.Database,
-			User:     connConfig.User,
-		},
+		NodeID:     nodeID,
+		NodeName:   nodeName,
+		PostgreSQL: *s.connConfig,
 		GRPC: config.GRPCConfig{
-			Port: grpcPort,
+			Port: s.grpcPort,
 		},
 		IPC: config.IPCConfig{
 			Enabled: true,
-			Path:    socketPath,
+			Path:    s.socketPath,
 		},
 		HTTP: config.HTTPConfig{
 			Enabled: false,
@@ -103,417 +149,173 @@ func TestGRPC_HealthCheck(t *testing.T) {
 	}
 
 	d, err := daemon.New(cfg, true)
-	if err != nil {
-		t.Fatalf("Failed to create daemon: %v", err)
-	}
+	s.Require().NoError(err, "Failed to create daemon")
 
 	err = d.Start()
-	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
-	}
-	defer d.Stop()
+	s.Require().NoError(err, "Failed to start daemon")
 
-	time.Sleep(500 * time.Millisecond)
+	s.daemon = d
+	time.Sleep(200 * time.Millisecond) // Brief wait for server to be ready
+	return d
+}
 
-	// Connect to gRPC server
-	conn, err := replgrpc.Dial(ctx, "localhost:15451", "", "", "")
-	if err != nil {
-		t.Fatalf("Failed to dial gRPC server: %v", err)
-	}
+// =============================================================================
+// Tests
+// =============================================================================
+
+func (s *GRPCTestSuite) TestServerStart() {
+	d := s.createDaemon("grpc-server-test", "gRPC Server Test")
+
+	status := d.Status()
+	s.Assert().Equal("listening", status.GRPC.Status)
+	s.Assert().Equal(s.grpcPort, status.GRPC.Port)
+}
+
+func (s *GRPCTestSuite) TestHealthCheck() {
+	s.createDaemon("grpc-health-test", "gRPC Health Test")
+
+	conn, err := replgrpc.Dial(s.ctx, fmt.Sprintf("localhost:%d", s.grpcPort), "", "", "")
+	s.Require().NoError(err)
 	defer conn.Close()
 
 	client := pb.NewCoordinatorClient(conn)
+	resp, err := client.HealthCheck(s.ctx, &pb.HealthCheckRequest{})
+	s.Require().NoError(err)
 
-	// Health check
-	resp, err := client.HealthCheck(ctx, &pb.HealthCheckRequest{})
-	if err != nil {
-		t.Fatalf("HealthCheck failed: %v", err)
-	}
+	s.Assert().Equal(pb.HealthCheckResponse_SERVING, resp.Status)
+	s.Assert().Equal("grpc-health-test", resp.NodeId)
+	s.Assert().Equal("gRPC Health Test", resp.NodeName)
 
-	if resp.Status != pb.HealthCheckResponse_SERVING {
-		t.Errorf("Status = %v, want SERVING", resp.Status)
-	}
-
-	if resp.NodeId != cfg.NodeID {
-		t.Errorf("NodeId = %q, want %q", resp.NodeId, cfg.NodeID)
-	}
-
-	if resp.NodeName != cfg.NodeName {
-		t.Errorf("NodeName = %q, want %q", resp.NodeName, cfg.NodeName)
-	}
-
-	// Check PostgreSQL component
 	pgComp, ok := resp.Components["postgresql"]
-	if !ok {
-		t.Error("Response should include postgresql component")
-	} else if !pgComp.Healthy {
-		t.Error("PostgreSQL component should be healthy")
+	s.Assert().True(ok, "Response should include postgresql component")
+	if ok {
+		s.Assert().True(pgComp.Healthy, "PostgreSQL component should be healthy")
 	}
 }
 
-// TestGRPC_RegisterNode verifies node registration RPC.
-func TestGRPC_RegisterNode(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *GRPCTestSuite) TestRegisterNode() {
+	s.createDaemon("grpc-register-test", "gRPC Register Test")
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-	connConfig := pool.Config().ConnConfig
-
-	// Create the extension first
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	socketPath := tempSocketPath(t)
-
-	grpcPort := 15452
-	cfg := &config.Config{
-		NodeID:   "grpc-register-test",
-		NodeName: "gRPC Register Test",
-		PostgreSQL: config.PostgreSQLConfig{
-			Host:     connConfig.Host,
-			Port:     int(connConfig.Port),
-			Database: connConfig.Database,
-			User:     connConfig.User,
-		},
-		GRPC: config.GRPCConfig{
-			Port: grpcPort,
-		},
-		IPC: config.IPCConfig{
-			Enabled: true,
-			Path:    socketPath,
-		},
-		HTTP: config.HTTPConfig{
-			Enabled: false,
-		},
-	}
-
-	d, err := daemon.New(cfg, true)
-	if err != nil {
-		t.Fatalf("Failed to create daemon: %v", err)
-	}
-
-	err = d.Start()
-	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
-	}
-	defer d.Stop()
-
-	time.Sleep(500 * time.Millisecond)
-
-	// Connect to gRPC server
-	conn, err := replgrpc.Dial(ctx, "localhost:15452", "", "", "")
-	if err != nil {
-		t.Fatalf("Failed to dial gRPC server: %v", err)
-	}
+	conn, err := replgrpc.Dial(s.ctx, fmt.Sprintf("localhost:%d", s.grpcPort), "", "", "")
+	s.Require().NoError(err)
 	defer conn.Close()
 
 	client := pb.NewCoordinatorClient(conn)
 
 	// Register a node
-	resp, err := client.RegisterNode(ctx, &pb.RegisterNodeRequest{
+	resp, err := client.RegisterNode(s.ctx, &pb.RegisterNodeRequest{
 		NodeId:   "test-node-1",
 		NodeName: "Test Node 1",
 		Host:     "192.168.1.100",
 		Port:     5432,
 		Priority: 50,
 	})
-	if err != nil {
-		t.Fatalf("RegisterNode failed: %v", err)
-	}
+	s.Require().NoError(err)
+	s.Assert().True(resp.Success, "RegisterNode should succeed, got error: %s", resp.Error)
 
-	if !resp.Success {
-		t.Errorf("RegisterNode should succeed, got error: %s", resp.Error)
-	}
-
-	// Verify node was registered by getting nodes
-	nodesResp, err := client.GetNodes(ctx, &pb.GetNodesRequest{})
-	if err != nil {
-		t.Fatalf("GetNodes failed: %v", err)
-	}
+	// Verify node was registered
+	nodesResp, err := client.GetNodes(s.ctx, &pb.GetNodesRequest{})
+	s.Require().NoError(err)
 
 	found := false
 	for _, n := range nodesResp.Nodes {
 		if n.NodeId == "test-node-1" {
 			found = true
-			if n.NodeName != "Test Node 1" {
-				t.Errorf("NodeName = %q, want %q", n.NodeName, "Test Node 1")
-			}
-			if n.Host != "192.168.1.100" {
-				t.Errorf("Host = %q, want %q", n.Host, "192.168.1.100")
-			}
-			if n.Port != 5432 {
-				t.Errorf("Port = %d, want %d", n.Port, 5432)
-			}
-			if n.Priority != 50 {
-				t.Errorf("Priority = %d, want %d", n.Priority, 50)
-			}
+			s.Assert().Equal("Test Node 1", n.NodeName)
+			s.Assert().Equal("192.168.1.100", n.Host)
+			s.Assert().Equal(int32(5432), n.Port)
+			s.Assert().Equal(int32(50), n.Priority)
 		}
 	}
-
-	if !found {
-		t.Error("Registered node not found in GetNodes response")
-	}
+	s.Assert().True(found, "Registered node not found in GetNodes response")
 }
 
-// TestGRPC_GetNodes verifies get nodes RPC.
-func TestGRPC_GetNodes(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *GRPCTestSuite) TestGetNodes() {
+	s.createDaemon("grpc-getnodes-test", "gRPC GetNodes Test")
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-	connConfig := pool.Config().ConnConfig
-
-	// Create the extension first
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	socketPath := tempSocketPath(t)
-
-	grpcPort := 15453
-	cfg := &config.Config{
-		NodeID:   "grpc-getnodes-test",
-		NodeName: "gRPC GetNodes Test",
-		PostgreSQL: config.PostgreSQLConfig{
-			Host:     connConfig.Host,
-			Port:     int(connConfig.Port),
-			Database: connConfig.Database,
-			User:     connConfig.User,
-		},
-		GRPC: config.GRPCConfig{
-			Port: grpcPort,
-		},
-		IPC: config.IPCConfig{
-			Enabled: true,
-			Path:    socketPath,
-		},
-		HTTP: config.HTTPConfig{
-			Enabled: false,
-		},
-	}
-
-	d, err := daemon.New(cfg, true)
-	if err != nil {
-		t.Fatalf("Failed to create daemon: %v", err)
-	}
-
-	err = d.Start()
-	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
-	}
-	defer d.Stop()
-
-	time.Sleep(500 * time.Millisecond)
-
-	// Connect to gRPC server
-	conn, err := replgrpc.Dial(ctx, "localhost:15453", "", "", "")
-	if err != nil {
-		t.Fatalf("Failed to dial gRPC server: %v", err)
-	}
+	conn, err := replgrpc.Dial(s.ctx, fmt.Sprintf("localhost:%d", s.grpcPort), "", "", "")
+	s.Require().NoError(err)
 	defer conn.Close()
 
 	client := pb.NewCoordinatorClient(conn)
 
-	// Initially only the daemon's own node (auto-registered on startup)
-	resp, err := client.GetNodes(ctx, &pb.GetNodesRequest{})
-	if err != nil {
-		t.Fatalf("GetNodes failed: %v", err)
-	}
-
+	// Initially only daemon's self-registered node
+	resp, err := client.GetNodes(s.ctx, &pb.GetNodesRequest{})
+	s.Require().NoError(err)
 	initialCount := len(resp.Nodes)
-	if initialCount != 1 {
-		t.Errorf("Expected 1 node initially (daemon self-registration), got %d", initialCount)
-	}
+	s.Assert().Equal(1, initialCount, "Expected 1 node initially (daemon self-registration)")
 
-	// Register multiple additional nodes
-	for i, node := range []struct {
+	// Register multiple nodes
+	nodes := []struct {
 		id       string
 		name     string
+		host     string
 		priority int32
 	}{
-		{"node-a", "Node A", 100},
-		{"node-b", "Node B", 50},
-		{"node-c", "Node C", 75},
-	} {
-		_, err := client.RegisterNode(ctx, &pb.RegisterNodeRequest{
+		{"node-a", "Node A", "192.168.1.1", 100},
+		{"node-b", "Node B", "192.168.1.2", 50},
+		{"node-c", "Node C", "192.168.1.3", 75},
+	}
+
+	for _, node := range nodes {
+		_, err := client.RegisterNode(s.ctx, &pb.RegisterNodeRequest{
 			NodeId:   node.id,
 			NodeName: node.name,
-			Host:     "192.168.1." + string(rune('1'+i)),
+			Host:     node.host,
 			Port:     5432,
 			Priority: node.priority,
 		})
-		if err != nil {
-			t.Fatalf("Failed to register node %s: %v", node.id, err)
-		}
+		s.Require().NoError(err, "Failed to register node %s", node.id)
 	}
 
-	// Get all nodes (initial + 3 registered)
-	resp, err = client.GetNodes(ctx, &pb.GetNodesRequest{})
-	if err != nil {
-		t.Fatalf("GetNodes failed: %v", err)
-	}
+	// Get all nodes
+	resp, err = client.GetNodes(s.ctx, &pb.GetNodesRequest{})
+	s.Require().NoError(err)
+	s.Assert().Equal(initialCount+3, len(resp.Nodes))
 
-	expectedCount := initialCount + 3
-	if len(resp.Nodes) != expectedCount {
-		t.Errorf("Expected %d nodes, got %d", expectedCount, len(resp.Nodes))
-	}
-
-	// Verify nodes are ordered by priority DESC
+	// Verify ordered by priority DESC
 	if len(resp.Nodes) >= 2 {
-		if resp.Nodes[0].Priority < resp.Nodes[1].Priority {
-			t.Error("Nodes should be ordered by priority descending")
-		}
+		s.Assert().GreaterOrEqual(resp.Nodes[0].Priority, resp.Nodes[1].Priority,
+			"Nodes should be ordered by priority descending")
 	}
 }
 
-// TestGRPC_Heartbeat verifies heartbeat RPC.
-func TestGRPC_Heartbeat(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *GRPCTestSuite) TestHeartbeat() {
+	s.createDaemon("grpc-heartbeat-test", "gRPC Heartbeat Test")
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-	connConfig := pool.Config().ConnConfig
-
-	// Create the extension first
-	_, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension: %v", err)
-	}
-
-	socketPath := tempSocketPath(t)
-
-	grpcPort := 15454
-	cfg := &config.Config{
-		NodeID:   "grpc-heartbeat-test",
-		NodeName: "gRPC Heartbeat Test",
-		PostgreSQL: config.PostgreSQLConfig{
-			Host:     connConfig.Host,
-			Port:     int(connConfig.Port),
-			Database: connConfig.Database,
-			User:     connConfig.User,
-		},
-		GRPC: config.GRPCConfig{
-			Port: grpcPort,
-		},
-		IPC: config.IPCConfig{
-			Enabled: true,
-			Path:    socketPath,
-		},
-		HTTP: config.HTTPConfig{
-			Enabled: false,
-		},
-	}
-
-	d, err := daemon.New(cfg, true)
-	if err != nil {
-		t.Fatalf("Failed to create daemon: %v", err)
-	}
-
-	err = d.Start()
-	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
-	}
-	defer d.Stop()
-
-	time.Sleep(500 * time.Millisecond)
-
-	// Connect to gRPC server
-	conn, err := replgrpc.Dial(ctx, "localhost:15454", "", "", "")
-	if err != nil {
-		t.Fatalf("Failed to dial gRPC server: %v", err)
-	}
+	conn, err := replgrpc.Dial(s.ctx, fmt.Sprintf("localhost:%d", s.grpcPort), "", "", "")
+	s.Require().NoError(err)
 	defer conn.Close()
 
 	client := pb.NewCoordinatorClient(conn)
 
-	// First register a node
-	_, err = client.RegisterNode(ctx, &pb.RegisterNodeRequest{
+	// Register a node first
+	_, err = client.RegisterNode(s.ctx, &pb.RegisterNodeRequest{
 		NodeId:   "heartbeat-node",
 		NodeName: "Heartbeat Node",
 		Host:     "192.168.1.50",
 		Port:     5432,
 		Priority: 50,
 	})
-	if err != nil {
-		t.Fatalf("Failed to register node: %v", err)
-	}
+	s.Require().NoError(err)
 
 	// Send heartbeat
-	resp, err := client.Heartbeat(ctx, &pb.HeartbeatRequest{
+	resp, err := client.Heartbeat(s.ctx, &pb.HeartbeatRequest{
 		NodeId: "heartbeat-node",
 	})
-	if err != nil {
-		t.Fatalf("Heartbeat failed: %v", err)
-	}
-
-	if !resp.Acknowledged {
-		t.Error("Heartbeat should be acknowledged")
-	}
+	s.Require().NoError(err)
+	s.Assert().True(resp.Acknowledged, "Heartbeat should be acknowledged")
 }
 
-// TestGRPC_MultipleClients verifies multiple clients can connect.
-func TestGRPC_MultipleClients(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *GRPCTestSuite) TestMultipleClients() {
+	s.createDaemon("grpc-multiclient-test", "gRPC MultiClient Test")
 
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-	connConfig := pool.Config().ConnConfig
-
-	socketPath := tempSocketPath(t)
-
-	grpcPort := 15455
-	cfg := &config.Config{
-		NodeID:   "grpc-multiclient-test",
-		NodeName: "gRPC MultiClient Test",
-		PostgreSQL: config.PostgreSQLConfig{
-			Host:     connConfig.Host,
-			Port:     int(connConfig.Port),
-			Database: connConfig.Database,
-			User:     connConfig.User,
-		},
-		GRPC: config.GRPCConfig{
-			Port: grpcPort,
-		},
-		IPC: config.IPCConfig{
-			Enabled: true,
-			Path:    socketPath,
-		},
-		HTTP: config.HTTPConfig{
-			Enabled: false,
-		},
-	}
-
-	d, err := daemon.New(cfg, true)
-	if err != nil {
-		t.Fatalf("Failed to create daemon: %v", err)
-	}
-
-	err = d.Start()
-	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
-	}
-	defer d.Stop()
-
-	time.Sleep(500 * time.Millisecond)
-
-	// Connect multiple clients concurrently
 	const numClients = 5
 	errors := make(chan error, numClients)
 
 	for i := 0; i < numClients; i++ {
 		go func() {
-			conn, err := replgrpc.Dial(ctx, "localhost:15455", "", "", "")
+			conn, err := replgrpc.Dial(s.ctx, fmt.Sprintf("localhost:%d", s.grpcPort), "", "", "")
 			if err != nil {
 				errors <- err
 				return
@@ -521,21 +323,18 @@ func TestGRPC_MultipleClients(t *testing.T) {
 			defer conn.Close()
 
 			client := pb.NewCoordinatorClient(conn)
-			_, err = client.HealthCheck(ctx, &pb.HealthCheckRequest{})
+			_, err = client.HealthCheck(s.ctx, &pb.HealthCheckRequest{})
 			errors <- err
 		}()
 	}
 
-	// Collect results
 	var errCount int
 	for i := 0; i < numClients; i++ {
 		if err := <-errors; err != nil {
 			errCount++
-			t.Logf("Client error: %v", err)
+			s.T().Logf("Client error: %v", err)
 		}
 	}
 
-	if errCount > 0 {
-		t.Errorf("%d/%d clients failed", errCount, numClients)
-	}
+	s.Assert().Equal(0, errCount, "%d/%d clients failed", errCount, numClients)
 }

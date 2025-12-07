@@ -2,25 +2,49 @@ package roles_test
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/willibrandon/steep/internal/db/queries"
 )
 
-// setupPostgres creates a PostgreSQL test container.
-func setupPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
-	t.Helper()
+// =============================================================================
+// Roles Test Suite - shares a single container across all tests
+// =============================================================================
+
+type RolesTestSuite struct {
+	suite.Suite
+	ctx       context.Context
+	cancel    context.CancelFunc
+	container testcontainers.Container
+	pool      *pgxpool.Pool
+}
+
+func TestRolesSuite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+	suite.Run(t, new(RolesTestSuite))
+}
+
+func (s *RolesTestSuite) SetupSuite() {
+	s.ctx, s.cancel = context.WithTimeout(context.Background(), 5*time.Minute)
+
+	const testPassword = "test"
+	os.Setenv("PGPASSWORD", testPassword)
 
 	req := testcontainers.ContainerRequest{
 		Image:        "postgres:18-alpine",
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
 			"POSTGRES_USER":     "test",
-			"POSTGRES_PASSWORD": "test",
+			"POSTGRES_PASSWORD": testPassword,
 			"POSTGRES_DB":       "testdb",
 		},
 		WaitingFor: wait.ForLog("database system is ready to accept connections").
@@ -28,92 +52,92 @@ func setupPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 			WithStartupTimeout(60 * time.Second),
 	}
 
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+	container, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 	})
-	if err != nil {
-		t.Fatalf("Failed to start PostgreSQL container: %v", err)
+	s.Require().NoError(err, "Failed to start PostgreSQL container")
+	s.container = container
+
+	host, err := container.Host(s.ctx)
+	s.Require().NoError(err)
+
+	port, err := container.MappedPort(s.ctx, "5432")
+	s.Require().NoError(err)
+
+	connStr := fmt.Sprintf("postgres://test:%s@%s:%s/testdb?sslmode=disable", testPassword, host, port.Port())
+	pool, err := pgxpool.New(s.ctx, connStr)
+	s.Require().NoError(err)
+	s.pool = pool
+
+	s.T().Log("RolesTestSuite: Shared container ready")
+}
+
+func (s *RolesTestSuite) TearDownSuite() {
+	if s.pool != nil {
+		s.pool.Close()
 	}
-
-	t.Cleanup(func() {
-		if err := container.Terminate(ctx); err != nil {
-			t.Logf("Failed to terminate container: %v", err)
-		}
-	})
-
-	host, err := container.Host(ctx)
-	if err != nil {
-		t.Fatalf("Failed to get container host: %v", err)
+	if s.container != nil {
+		_ = s.container.Terminate(context.Background())
 	}
-
-	port, err := container.MappedPort(ctx, "5432")
-	if err != nil {
-		t.Fatalf("Failed to get container port: %v", err)
+	if s.cancel != nil {
+		s.cancel()
 	}
+}
 
-	connStr := "postgres://test:test@" + host + ":" + port.Port() + "/testdb?sslmode=disable"
-
-	pool, err := pgxpool.New(ctx, connStr)
-	if err != nil {
-		t.Fatalf("Failed to create connection pool: %v", err)
-	}
-
-	t.Cleanup(func() {
-		pool.Close()
-	})
-
-	return pool
+func (s *RolesTestSuite) SetupTest() {
+	// Clean up test roles and table from previous tests
+	_, _ = s.pool.Exec(s.ctx, "DROP TABLE IF EXISTS test_permissions_table CASCADE")
+	_, _ = s.pool.Exec(s.ctx, "DROP ROLE IF EXISTS test_user")
+	_, _ = s.pool.Exec(s.ctx, "DROP ROLE IF EXISTS test_admin")
+	_, _ = s.pool.Exec(s.ctx, "DROP ROLE IF EXISTS test_group")
 }
 
 // createTestRoles creates test roles for testing.
-func createTestRoles(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
-	t.Helper()
-
+func (s *RolesTestSuite) createTestRoles() {
 	// Create a role with login
-	_, err := pool.Exec(ctx, `CREATE ROLE test_user WITH LOGIN PASSWORD 'test123'`)
-	if err != nil {
-		t.Fatalf("Failed to create test_user role: %v", err)
-	}
+	_, err := s.pool.Exec(s.ctx, `CREATE ROLE test_user WITH LOGIN PASSWORD 'test123'`)
+	s.Require().NoError(err, "Failed to create test_user role")
 
 	// Create a role that can create databases
-	_, err = pool.Exec(ctx, `CREATE ROLE test_admin WITH LOGIN CREATEDB`)
-	if err != nil {
-		t.Fatalf("Failed to create test_admin role: %v", err)
-	}
+	_, err = s.pool.Exec(s.ctx, `CREATE ROLE test_admin WITH LOGIN CREATEDB`)
+	s.Require().NoError(err, "Failed to create test_admin role")
 
 	// Create a group role (no login)
-	_, err = pool.Exec(ctx, `CREATE ROLE test_group NOLOGIN`)
-	if err != nil {
-		t.Fatalf("Failed to create test_group role: %v", err)
-	}
+	_, err = s.pool.Exec(s.ctx, `CREATE ROLE test_group NOLOGIN`)
+	s.Require().NoError(err, "Failed to create test_group role")
 
 	// Add membership: test_user is a member of test_group
-	_, err = pool.Exec(ctx, `GRANT test_group TO test_user`)
-	if err != nil {
-		t.Fatalf("Failed to grant membership: %v", err)
-	}
+	_, err = s.pool.Exec(s.ctx, `GRANT test_group TO test_user`)
+	s.Require().NoError(err, "Failed to grant membership")
 }
 
-// TestGetRoles verifies GetRoles returns all roles.
-func TestGetRoles(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+// createTestTable creates a test table for permission tests and returns its OID.
+func (s *RolesTestSuite) createTestTable() uint32 {
+	// Create a test table
+	_, err := s.pool.Exec(s.ctx, `CREATE TABLE test_permissions_table (id serial PRIMARY KEY, name text)`)
+	s.Require().NoError(err, "Failed to create test table")
 
-	ctx := context.Background()
-	pool := setupPostgres(t, ctx)
-	createTestRoles(t, ctx, pool)
+	// Get the table OID
+	var tableOID uint32
+	err = s.pool.QueryRow(s.ctx, `SELECT oid FROM pg_class WHERE relname = 'test_permissions_table'`).Scan(&tableOID)
+	s.Require().NoError(err, "Failed to get table OID")
 
-	roles, err := queries.GetRoles(ctx, pool)
-	if err != nil {
-		t.Fatalf("GetRoles failed: %v", err)
-	}
+	return tableOID
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+func (s *RolesTestSuite) TestGetRoles() {
+	s.createTestRoles()
+
+	roles, err := queries.GetRoles(s.ctx, s.pool)
+	s.Require().NoError(err, "GetRoles failed")
 
 	// Should have at least the postgres/test user and our created roles
-	if len(roles) < 3 {
-		t.Errorf("Expected at least 3 roles, got %d", len(roles))
-	}
+	s.Assert().GreaterOrEqual(len(roles), 3, "Expected at least 3 roles")
 
 	// Find our test roles
 	var foundUser, foundAdmin, foundGroup bool
@@ -121,53 +145,28 @@ func TestGetRoles(t *testing.T) {
 		switch r.Name {
 		case "test_user":
 			foundUser = true
-			if !r.CanLogin {
-				t.Error("test_user should have CanLogin=true")
-			}
-			if r.IsSuperuser {
-				t.Error("test_user should not be superuser")
-			}
+			s.Assert().True(r.CanLogin, "test_user should have CanLogin=true")
+			s.Assert().False(r.IsSuperuser, "test_user should not be superuser")
 		case "test_admin":
 			foundAdmin = true
-			if !r.CanLogin {
-				t.Error("test_admin should have CanLogin=true")
-			}
-			if !r.CanCreateDB {
-				t.Error("test_admin should have CanCreateDB=true")
-			}
+			s.Assert().True(r.CanLogin, "test_admin should have CanLogin=true")
+			s.Assert().True(r.CanCreateDB, "test_admin should have CanCreateDB=true")
 		case "test_group":
 			foundGroup = true
-			if r.CanLogin {
-				t.Error("test_group should have CanLogin=false")
-			}
+			s.Assert().False(r.CanLogin, "test_group should have CanLogin=false")
 		}
 	}
 
-	if !foundUser {
-		t.Error("test_user not found in roles")
-	}
-	if !foundAdmin {
-		t.Error("test_admin not found in roles")
-	}
-	if !foundGroup {
-		t.Error("test_group not found in roles")
-	}
+	s.Assert().True(foundUser, "test_user not found in roles")
+	s.Assert().True(foundAdmin, "test_admin not found in roles")
+	s.Assert().True(foundGroup, "test_group not found in roles")
 }
 
-// TestGetRoleMemberships verifies GetRoleMemberships returns membership relationships.
-func TestGetRoleMemberships(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+func (s *RolesTestSuite) TestGetRoleMemberships() {
+	s.createTestRoles()
 
-	ctx := context.Background()
-	pool := setupPostgres(t, ctx)
-	createTestRoles(t, ctx, pool)
-
-	memberships, err := queries.GetRoleMemberships(ctx, pool)
-	if err != nil {
-		t.Fatalf("GetRoleMemberships failed: %v", err)
-	}
+	memberships, err := queries.GetRoleMemberships(s.ctx, s.pool)
+	s.Require().NoError(err, "GetRoleMemberships failed")
 
 	// Find test_user -> test_group membership
 	var found bool
@@ -178,26 +177,15 @@ func TestGetRoleMemberships(t *testing.T) {
 		}
 	}
 
-	if !found {
-		t.Error("Expected to find test_user membership in test_group")
-	}
+	s.Assert().True(found, "Expected to find test_user membership in test_group")
 }
 
-// TestGetRoleMembershipsFor verifies GetRoleMembershipsFor returns memberships for a specific role.
-func TestGetRoleMembershipsFor(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx := context.Background()
-	pool := setupPostgres(t, ctx)
-	createTestRoles(t, ctx, pool)
+func (s *RolesTestSuite) TestGetRoleMembershipsFor() {
+	s.createTestRoles()
 
 	// First get test_user OID
-	roles, err := queries.GetRoles(ctx, pool)
-	if err != nil {
-		t.Fatalf("GetRoles failed: %v", err)
-	}
+	roles, err := queries.GetRoles(s.ctx, s.pool)
+	s.Require().NoError(err, "GetRoles failed")
 
 	var testUserOID uint32
 	for _, r := range roles {
@@ -206,41 +194,26 @@ func TestGetRoleMembershipsFor(t *testing.T) {
 			break
 		}
 	}
-	if testUserOID == 0 {
-		t.Fatal("test_user not found")
-	}
+	s.Require().NotZero(testUserOID, "test_user not found")
 
 	// Get memberships for test_user
-	memberships, err := queries.GetRoleMembershipsFor(ctx, pool, testUserOID)
-	if err != nil {
-		t.Fatalf("GetRoleMembershipsFor failed: %v", err)
-	}
+	memberships, err := queries.GetRoleMembershipsFor(s.ctx, s.pool, testUserOID)
+	s.Require().NoError(err, "GetRoleMembershipsFor failed")
 
 	// test_user should be member of test_group
-	if len(memberships) != 1 {
-		t.Errorf("Expected 1 membership for test_user, got %d", len(memberships))
-	}
+	s.Assert().Len(memberships, 1, "Expected 1 membership for test_user")
 
-	if len(memberships) > 0 && memberships[0].RoleName != "test_group" {
-		t.Errorf("Expected test_user to be member of test_group, got %s", memberships[0].RoleName)
+	if len(memberships) > 0 {
+		s.Assert().Equal("test_group", memberships[0].RoleName, "Expected test_user to be member of test_group")
 	}
 }
 
-// TestGetRoleDetails verifies GetRoleDetails returns detailed role information.
-func TestGetRoleDetails(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx := context.Background()
-	pool := setupPostgres(t, ctx)
-	createTestRoles(t, ctx, pool)
+func (s *RolesTestSuite) TestGetRoleDetails() {
+	s.createTestRoles()
 
 	// First get test_user OID
-	roles, err := queries.GetRoles(ctx, pool)
-	if err != nil {
-		t.Fatalf("GetRoles failed: %v", err)
-	}
+	roles, err := queries.GetRoles(s.ctx, s.pool)
+	s.Require().NoError(err, "GetRoles failed")
 
 	var testUserOID uint32
 	for _, r := range roles {
@@ -249,31 +222,130 @@ func TestGetRoleDetails(t *testing.T) {
 			break
 		}
 	}
-	if testUserOID == 0 {
-		t.Fatal("test_user not found")
-	}
+	s.Require().NotZero(testUserOID, "test_user not found")
 
 	// Get details
-	details, err := queries.GetRoleDetails(ctx, pool, testUserOID)
-	if err != nil {
-		t.Fatalf("GetRoleDetails failed: %v", err)
-	}
+	details, err := queries.GetRoleDetails(s.ctx, s.pool, testUserOID)
+	s.Require().NoError(err, "GetRoleDetails failed")
+	s.Require().NotNil(details, "Expected non-nil role details")
 
-	if details == nil {
-		t.Fatal("Expected non-nil role details")
-	}
-
-	if details.Name != "test_user" {
-		t.Errorf("Expected name='test_user', got '%s'", details.Name)
-	}
+	s.Assert().Equal("test_user", details.Name, "Expected name='test_user'")
 
 	// Should show membership in test_group
-	if len(details.Memberships) != 1 {
-		t.Errorf("Expected 1 membership, got %d", len(details.Memberships))
+	s.Assert().Len(details.Memberships, 1, "Expected 1 membership")
+}
+
+func (s *RolesTestSuite) TestGetTablePermissions() {
+	s.createTestRoles()
+	tableOID := s.createTestTable()
+
+	// Grant SELECT to test_user
+	_, err := s.pool.Exec(s.ctx, `GRANT SELECT ON test_permissions_table TO test_user`)
+	s.Require().NoError(err, "Failed to grant SELECT")
+
+	// Get permissions
+	perms, err := queries.GetTablePermissions(s.ctx, s.pool, tableOID)
+	s.Require().NoError(err, "GetTablePermissions failed")
+
+	// Should have at least the owner permissions and the grant to test_user
+	var foundTestUserSelect bool
+	for _, p := range perms {
+		if p.Grantee == "test_user" && p.PrivilegeType == "SELECT" {
+			foundTestUserSelect = true
+			break
+		}
+	}
+
+	s.Assert().True(foundTestUserSelect, "Expected to find SELECT permission for test_user")
+}
+
+func (s *RolesTestSuite) TestGrantTablePrivilege() {
+	s.createTestRoles()
+	tableOID := s.createTestTable()
+
+	// Grant INSERT to test_user
+	err := queries.GrantTablePrivilege(s.ctx, s.pool, "public", "test_permissions_table", "test_user", "INSERT", false)
+	s.Require().NoError(err, "GrantTablePrivilege failed")
+
+	// Verify the grant
+	perms, err := queries.GetTablePermissions(s.ctx, s.pool, tableOID)
+	s.Require().NoError(err, "GetTablePermissions failed")
+
+	var foundInsert bool
+	for _, p := range perms {
+		if p.Grantee == "test_user" && p.PrivilegeType == "INSERT" {
+			foundInsert = true
+			s.Assert().False(p.IsGrantable, "Expected is_grantable=false for grant without WITH GRANT OPTION")
+			break
+		}
+	}
+
+	s.Assert().True(foundInsert, "Expected to find INSERT permission for test_user after grant")
+}
+
+func (s *RolesTestSuite) TestGrantTablePrivilegeWithGrantOption() {
+	s.createTestRoles()
+	tableOID := s.createTestTable()
+
+	// Grant UPDATE to test_admin with grant option
+	err := queries.GrantTablePrivilege(s.ctx, s.pool, "public", "test_permissions_table", "test_admin", "UPDATE", true)
+	s.Require().NoError(err, "GrantTablePrivilege with grant option failed")
+
+	// Verify the grant
+	perms, err := queries.GetTablePermissions(s.ctx, s.pool, tableOID)
+	s.Require().NoError(err, "GetTablePermissions failed")
+
+	var foundUpdate bool
+	for _, p := range perms {
+		if p.Grantee == "test_admin" && p.PrivilegeType == "UPDATE" {
+			foundUpdate = true
+			s.Assert().True(p.IsGrantable, "Expected is_grantable=true for grant WITH GRANT OPTION")
+			break
+		}
+	}
+
+	s.Assert().True(foundUpdate, "Expected to find UPDATE permission for test_admin after grant")
+}
+
+func (s *RolesTestSuite) TestRevokeTablePrivilege() {
+	s.createTestRoles()
+	tableOID := s.createTestTable()
+
+	// First grant DELETE to test_user
+	_, err := s.pool.Exec(s.ctx, `GRANT DELETE ON test_permissions_table TO test_user`)
+	s.Require().NoError(err, "Failed to grant DELETE")
+
+	// Verify it was granted
+	perms, err := queries.GetTablePermissions(s.ctx, s.pool, tableOID)
+	s.Require().NoError(err, "GetTablePermissions failed")
+
+	var foundDeleteBefore bool
+	for _, p := range perms {
+		if p.Grantee == "test_user" && p.PrivilegeType == "DELETE" {
+			foundDeleteBefore = true
+			break
+		}
+	}
+	s.Require().True(foundDeleteBefore, "Expected DELETE to be granted before revoke test")
+
+	// Now revoke it
+	err = queries.RevokeTablePrivilege(s.ctx, s.pool, "public", "test_permissions_table", "test_user", "DELETE", false)
+	s.Require().NoError(err, "RevokeTablePrivilege failed")
+
+	// Verify it was revoked
+	perms, err = queries.GetTablePermissions(s.ctx, s.pool, tableOID)
+	s.Require().NoError(err, "GetTablePermissions failed after revoke")
+
+	for _, p := range perms {
+		s.Assert().False(p.Grantee == "test_user" && p.PrivilegeType == "DELETE",
+			"Expected DELETE permission to be revoked from test_user")
 	}
 }
 
-// TestFormatRoleAttributes verifies FormatRoleAttributes helper function.
+// =============================================================================
+// Standalone tests (no container needed - pure unit tests)
+// =============================================================================
+
 func TestFormatRoleAttributes(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -323,7 +395,6 @@ func TestFormatRoleAttributes(t *testing.T) {
 	}
 }
 
-// TestFormatConnectionLimit verifies FormatConnectionLimit helper function.
 func TestFormatConnectionLimit(t *testing.T) {
 	tests := []struct {
 		limit    int
@@ -339,194 +410,6 @@ func TestFormatConnectionLimit(t *testing.T) {
 		result := queries.FormatConnectionLimit(tt.limit)
 		if result != tt.expected {
 			t.Errorf("FormatConnectionLimit(%d) = %q, want %q", tt.limit, result, tt.expected)
-		}
-	}
-}
-
-// createTestTable creates a test table for permission tests.
-func createTestTable(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uint32 {
-	t.Helper()
-
-	// Create a test table
-	_, err := pool.Exec(ctx, `CREATE TABLE test_permissions_table (id serial PRIMARY KEY, name text)`)
-	if err != nil {
-		t.Fatalf("Failed to create test table: %v", err)
-	}
-
-	// Get the table OID
-	var tableOID uint32
-	err = pool.QueryRow(ctx, `SELECT oid FROM pg_class WHERE relname = 'test_permissions_table'`).Scan(&tableOID)
-	if err != nil {
-		t.Fatalf("Failed to get table OID: %v", err)
-	}
-
-	return tableOID
-}
-
-// TestGetTablePermissions verifies GetTablePermissions returns permissions on a table.
-func TestGetTablePermissions(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx := context.Background()
-	pool := setupPostgres(t, ctx)
-	createTestRoles(t, ctx, pool)
-	tableOID := createTestTable(t, ctx, pool)
-
-	// Grant SELECT to test_user
-	_, err := pool.Exec(ctx, `GRANT SELECT ON test_permissions_table TO test_user`)
-	if err != nil {
-		t.Fatalf("Failed to grant SELECT: %v", err)
-	}
-
-	// Get permissions
-	perms, err := queries.GetTablePermissions(ctx, pool, tableOID)
-	if err != nil {
-		t.Fatalf("GetTablePermissions failed: %v", err)
-	}
-
-	// Should have at least the owner permissions and the grant to test_user
-	var foundTestUserSelect bool
-	for _, p := range perms {
-		if p.Grantee == "test_user" && p.PrivilegeType == "SELECT" {
-			foundTestUserSelect = true
-			break
-		}
-	}
-
-	if !foundTestUserSelect {
-		t.Error("Expected to find SELECT permission for test_user")
-	}
-}
-
-// TestGrantTablePrivilege verifies GrantTablePrivilege grants a privilege.
-func TestGrantTablePrivilege(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx := context.Background()
-	pool := setupPostgres(t, ctx)
-	createTestRoles(t, ctx, pool)
-	tableOID := createTestTable(t, ctx, pool)
-
-	// Grant INSERT to test_user
-	err := queries.GrantTablePrivilege(ctx, pool, "public", "test_permissions_table", "test_user", "INSERT", false)
-	if err != nil {
-		t.Fatalf("GrantTablePrivilege failed: %v", err)
-	}
-
-	// Verify the grant
-	perms, err := queries.GetTablePermissions(ctx, pool, tableOID)
-	if err != nil {
-		t.Fatalf("GetTablePermissions failed: %v", err)
-	}
-
-	var foundInsert bool
-	for _, p := range perms {
-		if p.Grantee == "test_user" && p.PrivilegeType == "INSERT" {
-			foundInsert = true
-			if p.IsGrantable {
-				t.Error("Expected is_grantable=false for grant without WITH GRANT OPTION")
-			}
-			break
-		}
-	}
-
-	if !foundInsert {
-		t.Error("Expected to find INSERT permission for test_user after grant")
-	}
-}
-
-// TestGrantTablePrivilegeWithGrantOption verifies WITH GRANT OPTION works.
-func TestGrantTablePrivilegeWithGrantOption(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx := context.Background()
-	pool := setupPostgres(t, ctx)
-	createTestRoles(t, ctx, pool)
-	tableOID := createTestTable(t, ctx, pool)
-
-	// Grant UPDATE to test_admin with grant option
-	err := queries.GrantTablePrivilege(ctx, pool, "public", "test_permissions_table", "test_admin", "UPDATE", true)
-	if err != nil {
-		t.Fatalf("GrantTablePrivilege with grant option failed: %v", err)
-	}
-
-	// Verify the grant
-	perms, err := queries.GetTablePermissions(ctx, pool, tableOID)
-	if err != nil {
-		t.Fatalf("GetTablePermissions failed: %v", err)
-	}
-
-	var foundUpdate bool
-	for _, p := range perms {
-		if p.Grantee == "test_admin" && p.PrivilegeType == "UPDATE" {
-			foundUpdate = true
-			if !p.IsGrantable {
-				t.Error("Expected is_grantable=true for grant WITH GRANT OPTION")
-			}
-			break
-		}
-	}
-
-	if !foundUpdate {
-		t.Error("Expected to find UPDATE permission for test_admin after grant")
-	}
-}
-
-// TestRevokeTablePrivilege verifies RevokeTablePrivilege revokes a privilege.
-func TestRevokeTablePrivilege(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx := context.Background()
-	pool := setupPostgres(t, ctx)
-	createTestRoles(t, ctx, pool)
-	tableOID := createTestTable(t, ctx, pool)
-
-	// First grant DELETE to test_user
-	_, err := pool.Exec(ctx, `GRANT DELETE ON test_permissions_table TO test_user`)
-	if err != nil {
-		t.Fatalf("Failed to grant DELETE: %v", err)
-	}
-
-	// Verify it was granted
-	perms, err := queries.GetTablePermissions(ctx, pool, tableOID)
-	if err != nil {
-		t.Fatalf("GetTablePermissions failed: %v", err)
-	}
-
-	var foundDeleteBefore bool
-	for _, p := range perms {
-		if p.Grantee == "test_user" && p.PrivilegeType == "DELETE" {
-			foundDeleteBefore = true
-			break
-		}
-	}
-	if !foundDeleteBefore {
-		t.Fatal("Expected DELETE to be granted before revoke test")
-	}
-
-	// Now revoke it
-	err = queries.RevokeTablePrivilege(ctx, pool, "public", "test_permissions_table", "test_user", "DELETE", false)
-	if err != nil {
-		t.Fatalf("RevokeTablePrivilege failed: %v", err)
-	}
-
-	// Verify it was revoked
-	perms, err = queries.GetTablePermissions(ctx, pool, tableOID)
-	if err != nil {
-		t.Fatalf("GetTablePermissions failed after revoke: %v", err)
-	}
-
-	for _, p := range perms {
-		if p.Grantee == "test_user" && p.PrivilegeType == "DELETE" {
-			t.Error("Expected DELETE permission to be revoked from test_user")
 		}
 	}
 }

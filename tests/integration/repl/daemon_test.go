@@ -2,14 +2,25 @@ package repl_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/suite"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/willibrandon/steep/internal/repl/config"
 	"github.com/willibrandon/steep/internal/repl/daemon"
 )
+
+// =============================================================================
+// Standalone tests (no container needed)
+// =============================================================================
 
 // TestDaemon_NewDaemon verifies daemon can be created with valid config.
 func TestDaemon_NewDaemon(t *testing.T) {
@@ -245,38 +256,129 @@ func TestDaemon_PIDFile(t *testing.T) {
 	}
 }
 
-// TestDaemon_StartStop verifies daemon can start and stop with PostgreSQL container.
-func TestDaemon_StartStop(t *testing.T) {
+// =============================================================================
+// Daemon Integration Test Suite - shares a single container across all tests
+// =============================================================================
+
+type DaemonIntegrationSuite struct {
+	suite.Suite
+	ctx        context.Context
+	cancel     context.CancelFunc
+	container  testcontainers.Container
+	pool       *pgxpool.Pool
+	connConfig *config.PostgreSQLConfig
+	// Per-test daemon (recreated for each test for isolation)
+	daemon     *daemon.Daemon
+	socketPath string
+}
+
+func TestDaemonIntegrationSuite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	suite.Run(t, new(DaemonIntegrationSuite))
+}
 
-	ctx := context.Background()
+func (s *DaemonIntegrationSuite) SetupSuite() {
+	s.ctx, s.cancel = context.WithTimeout(context.Background(), 5*time.Minute)
 
-	// Use the same container setup as extension tests
-	pool := setupPostgresWithExtension(t, ctx)
+	const testPassword = "test"
+	os.Setenv("PGPASSWORD", testPassword)
 
-	// Get the connection details from the pool
-	connConfig := pool.Config().ConnConfig
-
-	// Create socket path (must be short due to Unix socket path limits)
-	socketPath := tempSocketPath(t)
-
-	cfg := &config.Config{
-		NodeID:   "start-stop-test",
-		NodeName: "Start Stop Test",
-		PostgreSQL: config.PostgreSQLConfig{
-			Host:     connConfig.Host,
-			Port:     int(connConfig.Port),
-			Database: connConfig.Database,
-			User:     connConfig.User,
+	req := testcontainers.ContainerRequest{
+		Image:        "ghcr.io/willibrandon/pg18-steep-repl:latest",
+		ExposedPorts: []string{"5432/tcp"},
+		Env: map[string]string{
+			"POSTGRES_USER":     "test",
+			"POSTGRES_PASSWORD": testPassword,
+			"POSTGRES_DB":       "testdb",
 		},
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
+			WithStartupTimeout(60 * time.Second),
+	}
+
+	container, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	s.Require().NoError(err, "Failed to start PostgreSQL container")
+	s.container = container
+
+	host, err := container.Host(s.ctx)
+	s.Require().NoError(err)
+
+	port, err := container.MappedPort(s.ctx, "5432")
+	s.Require().NoError(err)
+
+	connStr := fmt.Sprintf("postgres://test:%s@%s:%s/testdb?sslmode=disable", testPassword, host, port.Port())
+	pool, err := pgxpool.New(s.ctx, connStr)
+	s.Require().NoError(err)
+	s.pool = pool
+
+	// Create extension
+	_, err = pool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err, "Failed to create extension")
+
+	// Store connection config for daemon creation
+	connConfig := pool.Config().ConnConfig
+	s.connConfig = &config.PostgreSQLConfig{
+		Host:     connConfig.Host,
+		Port:     int(connConfig.Port),
+		Database: connConfig.Database,
+		User:     connConfig.User,
+	}
+
+	s.T().Log("DaemonIntegrationSuite: Shared container ready")
+}
+
+func (s *DaemonIntegrationSuite) TearDownSuite() {
+	if s.pool != nil {
+		s.pool.Close()
+	}
+	if s.container != nil {
+		_ = s.container.Terminate(context.Background())
+	}
+	if s.cancel != nil {
+		s.cancel()
+	}
+}
+
+func (s *DaemonIntegrationSuite) SetupTest() {
+	// Clean up nodes table before each test
+	_, _ = s.pool.Exec(s.ctx, "DELETE FROM steep_repl.nodes")
+
+	// Generate unique socket path for this test
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	s.socketPath = fmt.Sprintf("/tmp/sr-%s.sock", hex.EncodeToString(b))
+}
+
+func (s *DaemonIntegrationSuite) TearDownTest() {
+	if s.daemon != nil {
+		s.daemon.Stop()
+		s.daemon = nil
+	}
+	if s.socketPath != "" {
+		os.Remove(s.socketPath)
+	}
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+func (s *DaemonIntegrationSuite) TestStartStop() {
+	cfg := &config.Config{
+		NodeID:     "start-stop-test",
+		NodeName:   "Start Stop Test",
+		PostgreSQL: *s.connConfig,
 		GRPC: config.GRPCConfig{
 			Port: 15436,
 		},
 		IPC: config.IPCConfig{
 			Enabled: true,
-			Path:    socketPath,
+			Path:    s.socketPath,
 		},
 		HTTP: config.HTTPConfig{
 			Enabled: false,
@@ -284,68 +386,41 @@ func TestDaemon_StartStop(t *testing.T) {
 	}
 
 	d, err := daemon.New(cfg, true)
-	if err != nil {
-		t.Fatalf("Failed to create daemon: %v", err)
-	}
+	s.Require().NoError(err, "Failed to create daemon")
+	s.daemon = d
 
 	// Start daemon
 	err = d.Start()
-	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
-	}
+	s.Require().NoError(err, "Failed to start daemon")
 
 	// Give it time to start
 	time.Sleep(500 * time.Millisecond)
 
 	// Verify running state
-	if d.State() != daemon.StateRunning {
-		t.Errorf("State after start = %v, want %v", d.State(), daemon.StateRunning)
-	}
+	s.Assert().Equal(daemon.StateRunning, d.State(), "State after start should be running")
 
 	// Check uptime is non-zero
-	if d.Uptime() == 0 {
-		t.Error("Uptime should be > 0 after start")
-	}
+	s.Assert().NotZero(d.Uptime(), "Uptime should be > 0 after start")
 
 	// Stop daemon
 	err = d.Stop()
-	if err != nil {
-		t.Fatalf("Failed to stop daemon: %v", err)
-	}
+	s.Require().NoError(err, "Failed to stop daemon")
 
 	// Verify stopped state
-	if d.State() != daemon.StateStopped {
-		t.Errorf("State after stop = %v, want %v", d.State(), daemon.StateStopped)
-	}
+	s.Assert().Equal(daemon.StateStopped, d.State(), "State after stop should be stopped")
 }
 
-// TestDaemon_PostgreSQLConnection verifies daemon connects to PostgreSQL.
-func TestDaemon_PostgreSQLConnection(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx := context.Background()
-	pool := setupPostgresWithExtension(t, ctx)
-	connConfig := pool.Config().ConnConfig
-
-	socketPath := tempSocketPath(t)
-
+func (s *DaemonIntegrationSuite) TestPostgreSQLConnection() {
 	cfg := &config.Config{
-		NodeID:   "pg-conn-test",
-		NodeName: "PG Connection Test",
-		PostgreSQL: config.PostgreSQLConfig{
-			Host:     connConfig.Host,
-			Port:     int(connConfig.Port),
-			Database: connConfig.Database,
-			User:     connConfig.User,
-		},
+		NodeID:     "pg-conn-test",
+		NodeName:   "PG Connection Test",
+		PostgreSQL: *s.connConfig,
 		GRPC: config.GRPCConfig{
 			Port: 15437,
 		},
 		IPC: config.IPCConfig{
 			Enabled: true,
-			Path:    socketPath,
+			Path:    s.socketPath,
 		},
 		HTTP: config.HTTPConfig{
 			Enabled: false,
@@ -353,30 +428,19 @@ func TestDaemon_PostgreSQLConnection(t *testing.T) {
 	}
 
 	d, err := daemon.New(cfg, true)
-	if err != nil {
-		t.Fatalf("Failed to create daemon: %v", err)
-	}
+	s.Require().NoError(err, "Failed to create daemon")
+	s.daemon = d
 
 	err = d.Start()
-	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
-	}
-	defer d.Stop()
+	s.Require().NoError(err, "Failed to start daemon")
 
 	time.Sleep(500 * time.Millisecond)
 
 	// Check PostgreSQL status
 	status := d.Status()
-	if status.PostgreSQL.Status != "connected" {
-		t.Errorf("PostgreSQL status = %q, want 'connected'", status.PostgreSQL.Status)
-	}
+	s.Assert().Equal("connected", status.PostgreSQL.Status, "PostgreSQL should be connected")
 
 	// Pool should be available
-	if d.Pool() == nil {
-		t.Error("Pool should not be nil after start")
-	}
-
-	if !d.Pool().IsConnected() {
-		t.Error("Pool should be connected")
-	}
+	s.Assert().NotNil(d.Pool(), "Pool should not be nil after start")
+	s.Assert().True(d.Pool().IsConnected(), "Pool should be connected")
 }

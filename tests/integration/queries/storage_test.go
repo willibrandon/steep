@@ -2,27 +2,51 @@ package queries_test
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/willibrandon/steep/internal/monitors/queries"
 	"github.com/willibrandon/steep/internal/storage/sqlite"
 )
 
-// setupPostgres creates a PostgreSQL test container and returns a connection pool.
-func setupPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
-	t.Helper()
+// =============================================================================
+// Query Storage Test Suite - shares a single container across PostgreSQL tests
+// =============================================================================
+
+type QueryStorageTestSuite struct {
+	suite.Suite
+	ctx       context.Context
+	cancel    context.CancelFunc
+	container testcontainers.Container
+	pool      *pgxpool.Pool
+}
+
+func TestQueryStorageSuite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+	suite.Run(t, new(QueryStorageTestSuite))
+}
+
+func (s *QueryStorageTestSuite) SetupSuite() {
+	s.ctx, s.cancel = context.WithTimeout(context.Background(), 5*time.Minute)
+
+	const testPassword = "test"
+	os.Setenv("PGPASSWORD", testPassword)
 
 	req := testcontainers.ContainerRequest{
 		Image:        "postgres:18-alpine",
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
 			"POSTGRES_USER":     "test",
-			"POSTGRES_PASSWORD": "test",
+			"POSTGRES_PASSWORD": testPassword,
 			"POSTGRES_DB":       "testdb",
 		},
 		WaitingFor: wait.ForLog("database system is ready to accept connections").
@@ -30,62 +54,55 @@ func setupPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 			WithStartupTimeout(60 * time.Second),
 	}
 
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+	container, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 	})
-	if err != nil {
-		t.Fatalf("Failed to start PostgreSQL container: %v", err)
-	}
+	s.Require().NoError(err, "Failed to start PostgreSQL container")
+	s.container = container
 
-	t.Cleanup(func() {
-		if err := container.Terminate(ctx); err != nil {
-			t.Logf("Failed to terminate container: %v", err)
-		}
-	})
+	host, err := container.Host(s.ctx)
+	s.Require().NoError(err)
 
-	host, err := container.Host(ctx)
-	if err != nil {
-		t.Fatalf("Failed to get container host: %v", err)
-	}
+	port, err := container.MappedPort(s.ctx, "5432")
+	s.Require().NoError(err)
 
-	port, err := container.MappedPort(ctx, "5432")
-	if err != nil {
-		t.Fatalf("Failed to get container port: %v", err)
-	}
+	connStr := fmt.Sprintf("postgres://test:%s@%s:%s/testdb?sslmode=disable", testPassword, host, port.Port())
+	pool, err := pgxpool.New(s.ctx, connStr)
+	s.Require().NoError(err)
+	s.pool = pool
 
-	connStr := "postgres://test:test@" + host + ":" + port.Port() + "/testdb?sslmode=disable"
-
-	pool, err := pgxpool.New(ctx, connStr)
-	if err != nil {
-		t.Fatalf("Failed to create connection pool: %v", err)
-	}
-
-	t.Cleanup(func() {
-		pool.Close()
-	})
-
-	return pool
+	s.T().Log("QueryStorageTestSuite: Shared container ready")
 }
 
-func TestIntegration_QueryMonitor_WithSamplingCollector(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+func (s *QueryStorageTestSuite) TearDownSuite() {
+	if s.pool != nil {
+		s.pool.Close()
 	}
+	if s.container != nil {
+		_ = s.container.Terminate(context.Background())
+	}
+	if s.cancel != nil {
+		s.cancel()
+	}
+}
 
-	ctx := context.Background()
+func (s *QueryStorageTestSuite) SetupTest() {
+	// Clean up test tables
+	_, _ = s.pool.Exec(s.ctx, "DROP TABLE IF EXISTS test_users CASCADE")
+}
 
-	// Setup PostgreSQL container
-	pool := setupPostgres(t, ctx)
+// =============================================================================
+// PostgreSQL-dependent tests
+// =============================================================================
 
+func (s *QueryStorageTestSuite) TestQueryMonitor_WithSamplingCollector() {
 	// Setup SQLite storage
-	tmpDir := t.TempDir()
+	tmpDir := s.T().TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	db, err := sqlite.Open(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to open SQLite database: %v", err)
-	}
+	s.Require().NoError(err, "Failed to open SQLite database")
 	defer db.Close()
 
 	store := sqlite.NewQueryStatsStore(db)
@@ -96,56 +113,45 @@ func TestIntegration_QueryMonitor_WithSamplingCollector(t *testing.T) {
 		RetentionDays:   7,
 	}
 
-	monitor := queries.NewMonitor(pool, store, config)
+	monitor := queries.NewMonitor(s.pool, store, config)
 
 	// Start monitoring
-	monitorCtx, cancel := context.WithCancel(ctx)
+	monitorCtx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
 
-	if err := monitor.Start(monitorCtx); err != nil {
-		t.Fatalf("Failed to start monitor: %v", err)
-	}
+	err = monitor.Start(monitorCtx)
+	s.Require().NoError(err, "Failed to start monitor")
 
 	// Verify monitor is running
-	if monitor.Status() != queries.MonitorStatusRunning {
-		t.Errorf("Expected monitor status Running, got %v", monitor.Status())
-	}
-
-	if monitor.DataSource() != queries.DataSourceSampling {
-		t.Errorf("Expected data source Sampling, got %v", monitor.DataSource())
-	}
+	s.Assert().Equal(queries.MonitorStatusRunning, monitor.Status(), "Expected monitor status Running")
+	s.Assert().Equal(queries.DataSourceSampling, monitor.DataSource(), "Expected data source Sampling")
 
 	// Run some queries in PostgreSQL
-	_, err = pool.Exec(ctx, "SELECT pg_sleep(0.1)")
-	if err != nil {
-		t.Fatalf("Failed to execute test query: %v", err)
-	}
+	_, err = s.pool.Exec(s.ctx, "SELECT pg_sleep(0.1)")
+	s.Require().NoError(err, "Failed to execute test query")
 
 	// Create a table and run some queries
-	_, err = pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS test_users (id SERIAL PRIMARY KEY, name TEXT)")
-	if err != nil {
-		t.Fatalf("Failed to create test table: %v", err)
-	}
+	_, err = s.pool.Exec(s.ctx, "CREATE TABLE IF NOT EXISTS test_users (id SERIAL PRIMARY KEY, name TEXT)")
+	s.Require().NoError(err, "Failed to create test table")
 
 	for i := 0; i < 5; i++ {
-		_, err = pool.Exec(ctx, "INSERT INTO test_users (name) VALUES ($1)", "user"+string(rune('0'+i)))
-		if err != nil {
-			t.Fatalf("Failed to insert test data: %v", err)
-		}
+		_, err = s.pool.Exec(s.ctx, "INSERT INTO test_users (name) VALUES ($1)", "user"+string(rune('0'+i)))
+		s.Require().NoError(err, "Failed to insert test data")
 	}
 
 	// Give the monitor time to capture the queries
 	time.Sleep(500 * time.Millisecond)
 
 	// Stop monitor
-	if err := monitor.Stop(); err != nil {
-		t.Fatalf("Failed to stop monitor: %v", err)
-	}
+	err = monitor.Stop()
+	s.Require().NoError(err, "Failed to stop monitor")
 
-	if monitor.Status() != queries.MonitorStatusStopped {
-		t.Errorf("Expected monitor status Stopped, got %v", monitor.Status())
-	}
+	s.Assert().Equal(queries.MonitorStatusStopped, monitor.Status(), "Expected monitor status Stopped")
 }
+
+// =============================================================================
+// Standalone tests (SQLite only, no PostgreSQL container needed)
+// =============================================================================
 
 func TestIntegration_QueryStatsStore_FullWorkflow(t *testing.T) {
 	if testing.Short() {
@@ -321,6 +327,62 @@ func TestIntegration_Fingerprinter_RealQueries(t *testing.T) {
 			}
 		})
 	}
+}
+
+// setupPostgres creates a PostgreSQL container for standalone tests that need PostgreSQL.
+// This is used by performance_test.go and other tests that don't use the suite pattern.
+func setupPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
+	t.Helper()
+
+	const testPassword = "test"
+	os.Setenv("PGPASSWORD", testPassword)
+
+	req := testcontainers.ContainerRequest{
+		Image:        "postgres:18-alpine",
+		ExposedPorts: []string{"5432/tcp"},
+		Env: map[string]string{
+			"POSTGRES_USER":     "test",
+			"POSTGRES_PASSWORD": testPassword,
+			"POSTGRES_DB":       "testdb",
+		},
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
+			WithStartupTimeout(60 * time.Second),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to start PostgreSQL container: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = container.Terminate(context.Background())
+	})
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get container host: %v", err)
+	}
+
+	port, err := container.MappedPort(ctx, "5432")
+	if err != nil {
+		t.Fatalf("Failed to get container port: %v", err)
+	}
+
+	connStr := fmt.Sprintf("postgres://test:%s@%s:%s/testdb?sslmode=disable", testPassword, host, port.Port())
+	pool, err := pgxpool.New(ctx, connStr)
+	if err != nil {
+		t.Fatalf("Failed to create connection pool: %v", err)
+	}
+
+	t.Cleanup(func() {
+		pool.Close()
+	})
+
+	return pool
 }
 
 func TestIntegration_ConcurrentAccess(t *testing.T) {

@@ -287,34 +287,25 @@ func (s *InitTestSuite) TearDownSuite() {
 func (s *InitTestSuite) SetupTest() {
 	ctx := s.ctx
 
-	// Cancel any active init operations from previous tests
+	// Cancel any active init operations from previous tests and wait for completion
+	const cancelTimeout = 10 * time.Second
 	if s.env.sourceDaemon != nil && s.env.sourceDaemon.InitManager() != nil {
-		cancelled := s.env.sourceDaemon.InitManager().CancelAll()
+		cancelled, err := s.env.sourceDaemon.InitManager().CancelAllAndWait(cancelTimeout)
 		if len(cancelled) > 0 {
 			s.T().Logf("SetupTest: cancelled %d operations on source: %v", len(cancelled), cancelled)
 		}
+		if err != nil {
+			s.T().Logf("SetupTest: warning - source cancel wait: %v", err)
+		}
 	}
 	if s.env.targetDaemon != nil && s.env.targetDaemon.InitManager() != nil {
-		cancelled := s.env.targetDaemon.InitManager().CancelAll()
+		cancelled, err := s.env.targetDaemon.InitManager().CancelAllAndWait(cancelTimeout)
 		if len(cancelled) > 0 {
 			s.T().Logf("SetupTest: cancelled %d operations on target: %v", len(cancelled), cancelled)
 		}
-	}
-
-	// Wait for all operations to fully complete (ActiveCount == 0)
-	for i := 0; i < 30; i++ {
-		sourceActive := 0
-		targetActive := 0
-		if s.env.sourceDaemon != nil && s.env.sourceDaemon.InitManager() != nil {
-			sourceActive = s.env.sourceDaemon.InitManager().ActiveCount()
+		if err != nil {
+			s.T().Logf("SetupTest: warning - target cancel wait: %v", err)
 		}
-		if s.env.targetDaemon != nil && s.env.targetDaemon.InitManager() != nil {
-			targetActive = s.env.targetDaemon.InitManager().ActiveCount()
-		}
-		if sourceActive == 0 && targetActive == 0 {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
 	}
 
 	// Clean up any subscriptions on target
@@ -1179,242 +1170,9 @@ func (s *InitTestSuite) TestCLI_InitComplete() {
 // =============================================================================
 // Backward-Compatible Standalone Helper Functions
 // =============================================================================
-// These functions are used by other test files (reinit_test.go, schema_test.go)
-// that haven't been converted to suite pattern yet.
-
-// setupTwoNodeEnv creates a two-node test environment for standalone tests.
-// Used by reinit_test.go.
-func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
-	const testPassword = "test"
-	env := &twoNodeEnv{}
-
-	// Create Docker network for inter-container communication
-	net, err := network.New(ctx, network.WithCheckDuplicate())
-	if err != nil {
-		t.Fatalf("Failed to create Docker network: %v", err)
-	}
-	env.network = net
-
-	// Cleanup on test completion
-	t.Cleanup(func() {
-		if env.sourceDaemon != nil {
-			env.sourceDaemon.Stop()
-		}
-		if env.targetDaemon != nil {
-			env.targetDaemon.Stop()
-		}
-		if env.sourcePool != nil {
-			env.sourcePool.Close()
-		}
-		if env.targetPool != nil {
-			env.targetPool.Close()
-		}
-		if env.sourceContainer != nil {
-			env.sourceContainer.Terminate(context.Background())
-		}
-		if env.targetContainer != nil {
-			env.targetContainer.Terminate(context.Background())
-		}
-		if env.network != nil {
-			env.network.Remove(context.Background())
-		}
-	})
-
-	// Start source PostgreSQL container
-	sourceReq := testcontainers.ContainerRequest{
-		Image:        "ghcr.io/willibrandon/pg18-steep-repl:latest",
-		ExposedPorts: []string{"5432/tcp"},
-		Networks:     []string{net.Name},
-		NetworkAliases: map[string][]string{
-			net.Name: {"pg-source"},
-		},
-		Env: map[string]string{
-			"POSTGRES_USER":     "test",
-			"POSTGRES_PASSWORD": testPassword,
-			"POSTGRES_DB":       "testdb",
-		},
-		Cmd: []string{
-			"-c", "wal_level=logical",
-			"-c", "max_wal_senders=10",
-			"-c", "max_replication_slots=10",
-		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).
-			WithStartupTimeout(90 * time.Second),
-	}
-
-	sourceContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: sourceReq,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("Failed to start source container: %v", err)
-	}
-	env.sourceContainer = sourceContainer
-
-	// Start target PostgreSQL container
-	targetReq := testcontainers.ContainerRequest{
-		Image:        "ghcr.io/willibrandon/pg18-steep-repl:latest",
-		ExposedPorts: []string{"5432/tcp"},
-		Networks:     []string{net.Name},
-		NetworkAliases: map[string][]string{
-			net.Name: {"pg-target"},
-		},
-		Env: map[string]string{
-			"POSTGRES_USER":     "test",
-			"POSTGRES_PASSWORD": testPassword,
-			"POSTGRES_DB":       "testdb",
-		},
-		Cmd: []string{
-			"-c", "wal_level=logical",
-			"-c", "max_wal_senders=10",
-			"-c", "max_replication_slots=10",
-		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).
-			WithStartupTimeout(90 * time.Second),
-	}
-
-	targetContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: targetReq,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("Failed to start target container: %v", err)
-	}
-	env.targetContainer = targetContainer
-
-	// Get connection info
-	sourceHostExternal, _ := sourceContainer.Host(ctx)
-	sourcePortExternal, _ := sourceContainer.MappedPort(ctx, "5432")
-	targetHostExternal, _ := targetContainer.Host(ctx)
-	targetPortExternal, _ := targetContainer.MappedPort(ctx, "5432")
-
-	env.sourceHost = "pg-source" // Docker network hostname
-	env.sourcePort = 5432
-	env.targetHost = "pg-target"
-	env.targetPort = 5432
-	env.sourceHostExternal = sourceHostExternal
-	env.sourcePortExternal = sourcePortExternal.Int()
-	env.targetHostExternal = targetHostExternal
-	env.targetPortExternal = targetPortExternal.Int()
-
-	// Create connection pools using external ports
-	sourceConnStr := fmt.Sprintf("postgres://test:test@%s:%s/testdb?sslmode=disable",
-		sourceHostExternal, sourcePortExternal.Port())
-	env.sourcePool, err = pgxpool.New(ctx, sourceConnStr)
-	if err != nil {
-		t.Fatalf("Failed to create source pool: %v", err)
-	}
-
-	targetConnStr := fmt.Sprintf("postgres://test:test@%s:%s/testdb?sslmode=disable",
-		targetHostExternal, targetPortExternal.Port())
-	env.targetPool, err = pgxpool.New(ctx, targetConnStr)
-	if err != nil {
-		t.Fatalf("Failed to create target pool: %v", err)
-	}
-
-	// Wait for databases to be ready
-	waitForDB(t, ctx, env.sourcePool, "source")
-	waitForDB(t, ctx, env.targetPool, "target")
-
-	// Create steep_repl extension on both nodes
-	_, err = env.sourcePool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension on source: %v", err)
-	}
-	_, err = env.targetPool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
-	if err != nil {
-		t.Fatalf("Failed to create extension on target: %v", err)
-	}
-
-	// Start daemons
-	env.sourceGRPCPort = 15462 // Different ports from suite to avoid conflicts
-	env.targetGRPCPort = 15463
-
-	// Set PGPASSWORD for daemon connections
-	t.Setenv("PGPASSWORD", testPassword)
-
-	sourceSocketPath := tempSocketPath(t)
-	sourceCfg := &config.Config{
-		NodeID:   "source-node",
-		NodeName: "Source Node",
-		PostgreSQL: config.PostgreSQLConfig{
-			Host:     sourceHostExternal,
-			Port:     sourcePortExternal.Int(),
-			Database: "testdb",
-			User:     "test",
-		},
-		GRPC: config.GRPCConfig{
-			Port: env.sourceGRPCPort,
-		},
-		IPC: config.IPCConfig{
-			Enabled: true,
-			Path:    sourceSocketPath,
-		},
-		HTTP: config.HTTPConfig{
-			Enabled: false,
-		},
-		Initialization: config.InitConfig{
-			Method:          config.InitMethodSnapshot,
-			ParallelWorkers: 4,
-			SchemaSync:      config.SchemaSyncStrict,
-		},
-	}
-
-	env.sourceDaemon, err = daemon.New(sourceCfg, true)
-	if err != nil {
-		t.Fatalf("Failed to create source daemon: %v", err)
-	}
-	err = env.sourceDaemon.Start()
-	if err != nil {
-		t.Fatalf("Failed to start source daemon: %v", err)
-	}
-
-	targetSocketPath := tempSocketPath(t)
-	targetCfg := &config.Config{
-		NodeID:   "target-node",
-		NodeName: "Target Node",
-		PostgreSQL: config.PostgreSQLConfig{
-			Host:     targetHostExternal,
-			Port:     targetPortExternal.Int(),
-			Database: "testdb",
-			User:     "test",
-		},
-		GRPC: config.GRPCConfig{
-			Port: env.targetGRPCPort,
-		},
-		IPC: config.IPCConfig{
-			Enabled: true,
-			Path:    targetSocketPath,
-		},
-		HTTP: config.HTTPConfig{
-			Enabled: false,
-		},
-		Initialization: config.InitConfig{
-			Method:          config.InitMethodSnapshot,
-			ParallelWorkers: 4,
-			SchemaSync:      config.SchemaSyncStrict,
-		},
-	}
-
-	env.targetDaemon, err = daemon.New(targetCfg, true)
-	if err != nil {
-		t.Fatalf("Failed to create target daemon: %v", err)
-	}
-	err = env.targetDaemon.Start()
-	if err != nil {
-		t.Fatalf("Failed to start target daemon: %v", err)
-	}
-
-	// Wait for daemons to be ready
-	time.Sleep(time.Second)
-
-	return env
-}
 
 // waitForDB waits for database to be ready (standalone version).
-// Used by schema_test.go, reinit_test.go, and other standalone tests.
+// Used by schema_test.go, merge_test.go, and other standalone tests.
 func waitForDB(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) {
 	for range 30 {
 		var ready int

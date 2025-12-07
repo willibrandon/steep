@@ -3,12 +3,363 @@ package repl_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/suite"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/network"
+	"github.com/testcontainers/testcontainers-go/wait"
+	"github.com/willibrandon/steep/internal/repl/config"
+	"github.com/willibrandon/steep/internal/repl/daemon"
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
 	pb "github.com/willibrandon/steep/internal/repl/grpc/proto"
 )
+
+// =============================================================================
+// Reinit Test Suite
+// =============================================================================
+
+// ReinitTestSuite runs reinit integration tests with shared PostgreSQL containers.
+// Containers are shared across tests for efficiency, but daemons are recreated
+// for each test to ensure clean state.
+type ReinitTestSuite struct {
+	suite.Suite
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// Shared across all tests (containers only)
+	network         *testcontainers.DockerNetwork
+	sourceContainer testcontainers.Container
+	targetContainer testcontainers.Container
+	sourcePool      *pgxpool.Pool
+	targetPool      *pgxpool.Pool
+
+	// Connection info
+	sourceHost         string // Docker network hostname
+	sourcePort         int
+	targetHost         string
+	targetPort         int
+	sourceHostExternal string
+	sourcePortExternal int
+	targetHostExternal string
+	targetPortExternal int
+
+	// Per-test daemons (recreated for each test)
+	sourceDaemon   *daemon.Daemon
+	targetDaemon   *daemon.Daemon
+	sourceGRPCPort int
+	targetGRPCPort int
+}
+
+func TestReinitSuite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+	suite.Run(t, new(ReinitTestSuite))
+}
+
+func (s *ReinitTestSuite) SetupSuite() {
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+
+	s.T().Log("Setting up Reinit test suite - creating shared PostgreSQL containers...")
+
+	const testPassword = "test"
+	os.Setenv("PGPASSWORD", testPassword)
+
+	// Create Docker network for inter-container communication
+	net, err := network.New(s.ctx, network.WithCheckDuplicate())
+	s.Require().NoError(err, "Failed to create Docker network")
+	s.network = net
+
+	// Start source PostgreSQL container
+	sourceReq := testcontainers.ContainerRequest{
+		Image:        "ghcr.io/willibrandon/pg18-steep-repl:latest",
+		ExposedPorts: []string{"5432/tcp"},
+		Networks:     []string{net.Name},
+		NetworkAliases: map[string][]string{
+			net.Name: {"pg-source"},
+		},
+		Env: map[string]string{
+			"POSTGRES_USER":     "test",
+			"POSTGRES_PASSWORD": testPassword,
+			"POSTGRES_DB":       "testdb",
+		},
+		Cmd: []string{
+			"-c", "wal_level=logical",
+			"-c", "max_wal_senders=10",
+			"-c", "max_replication_slots=10",
+		},
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
+			WithStartupTimeout(90 * time.Second),
+	}
+
+	sourceContainer, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: sourceReq,
+		Started:          true,
+	})
+	s.Require().NoError(err, "Failed to start source container")
+	s.sourceContainer = sourceContainer
+
+	// Start target PostgreSQL container
+	targetReq := testcontainers.ContainerRequest{
+		Image:        "ghcr.io/willibrandon/pg18-steep-repl:latest",
+		ExposedPorts: []string{"5432/tcp"},
+		Networks:     []string{net.Name},
+		NetworkAliases: map[string][]string{
+			net.Name: {"pg-target"},
+		},
+		Env: map[string]string{
+			"POSTGRES_USER":     "test",
+			"POSTGRES_PASSWORD": testPassword,
+			"POSTGRES_DB":       "testdb",
+		},
+		Cmd: []string{
+			"-c", "wal_level=logical",
+			"-c", "max_wal_senders=10",
+			"-c", "max_replication_slots=10",
+		},
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
+			WithStartupTimeout(90 * time.Second),
+	}
+
+	targetContainer, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: targetReq,
+		Started:          true,
+	})
+	s.Require().NoError(err, "Failed to start target container")
+	s.targetContainer = targetContainer
+
+	// Get connection info
+	sourceHostExternal, _ := sourceContainer.Host(s.ctx)
+	sourcePortExternal, _ := sourceContainer.MappedPort(s.ctx, "5432")
+	targetHostExternal, _ := targetContainer.Host(s.ctx)
+	targetPortExternal, _ := targetContainer.MappedPort(s.ctx, "5432")
+
+	s.sourceHost = "pg-source"
+	s.sourcePort = 5432
+	s.targetHost = "pg-target"
+	s.targetPort = 5432
+	s.sourceHostExternal = sourceHostExternal
+	s.sourcePortExternal = sourcePortExternal.Int()
+	s.targetHostExternal = targetHostExternal
+	s.targetPortExternal = targetPortExternal.Int()
+
+	// Create connection pools
+	sourceConnStr := fmt.Sprintf("postgres://test:test@%s:%s/testdb?sslmode=disable",
+		sourceHostExternal, sourcePortExternal.Port())
+	s.sourcePool, err = pgxpool.New(s.ctx, sourceConnStr)
+	s.Require().NoError(err, "Failed to create source pool")
+
+	targetConnStr := fmt.Sprintf("postgres://test:test@%s:%s/testdb?sslmode=disable",
+		targetHostExternal, targetPortExternal.Port())
+	s.targetPool, err = pgxpool.New(s.ctx, targetConnStr)
+	s.Require().NoError(err, "Failed to create target pool")
+
+	// Wait for databases to be ready
+	s.waitForDB(s.sourcePool, "source")
+	s.waitForDB(s.targetPool, "target")
+
+	// Create steep_repl extension on both nodes
+	_, err = s.sourcePool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err, "Failed to create extension on source")
+	_, err = s.targetPool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err, "Failed to create extension on target")
+
+	s.T().Log("Reinit test suite setup complete - containers ready")
+}
+
+func (s *ReinitTestSuite) TearDownSuite() {
+	s.T().Log("Tearing down Reinit test suite...")
+
+	if s.sourcePool != nil {
+		s.sourcePool.Close()
+	}
+	if s.targetPool != nil {
+		s.targetPool.Close()
+	}
+	if s.sourceContainer != nil {
+		_ = s.sourceContainer.Terminate(context.Background())
+	}
+	if s.targetContainer != nil {
+		_ = s.targetContainer.Terminate(context.Background())
+	}
+	if s.network != nil {
+		_ = s.network.Remove(context.Background())
+	}
+	if s.cancel != nil {
+		s.cancel()
+	}
+
+	s.T().Log("Reinit test suite teardown complete")
+}
+
+func (s *ReinitTestSuite) SetupTest() {
+	ctx := s.ctx
+
+	// Clean up subscriptions on target
+	rows, err := s.targetPool.Query(ctx, `
+		SELECT subname FROM pg_subscription WHERE subname LIKE 'steep_sub_%'
+	`)
+	if err == nil {
+		var subs []string
+		for rows.Next() {
+			var name string
+			rows.Scan(&name)
+			subs = append(subs, name)
+		}
+		rows.Close()
+		for _, sub := range subs {
+			s.targetPool.Exec(ctx, fmt.Sprintf("ALTER SUBSCRIPTION %s DISABLE", sub))
+			s.targetPool.Exec(ctx, fmt.Sprintf("ALTER SUBSCRIPTION %s SET (slot_name = NONE)", sub))
+			s.targetPool.Exec(ctx, fmt.Sprintf("DROP SUBSCRIPTION IF EXISTS %s", sub))
+		}
+	}
+
+	// Clean up publications on source
+	s.sourcePool.Exec(ctx, "DROP PUBLICATION IF EXISTS steep_pub_source_node CASCADE")
+
+	// Clean up replication slots on source
+	rows, err = s.sourcePool.Query(ctx, `
+		SELECT slot_name FROM pg_replication_slots WHERE slot_name LIKE 'steep_sub_%'
+	`)
+	if err == nil {
+		var slots []string
+		for rows.Next() {
+			var name string
+			rows.Scan(&name)
+			slots = append(slots, name)
+		}
+		rows.Close()
+		for _, slot := range slots {
+			s.sourcePool.Exec(ctx, fmt.Sprintf("SELECT pg_drop_replication_slot('%s')", slot))
+		}
+	}
+
+	// Drop test tables on both nodes
+	testTables := []string{
+		"orders", "products", "customers",
+		"full_reinit_test",
+	}
+	for _, table := range testTables {
+		s.sourcePool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", table))
+		s.targetPool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", table))
+	}
+
+	// Drop test schemas
+	s.sourcePool.Exec(ctx, "DROP SCHEMA IF EXISTS sales CASCADE")
+	s.targetPool.Exec(ctx, "DROP SCHEMA IF EXISTS sales CASCADE")
+
+	// Delete node registrations (will be re-created by fresh daemons)
+	s.sourcePool.Exec(ctx, "DELETE FROM steep_repl.nodes WHERE node_id = 'source-node'")
+	s.targetPool.Exec(ctx, "DELETE FROM steep_repl.nodes WHERE node_id = 'target-node'")
+
+	// Create fresh daemons for this test
+	s.sourceGRPCPort = 15462
+	s.targetGRPCPort = 15463
+
+	sourceSocketPath := tempSocketPath(s.T())
+	sourceCfg := &config.Config{
+		NodeID:   "source-node",
+		NodeName: "Source Node",
+		PostgreSQL: config.PostgreSQLConfig{
+			Host:     s.sourceHostExternal,
+			Port:     s.sourcePortExternal,
+			Database: "testdb",
+			User:     "test",
+		},
+		GRPC: config.GRPCConfig{
+			Port: s.sourceGRPCPort,
+		},
+		IPC: config.IPCConfig{
+			Enabled: true,
+			Path:    sourceSocketPath,
+		},
+		HTTP: config.HTTPConfig{
+			Enabled: false,
+		},
+		Initialization: config.InitConfig{
+			Method:          config.InitMethodSnapshot,
+			ParallelWorkers: 4,
+			SchemaSync:      config.SchemaSyncStrict,
+		},
+	}
+
+	s.sourceDaemon, err = daemon.New(sourceCfg, true)
+	s.Require().NoError(err, "Failed to create source daemon")
+	err = s.sourceDaemon.Start()
+	s.Require().NoError(err, "Failed to start source daemon")
+
+	targetSocketPath := tempSocketPath(s.T())
+	targetCfg := &config.Config{
+		NodeID:   "target-node",
+		NodeName: "Target Node",
+		PostgreSQL: config.PostgreSQLConfig{
+			Host:     s.targetHostExternal,
+			Port:     s.targetPortExternal,
+			Database: "testdb",
+			User:     "test",
+		},
+		GRPC: config.GRPCConfig{
+			Port: s.targetGRPCPort,
+		},
+		IPC: config.IPCConfig{
+			Enabled: true,
+			Path:    targetSocketPath,
+		},
+		HTTP: config.HTTPConfig{
+			Enabled: false,
+		},
+		Initialization: config.InitConfig{
+			Method:          config.InitMethodSnapshot,
+			ParallelWorkers: 4,
+			SchemaSync:      config.SchemaSyncStrict,
+		},
+	}
+
+	s.targetDaemon, err = daemon.New(targetCfg, true)
+	s.Require().NoError(err, "Failed to create target daemon")
+	err = s.targetDaemon.Start()
+	s.Require().NoError(err, "Failed to start target daemon")
+
+	// Wait for daemons to be ready
+	time.Sleep(500 * time.Millisecond)
+}
+
+func (s *ReinitTestSuite) TearDownTest() {
+	// Stop daemons after each test
+	if s.sourceDaemon != nil {
+		s.sourceDaemon.Stop()
+		s.sourceDaemon = nil
+	}
+	if s.targetDaemon != nil {
+		s.targetDaemon.Stop()
+		s.targetDaemon = nil
+	}
+}
+
+// =============================================================================
+// Helper Methods
+// =============================================================================
+
+func (s *ReinitTestSuite) waitForDB(pool *pgxpool.Pool, name string) {
+	for range 30 {
+		var result int
+		if err := pool.QueryRow(s.ctx, "SELECT 1").Scan(&result); err == nil {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	s.T().Fatalf("Database %s not ready", name)
+}
+
+// =============================================================================
+// Partial Reinit Tests
+// =============================================================================
 
 // TestReinit_PartialByTableList tests partial reinitialization of specific tables.
 // This is T045: Integration test for partial reinit by table list.
@@ -18,18 +369,12 @@ import (
 // 2. Corrupt data in one table on target
 // 3. Run reinit --node target --tables orders
 // 4. Verify only that table was resynchronized
-func TestReinit_PartialByTableList(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
+func (s *ReinitTestSuite) TestReinit_PartialByTableList() {
+	t := s.T()
+	ctx := s.ctx
 
 	// === Step 1: Create test tables on source ===
-	_, err := env.sourcePool.Exec(ctx, `
+	_, err := s.sourcePool.Exec(ctx, `
 		CREATE TABLE orders (
 			id SERIAL PRIMARY KEY,
 			customer TEXT NOT NULL,
@@ -51,7 +396,7 @@ func TestReinit_PartialByTableList(t *testing.T) {
 	}
 
 	// Insert test data
-	_, err = env.sourcePool.Exec(ctx, `
+	_, err = s.sourcePool.Exec(ctx, `
 		INSERT INTO orders (customer, total) SELECT 'customer_' || i, i * 10.00 FROM generate_series(1, 50) AS i;
 		INSERT INTO products (name, price) SELECT 'product_' || i, i * 5.00 FROM generate_series(1, 30) AS i;
 		INSERT INTO customers (name, email) SELECT 'cust_' || i, 'cust' || i || '@example.com' FROM generate_series(1, 20) AS i;
@@ -61,7 +406,7 @@ func TestReinit_PartialByTableList(t *testing.T) {
 	}
 
 	// Create publication
-	_, err = env.sourcePool.Exec(ctx, `
+	_, err = s.sourcePool.Exec(ctx, `
 		CREATE PUBLICATION steep_pub_source_node FOR TABLE orders, products, customers
 	`)
 	if err != nil {
@@ -69,7 +414,7 @@ func TestReinit_PartialByTableList(t *testing.T) {
 	}
 
 	// === Step 2: Create matching tables on target ===
-	_, err = env.targetPool.Exec(ctx, `
+	_, err = s.targetPool.Exec(ctx, `
 		CREATE TABLE orders (id SERIAL PRIMARY KEY, customer TEXT NOT NULL, total DECIMAL(10,2));
 		CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price DECIMAL(10,2));
 		CREATE TABLE customers (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT);
@@ -79,7 +424,7 @@ func TestReinit_PartialByTableList(t *testing.T) {
 	}
 
 	// === Step 3: Initialize target from source ===
-	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", s.targetGRPCPort), "", "", "")
 	if err != nil {
 		t.Fatalf("Failed to dial target: %v", err)
 	}
@@ -93,8 +438,8 @@ func TestReinit_PartialByTableList(t *testing.T) {
 		SourceNodeId: "source-node",
 		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
 		SourceNodeInfo: &pb.SourceNodeInfo{
-			Host:     env.sourceHost,
-			Port:     int32(env.sourcePort),
+			Host:     s.sourceHost,
+			Port:     int32(s.sourcePort),
 			Database: "testdb",
 			User:     "test",
 		},
@@ -109,7 +454,7 @@ func TestReinit_PartialByTableList(t *testing.T) {
 	// Wait for initialization to complete
 	var initState string
 	for range 120 {
-		err = env.targetPool.QueryRow(ctx, `
+		err = s.targetPool.QueryRow(ctx, `
 			SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
 		`).Scan(&initState)
 		if err != nil {
@@ -130,9 +475,9 @@ func TestReinit_PartialByTableList(t *testing.T) {
 
 	// Verify data was copied
 	var ordersCount, productsCount, customersCount int
-	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM orders").Scan(&ordersCount)
-	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM products").Scan(&productsCount)
-	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM customers").Scan(&customersCount)
+	s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM orders").Scan(&ordersCount)
+	s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM products").Scan(&productsCount)
+	s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM customers").Scan(&customersCount)
 
 	if ordersCount != 50 || productsCount != 30 || customersCount != 20 {
 		t.Fatalf("Data mismatch after init: orders=%d, products=%d, customers=%d",
@@ -143,7 +488,7 @@ func TestReinit_PartialByTableList(t *testing.T) {
 
 	// === Step 4: Corrupt data in orders table on target ===
 	// This simulates data divergence that requires reinit
-	_, err = env.targetPool.Exec(ctx, `
+	_, err = s.targetPool.Exec(ctx, `
 		UPDATE orders SET total = -999.99 WHERE id <= 10;
 		DELETE FROM orders WHERE id > 40;
 	`)
@@ -153,13 +498,13 @@ func TestReinit_PartialByTableList(t *testing.T) {
 
 	// Verify corruption
 	var corruptedCount int
-	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM orders WHERE total = -999.99").Scan(&corruptedCount)
+	s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM orders WHERE total = -999.99").Scan(&corruptedCount)
 	if corruptedCount != 10 {
 		t.Fatalf("Corruption check failed: expected 10 corrupted rows, got %d", corruptedCount)
 	}
 
 	var ordersAfterCorrupt int
-	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM orders").Scan(&ordersAfterCorrupt)
+	s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM orders").Scan(&ordersAfterCorrupt)
 	t.Logf("Orders after corruption: %d rows (was 50)", ordersAfterCorrupt)
 
 	// === Step 5: Call reinit for just the orders table ===
@@ -191,7 +536,7 @@ func TestReinit_PartialByTableList(t *testing.T) {
 
 	// Verify orders table was truncated (should be empty now)
 	var ordersAfterReinit int
-	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM orders").Scan(&ordersAfterReinit)
+	err = s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM orders").Scan(&ordersAfterReinit)
 	if err != nil {
 		t.Fatalf("Failed to count orders: %v", err)
 	}
@@ -201,7 +546,7 @@ func TestReinit_PartialByTableList(t *testing.T) {
 	t.Log("Verified: orders table was truncated (0 rows)")
 
 	// Verify state transition
-	err = env.targetPool.QueryRow(ctx, `
+	err = s.targetPool.QueryRow(ctx, `
 		SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
 	`).Scan(&initState)
 	if err != nil {
@@ -216,8 +561,8 @@ func TestReinit_PartialByTableList(t *testing.T) {
 	// === Step 7: Verify products and customers tables were NOT affected ===
 	// These tables should still have their original data
 	var productsAfter, customersAfter int
-	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM products").Scan(&productsAfter)
-	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM customers").Scan(&customersAfter)
+	s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM products").Scan(&productsAfter)
+	s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM customers").Scan(&customersAfter)
 
 	if productsAfter != 30 {
 		t.Errorf("products table was affected by partial reinit: got %d rows, want 30", productsAfter)
@@ -229,19 +574,17 @@ func TestReinit_PartialByTableList(t *testing.T) {
 	t.Log("Verified other tables were not affected by partial reinit")
 }
 
+// =============================================================================
+// Schema Scope Tests
+// =============================================================================
+
 // TestReinit_SchemaScope tests reinitialization of all tables in a schema.
-func TestReinit_SchemaScope(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
+func (s *ReinitTestSuite) TestReinit_SchemaScope() {
+	t := s.T()
+	ctx := s.ctx
 
 	// Create schema with tables on source
-	_, err := env.sourcePool.Exec(ctx, `
+	_, err := s.sourcePool.Exec(ctx, `
 		CREATE SCHEMA sales;
 		CREATE TABLE sales.orders (id SERIAL PRIMARY KEY, customer TEXT);
 		CREATE TABLE sales.invoices (id SERIAL PRIMARY KEY, order_id INTEGER);
@@ -254,7 +597,7 @@ func TestReinit_SchemaScope(t *testing.T) {
 	}
 
 	// Create matching schema on target
-	_, err = env.targetPool.Exec(ctx, `
+	_, err = s.targetPool.Exec(ctx, `
 		CREATE SCHEMA sales;
 		CREATE TABLE sales.orders (id SERIAL PRIMARY KEY, customer TEXT);
 		CREATE TABLE sales.invoices (id SERIAL PRIMARY KEY, order_id INTEGER);
@@ -264,7 +607,7 @@ func TestReinit_SchemaScope(t *testing.T) {
 	}
 
 	// Initialize
-	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", s.targetGRPCPort), "", "", "")
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
 	}
@@ -277,8 +620,8 @@ func TestReinit_SchemaScope(t *testing.T) {
 		SourceNodeId: "source-node",
 		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
 		SourceNodeInfo: &pb.SourceNodeInfo{
-			Host:     env.sourceHost,
-			Port:     int32(env.sourcePort),
+			Host:     s.sourceHost,
+			Port:     int32(s.sourcePort),
 			Database: "testdb",
 			User:     "test",
 		},
@@ -293,7 +636,7 @@ func TestReinit_SchemaScope(t *testing.T) {
 	// Wait for sync
 	for range 60 {
 		var state string
-		env.targetPool.QueryRow(ctx, `
+		s.targetPool.QueryRow(ctx, `
 			SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
 		`).Scan(&state)
 		if state == "synchronized" {
@@ -307,14 +650,14 @@ func TestReinit_SchemaScope(t *testing.T) {
 
 	// Verify data
 	var ordersCount, invoicesCount int
-	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM sales.orders").Scan(&ordersCount)
-	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM sales.invoices").Scan(&invoicesCount)
+	s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM sales.orders").Scan(&ordersCount)
+	s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM sales.invoices").Scan(&invoicesCount)
 	if ordersCount != 25 || invoicesCount != 25 {
 		t.Fatalf("Data mismatch: orders=%d invoices=%d", ordersCount, invoicesCount)
 	}
 
 	// Corrupt both tables
-	_, err = env.targetPool.Exec(ctx, `
+	_, err = s.targetPool.Exec(ctx, `
 		DELETE FROM sales.orders WHERE id > 10;
 		DELETE FROM sales.invoices WHERE id > 10;
 	`)
@@ -348,11 +691,11 @@ func TestReinit_SchemaScope(t *testing.T) {
 
 	// Verify both tables were truncated
 	var ordersAfter, invoicesAfter int
-	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM sales.orders").Scan(&ordersAfter)
+	err = s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM sales.orders").Scan(&ordersAfter)
 	if err != nil {
 		t.Fatalf("Failed to count sales.orders: %v", err)
 	}
-	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM sales.invoices").Scan(&invoicesAfter)
+	err = s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM sales.invoices").Scan(&invoicesAfter)
 	if err != nil {
 		t.Fatalf("Failed to count sales.invoices: %v", err)
 	}
@@ -367,19 +710,17 @@ func TestReinit_SchemaScope(t *testing.T) {
 	t.Log("Verified: both schema tables were truncated")
 }
 
+// =============================================================================
+// Full Node Reinit Tests
+// =============================================================================
+
 // TestReinit_FullNode tests complete node reinitialization.
-func TestReinit_FullNode(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
+func (s *ReinitTestSuite) TestReinit_FullNode() {
+	t := s.T()
+	ctx := s.ctx
 
 	// Create test table
-	_, err := env.sourcePool.Exec(ctx, `
+	_, err := s.sourcePool.Exec(ctx, `
 		CREATE TABLE full_reinit_test (id SERIAL PRIMARY KEY, data TEXT);
 		INSERT INTO full_reinit_test (data) SELECT 'row_' || i FROM generate_series(1, 50) AS i;
 		CREATE PUBLICATION steep_pub_source_node FOR TABLE full_reinit_test;
@@ -388,7 +729,7 @@ func TestReinit_FullNode(t *testing.T) {
 		t.Fatalf("Failed to setup source: %v", err)
 	}
 
-	_, err = env.targetPool.Exec(ctx, `
+	_, err = s.targetPool.Exec(ctx, `
 		CREATE TABLE full_reinit_test (id SERIAL PRIMARY KEY, data TEXT)
 	`)
 	if err != nil {
@@ -396,7 +737,7 @@ func TestReinit_FullNode(t *testing.T) {
 	}
 
 	// Initialize
-	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", s.targetGRPCPort), "", "", "")
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
 	}
@@ -409,8 +750,8 @@ func TestReinit_FullNode(t *testing.T) {
 		SourceNodeId: "source-node",
 		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
 		SourceNodeInfo: &pb.SourceNodeInfo{
-			Host:     env.sourceHost,
-			Port:     int32(env.sourcePort),
+			Host:     s.sourceHost,
+			Port:     int32(s.sourcePort),
 			Database: "testdb",
 			User:     "test",
 		},
@@ -425,7 +766,7 @@ func TestReinit_FullNode(t *testing.T) {
 	// Wait for sync
 	var initState string
 	for range 60 {
-		env.targetPool.QueryRow(ctx, `
+		s.targetPool.QueryRow(ctx, `
 			SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
 		`).Scan(&initState)
 		if initState == "synchronized" {
@@ -442,7 +783,7 @@ func TestReinit_FullNode(t *testing.T) {
 
 	// Verify subscription exists
 	var subExists bool
-	env.targetPool.QueryRow(ctx, `
+	s.targetPool.QueryRow(ctx, `
 		SELECT EXISTS(SELECT 1 FROM pg_subscription WHERE subname LIKE 'steep_sub_%')
 	`).Scan(&subExists)
 	if !subExists {
@@ -468,7 +809,7 @@ func TestReinit_FullNode(t *testing.T) {
 	t.Logf("Full reinit completed: state=%s", reinitResp.State.String())
 
 	// Verify state is UNINITIALIZED
-	env.targetPool.QueryRow(ctx, `
+	s.targetPool.QueryRow(ctx, `
 		SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
 	`).Scan(&initState)
 
@@ -477,7 +818,7 @@ func TestReinit_FullNode(t *testing.T) {
 	}
 
 	// Verify subscription was dropped
-	env.targetPool.QueryRow(ctx, `
+	s.targetPool.QueryRow(ctx, `
 		SELECT EXISTS(SELECT 1 FROM pg_subscription WHERE subname LIKE 'steep_sub_%')
 	`).Scan(&subExists)
 	if subExists {
@@ -486,7 +827,7 @@ func TestReinit_FullNode(t *testing.T) {
 
 	// Verify data was truncated
 	var count int
-	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM full_reinit_test").Scan(&count)
+	s.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM full_reinit_test").Scan(&count)
 	if count != 0 {
 		t.Errorf("Table should be empty after full reinit, got %d rows", count)
 	}

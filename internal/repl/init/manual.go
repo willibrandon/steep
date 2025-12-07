@@ -232,6 +232,7 @@ func (m *ManualInitializer) Complete(ctx context.Context, opts CompleteOptions) 
 		Method:     config.InitMethodManual,
 		StartedAt:  time.Now(),
 		Cancel:     cancel,
+		done:       make(chan struct{}),
 	}
 	m.manager.registerOperation(opts.TargetNodeID, op)
 
