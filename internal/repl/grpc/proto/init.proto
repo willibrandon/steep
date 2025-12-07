@@ -55,6 +55,14 @@ service InitService {
 
     // Start bidirectional merge initialization
     rpc StartBidirectionalMerge(StartBidirectionalMergeRequest) returns (StartBidirectionalMergeResponse);
+
+    // Get snapshot progress (single point-in-time query)
+    // Implements T087f: GetSnapshotProgress RPC
+    rpc GetSnapshotProgress(GetSnapshotProgressRequest) returns (GetSnapshotProgressResponse);
+
+    // Stream snapshot progress updates from database
+    // Implements T087e: StreamSnapshotProgress RPC
+    rpc StreamSnapshotProgress(StreamSnapshotProgressRequest) returns (stream SnapshotProgressUpdate);
 }
 
 // =============================================================================
@@ -389,6 +397,72 @@ message SnapshotProgress {
     string lsn = 9;                    // Captured/applied LSN
     bool complete = 10;
     string error = 11;
+}
+
+// GetSnapshotProgress request (T087f)
+message GetSnapshotProgressRequest {
+    string snapshot_id = 1;            // Snapshot ID to query
+}
+
+// GetSnapshotProgress response (T087f)
+message GetSnapshotProgressResponse {
+    bool has_progress = 1;
+    SnapshotProgressDetail progress = 2;
+}
+
+// StreamSnapshotProgress request (T087e)
+message StreamSnapshotProgressRequest {
+    string snapshot_id = 1;            // Optional: filter to specific snapshot
+    int32 interval_ms = 2;             // Poll interval (default 500ms)
+    bool include_completed = 3;        // Include completed/errored snapshots
+}
+
+// Detailed snapshot progress for database queries (T087e, T087f)
+message SnapshotProgressDetail {
+    string snapshot_id = 1;
+    string phase = 2;                  // generation, application
+    float overall_percent = 3;
+    string current_step = 4;           // schema, tables, sequences, checksums, finalizing
+
+    // Table tracking
+    int32 tables_total = 5;
+    int32 tables_completed = 6;
+    string current_table = 7;
+    int64 current_table_bytes = 8;
+    int64 current_table_total_bytes = 9;
+
+    // Byte/row tracking
+    int64 bytes_written = 10;
+    int64 bytes_total = 11;
+    int64 rows_written = 12;
+    int64 rows_total = 13;
+
+    // Throughput
+    float throughput_bytes_sec = 14;
+    float throughput_rows_sec = 15;
+
+    // Timing
+    google.protobuf.Timestamp started_at = 16;
+    int32 eta_seconds = 17;
+
+    // Compression
+    bool compression_enabled = 18;
+    float compression_ratio = 19;
+
+    // Checksum verification
+    int32 checksum_verifications = 20;
+    int32 checksums_verified = 21;
+    int32 checksums_failed = 22;
+
+    // Metadata
+    google.protobuf.Timestamp updated_at = 23;
+    string error_message = 24;
+}
+
+// Snapshot progress update for streaming (T087e)
+message SnapshotProgressUpdate {
+    SnapshotProgressDetail progress = 1;
+    bool deleted = 2;                  // True if progress was deleted (completed/cleaned up)
 }
 
 // =============================================================================

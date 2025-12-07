@@ -893,3 +893,164 @@ func comparisonStatusToProto(s replinit.ComparisonStatus) pb.ComparisonStatus {
 		return pb.ComparisonStatus_COMPARISON_STATUS_UNSPECIFIED
 	}
 }
+
+// =============================================================================
+// Snapshot Progress RPCs (T087e, T087f)
+// =============================================================================
+
+// GetSnapshotProgress handles the GetSnapshotProgress RPC.
+// Implements T087f: single point-in-time query for snapshot progress.
+func (s *InitServer) GetSnapshotProgress(ctx context.Context, req *pb.GetSnapshotProgressRequest) (*pb.GetSnapshotProgressResponse, error) {
+	s.logRequest("GetSnapshotProgress", req.SnapshotId)
+
+	if req.SnapshotId == "" {
+		return nil, status.Error(codes.InvalidArgument, "snapshot_id is required")
+	}
+
+	// Query progress from database
+	progress, err := replinit.GetSnapshotProgressFromDB(ctx, s.manager.Pool(), req.SnapshotId)
+	if err != nil {
+		// Not found is not an error - just return empty response
+		return &pb.GetSnapshotProgressResponse{
+			HasProgress: false,
+		}, nil
+	}
+
+	return &pb.GetSnapshotProgressResponse{
+		HasProgress: true,
+		Progress:    snapshotProgressToProto(progress),
+	}, nil
+}
+
+// StreamSnapshotProgress handles the StreamSnapshotProgress RPC.
+// Implements T087e: continuous streaming of snapshot progress updates.
+func (s *InitServer) StreamSnapshotProgress(req *pb.StreamSnapshotProgressRequest, stream grpc.ServerStreamingServer[pb.SnapshotProgressUpdate]) error {
+	s.logRequest("StreamSnapshotProgress", req.SnapshotId)
+
+	// Default interval to 500ms
+	intervalMs := req.IntervalMs
+	if intervalMs <= 0 {
+		intervalMs = 500
+	}
+	interval := time.Duration(intervalMs) * time.Millisecond
+
+	// Track previously sent progress to detect changes
+	var lastProgress *models.SnapshotProgress
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	ctx := stream.Context()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			var progress *models.SnapshotProgress
+			var err error
+
+			if req.SnapshotId != "" {
+				// Query specific snapshot
+				progress, err = replinit.GetSnapshotProgressFromDB(ctx, s.manager.Pool(), req.SnapshotId)
+				if err != nil {
+					// Snapshot not found - check if it was deleted
+					if lastProgress != nil {
+						// Send deletion notification
+						if sendErr := stream.Send(&pb.SnapshotProgressUpdate{
+							Progress: snapshotProgressToProto(lastProgress),
+							Deleted:  true,
+						}); sendErr != nil {
+							return sendErr
+						}
+						lastProgress = nil
+					}
+					continue
+				}
+			} else {
+				// Query all active snapshots
+				activeProgress, err := replinit.ListActiveSnapshotProgress(ctx, s.manager.Pool())
+				if err != nil {
+					if s.debug {
+						s.logger.Printf("Failed to list active snapshot progress: %v", err)
+					}
+					continue
+				}
+
+				// For now, just stream the first active snapshot
+				// TODO: Support multiple concurrent snapshots
+				if len(activeProgress) > 0 {
+					progress = &activeProgress[0]
+				}
+			}
+
+			// Skip if no progress or no change
+			if progress == nil {
+				continue
+			}
+
+			// Check if progress has changed (by updated_at timestamp)
+			if lastProgress != nil && progress.UpdatedAt.Equal(lastProgress.UpdatedAt) {
+				continue
+			}
+
+			// Send progress update
+			if err := stream.Send(&pb.SnapshotProgressUpdate{
+				Progress: snapshotProgressToProto(progress),
+				Deleted:  false,
+			}); err != nil {
+				return err
+			}
+
+			lastProgress = progress
+
+			// Stop streaming if complete or errored (unless include_completed is set)
+			if !req.IncludeCompleted && (progress.IsComplete() || progress.HasError()) {
+				return nil
+			}
+		}
+	}
+}
+
+// snapshotProgressToProto converts a models.SnapshotProgress to pb.SnapshotProgressDetail.
+func snapshotProgressToProto(p *models.SnapshotProgress) *pb.SnapshotProgressDetail {
+	if p == nil {
+		return nil
+	}
+
+	detail := &pb.SnapshotProgressDetail{
+		SnapshotId:             p.SnapshotID,
+		Phase:                  string(p.Phase),
+		OverallPercent:         float32(p.OverallPercent),
+		CurrentStep:            string(p.CurrentStep),
+		TablesTotal:            int32(p.TablesTotal),
+		TablesCompleted:        int32(p.TablesCompleted),
+		CurrentTableBytes:      p.CurrentTableBytes,
+		CurrentTableTotalBytes: p.CurrentTableTotalBytes,
+		BytesWritten:           p.BytesWritten,
+		BytesTotal:             p.BytesTotal,
+		RowsWritten:            p.RowsWritten,
+		RowsTotal:              p.RowsTotal,
+		ThroughputBytesSec:     float32(p.ThroughputBytesSec),
+		ThroughputRowsSec:      float32(p.ThroughputRowsSec),
+		EtaSeconds:             int32(p.ETASeconds),
+		CompressionEnabled:     p.CompressionEnabled,
+		CompressionRatio:       float32(p.CompressionRatio),
+		ChecksumVerifications:  int32(p.ChecksumVerifications),
+		ChecksumsVerified:      int32(p.ChecksumsVerified),
+		ChecksumsFailed:        int32(p.ChecksumsFailed),
+	}
+
+	if p.CurrentTable != nil {
+		detail.CurrentTable = *p.CurrentTable
+	}
+
+	if p.ErrorMessage != nil {
+		detail.ErrorMessage = *p.ErrorMessage
+	}
+
+	// Convert timestamps
+	detail.StartedAt = timestamppb.New(p.StartedAt)
+	detail.UpdatedAt = timestamppb.New(p.UpdatedAt)
+
+	return detail
+}

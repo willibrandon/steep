@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1506,13 +1507,7 @@ func (s *SnapshotTestSuite) TestSnapshot_GenerateProgressPhases() {
 
 		// Track unique phases
 		if progress.Phase != "" {
-			found := false
-			for _, p := range phases {
-				if p == progress.Phase {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(phases, progress.Phase)
 			if !found {
 				phases = append(phases, progress.Phase)
 			}
@@ -1643,13 +1638,7 @@ func (s *SnapshotTestSuite) TestSnapshot_ApplyProgressPhases() {
 
 		// Track phases
 		if progress.Phase != "" {
-			found := false
-			for _, p := range phases {
-				if p == progress.Phase {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(phases, progress.Phase)
 			if !found {
 				phases = append(phases, progress.Phase)
 			}
@@ -1800,13 +1789,7 @@ func (s *SnapshotTestSuite) TestSnapshot_ApplyWithParallelWorkers() {
 			break
 		}
 		if progress.CurrentTable != "" && progress.Phase == "importing" {
-			found := false
-			for _, t := range tablesImported {
-				if t == progress.CurrentTable {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(tablesImported, progress.CurrentTable)
 			if !found {
 				tablesImported = append(tablesImported, progress.CurrentTable)
 			}

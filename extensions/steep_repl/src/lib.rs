@@ -8,6 +8,7 @@
 //! - schema_fingerprints: Schema fingerprints for drift detection
 //! - init_slots: Replication slots for manual initialization
 //! - snapshots: Generated snapshot manifests for two-phase initialization
+//! - snapshot_progress: Real-time two-phase snapshot progress tracking
 //!
 //! Requires PostgreSQL 18 or later.
 
@@ -28,6 +29,7 @@ mod init_progress;
 mod schema_fingerprints;
 mod init_slots;
 mod snapshots;
+mod snapshot_progress;
 mod fingerprint_functions;
 mod merge;
 mod merge_audit_log;

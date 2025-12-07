@@ -36,6 +36,8 @@ const (
 	InitService_GenerateSnapshot_FullMethodName        = "/steep.repl.v1.InitService/GenerateSnapshot"
 	InitService_ApplySnapshot_FullMethodName           = "/steep.repl.v1.InitService/ApplySnapshot"
 	InitService_StartBidirectionalMerge_FullMethodName = "/steep.repl.v1.InitService/StartBidirectionalMerge"
+	InitService_GetSnapshotProgress_FullMethodName     = "/steep.repl.v1.InitService/GetSnapshotProgress"
+	InitService_StreamSnapshotProgress_FullMethodName  = "/steep.repl.v1.InitService/StreamSnapshotProgress"
 )
 
 // InitServiceClient is the client API for InitService service.
@@ -70,6 +72,12 @@ type InitServiceClient interface {
 	ApplySnapshot(ctx context.Context, in *ApplySnapshotRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotProgress], error)
 	// Start bidirectional merge initialization
 	StartBidirectionalMerge(ctx context.Context, in *StartBidirectionalMergeRequest, opts ...grpc.CallOption) (*StartBidirectionalMergeResponse, error)
+	// Get snapshot progress (single point-in-time query)
+	// Implements T087f: GetSnapshotProgress RPC
+	GetSnapshotProgress(ctx context.Context, in *GetSnapshotProgressRequest, opts ...grpc.CallOption) (*GetSnapshotProgressResponse, error)
+	// Stream snapshot progress updates from database
+	// Implements T087e: StreamSnapshotProgress RPC
+	StreamSnapshotProgress(ctx context.Context, in *StreamSnapshotProgressRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotProgressUpdate], error)
 }
 
 type initServiceClient struct {
@@ -247,6 +255,35 @@ func (c *initServiceClient) StartBidirectionalMerge(ctx context.Context, in *Sta
 	return out, nil
 }
 
+func (c *initServiceClient) GetSnapshotProgress(ctx context.Context, in *GetSnapshotProgressRequest, opts ...grpc.CallOption) (*GetSnapshotProgressResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSnapshotProgressResponse)
+	err := c.cc.Invoke(ctx, InitService_GetSnapshotProgress_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *initServiceClient) StreamSnapshotProgress(ctx context.Context, in *StreamSnapshotProgressRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotProgressUpdate], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &InitService_ServiceDesc.Streams[3], InitService_StreamSnapshotProgress_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamSnapshotProgressRequest, SnapshotProgressUpdate]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type InitService_StreamSnapshotProgressClient = grpc.ServerStreamingClient[SnapshotProgressUpdate]
+
 // InitServiceServer is the server API for InitService service.
 // All implementations must embed UnimplementedInitServiceServer
 // for forward compatibility.
@@ -279,6 +316,12 @@ type InitServiceServer interface {
 	ApplySnapshot(*ApplySnapshotRequest, grpc.ServerStreamingServer[SnapshotProgress]) error
 	// Start bidirectional merge initialization
 	StartBidirectionalMerge(context.Context, *StartBidirectionalMergeRequest) (*StartBidirectionalMergeResponse, error)
+	// Get snapshot progress (single point-in-time query)
+	// Implements T087f: GetSnapshotProgress RPC
+	GetSnapshotProgress(context.Context, *GetSnapshotProgressRequest) (*GetSnapshotProgressResponse, error)
+	// Stream snapshot progress updates from database
+	// Implements T087e: StreamSnapshotProgress RPC
+	StreamSnapshotProgress(*StreamSnapshotProgressRequest, grpc.ServerStreamingServer[SnapshotProgressUpdate]) error
 	mustEmbedUnimplementedInitServiceServer()
 }
 
@@ -330,6 +373,12 @@ func (UnimplementedInitServiceServer) ApplySnapshot(*ApplySnapshotRequest, grpc.
 }
 func (UnimplementedInitServiceServer) StartBidirectionalMerge(context.Context, *StartBidirectionalMergeRequest) (*StartBidirectionalMergeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StartBidirectionalMerge not implemented")
+}
+func (UnimplementedInitServiceServer) GetSnapshotProgress(context.Context, *GetSnapshotProgressRequest) (*GetSnapshotProgressResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSnapshotProgress not implemented")
+}
+func (UnimplementedInitServiceServer) StreamSnapshotProgress(*StreamSnapshotProgressRequest, grpc.ServerStreamingServer[SnapshotProgressUpdate]) error {
+	return status.Error(codes.Unimplemented, "method StreamSnapshotProgress not implemented")
 }
 func (UnimplementedInitServiceServer) mustEmbedUnimplementedInitServiceServer() {}
 func (UnimplementedInitServiceServer) testEmbeddedByValue()                     {}
@@ -583,6 +632,35 @@ func _InitService_StartBidirectionalMerge_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InitService_GetSnapshotProgress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSnapshotProgressRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InitServiceServer).GetSnapshotProgress(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InitService_GetSnapshotProgress_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InitServiceServer).GetSnapshotProgress(ctx, req.(*GetSnapshotProgressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InitService_StreamSnapshotProgress_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamSnapshotProgressRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(InitServiceServer).StreamSnapshotProgress(m, &grpc.GenericServerStream[StreamSnapshotProgressRequest, SnapshotProgressUpdate]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type InitService_StreamSnapshotProgressServer = grpc.ServerStreamingServer[SnapshotProgressUpdate]
+
 // InitService_ServiceDesc is the grpc.ServiceDesc for InitService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -634,6 +712,10 @@ var InitService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "StartBidirectionalMerge",
 			Handler:    _InitService_StartBidirectionalMerge_Handler,
 		},
+		{
+			MethodName: "GetSnapshotProgress",
+			Handler:    _InitService_GetSnapshotProgress_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -649,6 +731,11 @@ var InitService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "ApplySnapshot",
 			Handler:       _InitService_ApplySnapshot_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "StreamSnapshotProgress",
+			Handler:       _InitService_StreamSnapshotProgress_Handler,
 			ServerStreams: true,
 		},
 	},

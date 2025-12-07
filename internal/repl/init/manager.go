@@ -104,6 +104,12 @@ func (m *Manager) Progress() <-chan ProgressUpdate {
 	return m.progress
 }
 
+// Pool returns the PostgreSQL connection pool.
+// Used by RPC handlers that need direct database access (T087e, T087f).
+func (m *Manager) Pool() *pgxpool.Pool {
+	return m.pool
+}
+
 // SnapshotGenerator returns the two-phase snapshot generator.
 // Used by the GenerateSnapshot RPC handler (T080).
 func (m *Manager) SnapshotGenerator() *SnapshotGenerator {

@@ -2573,3 +2573,532 @@ func (a *SnapshotApplier) topologicalSort(tables []models.SnapshotTableEntry, de
 
 	return result, nil
 }
+
+// =============================================================================
+// Progress Tracking Infrastructure (T087c, T087d)
+// =============================================================================
+
+// SnapshotProgressTracker tracks and persists two-phase snapshot progress.
+// This enables real-time visibility into generation and application progress.
+type SnapshotProgressTracker struct {
+	pool           *pgxpool.Pool
+	snapshotID     string
+	phase          models.SnapshotPhase
+	startedAt      time.Time
+	throughput     *models.RollingThroughput
+	progressFn     func(models.SnapshotProgress)
+	updateInterval time.Duration // How often to emit progress updates (default 500ms)
+	lastUpdate     time.Time
+
+	// Current progress state
+	mu                     sync.RWMutex
+	currentStep            models.SnapshotStep
+	tablesTotal            int
+	tablesCompleted        int
+	currentTable           string
+	currentTableBytes      int64
+	currentTableTotalBytes int64
+	bytesWritten           int64
+	bytesTotal             int64
+	rowsWritten            int64
+	rowsTotal              int64
+	compressionEnabled     bool
+	compressionRatio       float64
+	checksumVerifications  int
+	checksumsVerified      int
+	checksumsFailedField   int
+	errorMessage           *string
+}
+
+// NewSnapshotProgressTracker creates a new progress tracker.
+func NewSnapshotProgressTracker(pool *pgxpool.Pool, snapshotID string, phase models.SnapshotPhase) *SnapshotProgressTracker {
+	return &SnapshotProgressTracker{
+		pool:           pool,
+		snapshotID:     snapshotID,
+		phase:          phase,
+		startedAt:      time.Now(),
+		throughput:     models.NewRollingThroughput(10), // 10-second rolling average
+		updateInterval: 500 * time.Millisecond,
+		currentStep:    models.SnapshotStepSchema,
+	}
+}
+
+// SetProgressCallback sets a callback function for progress updates.
+func (t *SnapshotProgressTracker) SetProgressCallback(fn func(models.SnapshotProgress)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.progressFn = fn
+}
+
+// SetUpdateInterval sets how often progress updates are emitted.
+func (t *SnapshotProgressTracker) SetUpdateInterval(d time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.updateInterval = d
+}
+
+// SetTotals sets the expected totals for progress calculation.
+func (t *SnapshotProgressTracker) SetTotals(tablesTotal int, bytesTotal, rowsTotal int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.tablesTotal = tablesTotal
+	t.bytesTotal = bytesTotal
+	t.rowsTotal = rowsTotal
+}
+
+// SetCompressionEnabled marks compression as enabled for ratio tracking.
+func (t *SnapshotProgressTracker) SetCompressionEnabled(enabled bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.compressionEnabled = enabled
+}
+
+// SetChecksumTotal sets the total number of checksum verifications expected.
+func (t *SnapshotProgressTracker) SetChecksumTotal(total int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.checksumVerifications = total
+}
+
+// UpdateStep updates the current step of the operation.
+func (t *SnapshotProgressTracker) UpdateStep(step models.SnapshotStep) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.currentStep = step
+	t.emitProgressLocked()
+}
+
+// StartTable marks the beginning of processing a table.
+func (t *SnapshotProgressTracker) StartTable(tableName string, totalBytes int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.currentTable = tableName
+	t.currentTableBytes = 0
+	t.currentTableTotalBytes = totalBytes
+	t.emitProgressLocked()
+}
+
+// UpdateTableProgress updates progress within the current table.
+func (t *SnapshotProgressTracker) UpdateTableProgress(bytesProcessed, rowsProcessed int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.currentTableBytes = bytesProcessed
+	t.rowsWritten += rowsProcessed
+
+	// Update throughput tracking
+	t.throughput.Add(t.bytesWritten+bytesProcessed, t.rowsWritten)
+
+	// Only emit if enough time has passed
+	if time.Since(t.lastUpdate) >= t.updateInterval {
+		t.emitProgressLocked()
+	}
+}
+
+// CompleteTable marks a table as completed.
+func (t *SnapshotProgressTracker) CompleteTable(bytesProcessed int64, compressionRatio float64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.tablesCompleted++
+	t.bytesWritten += bytesProcessed
+
+	// Update compression ratio (average)
+	if t.compressionEnabled && compressionRatio > 0 {
+		if t.compressionRatio == 0 {
+			t.compressionRatio = compressionRatio
+		} else {
+			// Rolling average
+			t.compressionRatio = (t.compressionRatio*float64(t.tablesCompleted-1) + compressionRatio) / float64(t.tablesCompleted)
+		}
+	}
+
+	t.throughput.Add(t.bytesWritten, t.rowsWritten)
+	t.currentTable = ""
+	t.currentTableBytes = 0
+	t.currentTableTotalBytes = 0
+	t.emitProgressLocked()
+}
+
+// RecordChecksumResult records the result of a checksum verification.
+func (t *SnapshotProgressTracker) RecordChecksumResult(passed bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if passed {
+		t.checksumsVerified++
+	} else {
+		t.checksumsFailedField++
+	}
+
+	// Only emit if enough time has passed
+	if time.Since(t.lastUpdate) >= t.updateInterval {
+		t.emitProgressLocked()
+	}
+}
+
+// SetError records an error in the progress.
+func (t *SnapshotProgressTracker) SetError(err error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if err != nil {
+		msg := err.Error()
+		t.errorMessage = &msg
+	}
+	t.emitProgressLocked()
+}
+
+// GetProgress returns a snapshot of the current progress.
+func (t *SnapshotProgressTracker) GetProgress() models.SnapshotProgress {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	return t.buildProgressLocked()
+}
+
+// emitProgressLocked emits progress if a callback is set. Must be called with lock held.
+func (t *SnapshotProgressTracker) emitProgressLocked() {
+	t.lastUpdate = time.Now()
+
+	if t.progressFn != nil {
+		t.progressFn(t.buildProgressLocked())
+	}
+}
+
+// buildProgressLocked builds a SnapshotProgress struct. Must be called with lock held.
+func (t *SnapshotProgressTracker) buildProgressLocked() models.SnapshotProgress {
+	progress := models.SnapshotProgress{
+		SnapshotID:             t.snapshotID,
+		Phase:                  t.phase,
+		CurrentStep:            t.currentStep,
+		TablesTotal:            t.tablesTotal,
+		TablesCompleted:        t.tablesCompleted,
+		CurrentTableBytes:      t.currentTableBytes,
+		CurrentTableTotalBytes: t.currentTableTotalBytes,
+		BytesWritten:           t.bytesWritten,
+		BytesTotal:             t.bytesTotal,
+		RowsWritten:            t.rowsWritten,
+		RowsTotal:              t.rowsTotal,
+		ThroughputBytesSec:     t.throughput.BytesPerSec(),
+		ThroughputRowsSec:      t.throughput.RowsPerSec(),
+		StartedAt:              t.startedAt,
+		CompressionEnabled:     t.compressionEnabled,
+		CompressionRatio:       t.compressionRatio,
+		ChecksumVerifications:  t.checksumVerifications,
+		ChecksumsVerified:      t.checksumsVerified,
+		ChecksumsFailed:        t.checksumsFailedField,
+		UpdatedAt:              time.Now(),
+		ErrorMessage:           t.errorMessage,
+	}
+
+	if t.currentTable != "" {
+		progress.CurrentTable = &t.currentTable
+	}
+
+	// Calculate overall percent
+	progress.OverallPercent = t.calculateOverallPercent()
+
+	// Calculate ETA
+	remainingBytes := t.bytesTotal - t.bytesWritten
+	progress.ETASeconds = t.throughput.EstimateETA(remainingBytes)
+
+	return progress
+}
+
+// calculateOverallPercent calculates the overall progress percentage.
+func (t *SnapshotProgressTracker) calculateOverallPercent() float64 {
+	// Weight each step
+	stepWeights := map[models.SnapshotStep]float64{
+		models.SnapshotStepSchema:     5,
+		models.SnapshotStepTables:     80,
+		models.SnapshotStepSequences:  5,
+		models.SnapshotStepChecksums:  5,
+		models.SnapshotStepFinalizing: 5,
+	}
+
+	basePercent := 0.0
+	currentWeight := stepWeights[t.currentStep]
+
+	// Add completed step percentages
+	for step, weight := range stepWeights {
+		if t.stepCompleted(step) {
+			basePercent += weight
+		}
+	}
+
+	// Add progress within current step
+	var currentStepProgress float64
+	switch t.currentStep {
+	case models.SnapshotStepTables:
+		if t.tablesTotal > 0 {
+			// Table completion + current table progress
+			tablesDone := float64(t.tablesCompleted) / float64(t.tablesTotal)
+			var currentTableProgress float64
+			if t.currentTableTotalBytes > 0 {
+				currentTableProgress = float64(t.currentTableBytes) / float64(t.currentTableTotalBytes) / float64(t.tablesTotal)
+			}
+			currentStepProgress = tablesDone + currentTableProgress
+		}
+	case models.SnapshotStepChecksums:
+		if t.checksumVerifications > 0 {
+			currentStepProgress = float64(t.checksumsVerified+t.checksumsFailedField) / float64(t.checksumVerifications)
+		}
+	default:
+		// For other steps, we don't have granular progress
+		currentStepProgress = 0.5 // Assume midway
+	}
+
+	return basePercent + (currentStepProgress * currentWeight)
+}
+
+// stepCompleted returns true if the given step is fully completed.
+func (t *SnapshotProgressTracker) stepCompleted(step models.SnapshotStep) bool {
+	stepOrder := []models.SnapshotStep{
+		models.SnapshotStepSchema,
+		models.SnapshotStepTables,
+		models.SnapshotStepSequences,
+		models.SnapshotStepChecksums,
+		models.SnapshotStepFinalizing,
+	}
+
+	currentIdx := -1
+	stepIdx := -1
+	for i, s := range stepOrder {
+		if s == t.currentStep {
+			currentIdx = i
+		}
+		if s == step {
+			stepIdx = i
+		}
+	}
+
+	return stepIdx < currentIdx
+}
+
+// PersistProgress saves the current progress to the database.
+func (t *SnapshotProgressTracker) PersistProgress(ctx context.Context) error {
+	progress := t.GetProgress()
+
+	query := `
+		INSERT INTO steep_repl.snapshot_progress (
+			snapshot_id, phase, overall_percent, current_step,
+			tables_total, tables_completed, current_table,
+			current_table_bytes, current_table_total_bytes,
+			bytes_written, bytes_total, rows_written, rows_total,
+			throughput_bytes_sec, throughput_rows_sec,
+			started_at, eta_seconds,
+			compression_enabled, compression_ratio,
+			checksum_verifications, checksums_verified, checksums_failed,
+			updated_at, error_message
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+			$14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
+		)
+		ON CONFLICT (snapshot_id) DO UPDATE SET
+			phase = EXCLUDED.phase,
+			overall_percent = EXCLUDED.overall_percent,
+			current_step = EXCLUDED.current_step,
+			tables_total = EXCLUDED.tables_total,
+			tables_completed = EXCLUDED.tables_completed,
+			current_table = EXCLUDED.current_table,
+			current_table_bytes = EXCLUDED.current_table_bytes,
+			current_table_total_bytes = EXCLUDED.current_table_total_bytes,
+			bytes_written = EXCLUDED.bytes_written,
+			bytes_total = EXCLUDED.bytes_total,
+			rows_written = EXCLUDED.rows_written,
+			rows_total = EXCLUDED.rows_total,
+			throughput_bytes_sec = EXCLUDED.throughput_bytes_sec,
+			throughput_rows_sec = EXCLUDED.throughput_rows_sec,
+			eta_seconds = EXCLUDED.eta_seconds,
+			compression_enabled = EXCLUDED.compression_enabled,
+			compression_ratio = EXCLUDED.compression_ratio,
+			checksum_verifications = EXCLUDED.checksum_verifications,
+			checksums_verified = EXCLUDED.checksums_verified,
+			checksums_failed = EXCLUDED.checksums_failed,
+			updated_at = EXCLUDED.updated_at,
+			error_message = EXCLUDED.error_message
+	`
+
+	_, err := t.pool.Exec(ctx, query,
+		progress.SnapshotID,
+		string(progress.Phase),
+		progress.OverallPercent,
+		string(progress.CurrentStep),
+		progress.TablesTotal,
+		progress.TablesCompleted,
+		progress.CurrentTable,
+		progress.CurrentTableBytes,
+		progress.CurrentTableTotalBytes,
+		progress.BytesWritten,
+		progress.BytesTotal,
+		progress.RowsWritten,
+		progress.RowsTotal,
+		progress.ThroughputBytesSec,
+		progress.ThroughputRowsSec,
+		progress.StartedAt,
+		progress.ETASeconds,
+		progress.CompressionEnabled,
+		progress.CompressionRatio,
+		progress.ChecksumVerifications,
+		progress.ChecksumsVerified,
+		progress.ChecksumsFailed,
+		progress.UpdatedAt,
+		progress.ErrorMessage,
+	)
+	return err
+}
+
+// DeleteProgress removes the progress record from the database.
+func (t *SnapshotProgressTracker) DeleteProgress(ctx context.Context) error {
+	_, err := t.pool.Exec(ctx,
+		"DELETE FROM steep_repl.snapshot_progress WHERE snapshot_id = $1",
+		t.snapshotID,
+	)
+	return err
+}
+
+// getCopyProgressForPID queries pg_stat_progress_copy for a specific backend PID.
+// This works for PostgreSQL 14+ where COPY progress is tracked.
+func getCopyProgressForPID(ctx context.Context, pool *pgxpool.Pool, pid int32) (*copyProgressInfo, error) {
+	var info copyProgressInfo
+	err := pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(bytes_processed, 0),
+			COALESCE(bytes_total, 0),
+			COALESCE(tuples_processed, 0),
+			COALESCE(tuples_excluded, 0)
+		FROM pg_stat_progress_copy
+		WHERE pid = $1
+	`, pid).Scan(&info.BytesProcessed, &info.BytesTotal, &info.TuplesProcessed, &info.TuplesExcluded)
+	if err != nil {
+		return nil, err // No COPY in progress for this PID
+	}
+	return &info, nil
+}
+
+// copyProgressInfo holds progress information from pg_stat_progress_copy.
+type copyProgressInfo struct {
+	BytesProcessed  int64
+	BytesTotal      int64
+	TuplesProcessed int64
+	TuplesExcluded  int64 // PG18+ tuples_skipped
+}
+
+// GetSnapshotProgressFromDB retrieves snapshot progress from the database.
+func GetSnapshotProgressFromDB(ctx context.Context, pool *pgxpool.Pool, snapshotID string) (*models.SnapshotProgress, error) {
+	var progress models.SnapshotProgress
+	var phase, step string
+
+	err := pool.QueryRow(ctx, `
+		SELECT
+			snapshot_id, phase, overall_percent, current_step,
+			tables_total, tables_completed, current_table,
+			current_table_bytes, current_table_total_bytes,
+			bytes_written, bytes_total, rows_written, rows_total,
+			throughput_bytes_sec, throughput_rows_sec,
+			started_at, eta_seconds,
+			compression_enabled, compression_ratio,
+			checksum_verifications, checksums_verified, checksums_failed,
+			updated_at, error_message
+		FROM steep_repl.snapshot_progress
+		WHERE snapshot_id = $1
+	`, snapshotID).Scan(
+		&progress.SnapshotID,
+		&phase,
+		&progress.OverallPercent,
+		&step,
+		&progress.TablesTotal,
+		&progress.TablesCompleted,
+		&progress.CurrentTable,
+		&progress.CurrentTableBytes,
+		&progress.CurrentTableTotalBytes,
+		&progress.BytesWritten,
+		&progress.BytesTotal,
+		&progress.RowsWritten,
+		&progress.RowsTotal,
+		&progress.ThroughputBytesSec,
+		&progress.ThroughputRowsSec,
+		&progress.StartedAt,
+		&progress.ETASeconds,
+		&progress.CompressionEnabled,
+		&progress.CompressionRatio,
+		&progress.ChecksumVerifications,
+		&progress.ChecksumsVerified,
+		&progress.ChecksumsFailed,
+		&progress.UpdatedAt,
+		&progress.ErrorMessage,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	progress.Phase = models.SnapshotPhase(phase)
+	progress.CurrentStep = models.SnapshotStep(step)
+
+	return &progress, nil
+}
+
+// ListActiveSnapshotProgress returns all active snapshot progress records.
+func ListActiveSnapshotProgress(ctx context.Context, pool *pgxpool.Pool) ([]models.SnapshotProgress, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT
+			snapshot_id, phase, overall_percent, current_step,
+			tables_total, tables_completed, current_table,
+			current_table_bytes, current_table_total_bytes,
+			bytes_written, bytes_total, rows_written, rows_total,
+			throughput_bytes_sec, throughput_rows_sec,
+			started_at, eta_seconds,
+			compression_enabled, compression_ratio,
+			checksum_verifications, checksums_verified, checksums_failed,
+			updated_at, error_message
+		FROM steep_repl.snapshot_progress
+		WHERE overall_percent < 100 AND error_message IS NULL
+		ORDER BY updated_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []models.SnapshotProgress
+	for rows.Next() {
+		var progress models.SnapshotProgress
+		var phase, step string
+
+		if err := rows.Scan(
+			&progress.SnapshotID,
+			&phase,
+			&progress.OverallPercent,
+			&step,
+			&progress.TablesTotal,
+			&progress.TablesCompleted,
+			&progress.CurrentTable,
+			&progress.CurrentTableBytes,
+			&progress.CurrentTableTotalBytes,
+			&progress.BytesWritten,
+			&progress.BytesTotal,
+			&progress.RowsWritten,
+			&progress.RowsTotal,
+			&progress.ThroughputBytesSec,
+			&progress.ThroughputRowsSec,
+			&progress.StartedAt,
+			&progress.ETASeconds,
+			&progress.CompressionEnabled,
+			&progress.CompressionRatio,
+			&progress.ChecksumVerifications,
+			&progress.ChecksumsVerified,
+			&progress.ChecksumsFailed,
+			&progress.UpdatedAt,
+			&progress.ErrorMessage,
+		); err != nil {
+			return nil, err
+		}
+
+		progress.Phase = models.SnapshotPhase(phase)
+		progress.CurrentStep = models.SnapshotStep(step)
+		results = append(results, progress)
+	}
+
+	return results, rows.Err()
+}

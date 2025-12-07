@@ -2688,6 +2688,454 @@ func (x *SnapshotProgress) GetError() string {
 	return ""
 }
 
+// GetSnapshotProgress request (T087f)
+type GetSnapshotProgressRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SnapshotId    string                 `protobuf:"bytes,1,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"` // Snapshot ID to query
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSnapshotProgressRequest) Reset() {
+	*x = GetSnapshotProgressRequest{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSnapshotProgressRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSnapshotProgressRequest) ProtoMessage() {}
+
+func (x *GetSnapshotProgressRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSnapshotProgressRequest.ProtoReflect.Descriptor instead.
+func (*GetSnapshotProgressRequest) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *GetSnapshotProgressRequest) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
+}
+
+// GetSnapshotProgress response (T087f)
+type GetSnapshotProgressResponse struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	HasProgress   bool                    `protobuf:"varint,1,opt,name=has_progress,json=hasProgress,proto3" json:"has_progress,omitempty"`
+	Progress      *SnapshotProgressDetail `protobuf:"bytes,2,opt,name=progress,proto3" json:"progress,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSnapshotProgressResponse) Reset() {
+	*x = GetSnapshotProgressResponse{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSnapshotProgressResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSnapshotProgressResponse) ProtoMessage() {}
+
+func (x *GetSnapshotProgressResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSnapshotProgressResponse.ProtoReflect.Descriptor instead.
+func (*GetSnapshotProgressResponse) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *GetSnapshotProgressResponse) GetHasProgress() bool {
+	if x != nil {
+		return x.HasProgress
+	}
+	return false
+}
+
+func (x *GetSnapshotProgressResponse) GetProgress() *SnapshotProgressDetail {
+	if x != nil {
+		return x.Progress
+	}
+	return nil
+}
+
+// StreamSnapshotProgress request (T087e)
+type StreamSnapshotProgressRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	SnapshotId       string                 `protobuf:"bytes,1,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`                    // Optional: filter to specific snapshot
+	IntervalMs       int32                  `protobuf:"varint,2,opt,name=interval_ms,json=intervalMs,proto3" json:"interval_ms,omitempty"`                   // Poll interval (default 500ms)
+	IncludeCompleted bool                   `protobuf:"varint,3,opt,name=include_completed,json=includeCompleted,proto3" json:"include_completed,omitempty"` // Include completed/errored snapshots
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *StreamSnapshotProgressRequest) Reset() {
+	*x = StreamSnapshotProgressRequest{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamSnapshotProgressRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamSnapshotProgressRequest) ProtoMessage() {}
+
+func (x *StreamSnapshotProgressRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamSnapshotProgressRequest.ProtoReflect.Descriptor instead.
+func (*StreamSnapshotProgressRequest) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *StreamSnapshotProgressRequest) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
+}
+
+func (x *StreamSnapshotProgressRequest) GetIntervalMs() int32 {
+	if x != nil {
+		return x.IntervalMs
+	}
+	return 0
+}
+
+func (x *StreamSnapshotProgressRequest) GetIncludeCompleted() bool {
+	if x != nil {
+		return x.IncludeCompleted
+	}
+	return false
+}
+
+// Detailed snapshot progress for database queries (T087e, T087f)
+type SnapshotProgressDetail struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	SnapshotId     string                 `protobuf:"bytes,1,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`
+	Phase          string                 `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"` // generation, application
+	OverallPercent float32                `protobuf:"fixed32,3,opt,name=overall_percent,json=overallPercent,proto3" json:"overall_percent,omitempty"`
+	CurrentStep    string                 `protobuf:"bytes,4,opt,name=current_step,json=currentStep,proto3" json:"current_step,omitempty"` // schema, tables, sequences, checksums, finalizing
+	// Table tracking
+	TablesTotal            int32  `protobuf:"varint,5,opt,name=tables_total,json=tablesTotal,proto3" json:"tables_total,omitempty"`
+	TablesCompleted        int32  `protobuf:"varint,6,opt,name=tables_completed,json=tablesCompleted,proto3" json:"tables_completed,omitempty"`
+	CurrentTable           string `protobuf:"bytes,7,opt,name=current_table,json=currentTable,proto3" json:"current_table,omitempty"`
+	CurrentTableBytes      int64  `protobuf:"varint,8,opt,name=current_table_bytes,json=currentTableBytes,proto3" json:"current_table_bytes,omitempty"`
+	CurrentTableTotalBytes int64  `protobuf:"varint,9,opt,name=current_table_total_bytes,json=currentTableTotalBytes,proto3" json:"current_table_total_bytes,omitempty"`
+	// Byte/row tracking
+	BytesWritten int64 `protobuf:"varint,10,opt,name=bytes_written,json=bytesWritten,proto3" json:"bytes_written,omitempty"`
+	BytesTotal   int64 `protobuf:"varint,11,opt,name=bytes_total,json=bytesTotal,proto3" json:"bytes_total,omitempty"`
+	RowsWritten  int64 `protobuf:"varint,12,opt,name=rows_written,json=rowsWritten,proto3" json:"rows_written,omitempty"`
+	RowsTotal    int64 `protobuf:"varint,13,opt,name=rows_total,json=rowsTotal,proto3" json:"rows_total,omitempty"`
+	// Throughput
+	ThroughputBytesSec float32 `protobuf:"fixed32,14,opt,name=throughput_bytes_sec,json=throughputBytesSec,proto3" json:"throughput_bytes_sec,omitempty"`
+	ThroughputRowsSec  float32 `protobuf:"fixed32,15,opt,name=throughput_rows_sec,json=throughputRowsSec,proto3" json:"throughput_rows_sec,omitempty"`
+	// Timing
+	StartedAt  *timestamppb.Timestamp `protobuf:"bytes,16,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	EtaSeconds int32                  `protobuf:"varint,17,opt,name=eta_seconds,json=etaSeconds,proto3" json:"eta_seconds,omitempty"`
+	// Compression
+	CompressionEnabled bool    `protobuf:"varint,18,opt,name=compression_enabled,json=compressionEnabled,proto3" json:"compression_enabled,omitempty"`
+	CompressionRatio   float32 `protobuf:"fixed32,19,opt,name=compression_ratio,json=compressionRatio,proto3" json:"compression_ratio,omitempty"`
+	// Checksum verification
+	ChecksumVerifications int32 `protobuf:"varint,20,opt,name=checksum_verifications,json=checksumVerifications,proto3" json:"checksum_verifications,omitempty"`
+	ChecksumsVerified     int32 `protobuf:"varint,21,opt,name=checksums_verified,json=checksumsVerified,proto3" json:"checksums_verified,omitempty"`
+	ChecksumsFailed       int32 `protobuf:"varint,22,opt,name=checksums_failed,json=checksumsFailed,proto3" json:"checksums_failed,omitempty"`
+	// Metadata
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,23,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	ErrorMessage  string                 `protobuf:"bytes,24,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SnapshotProgressDetail) Reset() {
+	*x = SnapshotProgressDetail{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SnapshotProgressDetail) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SnapshotProgressDetail) ProtoMessage() {}
+
+func (x *SnapshotProgressDetail) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SnapshotProgressDetail.ProtoReflect.Descriptor instead.
+func (*SnapshotProgressDetail) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *SnapshotProgressDetail) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
+}
+
+func (x *SnapshotProgressDetail) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *SnapshotProgressDetail) GetOverallPercent() float32 {
+	if x != nil {
+		return x.OverallPercent
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetCurrentStep() string {
+	if x != nil {
+		return x.CurrentStep
+	}
+	return ""
+}
+
+func (x *SnapshotProgressDetail) GetTablesTotal() int32 {
+	if x != nil {
+		return x.TablesTotal
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetTablesCompleted() int32 {
+	if x != nil {
+		return x.TablesCompleted
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetCurrentTable() string {
+	if x != nil {
+		return x.CurrentTable
+	}
+	return ""
+}
+
+func (x *SnapshotProgressDetail) GetCurrentTableBytes() int64 {
+	if x != nil {
+		return x.CurrentTableBytes
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetCurrentTableTotalBytes() int64 {
+	if x != nil {
+		return x.CurrentTableTotalBytes
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetBytesWritten() int64 {
+	if x != nil {
+		return x.BytesWritten
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetBytesTotal() int64 {
+	if x != nil {
+		return x.BytesTotal
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetRowsWritten() int64 {
+	if x != nil {
+		return x.RowsWritten
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetRowsTotal() int64 {
+	if x != nil {
+		return x.RowsTotal
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetThroughputBytesSec() float32 {
+	if x != nil {
+		return x.ThroughputBytesSec
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetThroughputRowsSec() float32 {
+	if x != nil {
+		return x.ThroughputRowsSec
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetStartedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartedAt
+	}
+	return nil
+}
+
+func (x *SnapshotProgressDetail) GetEtaSeconds() int32 {
+	if x != nil {
+		return x.EtaSeconds
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetCompressionEnabled() bool {
+	if x != nil {
+		return x.CompressionEnabled
+	}
+	return false
+}
+
+func (x *SnapshotProgressDetail) GetCompressionRatio() float32 {
+	if x != nil {
+		return x.CompressionRatio
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetChecksumVerifications() int32 {
+	if x != nil {
+		return x.ChecksumVerifications
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetChecksumsVerified() int32 {
+	if x != nil {
+		return x.ChecksumsVerified
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetChecksumsFailed() int32 {
+	if x != nil {
+		return x.ChecksumsFailed
+	}
+	return 0
+}
+
+func (x *SnapshotProgressDetail) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+func (x *SnapshotProgressDetail) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+// Snapshot progress update for streaming (T087e)
+type SnapshotProgressUpdate struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Progress      *SnapshotProgressDetail `protobuf:"bytes,1,opt,name=progress,proto3" json:"progress,omitempty"`
+	Deleted       bool                    `protobuf:"varint,2,opt,name=deleted,proto3" json:"deleted,omitempty"` // True if progress was deleted (completed/cleaned up)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SnapshotProgressUpdate) Reset() {
+	*x = SnapshotProgressUpdate{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SnapshotProgressUpdate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SnapshotProgressUpdate) ProtoMessage() {}
+
+func (x *SnapshotProgressUpdate) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SnapshotProgressUpdate.ProtoReflect.Descriptor instead.
+func (*SnapshotProgressUpdate) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *SnapshotProgressUpdate) GetProgress() *SnapshotProgressDetail {
+	if x != nil {
+		return x.Progress
+	}
+	return nil
+}
+
+func (x *SnapshotProgressUpdate) GetDeleted() bool {
+	if x != nil {
+		return x.Deleted
+	}
+	return false
+}
+
 type StartBidirectionalMergeRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	NodeAId          string                 `protobuf:"bytes,1,opt,name=node_a_id,json=nodeAId,proto3" json:"node_a_id,omitempty"`                                           // Local node ID
@@ -2704,7 +3152,7 @@ type StartBidirectionalMergeRequest struct {
 
 func (x *StartBidirectionalMergeRequest) Reset() {
 	*x = StartBidirectionalMergeRequest{}
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[34]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2716,7 +3164,7 @@ func (x *StartBidirectionalMergeRequest) String() string {
 func (*StartBidirectionalMergeRequest) ProtoMessage() {}
 
 func (x *StartBidirectionalMergeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[34]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2729,7 +3177,7 @@ func (x *StartBidirectionalMergeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartBidirectionalMergeRequest.ProtoReflect.Descriptor instead.
 func (*StartBidirectionalMergeRequest) Descriptor() ([]byte, []int) {
-	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{34}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *StartBidirectionalMergeRequest) GetNodeAId() string {
@@ -2799,7 +3247,7 @@ type StartBidirectionalMergeResponse struct {
 
 func (x *StartBidirectionalMergeResponse) Reset() {
 	*x = StartBidirectionalMergeResponse{}
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[35]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2811,7 +3259,7 @@ func (x *StartBidirectionalMergeResponse) String() string {
 func (*StartBidirectionalMergeResponse) ProtoMessage() {}
 
 func (x *StartBidirectionalMergeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[35]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2824,7 +3272,7 @@ func (x *StartBidirectionalMergeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartBidirectionalMergeResponse.ProtoReflect.Descriptor instead.
 func (*StartBidirectionalMergeResponse) Descriptor() ([]byte, []int) {
-	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{35}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *StartBidirectionalMergeResponse) GetSuccess() bool {
@@ -2865,7 +3313,7 @@ type BidirectionalMergeResult struct {
 
 func (x *BidirectionalMergeResult) Reset() {
 	*x = BidirectionalMergeResult{}
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[36]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2877,7 +3325,7 @@ func (x *BidirectionalMergeResult) String() string {
 func (*BidirectionalMergeResult) ProtoMessage() {}
 
 func (x *BidirectionalMergeResult) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[36]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2890,7 +3338,7 @@ func (x *BidirectionalMergeResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BidirectionalMergeResult.ProtoReflect.Descriptor instead.
 func (*BidirectionalMergeResult) Descriptor() ([]byte, []int) {
-	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{36}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *BidirectionalMergeResult) GetTablesProcessed() int64 {
@@ -2971,7 +3419,7 @@ type TableMergeResult struct {
 
 func (x *TableMergeResult) Reset() {
 	*x = TableMergeResult{}
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[37]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2983,7 +3431,7 @@ func (x *TableMergeResult) String() string {
 func (*TableMergeResult) ProtoMessage() {}
 
 func (x *TableMergeResult) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[37]
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2996,7 +3444,7 @@ func (x *TableMergeResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableMergeResult.ProtoReflect.Descriptor instead.
 func (*TableMergeResult) Descriptor() ([]byte, []int) {
-	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{37}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *TableMergeResult) GetSchema() string {
@@ -3247,7 +3695,54 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\x03lsn\x18\t \x01(\tR\x03lsn\x12\x1a\n" +
 	"\bcomplete\x18\n" +
 	" \x01(\bR\bcomplete\x12\x14\n" +
-	"\x05error\x18\v \x01(\tR\x05error\"\xdb\x02\n" +
+	"\x05error\x18\v \x01(\tR\x05error\"=\n" +
+	"\x1aGetSnapshotProgressRequest\x12\x1f\n" +
+	"\vsnapshot_id\x18\x01 \x01(\tR\n" +
+	"snapshotId\"\x83\x01\n" +
+	"\x1bGetSnapshotProgressResponse\x12!\n" +
+	"\fhas_progress\x18\x01 \x01(\bR\vhasProgress\x12A\n" +
+	"\bprogress\x18\x02 \x01(\v2%.steep.repl.v1.SnapshotProgressDetailR\bprogress\"\x8e\x01\n" +
+	"\x1dStreamSnapshotProgressRequest\x12\x1f\n" +
+	"\vsnapshot_id\x18\x01 \x01(\tR\n" +
+	"snapshotId\x12\x1f\n" +
+	"\vinterval_ms\x18\x02 \x01(\x05R\n" +
+	"intervalMs\x12+\n" +
+	"\x11include_completed\x18\x03 \x01(\bR\x10includeCompleted\"\x8e\b\n" +
+	"\x16SnapshotProgressDetail\x12\x1f\n" +
+	"\vsnapshot_id\x18\x01 \x01(\tR\n" +
+	"snapshotId\x12\x14\n" +
+	"\x05phase\x18\x02 \x01(\tR\x05phase\x12'\n" +
+	"\x0foverall_percent\x18\x03 \x01(\x02R\x0eoverallPercent\x12!\n" +
+	"\fcurrent_step\x18\x04 \x01(\tR\vcurrentStep\x12!\n" +
+	"\ftables_total\x18\x05 \x01(\x05R\vtablesTotal\x12)\n" +
+	"\x10tables_completed\x18\x06 \x01(\x05R\x0ftablesCompleted\x12#\n" +
+	"\rcurrent_table\x18\a \x01(\tR\fcurrentTable\x12.\n" +
+	"\x13current_table_bytes\x18\b \x01(\x03R\x11currentTableBytes\x129\n" +
+	"\x19current_table_total_bytes\x18\t \x01(\x03R\x16currentTableTotalBytes\x12#\n" +
+	"\rbytes_written\x18\n" +
+	" \x01(\x03R\fbytesWritten\x12\x1f\n" +
+	"\vbytes_total\x18\v \x01(\x03R\n" +
+	"bytesTotal\x12!\n" +
+	"\frows_written\x18\f \x01(\x03R\vrowsWritten\x12\x1d\n" +
+	"\n" +
+	"rows_total\x18\r \x01(\x03R\trowsTotal\x120\n" +
+	"\x14throughput_bytes_sec\x18\x0e \x01(\x02R\x12throughputBytesSec\x12.\n" +
+	"\x13throughput_rows_sec\x18\x0f \x01(\x02R\x11throughputRowsSec\x129\n" +
+	"\n" +
+	"started_at\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12\x1f\n" +
+	"\veta_seconds\x18\x11 \x01(\x05R\n" +
+	"etaSeconds\x12/\n" +
+	"\x13compression_enabled\x18\x12 \x01(\bR\x12compressionEnabled\x12+\n" +
+	"\x11compression_ratio\x18\x13 \x01(\x02R\x10compressionRatio\x125\n" +
+	"\x16checksum_verifications\x18\x14 \x01(\x05R\x15checksumVerifications\x12-\n" +
+	"\x12checksums_verified\x18\x15 \x01(\x05R\x11checksumsVerified\x12)\n" +
+	"\x10checksums_failed\x18\x16 \x01(\x05R\x0fchecksumsFailed\x129\n" +
+	"\n" +
+	"updated_at\x18\x17 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12#\n" +
+	"\rerror_message\x18\x18 \x01(\tR\ferrorMessage\"u\n" +
+	"\x16SnapshotProgressUpdate\x12A\n" +
+	"\bprogress\x18\x01 \x01(\v2%.steep.repl.v1.SnapshotProgressDetailR\bprogress\x12\x18\n" +
+	"\adeleted\x18\x02 \x01(\bR\adeleted\"\xdb\x02\n" +
 	"\x1eStartBidirectionalMergeRequest\x12\x1a\n" +
 	"\tnode_a_id\x18\x01 \x01(\tR\anodeAId\x12\x1a\n" +
 	"\tnode_b_id\x18\x02 \x01(\tR\anodeBId\x12%\n" +
@@ -3316,8 +3811,7 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\x17COMPARISON_STATUS_MATCH\x10\x01\x12\x1e\n" +
 	"\x1aCOMPARISON_STATUS_MISMATCH\x10\x02\x12 \n" +
 	"\x1cCOMPARISON_STATUS_LOCAL_ONLY\x10\x03\x12!\n" +
-	"\x1dCOMPARISON_STATUS_REMOTE_ONLY\x10\x042\xb3\n" +
-	"\n" +
+	"\x1dCOMPARISON_STATUS_REMOTE_ONLY\x10\x042\x92\f\n" +
 	"\vInitService\x12N\n" +
 	"\tStartInit\x12\x1f.steep.repl.v1.StartInitRequest\x1a .steep.repl.v1.StartInitResponse\x12T\n" +
 	"\vPrepareInit\x12!.steep.repl.v1.PrepareInitRequest\x1a\".steep.repl.v1.PrepareInitResponse\x12W\n" +
@@ -3333,7 +3827,9 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\x13CaptureFingerprints\x12).steep.repl.v1.CaptureFingerprintsRequest\x1a*.steep.repl.v1.CaptureFingerprintsResponse\x12]\n" +
 	"\x10GenerateSnapshot\x12&.steep.repl.v1.GenerateSnapshotRequest\x1a\x1f.steep.repl.v1.SnapshotProgress0\x01\x12W\n" +
 	"\rApplySnapshot\x12#.steep.repl.v1.ApplySnapshotRequest\x1a\x1f.steep.repl.v1.SnapshotProgress0\x01\x12x\n" +
-	"\x17StartBidirectionalMerge\x12-.steep.repl.v1.StartBidirectionalMergeRequest\x1a..steep.repl.v1.StartBidirectionalMergeResponseB Z\x1esteep/internal/repl/grpc/protob\x06proto3"
+	"\x17StartBidirectionalMerge\x12-.steep.repl.v1.StartBidirectionalMergeRequest\x1a..steep.repl.v1.StartBidirectionalMergeResponse\x12l\n" +
+	"\x13GetSnapshotProgress\x12).steep.repl.v1.GetSnapshotProgressRequest\x1a*.steep.repl.v1.GetSnapshotProgressResponse\x12o\n" +
+	"\x16StreamSnapshotProgress\x12,.steep.repl.v1.StreamSnapshotProgressRequest\x1a%.steep.repl.v1.SnapshotProgressUpdate0\x01B Z\x1esteep/internal/repl/grpc/protob\x06proto3"
 
 var (
 	file_internal_repl_grpc_proto_init_proto_rawDescOnce sync.Once
@@ -3348,7 +3844,7 @@ func file_internal_repl_grpc_proto_init_proto_rawDescGZIP() []byte {
 }
 
 var file_internal_repl_grpc_proto_init_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_internal_repl_grpc_proto_init_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_internal_repl_grpc_proto_init_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
 var file_internal_repl_grpc_proto_init_proto_goTypes = []any{
 	(InitState)(0),                          // 0: steep.repl.v1.InitState
 	(InitMethod)(0),                         // 1: steep.repl.v1.InitMethod
@@ -3389,11 +3885,16 @@ var file_internal_repl_grpc_proto_init_proto_goTypes = []any{
 	(*GenerateSnapshotRequest)(nil),         // 36: steep.repl.v1.GenerateSnapshotRequest
 	(*ApplySnapshotRequest)(nil),            // 37: steep.repl.v1.ApplySnapshotRequest
 	(*SnapshotProgress)(nil),                // 38: steep.repl.v1.SnapshotProgress
-	(*StartBidirectionalMergeRequest)(nil),  // 39: steep.repl.v1.StartBidirectionalMergeRequest
-	(*StartBidirectionalMergeResponse)(nil), // 40: steep.repl.v1.StartBidirectionalMergeResponse
-	(*BidirectionalMergeResult)(nil),        // 41: steep.repl.v1.BidirectionalMergeResult
-	(*TableMergeResult)(nil),                // 42: steep.repl.v1.TableMergeResult
-	(*timestamppb.Timestamp)(nil),           // 43: google.protobuf.Timestamp
+	(*GetSnapshotProgressRequest)(nil),      // 39: steep.repl.v1.GetSnapshotProgressRequest
+	(*GetSnapshotProgressResponse)(nil),     // 40: steep.repl.v1.GetSnapshotProgressResponse
+	(*StreamSnapshotProgressRequest)(nil),   // 41: steep.repl.v1.StreamSnapshotProgressRequest
+	(*SnapshotProgressDetail)(nil),          // 42: steep.repl.v1.SnapshotProgressDetail
+	(*SnapshotProgressUpdate)(nil),          // 43: steep.repl.v1.SnapshotProgressUpdate
+	(*StartBidirectionalMergeRequest)(nil),  // 44: steep.repl.v1.StartBidirectionalMergeRequest
+	(*StartBidirectionalMergeResponse)(nil), // 45: steep.repl.v1.StartBidirectionalMergeResponse
+	(*BidirectionalMergeResult)(nil),        // 46: steep.repl.v1.BidirectionalMergeResult
+	(*TableMergeResult)(nil),                // 47: steep.repl.v1.TableMergeResult
+	(*timestamppb.Timestamp)(nil),           // 48: google.protobuf.Timestamp
 }
 var file_internal_repl_grpc_proto_init_proto_depIdxs = []int32{
 	1,  // 0: steep.repl.v1.StartInitRequest.method:type_name -> steep.repl.v1.InitMethod
@@ -3401,7 +3902,7 @@ var file_internal_repl_grpc_proto_init_proto_depIdxs = []int32{
 	6,  // 2: steep.repl.v1.StartInitRequest.source_node_info:type_name -> steep.repl.v1.SourceNodeInfo
 	3,  // 3: steep.repl.v1.InitOptions.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
 	0,  // 4: steep.repl.v1.StartInitResponse.state:type_name -> steep.repl.v1.InitState
-	43, // 5: steep.repl.v1.PrepareInitResponse.created_at:type_name -> google.protobuf.Timestamp
+	48, // 5: steep.repl.v1.PrepareInitResponse.created_at:type_name -> google.protobuf.Timestamp
 	3,  // 6: steep.repl.v1.CompleteInitRequest.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
 	6,  // 7: steep.repl.v1.CompleteInitRequest.source_node_info:type_name -> steep.repl.v1.SourceNodeInfo
 	0,  // 8: steep.repl.v1.CompleteInitResponse.state:type_name -> steep.repl.v1.InitState
@@ -3409,9 +3910,9 @@ var file_internal_repl_grpc_proto_init_proto_depIdxs = []int32{
 	0,  // 10: steep.repl.v1.CancelInitResponse.previous_state:type_name -> steep.repl.v1.InitState
 	19, // 11: steep.repl.v1.GetProgressResponse.progress:type_name -> steep.repl.v1.InitProgress
 	19, // 12: steep.repl.v1.ProgressUpdate.progress:type_name -> steep.repl.v1.InitProgress
-	43, // 13: steep.repl.v1.ProgressUpdate.timestamp:type_name -> google.protobuf.Timestamp
+	48, // 13: steep.repl.v1.ProgressUpdate.timestamp:type_name -> google.protobuf.Timestamp
 	0,  // 14: steep.repl.v1.InitProgress.state:type_name -> steep.repl.v1.InitState
-	43, // 15: steep.repl.v1.InitProgress.started_at:type_name -> google.protobuf.Timestamp
+	48, // 15: steep.repl.v1.InitProgress.started_at:type_name -> google.protobuf.Timestamp
 	20, // 16: steep.repl.v1.InitProgress.completed_tables:type_name -> steep.repl.v1.TableProgress
 	22, // 17: steep.repl.v1.StartReinitRequest.scope:type_name -> steep.repl.v1.ReinitScope
 	23, // 18: steep.repl.v1.ReinitScope.tables:type_name -> steep.repl.v1.TableList
@@ -3422,43 +3923,51 @@ var file_internal_repl_grpc_proto_init_proto_depIdxs = []int32{
 	31, // 23: steep.repl.v1.GetSchemaFingerprintsResponse.fingerprints:type_name -> steep.repl.v1.TableFingerprint
 	28, // 24: steep.repl.v1.GetColumnDiffResponse.differences:type_name -> steep.repl.v1.ColumnDifference
 	31, // 25: steep.repl.v1.CaptureFingerprintsResponse.fingerprints:type_name -> steep.repl.v1.TableFingerprint
-	2,  // 26: steep.repl.v1.StartBidirectionalMergeRequest.strategy:type_name -> steep.repl.v1.ConflictStrategy
-	3,  // 27: steep.repl.v1.StartBidirectionalMergeRequest.schema_sync:type_name -> steep.repl.v1.SchemaSyncMode
-	41, // 28: steep.repl.v1.StartBidirectionalMergeResponse.result:type_name -> steep.repl.v1.BidirectionalMergeResult
-	42, // 29: steep.repl.v1.BidirectionalMergeResult.table_results:type_name -> steep.repl.v1.TableMergeResult
-	5,  // 30: steep.repl.v1.InitService.StartInit:input_type -> steep.repl.v1.StartInitRequest
-	9,  // 31: steep.repl.v1.InitService.PrepareInit:input_type -> steep.repl.v1.PrepareInitRequest
-	11, // 32: steep.repl.v1.InitService.CompleteInit:input_type -> steep.repl.v1.CompleteInitRequest
-	13, // 33: steep.repl.v1.InitService.CancelInit:input_type -> steep.repl.v1.CancelInitRequest
-	15, // 34: steep.repl.v1.InitService.GetProgress:input_type -> steep.repl.v1.GetProgressRequest
-	17, // 35: steep.repl.v1.InitService.StreamProgress:input_type -> steep.repl.v1.StreamProgressRequest
-	21, // 36: steep.repl.v1.InitService.StartReinit:input_type -> steep.repl.v1.StartReinitRequest
-	25, // 37: steep.repl.v1.InitService.CompareSchemas:input_type -> steep.repl.v1.CompareSchemasRequest
-	29, // 38: steep.repl.v1.InitService.GetSchemaFingerprints:input_type -> steep.repl.v1.GetSchemaFingerprintsRequest
-	32, // 39: steep.repl.v1.InitService.GetColumnDiff:input_type -> steep.repl.v1.GetColumnDiffRequest
-	34, // 40: steep.repl.v1.InitService.CaptureFingerprints:input_type -> steep.repl.v1.CaptureFingerprintsRequest
-	36, // 41: steep.repl.v1.InitService.GenerateSnapshot:input_type -> steep.repl.v1.GenerateSnapshotRequest
-	37, // 42: steep.repl.v1.InitService.ApplySnapshot:input_type -> steep.repl.v1.ApplySnapshotRequest
-	39, // 43: steep.repl.v1.InitService.StartBidirectionalMerge:input_type -> steep.repl.v1.StartBidirectionalMergeRequest
-	8,  // 44: steep.repl.v1.InitService.StartInit:output_type -> steep.repl.v1.StartInitResponse
-	10, // 45: steep.repl.v1.InitService.PrepareInit:output_type -> steep.repl.v1.PrepareInitResponse
-	12, // 46: steep.repl.v1.InitService.CompleteInit:output_type -> steep.repl.v1.CompleteInitResponse
-	14, // 47: steep.repl.v1.InitService.CancelInit:output_type -> steep.repl.v1.CancelInitResponse
-	16, // 48: steep.repl.v1.InitService.GetProgress:output_type -> steep.repl.v1.GetProgressResponse
-	18, // 49: steep.repl.v1.InitService.StreamProgress:output_type -> steep.repl.v1.ProgressUpdate
-	24, // 50: steep.repl.v1.InitService.StartReinit:output_type -> steep.repl.v1.StartReinitResponse
-	26, // 51: steep.repl.v1.InitService.CompareSchemas:output_type -> steep.repl.v1.CompareSchemasResponse
-	30, // 52: steep.repl.v1.InitService.GetSchemaFingerprints:output_type -> steep.repl.v1.GetSchemaFingerprintsResponse
-	33, // 53: steep.repl.v1.InitService.GetColumnDiff:output_type -> steep.repl.v1.GetColumnDiffResponse
-	35, // 54: steep.repl.v1.InitService.CaptureFingerprints:output_type -> steep.repl.v1.CaptureFingerprintsResponse
-	38, // 55: steep.repl.v1.InitService.GenerateSnapshot:output_type -> steep.repl.v1.SnapshotProgress
-	38, // 56: steep.repl.v1.InitService.ApplySnapshot:output_type -> steep.repl.v1.SnapshotProgress
-	40, // 57: steep.repl.v1.InitService.StartBidirectionalMerge:output_type -> steep.repl.v1.StartBidirectionalMergeResponse
-	44, // [44:58] is the sub-list for method output_type
-	30, // [30:44] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	42, // 26: steep.repl.v1.GetSnapshotProgressResponse.progress:type_name -> steep.repl.v1.SnapshotProgressDetail
+	48, // 27: steep.repl.v1.SnapshotProgressDetail.started_at:type_name -> google.protobuf.Timestamp
+	48, // 28: steep.repl.v1.SnapshotProgressDetail.updated_at:type_name -> google.protobuf.Timestamp
+	42, // 29: steep.repl.v1.SnapshotProgressUpdate.progress:type_name -> steep.repl.v1.SnapshotProgressDetail
+	2,  // 30: steep.repl.v1.StartBidirectionalMergeRequest.strategy:type_name -> steep.repl.v1.ConflictStrategy
+	3,  // 31: steep.repl.v1.StartBidirectionalMergeRequest.schema_sync:type_name -> steep.repl.v1.SchemaSyncMode
+	46, // 32: steep.repl.v1.StartBidirectionalMergeResponse.result:type_name -> steep.repl.v1.BidirectionalMergeResult
+	47, // 33: steep.repl.v1.BidirectionalMergeResult.table_results:type_name -> steep.repl.v1.TableMergeResult
+	5,  // 34: steep.repl.v1.InitService.StartInit:input_type -> steep.repl.v1.StartInitRequest
+	9,  // 35: steep.repl.v1.InitService.PrepareInit:input_type -> steep.repl.v1.PrepareInitRequest
+	11, // 36: steep.repl.v1.InitService.CompleteInit:input_type -> steep.repl.v1.CompleteInitRequest
+	13, // 37: steep.repl.v1.InitService.CancelInit:input_type -> steep.repl.v1.CancelInitRequest
+	15, // 38: steep.repl.v1.InitService.GetProgress:input_type -> steep.repl.v1.GetProgressRequest
+	17, // 39: steep.repl.v1.InitService.StreamProgress:input_type -> steep.repl.v1.StreamProgressRequest
+	21, // 40: steep.repl.v1.InitService.StartReinit:input_type -> steep.repl.v1.StartReinitRequest
+	25, // 41: steep.repl.v1.InitService.CompareSchemas:input_type -> steep.repl.v1.CompareSchemasRequest
+	29, // 42: steep.repl.v1.InitService.GetSchemaFingerprints:input_type -> steep.repl.v1.GetSchemaFingerprintsRequest
+	32, // 43: steep.repl.v1.InitService.GetColumnDiff:input_type -> steep.repl.v1.GetColumnDiffRequest
+	34, // 44: steep.repl.v1.InitService.CaptureFingerprints:input_type -> steep.repl.v1.CaptureFingerprintsRequest
+	36, // 45: steep.repl.v1.InitService.GenerateSnapshot:input_type -> steep.repl.v1.GenerateSnapshotRequest
+	37, // 46: steep.repl.v1.InitService.ApplySnapshot:input_type -> steep.repl.v1.ApplySnapshotRequest
+	44, // 47: steep.repl.v1.InitService.StartBidirectionalMerge:input_type -> steep.repl.v1.StartBidirectionalMergeRequest
+	39, // 48: steep.repl.v1.InitService.GetSnapshotProgress:input_type -> steep.repl.v1.GetSnapshotProgressRequest
+	41, // 49: steep.repl.v1.InitService.StreamSnapshotProgress:input_type -> steep.repl.v1.StreamSnapshotProgressRequest
+	8,  // 50: steep.repl.v1.InitService.StartInit:output_type -> steep.repl.v1.StartInitResponse
+	10, // 51: steep.repl.v1.InitService.PrepareInit:output_type -> steep.repl.v1.PrepareInitResponse
+	12, // 52: steep.repl.v1.InitService.CompleteInit:output_type -> steep.repl.v1.CompleteInitResponse
+	14, // 53: steep.repl.v1.InitService.CancelInit:output_type -> steep.repl.v1.CancelInitResponse
+	16, // 54: steep.repl.v1.InitService.GetProgress:output_type -> steep.repl.v1.GetProgressResponse
+	18, // 55: steep.repl.v1.InitService.StreamProgress:output_type -> steep.repl.v1.ProgressUpdate
+	24, // 56: steep.repl.v1.InitService.StartReinit:output_type -> steep.repl.v1.StartReinitResponse
+	26, // 57: steep.repl.v1.InitService.CompareSchemas:output_type -> steep.repl.v1.CompareSchemasResponse
+	30, // 58: steep.repl.v1.InitService.GetSchemaFingerprints:output_type -> steep.repl.v1.GetSchemaFingerprintsResponse
+	33, // 59: steep.repl.v1.InitService.GetColumnDiff:output_type -> steep.repl.v1.GetColumnDiffResponse
+	35, // 60: steep.repl.v1.InitService.CaptureFingerprints:output_type -> steep.repl.v1.CaptureFingerprintsResponse
+	38, // 61: steep.repl.v1.InitService.GenerateSnapshot:output_type -> steep.repl.v1.SnapshotProgress
+	38, // 62: steep.repl.v1.InitService.ApplySnapshot:output_type -> steep.repl.v1.SnapshotProgress
+	45, // 63: steep.repl.v1.InitService.StartBidirectionalMerge:output_type -> steep.repl.v1.StartBidirectionalMergeResponse
+	40, // 64: steep.repl.v1.InitService.GetSnapshotProgress:output_type -> steep.repl.v1.GetSnapshotProgressResponse
+	43, // 65: steep.repl.v1.InitService.StreamSnapshotProgress:output_type -> steep.repl.v1.SnapshotProgressUpdate
+	50, // [50:66] is the sub-list for method output_type
+	34, // [34:50] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_internal_repl_grpc_proto_init_proto_init() }
@@ -3477,7 +3986,7 @@ func file_internal_repl_grpc_proto_init_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_repl_grpc_proto_init_proto_rawDesc), len(file_internal_repl_grpc_proto_init_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   38,
+			NumMessages:   43,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
