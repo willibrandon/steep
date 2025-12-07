@@ -291,11 +291,23 @@ func TestBlockingRelationship(t *testing.T) {
 	if rel.BlockedPID != 100 {
 		t.Errorf("BlockedPID = %d, want 100", rel.BlockedPID)
 	}
-	if rel.BlockingPID != 200 {
-		t.Errorf("BlockingPID = %d, want 200", rel.BlockingPID)
+	if rel.BlockedUser != "user1" {
+		t.Errorf("BlockedUser = %s, want user1", rel.BlockedUser)
+	}
+	if rel.BlockedQuery != "SELECT * FROM table1" {
+		t.Errorf("BlockedQuery = %s, want SELECT * FROM table1", rel.BlockedQuery)
 	}
 	if rel.BlockedDuration != 5*time.Second {
 		t.Errorf("BlockedDuration = %v, want 5s", rel.BlockedDuration)
+	}
+	if rel.BlockingPID != 200 {
+		t.Errorf("BlockingPID = %d, want 200", rel.BlockingPID)
+	}
+	if rel.BlockingUser != "user2" {
+		t.Errorf("BlockingUser = %s, want user2", rel.BlockingUser)
+	}
+	if rel.BlockingQuery != "UPDATE table1 SET col = 1" {
+		t.Errorf("BlockingQuery = %s, want UPDATE table1 SET col = 1", rel.BlockingQuery)
 	}
 }
 
@@ -327,11 +339,23 @@ func TestBlockingChain(t *testing.T) {
 	if chain.BlockerPID != 100 {
 		t.Errorf("Root BlockerPID = %d, want 100", chain.BlockerPID)
 	}
+	if chain.Query != "SELECT * FROM table1 FOR UPDATE" {
+		t.Errorf("Query = %s, want SELECT * FROM table1 FOR UPDATE", chain.Query)
+	}
+	if chain.LockMode != "ExclusiveLock" {
+		t.Errorf("LockMode = %s, want ExclusiveLock", chain.LockMode)
+	}
+	if chain.User != "admin" {
+		t.Errorf("User = %s, want admin", chain.User)
+	}
 	if len(chain.Blocked) != 2 {
 		t.Errorf("Blocked count = %d, want 2", len(chain.Blocked))
 	}
 	if chain.Blocked[0].BlockerPID != 200 {
 		t.Errorf("First blocked PID = %d, want 200", chain.Blocked[0].BlockerPID)
+	}
+	if chain.Blocked[0].User != "user1" {
+		t.Errorf("First blocked User = %s, want user1", chain.Blocked[0].User)
 	}
 }
 
@@ -355,14 +379,38 @@ func TestLockModel(t *testing.T) {
 	if lock.PID != 12345 {
 		t.Errorf("PID = %d, want 12345", lock.PID)
 	}
+	if lock.User != "postgres" {
+		t.Errorf("User = %s, want postgres", lock.User)
+	}
+	if lock.Database != "mydb" {
+		t.Errorf("Database = %s, want mydb", lock.Database)
+	}
 	if lock.LockType != "relation" {
 		t.Errorf("LockType = %s, want relation", lock.LockType)
+	}
+	if lock.Mode != "ExclusiveLock" {
+		t.Errorf("Mode = %s, want ExclusiveLock", lock.Mode)
 	}
 	if !lock.Granted {
 		t.Error("Granted should be true")
 	}
+	if lock.Relation != "users" {
+		t.Errorf("Relation = %s, want users", lock.Relation)
+	}
+	if lock.Query != "SELECT * FROM users WHERE id = 1" {
+		t.Errorf("Query = %s, unexpected", lock.Query)
+	}
+	if lock.State != "active" {
+		t.Errorf("State = %s, want active", lock.State)
+	}
 	if lock.Duration != 30*time.Second {
 		t.Errorf("Duration = %v, want 30s", lock.Duration)
+	}
+	if lock.WaitEventType != "" {
+		t.Errorf("WaitEventType = %s, want empty", lock.WaitEventType)
+	}
+	if lock.WaitEvent != "" {
+		t.Errorf("WaitEvent = %s, want empty", lock.WaitEvent)
 	}
 }
 
