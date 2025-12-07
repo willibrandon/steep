@@ -57,6 +57,7 @@ Direct Run (for debugging):
 		newSchemaCmd(),
 		newAnalyzeOverlapCmd(),
 		newMergeCmd(),
+		newSnapshotCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

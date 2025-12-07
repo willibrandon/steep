@@ -41,10 +41,21 @@ type snapshotEnv struct {
 	// Source node
 	sourceContainer testcontainers.Container
 	sourcePool      *pgxpool.Pool
-	sourceHost      string // Docker network hostname
+	sourceChinook   *pgxpool.Pool // Connection to chinook_serial database
+	sourceHost      string        // Docker network hostname
 	sourcePort      int
 	sourceDaemon    *daemon.Daemon
 	sourceGRPCPort  int
+
+	// Target node (for apply tests)
+	targetContainer    testcontainers.Container
+	targetPool         *pgxpool.Pool
+	targetHost         string // Docker network hostname
+	targetPort         int
+	targetDaemon       *daemon.Daemon
+	targetGRPCPort     int
+	targetHostExternal string
+	targetPortExternal int
 
 	// External connection info
 	sourceHostExternal string
@@ -114,7 +125,7 @@ func (s *SnapshotTestSuite) SetupSuite() {
 	env.sourceHostExternal = sourceHostExternal
 	env.sourcePortExternal = sourcePortExternal.Int()
 
-	// Create connection pool
+	// Create connection pool for testdb
 	sourceConnStr := fmt.Sprintf("postgres://test:test@%s:%s/testdb?sslmode=disable",
 		sourceHostExternal, sourcePortExternal.Port())
 	env.sourcePool, err = pgxpool.New(s.ctx, sourceConnStr)
@@ -126,6 +137,66 @@ func (s *SnapshotTestSuite) SetupSuite() {
 	// Create extension
 	_, err = env.sourcePool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
 	s.Require().NoError(err, "Failed to create extension on source")
+
+	// Create connection pool for chinook_serial (pre-loaded sample database)
+	chinookConnStr := fmt.Sprintf("postgres://test:test@%s:%s/chinook_serial?sslmode=disable",
+		sourceHostExternal, sourcePortExternal.Port())
+	env.sourceChinook, err = pgxpool.New(s.ctx, chinookConnStr)
+	s.Require().NoError(err, "Failed to create chinook pool")
+
+	// Create steep_repl extension in chinook_serial for snapshot tests
+	_, err = env.sourceChinook.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err, "Failed to create extension on chinook_serial")
+
+	// Start target PostgreSQL container
+	targetReq := testcontainers.ContainerRequest{
+		Image:        "ghcr.io/willibrandon/pg18-steep-repl:latest",
+		ExposedPorts: []string{"5432/tcp"},
+		Networks:     []string{net.Name},
+		NetworkAliases: map[string][]string{
+			net.Name: {"pg-snapshot-target"},
+		},
+		Env: map[string]string{
+			"POSTGRES_USER":     "test",
+			"POSTGRES_PASSWORD": testPassword,
+			"POSTGRES_DB":       "testdb",
+		},
+		Cmd: []string{
+			"-c", "wal_level=logical",
+			"-c", "max_wal_senders=10",
+			"-c", "max_replication_slots=10",
+		},
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
+			WithStartupTimeout(90 * time.Second),
+	}
+
+	targetContainer, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: targetReq,
+		Started:          true,
+	})
+	s.Require().NoError(err, "Failed to start target container")
+	env.targetContainer = targetContainer
+
+	targetHostExternal, _ := targetContainer.Host(s.ctx)
+	targetPortExternal, _ := targetContainer.MappedPort(s.ctx, "5432")
+
+	env.targetHost = "pg-snapshot-target"
+	env.targetPort = 5432
+	env.targetHostExternal = targetHostExternal
+	env.targetPortExternal = targetPortExternal.Int()
+
+	// Create target connection pool
+	targetConnStr := fmt.Sprintf("postgres://test:test@%s:%s/testdb?sslmode=disable",
+		targetHostExternal, targetPortExternal.Port())
+	env.targetPool, err = pgxpool.New(s.ctx, targetConnStr)
+	s.Require().NoError(err, "Failed to create target pool")
+
+	s.waitForDB(env.targetPool, "target")
+
+	// Create extension on target
+	_, err = env.targetPool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err, "Failed to create extension on target")
 
 	// Start daemon
 	env.sourceGRPCPort = 15480
@@ -164,6 +235,41 @@ func (s *SnapshotTestSuite) SetupSuite() {
 	err = env.sourceDaemon.Start()
 	s.Require().NoError(err, "Failed to start source daemon")
 
+	// Start target daemon
+	env.targetGRPCPort = 15481
+
+	targetSocketPath := tempSocketPathSnapshot()
+	targetCfg := &config.Config{
+		NodeID:   "snapshot-target",
+		NodeName: "Snapshot Target Node",
+		PostgreSQL: config.PostgreSQLConfig{
+			Host:     targetHostExternal,
+			Port:     targetPortExternal.Int(),
+			Database: "testdb",
+			User:     "test",
+		},
+		GRPC: config.GRPCConfig{
+			Port: env.targetGRPCPort,
+		},
+		IPC: config.IPCConfig{
+			Enabled: true,
+			Path:    targetSocketPath,
+		},
+		HTTP: config.HTTPConfig{
+			Enabled: false,
+		},
+		Initialization: config.InitConfig{
+			Method:          config.InitMethodTwoPhase,
+			ParallelWorkers: 4,
+			SchemaSync:      config.SchemaSyncStrict,
+		},
+	}
+
+	env.targetDaemon, err = daemon.New(targetCfg, true)
+	s.Require().NoError(err, "Failed to create target daemon")
+	err = env.targetDaemon.Start()
+	s.Require().NoError(err, "Failed to start target daemon")
+
 	// Create temp directory for snapshots
 	env.snapshotDir, err = os.MkdirTemp("", "steep-snapshot-test-*")
 	s.Require().NoError(err, "Failed to create temp snapshot directory")
@@ -171,21 +277,40 @@ func (s *SnapshotTestSuite) SetupSuite() {
 	time.Sleep(time.Second)
 
 	s.env = env
-	s.T().Log("SnapshotTestSuite: Shared containers and daemon ready")
+	s.T().Log("SnapshotTestSuite: Shared containers and daemons ready")
 }
 
 // TearDownSuite cleans up resources.
 func (s *SnapshotTestSuite) TearDownSuite() {
 	if s.env != nil {
+		// Stop daemons
+		if s.env.targetDaemon != nil {
+			s.env.targetDaemon.Stop()
+		}
 		if s.env.sourceDaemon != nil {
 			s.env.sourceDaemon.Stop()
+		}
+
+		// Close connection pools
+		if s.env.targetPool != nil {
+			s.env.targetPool.Close()
+		}
+		if s.env.sourceChinook != nil {
+			s.env.sourceChinook.Close()
 		}
 		if s.env.sourcePool != nil {
 			s.env.sourcePool.Close()
 		}
+
+		// Terminate containers
+		if s.env.targetContainer != nil {
+			_ = s.env.targetContainer.Terminate(context.Background())
+		}
 		if s.env.sourceContainer != nil {
 			_ = s.env.sourceContainer.Terminate(context.Background())
 		}
+
+		// Remove network and temp files
 		if s.env.network != nil {
 			_ = s.env.network.Remove(context.Background())
 		}
@@ -206,6 +331,7 @@ func (s *SnapshotTestSuite) SetupTest() {
 	testTables := []string{
 		"snapshot_test", "users", "orders", "products",
 		"large_table", "small_table", "compressed_test",
+		"lz4_test", "zstd_test",
 	}
 	for _, table := range testTables {
 		s.env.sourcePool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", table))
@@ -464,6 +590,134 @@ func (s *SnapshotTestSuite) TestSnapshot_GenerateWithGzipCompression() {
 	s.Assert().Empty(errors)
 
 	s.T().Logf("Generated gzip snapshot with %d tables, total size: %d bytes",
+		len(manifest.Tables), manifest.TotalSizeBytes)
+}
+
+// TestSnapshot_GenerateWithLZ4Compression tests snapshot generation with LZ4 compression.
+func (s *SnapshotTestSuite) TestSnapshot_GenerateWithLZ4Compression() {
+	ctx := s.ctx
+	env := s.env
+
+	// Create test table with data
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE TABLE lz4_test (
+			id SERIAL PRIMARY KEY,
+			data TEXT NOT NULL
+		)
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.sourcePool.Exec(ctx, `
+		INSERT INTO lz4_test (data)
+		SELECT repeat('lz4 compression test data ', 100)
+		FROM generate_series(1, 500)
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.sourcePool.Exec(ctx, `
+		CREATE PUBLICATION steep_pub_snapshot_source FOR TABLE lz4_test
+	`)
+	s.Require().NoError(err)
+
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.sourceGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer conn.Close()
+
+	initClient := pb.NewInitServiceClient(conn)
+	outputPath := filepath.Join(env.snapshotDir, "lz4_snapshot")
+
+	stream, err := initClient.GenerateSnapshot(ctx, &pb.GenerateSnapshotRequest{
+		SourceNodeId:    "snapshot-source",
+		OutputPath:      outputPath,
+		ParallelWorkers: 2,
+		Compression:     "lz4",
+	})
+	s.Require().NoError(err)
+
+	for {
+		progress, err := stream.Recv()
+		if err != nil || progress.Complete {
+			break
+		}
+		if progress.Error != "" {
+			s.T().Fatalf("Snapshot generation failed: %s", progress.Error)
+		}
+	}
+
+	manifest, err := replinit.ReadManifest(filepath.Join(outputPath, "manifest.json"))
+	s.Require().NoError(err)
+	s.Assert().Equal(models.CompressionLZ4, manifest.Compression)
+
+	// Verify data files have .lz4 extension
+	for _, table := range manifest.Tables {
+		s.Assert().Contains(table.File, ".lz4", "LZ4 compressed files should have .lz4 extension")
+	}
+
+	s.T().Logf("Generated LZ4 snapshot with %d tables, total size: %d bytes",
+		len(manifest.Tables), manifest.TotalSizeBytes)
+}
+
+// TestSnapshot_GenerateWithZstdCompression tests snapshot generation with Zstd compression.
+func (s *SnapshotTestSuite) TestSnapshot_GenerateWithZstdCompression() {
+	ctx := s.ctx
+	env := s.env
+
+	// Create test table with data
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE TABLE zstd_test (
+			id SERIAL PRIMARY KEY,
+			data TEXT NOT NULL
+		)
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.sourcePool.Exec(ctx, `
+		INSERT INTO zstd_test (data)
+		SELECT repeat('zstd compression test data ', 100)
+		FROM generate_series(1, 500)
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.sourcePool.Exec(ctx, `
+		CREATE PUBLICATION steep_pub_snapshot_source FOR TABLE zstd_test
+	`)
+	s.Require().NoError(err)
+
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.sourceGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer conn.Close()
+
+	initClient := pb.NewInitServiceClient(conn)
+	outputPath := filepath.Join(env.snapshotDir, "zstd_snapshot")
+
+	stream, err := initClient.GenerateSnapshot(ctx, &pb.GenerateSnapshotRequest{
+		SourceNodeId:    "snapshot-source",
+		OutputPath:      outputPath,
+		ParallelWorkers: 2,
+		Compression:     "zstd",
+	})
+	s.Require().NoError(err)
+
+	for {
+		progress, err := stream.Recv()
+		if err != nil || progress.Complete {
+			break
+		}
+		if progress.Error != "" {
+			s.T().Fatalf("Snapshot generation failed: %s", progress.Error)
+		}
+	}
+
+	manifest, err := replinit.ReadManifest(filepath.Join(outputPath, "manifest.json"))
+	s.Require().NoError(err)
+	s.Assert().Equal(models.CompressionZstd, manifest.Compression)
+
+	// Verify data files have .zst extension
+	for _, table := range manifest.Tables {
+		s.Assert().Contains(table.File, ".zst", "Zstd compressed files should have .zst extension")
+	}
+
+	s.T().Logf("Generated Zstd snapshot with %d tables, total size: %d bytes",
 		len(manifest.Tables), manifest.TotalSizeBytes)
 }
 
@@ -895,4 +1149,686 @@ func (s *SnapshotTestSuite) TestSnapshot_RecordedInDatabase() {
 
 	s.T().Logf("Snapshot %s recorded in database with status=%s, tables=%d",
 		dbSnapshotID, dbStatus, dbTableCount)
+}
+
+// =============================================================================
+// Two-Phase Snapshot Round-Trip Tests (T079)
+// =============================================================================
+
+// TestSnapshot_ChinookGenerateApplyRoundTrip tests the full generate/apply cycle
+// using the pre-loaded Chinook database with real data and sequences.
+// Implements T079: Integration test for snapshot generate/apply.
+func (s *SnapshotTestSuite) TestSnapshot_ChinookGenerateApplyRoundTrip() {
+	ctx := s.ctx
+	env := s.env
+
+	// Verify Chinook data exists on source
+	var sourceArtistCount int
+	err := env.sourceChinook.QueryRow(ctx, "SELECT COUNT(*) FROM artist").Scan(&sourceArtistCount)
+	s.Require().NoError(err, "Chinook database should be available")
+	s.Require().Greater(sourceArtistCount, 0, "Chinook should have artists")
+
+	var sourceAlbumCount, sourceTrackCount int
+	env.sourceChinook.QueryRow(ctx, "SELECT COUNT(*) FROM album").Scan(&sourceAlbumCount)
+	env.sourceChinook.QueryRow(ctx, "SELECT COUNT(*) FROM track").Scan(&sourceTrackCount)
+
+	s.T().Logf("Source Chinook: %d artists, %d albums, %d tracks",
+		sourceArtistCount, sourceAlbumCount, sourceTrackCount)
+
+	// Get source sequence values before snapshot
+	var sourceArtistSeq, sourceAlbumSeq int64
+	env.sourceChinook.QueryRow(ctx, "SELECT last_value FROM artist_artist_id_seq").Scan(&sourceArtistSeq)
+	env.sourceChinook.QueryRow(ctx, "SELECT last_value FROM album_album_id_seq").Scan(&sourceAlbumSeq)
+	s.T().Logf("Source sequences: artist=%d, album=%d", sourceArtistSeq, sourceAlbumSeq)
+
+	// Create publication for Chinook tables
+	_, err = env.sourceChinook.Exec(ctx, `
+		CREATE PUBLICATION steep_pub_chinook FOR TABLE
+			artist, album, track, genre, media_type,
+			playlist, playlist_track, customer, employee, invoice, invoice_line
+	`)
+	s.Require().NoError(err, "Failed to create Chinook publication")
+
+	// Start a dedicated daemon for chinook_serial database
+	// The shared daemon connects to testdb, but we need one connected to chinook_serial
+	chinookGRPCPort := 15490
+	chinookSocketPath := tempSocketPathSnapshot()
+	chinookCfg := &config.Config{
+		NodeID:   "chinook-source",
+		NodeName: "Chinook Source Node",
+		PostgreSQL: config.PostgreSQLConfig{
+			Host:     env.sourceHostExternal,
+			Port:     env.sourcePortExternal,
+			Database: "chinook_serial", // Connect to Chinook database
+			User:     "test",
+		},
+		GRPC: config.GRPCConfig{
+			Port: chinookGRPCPort,
+		},
+		IPC: config.IPCConfig{
+			Enabled: true,
+			Path:    chinookSocketPath,
+		},
+		HTTP: config.HTTPConfig{
+			Enabled: false,
+		},
+		Initialization: config.InitConfig{
+			Method:          config.InitMethodTwoPhase,
+			ParallelWorkers: 4,
+			SchemaSync:      config.SchemaSyncStrict,
+		},
+	}
+
+	chinookDaemon, err := daemon.New(chinookCfg, true)
+	s.Require().NoError(err, "Failed to create chinook daemon")
+	err = chinookDaemon.Start()
+	s.Require().NoError(err, "Failed to start chinook daemon")
+	defer chinookDaemon.Stop()
+
+	time.Sleep(500 * time.Millisecond) // Wait for daemon to be ready
+
+	// Connect to the chinook daemon
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", chinookGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer conn.Close()
+
+	initClient := pb.NewInitServiceClient(conn)
+
+	// Generate snapshot from chinook_serial
+	outputPath := filepath.Join(env.snapshotDir, "chinook_roundtrip")
+
+	stream, err := initClient.GenerateSnapshot(ctx, &pb.GenerateSnapshotRequest{
+		SourceNodeId:    "chinook-source",
+		OutputPath:      outputPath,
+		ParallelWorkers: 4,
+		Compression:     "gzip",
+	})
+	s.Require().NoError(err, "GenerateSnapshot RPC failed")
+
+	var generateProgress []*pb.SnapshotProgress
+	var snapshotID, lsn string
+
+	for {
+		progress, err := stream.Recv()
+		if err != nil {
+			break
+		}
+		generateProgress = append(generateProgress, progress)
+		if progress.SnapshotId != "" {
+			snapshotID = progress.SnapshotId
+		}
+		if progress.Lsn != "" {
+			lsn = progress.Lsn
+		}
+		if progress.Complete {
+			break
+		}
+		if progress.Error != "" {
+			s.T().Fatalf("Generate failed: %s", progress.Error)
+		}
+	}
+
+	s.Require().NotEmpty(snapshotID, "Should have snapshot ID")
+	s.Require().NotEmpty(lsn, "Should have LSN")
+	s.T().Logf("Generated snapshot %s at LSN %s with %d progress updates",
+		snapshotID, lsn, len(generateProgress))
+
+	// Verify manifest
+	manifest, err := replinit.ReadManifest(filepath.Join(outputPath, "manifest.json"))
+	s.Require().NoError(err)
+	s.Assert().GreaterOrEqual(len(manifest.Tables), 10, "Should have Chinook tables")
+	s.Assert().NotEmpty(manifest.Sequences, "Should have captured sequences")
+	s.Assert().Equal(models.CompressionGzip, manifest.Compression)
+
+	// Verify checksums before apply
+	verifyErrors, err := replinit.VerifySnapshot(outputPath)
+	s.Require().NoError(err)
+	s.Assert().Empty(verifyErrors, "Snapshot verification should pass")
+
+	// Create same schema on target (required before apply)
+	// Copy schema from source to target using pg_dump/restore would be ideal,
+	// but for this test we'll create the tables manually
+	s.createChinookSchemaOnTarget(ctx)
+
+	// Connect to target daemon and apply snapshot
+	targetConn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer targetConn.Close()
+
+	targetInitClient := pb.NewInitServiceClient(targetConn)
+
+	applyStream, err := targetInitClient.ApplySnapshot(ctx, &pb.ApplySnapshotRequest{
+		TargetNodeId:    "snapshot-target",
+		InputPath:       outputPath,
+		ParallelWorkers: 4,
+		VerifyChecksums: true,
+	})
+	s.Require().NoError(err, "ApplySnapshot RPC failed")
+
+	var applyProgress []*pb.SnapshotProgress
+
+	for {
+		progress, err := applyStream.Recv()
+		if err != nil {
+			break
+		}
+		applyProgress = append(applyProgress, progress)
+		if progress.Complete {
+			break
+		}
+		if progress.Error != "" {
+			s.T().Fatalf("Apply failed: %s", progress.Error)
+		}
+	}
+
+	s.T().Logf("Applied snapshot with %d progress updates", len(applyProgress))
+
+	// Verify data on target matches source
+	var targetArtistCount, targetAlbumCount, targetTrackCount int
+	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM artist").Scan(&targetArtistCount)
+	s.Require().NoError(err)
+	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM album").Scan(&targetAlbumCount)
+	env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM track").Scan(&targetTrackCount)
+
+	s.Assert().Equal(sourceArtistCount, targetArtistCount, "Artist count should match")
+	s.Assert().Equal(sourceAlbumCount, targetAlbumCount, "Album count should match")
+	s.Assert().Equal(sourceTrackCount, targetTrackCount, "Track count should match")
+
+	s.T().Logf("Target Chinook: %d artists, %d albums, %d tracks",
+		targetArtistCount, targetAlbumCount, targetTrackCount)
+
+	// Verify sequences were restored
+	var targetArtistSeq, targetAlbumSeq int64
+	env.targetPool.QueryRow(ctx, "SELECT last_value FROM artist_artist_id_seq").Scan(&targetArtistSeq)
+	env.targetPool.QueryRow(ctx, "SELECT last_value FROM album_album_id_seq").Scan(&targetAlbumSeq)
+
+	s.Assert().Equal(sourceArtistSeq, targetArtistSeq, "Artist sequence should match")
+	s.Assert().Equal(sourceAlbumSeq, targetAlbumSeq, "Album sequence should match")
+
+	s.T().Logf("Target sequences: artist=%d, album=%d", targetArtistSeq, targetAlbumSeq)
+	s.T().Log("Round-trip test PASSED: Data and sequences match!")
+}
+
+// createChinookSchemaOnTarget creates the Chinook schema on the target database.
+func (s *SnapshotTestSuite) createChinookSchemaOnTarget(ctx context.Context) {
+	// Create tables in the correct order (respecting foreign keys)
+	ddl := []string{
+		`CREATE TABLE IF NOT EXISTS artist (
+			artist_id SERIAL PRIMARY KEY,
+			name VARCHAR(120)
+		)`,
+		`CREATE TABLE IF NOT EXISTS album (
+			album_id SERIAL PRIMARY KEY,
+			title VARCHAR(160) NOT NULL,
+			artist_id INT NOT NULL REFERENCES artist(artist_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS media_type (
+			media_type_id SERIAL PRIMARY KEY,
+			name VARCHAR(120)
+		)`,
+		`CREATE TABLE IF NOT EXISTS genre (
+			genre_id SERIAL PRIMARY KEY,
+			name VARCHAR(120)
+		)`,
+		`CREATE TABLE IF NOT EXISTS track (
+			track_id SERIAL PRIMARY KEY,
+			name VARCHAR(200) NOT NULL,
+			album_id INT REFERENCES album(album_id),
+			media_type_id INT NOT NULL REFERENCES media_type(media_type_id),
+			genre_id INT REFERENCES genre(genre_id),
+			composer VARCHAR(220),
+			milliseconds INT NOT NULL,
+			bytes INT,
+			unit_price NUMERIC(10,2) NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS playlist (
+			playlist_id SERIAL PRIMARY KEY,
+			name VARCHAR(120)
+		)`,
+		`CREATE TABLE IF NOT EXISTS playlist_track (
+			playlist_id INT NOT NULL REFERENCES playlist(playlist_id),
+			track_id INT NOT NULL REFERENCES track(track_id),
+			PRIMARY KEY (playlist_id, track_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS employee (
+			employee_id SERIAL PRIMARY KEY,
+			last_name VARCHAR(20) NOT NULL,
+			first_name VARCHAR(20) NOT NULL,
+			title VARCHAR(30),
+			reports_to INT REFERENCES employee(employee_id),
+			birth_date TIMESTAMP,
+			hire_date TIMESTAMP,
+			address VARCHAR(70),
+			city VARCHAR(40),
+			state VARCHAR(40),
+			country VARCHAR(40),
+			postal_code VARCHAR(10),
+			phone VARCHAR(24),
+			fax VARCHAR(24),
+			email VARCHAR(60)
+		)`,
+		`CREATE TABLE IF NOT EXISTS customer (
+			customer_id SERIAL PRIMARY KEY,
+			first_name VARCHAR(40) NOT NULL,
+			last_name VARCHAR(20) NOT NULL,
+			company VARCHAR(80),
+			address VARCHAR(70),
+			city VARCHAR(40),
+			state VARCHAR(40),
+			country VARCHAR(40),
+			postal_code VARCHAR(10),
+			phone VARCHAR(24),
+			fax VARCHAR(24),
+			email VARCHAR(60) NOT NULL,
+			support_rep_id INT REFERENCES employee(employee_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS invoice (
+			invoice_id SERIAL PRIMARY KEY,
+			customer_id INT NOT NULL REFERENCES customer(customer_id),
+			invoice_date TIMESTAMP NOT NULL,
+			billing_address VARCHAR(70),
+			billing_city VARCHAR(40),
+			billing_state VARCHAR(40),
+			billing_country VARCHAR(40),
+			billing_postal_code VARCHAR(10),
+			total NUMERIC(10,2) NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS invoice_line (
+			invoice_line_id SERIAL PRIMARY KEY,
+			invoice_id INT NOT NULL REFERENCES invoice(invoice_id),
+			track_id INT NOT NULL REFERENCES track(track_id),
+			unit_price NUMERIC(10,2) NOT NULL,
+			quantity INT NOT NULL
+		)`,
+	}
+
+	for _, stmt := range ddl {
+		_, err := s.env.targetPool.Exec(ctx, stmt)
+		s.Require().NoError(err, "Failed to create Chinook schema on target")
+	}
+}
+
+// =============================================================================
+// Progress Streaming Tests (T079a, T079b)
+// =============================================================================
+
+// TestSnapshot_GenerateProgressPhases tests that generation progress goes through expected phases.
+// Implements T079a: Integration test for progress streaming during generation.
+func (s *SnapshotTestSuite) TestSnapshot_GenerateProgressPhases() {
+	ctx := s.ctx
+	env := s.env
+
+	// Create test table
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE TABLE progress_test (
+			id SERIAL PRIMARY KEY,
+			data TEXT
+		)
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.sourcePool.Exec(ctx, `
+		INSERT INTO progress_test (data)
+		SELECT repeat('x', 100) FROM generate_series(1, 500)
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.sourcePool.Exec(ctx, `
+		CREATE PUBLICATION steep_pub_snapshot_source FOR TABLE progress_test
+	`)
+	s.Require().NoError(err)
+
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.sourceGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer conn.Close()
+
+	initClient := pb.NewInitServiceClient(conn)
+
+	outputPath := filepath.Join(env.snapshotDir, "progress_phases")
+
+	stream, err := initClient.GenerateSnapshot(ctx, &pb.GenerateSnapshotRequest{
+		SourceNodeId:    "snapshot-source",
+		OutputPath:      outputPath,
+		ParallelWorkers: 2,
+		Compression:     "none",
+	})
+	s.Require().NoError(err)
+
+	var phases []string
+	var percentages []float32
+	var sawComplete bool
+
+	for {
+		progress, err := stream.Recv()
+		if err != nil {
+			break
+		}
+
+		// Track unique phases
+		if progress.Phase != "" {
+			found := false
+			for _, p := range phases {
+				if p == progress.Phase {
+					found = true
+					break
+				}
+			}
+			if !found {
+				phases = append(phases, progress.Phase)
+			}
+		}
+
+		percentages = append(percentages, progress.OverallPercent)
+
+		if progress.Complete {
+			sawComplete = true
+			break
+		}
+	}
+
+	// Verify we saw expected phases
+	s.Assert().True(sawComplete, "Should complete successfully")
+	s.T().Logf("Observed phases: %v", phases)
+
+	// Should have at least schema, data, and complete phases
+	s.Assert().GreaterOrEqual(len(phases), 2, "Should have multiple phases")
+
+	// Progress should be monotonically increasing
+	for i := 1; i < len(percentages); i++ {
+		s.Assert().GreaterOrEqual(percentages[i], percentages[i-1],
+			"Progress should not decrease: %.1f -> %.1f", percentages[i-1], percentages[i])
+	}
+
+	// Final progress should be 100%
+	if len(percentages) > 0 {
+		s.Assert().Equal(float32(100), percentages[len(percentages)-1], "Final progress should be 100%%")
+	}
+}
+
+// TestSnapshot_ApplyProgressPhases tests that apply progress goes through expected phases.
+// Implements T079b: Integration test for progress streaming during application.
+func (s *SnapshotTestSuite) TestSnapshot_ApplyProgressPhases() {
+	ctx := s.ctx
+	env := s.env
+
+	// First, generate a snapshot to apply
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE TABLE apply_progress_test (
+			id SERIAL PRIMARY KEY,
+			name TEXT,
+			value INT
+		)
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.sourcePool.Exec(ctx, `
+		INSERT INTO apply_progress_test (name, value)
+		SELECT 'item_' || i, i FROM generate_series(1, 200) AS i
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.sourcePool.Exec(ctx, `
+		CREATE SEQUENCE apply_test_seq START 1000
+	`)
+	s.Require().NoError(err)
+	_, err = env.sourcePool.Exec(ctx, `SELECT nextval('apply_test_seq')`)
+	s.Require().NoError(err)
+
+	_, err = env.sourcePool.Exec(ctx, `
+		CREATE PUBLICATION steep_pub_snapshot_source FOR TABLE apply_progress_test
+	`)
+	s.Require().NoError(err)
+
+	// Generate snapshot
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.sourceGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer conn.Close()
+
+	initClient := pb.NewInitServiceClient(conn)
+
+	outputPath := filepath.Join(env.snapshotDir, "apply_progress")
+
+	genStream, err := initClient.GenerateSnapshot(ctx, &pb.GenerateSnapshotRequest{
+		SourceNodeId:    "snapshot-source",
+		OutputPath:      outputPath,
+		ParallelWorkers: 2,
+		Compression:     "none",
+	})
+	s.Require().NoError(err)
+
+	for {
+		progress, err := genStream.Recv()
+		if err != nil || progress.Complete {
+			break
+		}
+	}
+
+	// Create matching schema on target
+	_, err = env.targetPool.Exec(ctx, `
+		CREATE TABLE apply_progress_test (
+			id SERIAL PRIMARY KEY,
+			name TEXT,
+			value INT
+		)
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.targetPool.Exec(ctx, `CREATE SEQUENCE apply_test_seq`)
+	s.Require().NoError(err)
+
+	// Apply snapshot and track progress
+	targetConn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer targetConn.Close()
+
+	targetInitClient := pb.NewInitServiceClient(targetConn)
+
+	applyStream, err := targetInitClient.ApplySnapshot(ctx, &pb.ApplySnapshotRequest{
+		TargetNodeId:    "snapshot-target",
+		InputPath:       outputPath,
+		ParallelWorkers: 2,
+		VerifyChecksums: true,
+	})
+	s.Require().NoError(err)
+
+	var phases []string
+	var percentages []float32
+	var sawVerify, sawImporting, sawSequences, sawComplete bool
+
+	for {
+		progress, err := applyStream.Recv()
+		if err != nil {
+			break
+		}
+
+		// Track phases
+		if progress.Phase != "" {
+			found := false
+			for _, p := range phases {
+				if p == progress.Phase {
+					found = true
+					break
+				}
+			}
+			if !found {
+				phases = append(phases, progress.Phase)
+			}
+
+			switch progress.Phase {
+			case "verifying":
+				sawVerify = true
+			case "importing":
+				sawImporting = true
+			case "sequences":
+				sawSequences = true
+			case "complete":
+				sawComplete = true
+			}
+		}
+
+		percentages = append(percentages, progress.OverallPercent)
+
+		if progress.Complete {
+			sawComplete = true
+			break
+		}
+
+		if progress.Error != "" {
+			s.T().Fatalf("Apply failed: %s", progress.Error)
+		}
+	}
+
+	s.T().Logf("Apply phases observed: %v", phases)
+
+	// Verify expected phases were seen
+	s.Assert().True(sawComplete, "Should complete successfully")
+	s.Assert().True(sawImporting, "Should have importing phase")
+
+	// Note: verify and sequences phases depend on the snapshot content
+	if sawVerify {
+		s.T().Log("Verification phase observed")
+	}
+	if sawSequences {
+		s.T().Log("Sequences phase observed")
+	}
+
+	// Progress should be monotonically increasing
+	for i := 1; i < len(percentages); i++ {
+		s.Assert().GreaterOrEqual(percentages[i], percentages[i-1],
+			"Apply progress should not decrease")
+	}
+
+	// Verify data was actually applied
+	var count int
+	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM apply_progress_test").Scan(&count)
+	s.Require().NoError(err)
+	s.Assert().Equal(200, count, "Should have applied all rows")
+
+	// Verify sequence was restored
+	var seqVal int64
+	err = env.targetPool.QueryRow(ctx, "SELECT last_value FROM apply_test_seq").Scan(&seqVal)
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(1000), seqVal, "Sequence should be restored to 1000")
+
+	s.T().Logf("Apply progress test PASSED: %d rows applied, sequence=%d", count, seqVal)
+}
+
+// TestSnapshot_ApplyWithParallelWorkers tests that parallel workers affect apply performance.
+func (s *SnapshotTestSuite) TestSnapshot_ApplyWithParallelWorkers() {
+	ctx := s.ctx
+	env := s.env
+
+	// Create multiple tables for parallel import
+	tables := []string{"parallel_a", "parallel_b", "parallel_c", "parallel_d"}
+	for _, t := range tables {
+		_, err := env.sourcePool.Exec(ctx, fmt.Sprintf(`
+			CREATE TABLE %s (
+				id SERIAL PRIMARY KEY,
+				data TEXT
+			)
+		`, t))
+		s.Require().NoError(err)
+
+		_, err = env.sourcePool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s (data)
+			SELECT repeat('x', 50) FROM generate_series(1, 100)
+		`, t))
+		s.Require().NoError(err)
+	}
+
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE PUBLICATION steep_pub_snapshot_source FOR TABLE parallel_a, parallel_b, parallel_c, parallel_d
+	`)
+	s.Require().NoError(err)
+
+	// Generate snapshot
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.sourceGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer conn.Close()
+
+	initClient := pb.NewInitServiceClient(conn)
+
+	outputPath := filepath.Join(env.snapshotDir, "parallel_workers")
+
+	genStream, err := initClient.GenerateSnapshot(ctx, &pb.GenerateSnapshotRequest{
+		SourceNodeId:    "snapshot-source",
+		OutputPath:      outputPath,
+		ParallelWorkers: 4,
+		Compression:     "none",
+	})
+	s.Require().NoError(err)
+
+	for {
+		progress, err := genStream.Recv()
+		if err != nil || progress.Complete {
+			break
+		}
+	}
+
+	// Create matching schema on target
+	for _, t := range tables {
+		_, err := env.targetPool.Exec(ctx, fmt.Sprintf(`
+			CREATE TABLE %s (
+				id SERIAL PRIMARY KEY,
+				data TEXT
+			)
+		`, t))
+		s.Require().NoError(err)
+	}
+
+	// Apply with 4 parallel workers
+	targetConn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer targetConn.Close()
+
+	targetInitClient := pb.NewInitServiceClient(targetConn)
+
+	start := time.Now()
+
+	applyStream, err := targetInitClient.ApplySnapshot(ctx, &pb.ApplySnapshotRequest{
+		TargetNodeId:    "snapshot-target",
+		InputPath:       outputPath,
+		ParallelWorkers: 4,
+		VerifyChecksums: false, // Skip for speed
+	})
+	s.Require().NoError(err)
+
+	var tablesImported []string
+	for {
+		progress, err := applyStream.Recv()
+		if err != nil {
+			break
+		}
+		if progress.CurrentTable != "" && progress.Phase == "importing" {
+			found := false
+			for _, t := range tablesImported {
+				if t == progress.CurrentTable {
+					found = true
+					break
+				}
+			}
+			if !found {
+				tablesImported = append(tablesImported, progress.CurrentTable)
+			}
+		}
+		if progress.Complete {
+			break
+		}
+		if progress.Error != "" {
+			s.T().Fatalf("Parallel apply failed: %s", progress.Error)
+		}
+	}
+
+	duration := time.Since(start)
+
+	s.T().Logf("Applied %d tables in %v with 4 workers", len(tablesImported), duration)
+	s.Assert().GreaterOrEqual(len(tablesImported), 4, "Should have imported all 4 tables")
+
+	// Verify all tables have data
+	for _, t := range tables {
+		var count int
+		err := env.targetPool.QueryRow(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", t)).Scan(&count)
+		s.Require().NoError(err)
+		s.Assert().Equal(100, count, "Table %s should have 100 rows", t)
+	}
 }

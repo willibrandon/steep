@@ -660,8 +660,63 @@ func (s *InitServer) ApplySnapshot(req *pb.ApplySnapshotRequest, stream grpc.Ser
 		return status.Error(codes.InvalidArgument, "input_path is required")
 	}
 
-	// This is a skeleton - actual implementation in T083
-	return status.Error(codes.Unimplemented, "not implemented: ApplySnapshot (see T083)")
+	// Get parallel workers (default to 4)
+	parallelWorkers := int(req.ParallelWorkers)
+	if parallelWorkers <= 0 {
+		parallelWorkers = 4
+	}
+
+	// Default verify checksums to true
+	verifyChecksums := req.VerifyChecksums
+
+	// Create apply options with progress callback that streams to gRPC
+	opts := replinit.TwoPhaseApplyOptions{
+		InputPath:       req.InputPath,
+		ParallelWorkers: parallelWorkers,
+		VerifyChecksums: verifyChecksums,
+		SourceNodeID:    req.SourceNodeId,
+		ProgressFn: func(progress replinit.TwoPhaseProgress) {
+			// Send progress update to client
+			err := stream.Send(&pb.SnapshotProgress{
+				SnapshotId:          progress.SnapshotID,
+				Phase:               progress.Phase,
+				OverallPercent:      progress.OverallPercent,
+				CurrentTable:        progress.CurrentTable,
+				CurrentTablePercent: progress.CurrentTablePercent,
+				BytesProcessed:      progress.BytesProcessed,
+				ThroughputMbSec:     progress.ThroughputMBSec,
+				EtaSeconds:          int32(progress.ETASeconds),
+				Lsn:                 progress.LSN,
+				Complete:            progress.Complete,
+				Error:               progress.Error,
+			})
+			if err != nil && s.debug {
+				s.logger.Printf("Failed to send snapshot progress: %v", err)
+			}
+		},
+	}
+
+	// Apply the snapshot
+	applier := s.manager.SnapshotApplier()
+	manifest, err := applier.Apply(stream.Context(), req.TargetNodeId, opts)
+	if err != nil {
+		// Send error progress
+		_ = stream.Send(&pb.SnapshotProgress{
+			Phase:    "error",
+			Complete: true,
+			Error:    err.Error(),
+		})
+		return status.Errorf(codes.Internal, "snapshot application failed: %v", err)
+	}
+
+	// Send final completion message
+	return stream.Send(&pb.SnapshotProgress{
+		SnapshotId:     manifest.SnapshotID,
+		Phase:          "complete",
+		OverallPercent: 100,
+		Lsn:            manifest.LSN,
+		Complete:       true,
+	})
 }
 
 // StartBidirectionalMerge handles the StartBidirectionalMerge RPC.

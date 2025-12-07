@@ -311,20 +311,20 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 
 ### Tests for Two-Phase Snapshot
 
-- [ ] T079 [P] Integration test for snapshot generate/apply in tests/integration/repl/snapshot_test.go
-- [ ] T079a [P] Integration test for progress streaming during generation in tests/integration/repl/snapshot_test.go
-- [ ] T079b [P] Integration test for progress streaming during application in tests/integration/repl/snapshot_test.go
+- [x] T079 [P] Integration test for snapshot generate/apply in tests/integration/repl/snapshot_test.go (TestSnapshot_ChinookGenerateApplyRoundTrip)
+- [x] T079a [P] Integration test for progress streaming during generation in tests/integration/repl/snapshot_test.go (TestSnapshot_GenerateProgressPhases, TestSnapshot_GenerateProgressStreaming)
+- [x] T079b [P] Integration test for progress streaming during application in tests/integration/repl/snapshot_test.go (TestSnapshot_ApplyProgressPhases)
 
 ### Core Implementation for Two-Phase Snapshot
 
 - [x] T080 Implement GenerateSnapshot RPC handler in internal/repl/grpc/init_handlers.go
 - [x] T081 Implement snapshot generation in internal/repl/init/snapshot.go (create slot, export schema, COPY tables to files, capture sequences)
 - [x] T082 Create manifest.json generator in internal/repl/init/snapshot.go (LSN, table list, checksums, sizes)
-- [ ] T083 Implement ApplySnapshot RPC handler in internal/repl/grpc/handlers.go
-- [ ] T084 Implement snapshot application in internal/repl/init/snapshot.go (verify checksums, COPY FROM files, restore sequences, create subscription)
-- [ ] T085 Add snapshot generate CLI command in cmd/steep-repl/main.go (`steep-repl snapshot generate --source <node> --output <path>`)
-- [ ] T086 Add snapshot apply CLI command in cmd/steep-repl/main.go (`steep-repl snapshot apply --target <node> --input <path>`)
-- [ ] T087 Add compression support to snapshot operations in internal/repl/init/snapshot.go (gzip, lz4, zstd options)
+- [x] T083 Implement ApplySnapshot RPC handler in internal/repl/grpc/init_handlers.go
+- [x] T084 Implement snapshot application in internal/repl/init/snapshot.go (verify checksums, COPY FROM files, restore sequences, FK handling with topo sort or drop/recreate)
+- [x] T085 Add snapshot generate CLI command in cmd/steep-repl/cmd_snapshot.go (`steep-repl snapshot generate --source <node> --output <path>`)
+- [x] T086 Add snapshot apply CLI command in cmd/steep-repl/cmd_snapshot.go (`steep-repl snapshot apply --target <node> --input <path>`)
+- [x] T087 Add compression support to snapshot operations in internal/repl/init/snapshot.go (gzip, lz4, zstd with tests)
 
 ### Progress Tracking Infrastructure
 

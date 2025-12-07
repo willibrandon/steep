@@ -9,12 +9,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/klauspost/compress/zstd"
+	"github.com/pierrec/lz4/v4"
 	"github.com/willibrandon/steep/internal/repl/models"
 )
 
@@ -1230,39 +1233,26 @@ func (g *SnapshotGenerator) Generate(ctx context.Context, sourceNodeID string, o
 		LSN:            lsn,
 	})
 
-	// Export each table
-	var tableEntries []models.SnapshotTableEntry
-	var totalBytes int64
-	tablesProcessed := 0
+	// Export tables (parallel if workers > 1)
+	workers := max(opts.ParallelWorkers, 1)
+	if workers > len(tables) {
+		workers = len(tables)
+	}
 
-	for _, table := range tables {
-		select {
-		case <-ctx.Done():
-			g.dropSlot(ctx, slotName)
-			return nil, ctx.Err()
-		default:
-		}
-
-		entry, err := g.exportTable(ctx, table, dataDir, opts.Compression)
-		if err != nil {
-			g.dropSlot(ctx, slotName)
-			return nil, fmt.Errorf("failed to export table %s: %w", table.FullName, err)
-		}
-
-		tableEntries = append(tableEntries, *entry)
-		totalBytes += entry.SizeBytes
-		tablesProcessed++
-
-		// Calculate progress
-		percent := float32(5 + (tablesProcessed * 85 / len(tables)))
+	tableEntries, totalBytes, err := g.exportTablesParallel(ctx, tables, dataDir, opts.Compression, workers, func(completed int, current string, bytes int64) {
+		percent := float32(5 + (completed * 85 / len(tables)))
 		g.sendProgress(opts.ProgressFn, TwoPhaseProgress{
 			SnapshotID:     snapshotID,
 			Phase:          "data",
 			OverallPercent: percent,
-			CurrentTable:   table.FullName,
-			BytesProcessed: totalBytes,
+			CurrentTable:   current,
+			BytesProcessed: bytes,
 			LSN:            lsn,
 		})
+	})
+	if err != nil {
+		g.dropSlot(ctx, slotName)
+		return nil, err
 	}
 
 	// Export sequences
@@ -1400,10 +1390,15 @@ func (g *SnapshotGenerator) getTablesForExport(ctx context.Context) ([]TableInfo
 
 // exportTable exports a single table to a file using COPY.
 func (g *SnapshotGenerator) exportTable(ctx context.Context, table TableInfo, dataDir string, compression models.CompressionType) (*models.SnapshotTableEntry, error) {
-	// Determine output filename
+	// Determine output filename based on compression type
 	filename := fmt.Sprintf("%s.%s.csv", table.SchemaName, table.TableName)
-	if compression == models.CompressionGzip {
+	switch compression {
+	case models.CompressionGzip:
 		filename += ".gz"
+	case models.CompressionLZ4:
+		filename += ".lz4"
+	case models.CompressionZstd:
+		filename += ".zst"
 	}
 	outputPath := filepath.Join(dataDir, filename)
 
@@ -1414,13 +1409,26 @@ func (g *SnapshotGenerator) exportTable(ctx context.Context, table TableInfo, da
 	}
 	defer file.Close()
 
-	// Set up writer (with compression if needed)
+	// Set up writer based on compression type
 	var writer io.Writer = file
-	var gzWriter *gzip.Writer
-	if compression == models.CompressionGzip {
-		gzWriter = gzip.NewWriter(file)
+	var compressCloser io.Closer
+
+	switch compression {
+	case models.CompressionGzip:
+		gzWriter := gzip.NewWriter(file)
 		writer = gzWriter
-		defer gzWriter.Close()
+		compressCloser = gzWriter
+	case models.CompressionLZ4:
+		lz4Writer := lz4.NewWriter(file)
+		writer = lz4Writer
+		compressCloser = lz4Writer
+	case models.CompressionZstd:
+		zstdWriter, err := zstd.NewWriter(file)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create zstd writer: %w", err)
+		}
+		writer = zstdWriter
+		compressCloser = zstdWriter
 	}
 
 	// Create a counting writer to track bytes
@@ -1431,6 +1439,9 @@ func (g *SnapshotGenerator) exportTable(ctx context.Context, table TableInfo, da
 
 	conn, err := g.pool.Acquire(ctx)
 	if err != nil {
+		if compressCloser != nil {
+			compressCloser.Close()
+		}
 		return nil, fmt.Errorf("failed to acquire connection: %w", err)
 	}
 	defer conn.Release()
@@ -1438,13 +1449,16 @@ func (g *SnapshotGenerator) exportTable(ctx context.Context, table TableInfo, da
 	// Execute COPY TO
 	tag, err := conn.Conn().PgConn().CopyTo(ctx, countWriter, copyQuery)
 	if err != nil {
+		if compressCloser != nil {
+			compressCloser.Close()
+		}
 		return nil, fmt.Errorf("COPY TO failed: %w", err)
 	}
 
-	// Close gzip writer to flush any remaining data
-	if gzWriter != nil {
-		if err := gzWriter.Close(); err != nil {
-			return nil, fmt.Errorf("failed to close gzip writer: %w", err)
+	// Close compression writer to flush any remaining data
+	if compressCloser != nil {
+		if err := compressCloser.Close(); err != nil {
+			return nil, fmt.Errorf("failed to close compression writer: %w", err)
 		}
 	}
 
@@ -1473,14 +1487,112 @@ func (g *SnapshotGenerator) exportTable(ctx context.Context, table TableInfo, da
 		Level: "debug",
 		Event: "snapshot.table_exported",
 		Details: map[string]any{
-			"table": table.FullName,
-			"rows":  entry.RowCount,
-			"size":  entry.SizeBytes,
-			"file":  entry.File,
+			"table":       table.FullName,
+			"rows":        entry.RowCount,
+			"size":        entry.SizeBytes,
+			"file":        entry.File,
+			"compression": string(compression),
 		},
 	})
 
 	return entry, nil
+}
+
+// exportTableResult holds the result of exporting a single table.
+type exportTableResult struct {
+	entry *models.SnapshotTableEntry
+	err   error
+}
+
+// exportTablesParallel exports tables using a worker pool.
+func (g *SnapshotGenerator) exportTablesParallel(
+	ctx context.Context,
+	tables []TableInfo,
+	dataDir string,
+	compression models.CompressionType,
+	workers int,
+	progressFn func(completed int, current string, bytes int64),
+) ([]models.SnapshotTableEntry, int64, error) {
+	if len(tables) == 0 {
+		return nil, 0, nil
+	}
+
+	// Channel for tables to process
+	tableChan := make(chan TableInfo, len(tables))
+	for _, t := range tables {
+		tableChan <- t
+	}
+	close(tableChan)
+
+	// Channel for results
+	resultChan := make(chan exportTableResult, len(tables))
+
+	// Progress tracking
+	var completedCount int32
+	var totalBytes int64
+	var mu sync.Mutex
+
+	// Context for cancellation on first error
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Start workers
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for table := range tableChan {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				entry, err := g.exportTable(ctx, table, dataDir, compression)
+				if err != nil {
+					resultChan <- exportTableResult{err: fmt.Errorf("failed to export table %s: %w", table.FullName, err)}
+					cancel() // Cancel other workers
+					return
+				}
+
+				resultChan <- exportTableResult{entry: entry}
+
+				// Update progress
+				completed := atomic.AddInt32(&completedCount, 1)
+				mu.Lock()
+				totalBytes += entry.SizeBytes
+				currentBytes := totalBytes
+				mu.Unlock()
+
+				if progressFn != nil {
+					progressFn(int(completed), table.FullName, currentBytes)
+				}
+			}
+		})
+	}
+
+	// Wait for workers and close results
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results
+	var entries []models.SnapshotTableEntry
+	var firstErr error
+	for result := range resultChan {
+		if result.err != nil && firstErr == nil {
+			firstErr = result.err
+		}
+		if result.entry != nil {
+			entries = append(entries, *result.entry)
+		}
+	}
+
+	if firstErr != nil {
+		return nil, 0, firstErr
+	}
+
+	return entries, totalBytes, nil
 }
 
 // countingWriter wraps a writer and counts bytes written.
@@ -1697,4 +1809,767 @@ func (c *copyFromRows) Values() ([]any, error) {
 
 func (c *copyFromRows) Err() error {
 	return c.err
+}
+
+// =============================================================================
+// Two-Phase Snapshot Application (T083, T084)
+// =============================================================================
+
+// TwoPhaseApplyOptions configures two-phase snapshot application.
+type TwoPhaseApplyOptions struct {
+	InputPath          string
+	ParallelWorkers    int
+	VerifyChecksums    bool
+	CreateSubscription bool // Create subscription to source after apply
+	SourceNodeID       string
+	SourceHost         string
+	SourcePort         int
+	SourceDatabase     string
+	SourceUser         string
+	ProgressFn         func(progress TwoPhaseProgress)
+}
+
+// SnapshotApplier handles two-phase snapshot application.
+// This imports data from files generated by SnapshotGenerator.
+type SnapshotApplier struct {
+	pool    *pgxpool.Pool
+	manager *Manager
+	logger  *Logger
+}
+
+// NewSnapshotApplier creates a new snapshot applier.
+func NewSnapshotApplier(pool *pgxpool.Pool, manager *Manager) *SnapshotApplier {
+	return &SnapshotApplier{
+		pool:    pool,
+		manager: manager,
+		logger:  manager.logger,
+	}
+}
+
+// Apply applies a two-phase snapshot to the target database.
+// Implements T084: snapshot application logic.
+func (a *SnapshotApplier) Apply(ctx context.Context, targetNodeID string, opts TwoPhaseApplyOptions) (*models.SnapshotManifest, error) {
+	startTime := time.Now()
+
+	// Read manifest
+	manifestPath := filepath.Join(opts.InputPath, "manifest.json")
+	manifest, err := ReadManifest(manifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read manifest: %w", err)
+	}
+
+	// Get FK dependencies and sort tables in dependency order
+	deps, err := a.getFKDependencies(ctx, manifest.Tables)
+	if err != nil {
+		a.logger.Log(InitEvent{
+			Level: "warn",
+			Event: "snapshot.fk_deps_failed",
+			Details: map[string]any{
+				"error": err.Error(),
+			},
+		})
+		// Continue without sorting - will use session_replication_role fallback
+	} else if len(deps) > 0 {
+		sortedTables, err := a.topologicalSort(manifest.Tables, deps)
+		if err != nil {
+			a.logger.Log(InitEvent{
+				Level: "warn",
+				Event: "snapshot.topo_sort_failed",
+				Details: map[string]any{
+					"error": err.Error(),
+				},
+			})
+			// Continue with original order
+		} else {
+			manifest.Tables = sortedTables
+			a.logger.Log(InitEvent{
+				Level: "debug",
+				Event: "snapshot.tables_sorted",
+				Details: map[string]any{
+					"dependencies": len(deps),
+				},
+			})
+		}
+	}
+
+	a.logger.Log(InitEvent{
+		Level:  "info",
+		Event:  "snapshot.application_started",
+		NodeID: targetNodeID,
+		Details: map[string]any{
+			"snapshot_id":      manifest.SnapshotID,
+			"input_path":       opts.InputPath,
+			"tables":           len(manifest.Tables),
+			"sequences":        len(manifest.Sequences),
+			"parallel_workers": opts.ParallelWorkers,
+			"verify_checksums": opts.VerifyChecksums,
+		},
+	})
+
+	// Send initial progress
+	a.sendProgress(opts.ProgressFn, TwoPhaseProgress{
+		SnapshotID:     manifest.SnapshotID,
+		Phase:          "verifying",
+		OverallPercent: 0,
+		LSN:            manifest.LSN,
+	})
+
+	// Verify checksums if requested
+	if opts.VerifyChecksums {
+		a.sendProgress(opts.ProgressFn, TwoPhaseProgress{
+			SnapshotID:     manifest.SnapshotID,
+			Phase:          "verifying",
+			OverallPercent: 5,
+			LSN:            manifest.LSN,
+		})
+
+		errors, err := VerifySnapshot(opts.InputPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify snapshot: %w", err)
+		}
+		if len(errors) > 0 {
+			return nil, fmt.Errorf("snapshot verification failed: %v", errors)
+		}
+
+		a.logger.Log(InitEvent{
+			Level: "info",
+			Event: "snapshot.checksums_verified",
+			Details: map[string]any{
+				"files_verified": len(manifest.Tables),
+			},
+		})
+	}
+
+	// Import tables
+	// Strategy depends on parallel workers:
+	// - Parallel (workers > 1): Drop FK constraints → parallel import → recreate constraints
+	// - Sequential (workers = 1): Topological sort → import in dependency order
+	a.sendProgress(opts.ProgressFn, TwoPhaseProgress{
+		SnapshotID:     manifest.SnapshotID,
+		Phase:          "importing",
+		OverallPercent: 10,
+		LSN:            manifest.LSN,
+	})
+
+	workers := max(opts.ParallelWorkers, 1)
+	var totalRowsImported int64
+	var droppedConstraints []droppedConstraint
+
+	if workers > 1 && len(deps) > 0 {
+		// Parallel mode with FK dependencies: drop constraints first
+		a.logger.Log(InitEvent{
+			Level: "info",
+			Event: "snapshot.dropping_fk_constraints",
+			Details: map[string]any{
+				"constraint_count": len(deps),
+			},
+		})
+
+		droppedConstraints, err = a.dropFKConstraints(ctx, manifest.Tables)
+		if err != nil {
+			return nil, fmt.Errorf("failed to drop FK constraints: %w", err)
+		}
+	}
+
+	// Import tables
+	totalRowsImported, err = a.importTablesParallel(ctx, manifest.Tables, opts.InputPath, manifest.Compression, workers, func(completed int, current string, bytes int64) {
+		percent := float32(10 + (completed * 75 / len(manifest.Tables)))
+		a.sendProgress(opts.ProgressFn, TwoPhaseProgress{
+			SnapshotID:     manifest.SnapshotID,
+			Phase:          "importing",
+			OverallPercent: percent,
+			CurrentTable:   current,
+			BytesProcessed: bytes,
+			LSN:            manifest.LSN,
+		})
+	})
+	if err != nil {
+		// Try to recreate constraints even on error
+		if len(droppedConstraints) > 0 {
+			_ = a.recreateFKConstraints(ctx, droppedConstraints)
+		}
+		return nil, err
+	}
+
+	// Recreate FK constraints if we dropped them
+	if len(droppedConstraints) > 0 {
+		a.logger.Log(InitEvent{
+			Level: "info",
+			Event: "snapshot.recreating_fk_constraints",
+			Details: map[string]any{
+				"constraint_count": len(droppedConstraints),
+			},
+		})
+
+		if err := a.recreateFKConstraints(ctx, droppedConstraints); err != nil {
+			return nil, fmt.Errorf("failed to recreate FK constraints: %w", err)
+		}
+	}
+
+	// Restore sequences
+	a.sendProgress(opts.ProgressFn, TwoPhaseProgress{
+		SnapshotID:     manifest.SnapshotID,
+		Phase:          "sequences",
+		OverallPercent: 85,
+		LSN:            manifest.LSN,
+	})
+
+	if err := a.restoreSequences(ctx, manifest.Sequences); err != nil {
+		return nil, fmt.Errorf("failed to restore sequences: %w", err)
+	}
+
+	// Create subscription to source if requested
+	if opts.CreateSubscription && opts.SourceNodeID != "" && opts.SourceHost != "" {
+		a.sendProgress(opts.ProgressFn, TwoPhaseProgress{
+			SnapshotID:     manifest.SnapshotID,
+			Phase:          "subscription",
+			OverallPercent: 90,
+			LSN:            manifest.LSN,
+		})
+
+		if err := a.createSubscription(ctx, targetNodeID, opts, manifest.LSN); err != nil {
+			return nil, fmt.Errorf("failed to create subscription: %w", err)
+		}
+	}
+
+	// Update snapshot status in database
+	a.sendProgress(opts.ProgressFn, TwoPhaseProgress{
+		SnapshotID:     manifest.SnapshotID,
+		Phase:          "finalizing",
+		OverallPercent: 95,
+		LSN:            manifest.LSN,
+	})
+
+	if err := a.markSnapshotApplied(ctx, manifest.SnapshotID, targetNodeID); err != nil {
+		a.logger.Log(InitEvent{
+			Level: "warn",
+			Event: "snapshot.mark_applied_failed",
+			Error: err.Error(),
+		})
+		// Non-fatal, continue
+	}
+
+	duration := time.Since(startTime)
+	a.logger.Log(InitEvent{
+		Level: "info",
+		Event: "snapshot.application_completed",
+		Details: map[string]any{
+			"snapshot_id":   manifest.SnapshotID,
+			"duration_ms":   duration.Milliseconds(),
+			"tables":        len(manifest.Tables),
+			"sequences":     len(manifest.Sequences),
+			"rows_imported": totalRowsImported,
+			"lsn":           manifest.LSN,
+		},
+	})
+
+	// Final progress
+	a.sendProgress(opts.ProgressFn, TwoPhaseProgress{
+		SnapshotID:     manifest.SnapshotID,
+		Phase:          "complete",
+		OverallPercent: 100,
+		LSN:            manifest.LSN,
+		Complete:       true,
+	})
+
+	return manifest, nil
+}
+
+// importTable imports a single table from a CSV file using COPY.
+func (a *SnapshotApplier) importTable(ctx context.Context, entry models.SnapshotTableEntry, inputPath string, compression models.CompressionType) (int64, error) {
+	filePath := filepath.Join(inputPath, entry.File)
+
+	// Open the file
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open file %s: %w", filePath, err)
+	}
+	defer file.Close()
+
+	// Set up reader based on compression type
+	var reader io.Reader = file
+	var decompressCloser io.Closer
+
+	switch compression {
+	case models.CompressionGzip:
+		gzReader, err := gzip.NewReader(file)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		reader = gzReader
+		decompressCloser = gzReader
+	case models.CompressionLZ4:
+		lz4Reader := lz4.NewReader(file)
+		reader = lz4Reader
+		// lz4.Reader doesn't need explicit Close
+	case models.CompressionZstd:
+		zstdReader, err := zstd.NewReader(file)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create zstd reader: %w", err)
+		}
+		reader = zstdReader
+		decompressCloser = zstdReader.IOReadCloser()
+	}
+
+	// Ensure decompressor is closed when done
+	if decompressCloser != nil {
+		defer decompressCloser.Close()
+	}
+
+	// Truncate target table before import
+	truncateSQL := fmt.Sprintf("TRUNCATE %s.%s CASCADE", entry.Schema, entry.Name)
+	_, err = a.pool.Exec(ctx, truncateSQL)
+	if err != nil {
+		return 0, fmt.Errorf("failed to truncate table: %w", err)
+	}
+
+	// Use COPY FROM to import the data
+	conn, err := a.pool.Acquire(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	tableName := fmt.Sprintf("%s.%s", entry.Schema, entry.Name)
+	copySQL := fmt.Sprintf("COPY %s FROM STDIN WITH (FORMAT csv, HEADER true)", tableName)
+
+	tag, err := conn.Conn().PgConn().CopyFrom(ctx, reader, copySQL)
+	if err != nil {
+		return 0, fmt.Errorf("COPY FROM failed: %w", err)
+	}
+
+	a.logger.Log(InitEvent{
+		Level: "debug",
+		Event: "snapshot.table_imported",
+		Details: map[string]any{
+			"table":         tableName,
+			"rows_imported": tag.RowsAffected(),
+			"compression":   string(compression),
+		},
+	})
+
+	return tag.RowsAffected(), nil
+}
+
+// importTableResult holds the result of importing a single table.
+type importTableResult struct {
+	tableName    string
+	rowsImported int64
+	bytesSize    int64
+	err          error
+}
+
+// importTablesParallel imports tables using a worker pool.
+func (a *SnapshotApplier) importTablesParallel(
+	ctx context.Context,
+	tables []models.SnapshotTableEntry,
+	inputPath string,
+	compression models.CompressionType,
+	workers int,
+	progressFn func(completed int, current string, bytes int64),
+) (int64, error) {
+	if len(tables) == 0 {
+		return 0, nil
+	}
+
+	// Channel for tables to process
+	tableChan := make(chan models.SnapshotTableEntry, len(tables))
+	for _, t := range tables {
+		tableChan <- t
+	}
+	close(tableChan)
+
+	// Channel for results
+	resultChan := make(chan importTableResult, len(tables))
+
+	// Progress tracking
+	var completedCount int32
+	var totalBytes int64
+	var mu sync.Mutex
+
+	// Context for cancellation on first error
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Start workers
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for table := range tableChan {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				rowsImported, err := a.importTable(ctx, table, inputPath, compression)
+				if err != nil {
+					resultChan <- importTableResult{
+						tableName: table.FullTableName(),
+						err:       fmt.Errorf("failed to import table %s: %w", table.FullTableName(), err),
+					}
+					cancel() // Cancel other workers
+					return
+				}
+
+				resultChan <- importTableResult{
+					tableName:    table.FullTableName(),
+					rowsImported: rowsImported,
+					bytesSize:    table.SizeBytes,
+				}
+
+				// Update progress
+				completed := atomic.AddInt32(&completedCount, 1)
+				mu.Lock()
+				totalBytes += table.SizeBytes
+				currentBytes := totalBytes
+				mu.Unlock()
+
+				if progressFn != nil {
+					progressFn(int(completed), table.FullTableName(), currentBytes)
+				}
+			}
+		})
+	}
+
+	// Wait for workers and close results
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results
+	var totalRowsImported int64
+	var firstErr error
+	for result := range resultChan {
+		if result.err != nil && firstErr == nil {
+			firstErr = result.err
+		}
+		totalRowsImported += result.rowsImported
+	}
+
+	if firstErr != nil {
+		return 0, firstErr
+	}
+
+	return totalRowsImported, nil
+}
+
+// restoreSequences restores sequence values from the manifest.
+func (a *SnapshotApplier) restoreSequences(ctx context.Context, sequences []models.SnapshotSequenceEntry) error {
+	for _, seq := range sequences {
+		// Use SETVAL to restore the sequence value
+		setvalSQL := fmt.Sprintf("SELECT setval('%s.%s', $1, true)", seq.Schema, seq.Name)
+		_, err := a.pool.Exec(ctx, setvalSQL, seq.Value)
+		if err != nil {
+			return fmt.Errorf("failed to restore sequence %s.%s: %w", seq.Schema, seq.Name, err)
+		}
+
+		a.logger.Log(InitEvent{
+			Level: "debug",
+			Event: "snapshot.sequence_restored",
+			Details: map[string]any{
+				"sequence": seq.FullSequenceName(),
+				"value":    seq.Value,
+			},
+		})
+	}
+
+	return nil
+}
+
+// createSubscription creates a logical replication subscription from the snapshot LSN.
+func (a *SnapshotApplier) createSubscription(ctx context.Context, targetNodeID string, opts TwoPhaseApplyOptions, lsn string) error {
+	// Build connection string
+	connStr := fmt.Sprintf("host=%s port=%d dbname=%s user=%s",
+		opts.SourceHost, opts.SourcePort, opts.SourceDatabase, opts.SourceUser)
+
+	// Use underscores in subscription name since SQL identifiers with hyphens need quoting
+	subName := fmt.Sprintf("steep_sub_%s_from_%s", sanitizeIdentifier(targetNodeID), sanitizeIdentifier(opts.SourceNodeID))
+	pubName := fmt.Sprintf("steep_pub_%s", sanitizeIdentifier(opts.SourceNodeID))
+
+	// Create subscription with copy_data=false since data is already loaded
+	// Use origin='none' to prevent re-replication in bidirectional setups
+	createSQL := fmt.Sprintf(`
+		CREATE SUBSCRIPTION %s
+		CONNECTION '%s'
+		PUBLICATION %s
+		WITH (copy_data = false, create_slot = true, origin = 'none')
+	`, subName, connStr, pubName)
+
+	_, err := a.pool.Exec(ctx, createSQL)
+	if err != nil {
+		return fmt.Errorf("CREATE SUBSCRIPTION failed: %w", err)
+	}
+
+	// Advance the subscription's origin to the snapshot LSN so it starts
+	// replicating from after the snapshot point
+	// Note: This requires the subscription to be created first
+	advanceSQL := `SELECT pg_replication_origin_advance(
+		(SELECT 'pg_' || oid::text FROM pg_subscription WHERE subname = $1),
+		$2::pg_lsn
+	)`
+	_, err = a.pool.Exec(ctx, advanceSQL, subName, lsn)
+	if err != nil {
+		// This is not fatal - the subscription will catch up anyway
+		a.logger.Log(InitEvent{
+			Level: "warn",
+			Event: "snapshot.origin_advance_failed",
+			Error: err.Error(),
+			Details: map[string]any{
+				"subscription": subName,
+				"lsn":          lsn,
+			},
+		})
+	}
+
+	a.logger.Log(InitEvent{
+		Level: "info",
+		Event: "snapshot.subscription_created",
+		Details: map[string]any{
+			"subscription": subName,
+			"publication":  pubName,
+			"lsn":          lsn,
+		},
+	})
+
+	return nil
+}
+
+// markSnapshotApplied updates the snapshot status in the database.
+func (a *SnapshotApplier) markSnapshotApplied(ctx context.Context, snapshotID, targetNodeID string) error {
+	query := `
+		UPDATE steep_repl.snapshots
+		SET status = 'applied'
+		WHERE snapshot_id = $1
+	`
+	_, err := a.pool.Exec(ctx, query, snapshotID)
+	return err
+}
+
+// sendProgress sends a progress update if a callback is provided.
+func (a *SnapshotApplier) sendProgress(fn func(TwoPhaseProgress), progress TwoPhaseProgress) {
+	if fn != nil {
+		fn(progress)
+	}
+}
+
+// droppedConstraint stores FK constraint info for recreation after parallel import.
+type droppedConstraint struct {
+	Schema         string
+	Table          string
+	ConstraintName string
+	Definition     string // Full constraint definition for recreation
+}
+
+// dropFKConstraints drops all FK constraints on the given tables, returning info to recreate them.
+// Used in parallel import mode to avoid FK violations during concurrent inserts.
+func (a *SnapshotApplier) dropFKConstraints(ctx context.Context, tables []models.SnapshotTableEntry) ([]droppedConstraint, error) {
+	// Get all FK constraints on these tables
+	query := `
+		SELECT
+			tc.table_schema,
+			tc.table_name,
+			tc.constraint_name,
+			pg_get_constraintdef(pgc.oid) as constraint_def
+		FROM information_schema.table_constraints tc
+		JOIN pg_constraint pgc ON pgc.conname = tc.constraint_name
+		JOIN pg_namespace ns ON ns.oid = pgc.connamespace AND ns.nspname = tc.constraint_schema
+		WHERE tc.constraint_type = 'FOREIGN KEY'
+			AND tc.table_schema || '.' || tc.table_name = ANY($1)
+		ORDER BY tc.table_schema, tc.table_name, tc.constraint_name
+	`
+
+	var fullNames []string
+	for _, t := range tables {
+		fullNames = append(fullNames, fmt.Sprintf("%s.%s", t.Schema, t.Name))
+	}
+
+	rows, err := a.pool.Query(ctx, query, fullNames)
+	if err != nil {
+		return nil, fmt.Errorf("query FK constraints: %w", err)
+	}
+	defer rows.Close()
+
+	var constraints []droppedConstraint
+	for rows.Next() {
+		var c droppedConstraint
+		if err := rows.Scan(&c.Schema, &c.Table, &c.ConstraintName, &c.Definition); err != nil {
+			return nil, err
+		}
+		constraints = append(constraints, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Drop each constraint
+	for _, c := range constraints {
+		dropSQL := fmt.Sprintf("ALTER TABLE %s.%s DROP CONSTRAINT %s",
+			c.Schema, c.Table, c.ConstraintName)
+		if _, err := a.pool.Exec(ctx, dropSQL); err != nil {
+			return nil, fmt.Errorf("drop constraint %s.%s.%s: %w", c.Schema, c.Table, c.ConstraintName, err)
+		}
+
+		a.logger.Log(InitEvent{
+			Level: "debug",
+			Event: "snapshot.fk_constraint_dropped",
+			Details: map[string]any{
+				"schema":     c.Schema,
+				"table":      c.Table,
+				"constraint": c.ConstraintName,
+			},
+		})
+	}
+
+	return constraints, nil
+}
+
+// recreateFKConstraints recreates previously dropped FK constraints.
+func (a *SnapshotApplier) recreateFKConstraints(ctx context.Context, constraints []droppedConstraint) error {
+	for _, c := range constraints {
+		createSQL := fmt.Sprintf("ALTER TABLE %s.%s ADD CONSTRAINT %s %s",
+			c.Schema, c.Table, c.ConstraintName, c.Definition)
+		if _, err := a.pool.Exec(ctx, createSQL); err != nil {
+			return fmt.Errorf("recreate constraint %s.%s.%s: %w", c.Schema, c.Table, c.ConstraintName, err)
+		}
+
+		a.logger.Log(InitEvent{
+			Level: "debug",
+			Event: "snapshot.fk_constraint_recreated",
+			Details: map[string]any{
+				"schema":     c.Schema,
+				"table":      c.Table,
+				"constraint": c.ConstraintName,
+			},
+		})
+	}
+
+	return nil
+}
+
+// getFKDependencies retrieves foreign key dependencies for the given tables.
+func (a *SnapshotApplier) getFKDependencies(ctx context.Context, tables []models.SnapshotTableEntry) ([]FKDependency, error) {
+	query := `
+		SELECT
+			tc.table_schema as child_schema,
+			tc.table_name as child_table,
+			ccu.table_schema as parent_schema,
+			ccu.table_name as parent_table
+		FROM information_schema.table_constraints tc
+		JOIN information_schema.constraint_column_usage ccu
+			ON tc.constraint_name = ccu.constraint_name
+			AND tc.constraint_schema = ccu.constraint_schema
+		WHERE tc.constraint_type = 'FOREIGN KEY'
+			AND tc.table_schema || '.' || tc.table_name = ANY($1)
+	`
+
+	var fullNames []string
+	for _, t := range tables {
+		fullNames = append(fullNames, fmt.Sprintf("%s.%s", t.Schema, t.Name))
+	}
+
+	rows, err := a.pool.Query(ctx, query, fullNames)
+	if err != nil {
+		return nil, fmt.Errorf("get FK dependencies: %w", err)
+	}
+	defer rows.Close()
+
+	var deps []FKDependency
+	for rows.Next() {
+		var dep FKDependency
+		if err := rows.Scan(&dep.ChildSchema, &dep.ChildTable, &dep.ParentSchema, &dep.ParentTable); err != nil {
+			return nil, err
+		}
+		deps = append(deps, dep)
+	}
+
+	return deps, rows.Err()
+}
+
+// topologicalSort sorts tables in dependency order (parents before children).
+// Uses Kahn's algorithm for topological sorting.
+func (a *SnapshotApplier) topologicalSort(tables []models.SnapshotTableEntry, deps []FKDependency) ([]models.SnapshotTableEntry, error) {
+	// Build adjacency list and in-degree map
+	// Edge: parent -> child (parent must come before child)
+	graph := make(map[string][]string)
+	inDegree := make(map[string]int)
+
+	// Initialize all tables
+	for _, t := range tables {
+		key := fmt.Sprintf("%s.%s", t.Schema, t.Name)
+		if _, ok := graph[key]; !ok {
+			graph[key] = []string{}
+		}
+		if _, ok := inDegree[key]; !ok {
+			inDegree[key] = 0
+		}
+	}
+
+	// Add edges from dependencies
+	for _, dep := range deps {
+		parent := fmt.Sprintf("%s.%s", dep.ParentSchema, dep.ParentTable)
+		child := fmt.Sprintf("%s.%s", dep.ChildSchema, dep.ChildTable)
+
+		// Only add if both tables are in our set
+		if _, ok := inDegree[parent]; !ok {
+			continue
+		}
+		if _, ok := inDegree[child]; !ok {
+			continue
+		}
+
+		graph[parent] = append(graph[parent], child)
+		inDegree[child]++
+	}
+
+	// Kahn's algorithm
+	var queue []string
+	for key, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, key)
+		}
+	}
+
+	// Sort queue for deterministic output
+	sort.Strings(queue)
+
+	var sorted []string
+	for len(queue) > 0 {
+		// Pop from queue
+		current := queue[0]
+		queue = queue[1:]
+		sorted = append(sorted, current)
+
+		// Process neighbors
+		neighbors := graph[current]
+		sort.Strings(neighbors) // Deterministic order
+
+		for _, neighbor := range neighbors {
+			inDegree[neighbor]--
+			if inDegree[neighbor] == 0 {
+				queue = append(queue, neighbor)
+				sort.Strings(queue)
+			}
+		}
+	}
+
+	// Check for cycles
+	if len(sorted) != len(inDegree) {
+		return nil, fmt.Errorf("circular foreign key dependency detected")
+	}
+
+	// Map back to SnapshotTableEntry
+	tableMap := make(map[string]models.SnapshotTableEntry)
+	for _, t := range tables {
+		key := fmt.Sprintf("%s.%s", t.Schema, t.Name)
+		tableMap[key] = t
+	}
+
+	var result []models.SnapshotTableEntry
+	for _, key := range sorted {
+		result = append(result, tableMap[key])
+	}
+
+	return result, nil
 }

@@ -42,8 +42,36 @@ FROM postgres:18-bookworm
 COPY --from=builder /usr/share/postgresql/18/extension/steep_repl* /usr/share/postgresql/18/extension/
 COPY --from=builder /usr/lib/postgresql/18/lib/steep_repl.so /usr/lib/postgresql/18/lib/
 
-# Create init script to install extension on startup
-RUN echo 'CREATE EXTENSION IF NOT EXISTS steep_repl;' > /docker-entrypoint-initdb.d/00-create-steep-repl.sql
+# Copy Chinook sample database SQL files
+COPY tests/integration/repl/testdata/chinook/ /docker-entrypoint-initdb.d/chinook/
+
+# Create init script that:
+# 1. Creates steep_repl extension in the default database
+# 2. Loads Chinook sample databases (3 variants for testing different PK strategies)
+RUN echo '-- Create steep_repl extension in default database\n\
+CREATE EXTENSION IF NOT EXISTS steep_repl;\n' > /docker-entrypoint-initdb.d/00-create-steep-repl.sql
+
+# Script to load Chinook databases
+# Note: SQL files already have correct database names (chinook_serial, chinook_auto_increment, chinook)
+# We only rename chinook_auto_increment -> chinook_identity for clarity
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Load Chinook with Serial PKs (already named chinook_serial in SQL file)\n\
+echo "Loading Chinook database (serial PKs)..."\n\
+psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/chinook/Chinook_PostgreSql_SerialPKs.sql\n\
+\n\
+# Load Chinook with Auto-increment PKs - rename to chinook_identity\n\
+echo "Loading Chinook database (identity PKs)..."\n\
+sed "s/chinook_auto_increment/chinook_identity/g" \\\n\
+    /docker-entrypoint-initdb.d/chinook/Chinook_PostgreSql_AutoIncrementPKs.sql | psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1\n\
+\n\
+# Load original Chinook (already named chinook in SQL file)\n\
+echo "Loading Chinook database (plain PKs)..."\n\
+psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/chinook/Chinook_PostgreSql.sql\n\
+\n\
+echo "Chinook databases loaded successfully!"\n\
+' > /docker-entrypoint-initdb.d/01-load-chinook.sh && chmod +x /docker-entrypoint-initdb.d/01-load-chinook.sh
 
 USER postgres
 WORKDIR /var/lib/postgresql/data

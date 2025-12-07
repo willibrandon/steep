@@ -193,3 +193,15 @@ func (c *Client) CaptureFingerprints(ctx context.Context, req *pb.CaptureFingerp
 func (c *Client) StartBidirectionalMerge(ctx context.Context, req *pb.StartBidirectionalMergeRequest) (*pb.StartBidirectionalMergeResponse, error) {
 	return c.initClient.StartBidirectionalMerge(ctx, req)
 }
+
+// GenerateSnapshot starts snapshot generation and returns a streaming client.
+// Implements T085: Add snapshot generate CLI command support.
+func (c *Client) GenerateSnapshot(ctx context.Context, req *pb.GenerateSnapshotRequest) (pb.InitService_GenerateSnapshotClient, error) {
+	return c.initClient.GenerateSnapshot(ctx, req)
+}
+
+// ApplySnapshot starts snapshot application and returns a streaming client.
+// Implements T086: Add snapshot apply CLI command support.
+func (c *Client) ApplySnapshot(ctx context.Context, req *pb.ApplySnapshotRequest) (pb.InitService_ApplySnapshotClient, error) {
+	return c.initClient.ApplySnapshot(ctx, req)
+}
