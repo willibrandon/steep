@@ -317,9 +317,9 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 
 ### Core Implementation for Two-Phase Snapshot
 
-- [ ] T080 Implement GenerateSnapshot RPC handler in internal/repl/grpc/handlers.go
-- [ ] T081 Implement snapshot generation in internal/repl/init/snapshot.go (create slot, export schema, COPY tables to files, capture sequences)
-- [ ] T082 Create manifest.json generator in internal/repl/init/snapshot.go (LSN, table list, checksums, sizes)
+- [x] T080 Implement GenerateSnapshot RPC handler in internal/repl/grpc/init_handlers.go
+- [x] T081 Implement snapshot generation in internal/repl/init/snapshot.go (create slot, export schema, COPY tables to files, capture sequences)
+- [x] T082 Create manifest.json generator in internal/repl/init/snapshot.go (LSN, table list, checksums, sizes)
 - [ ] T083 Implement ApplySnapshot RPC handler in internal/repl/grpc/handlers.go
 - [ ] T084 Implement snapshot application in internal/repl/init/snapshot.go (verify checksums, COPY FROM files, restore sequences, create subscription)
 - [ ] T085 Add snapshot generate CLI command in cmd/steep-repl/main.go (`steep-repl snapshot generate --source <node> --output <path>`)

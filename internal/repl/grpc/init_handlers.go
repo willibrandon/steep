@@ -578,8 +578,74 @@ func (s *InitServer) GenerateSnapshot(req *pb.GenerateSnapshotRequest, stream gr
 		return status.Error(codes.InvalidArgument, "output_path is required")
 	}
 
-	// This is a skeleton - actual implementation in T080
-	return status.Error(codes.Unimplemented, "not implemented: GenerateSnapshot (see T080)")
+	// Parse compression type
+	compression := models.CompressionNone
+	switch req.Compression {
+	case "gzip":
+		compression = models.CompressionGzip
+	case "lz4":
+		compression = models.CompressionLZ4
+	case "zstd":
+		compression = models.CompressionZstd
+	case "", "none":
+		compression = models.CompressionNone
+	default:
+		return status.Errorf(codes.InvalidArgument, "invalid compression type: %s (supported: none, gzip, lz4, zstd)", req.Compression)
+	}
+
+	// Get parallel workers (default to 4)
+	parallelWorkers := int(req.ParallelWorkers)
+	if parallelWorkers <= 0 {
+		parallelWorkers = 4
+	}
+
+	// Create snapshot options with progress callback that streams to gRPC
+	opts := replinit.TwoPhaseSnapshotOptions{
+		OutputPath:      req.OutputPath,
+		Compression:     compression,
+		ParallelWorkers: parallelWorkers,
+		ProgressFn: func(progress replinit.TwoPhaseProgress) {
+			// Send progress update to client
+			err := stream.Send(&pb.SnapshotProgress{
+				SnapshotId:          progress.SnapshotID,
+				Phase:               progress.Phase,
+				OverallPercent:      progress.OverallPercent,
+				CurrentTable:        progress.CurrentTable,
+				CurrentTablePercent: progress.CurrentTablePercent,
+				BytesProcessed:      progress.BytesProcessed,
+				ThroughputMbSec:     progress.ThroughputMBSec,
+				EtaSeconds:          int32(progress.ETASeconds),
+				Lsn:                 progress.LSN,
+				Complete:            progress.Complete,
+				Error:               progress.Error,
+			})
+			if err != nil && s.debug {
+				s.logger.Printf("Failed to send snapshot progress: %v", err)
+			}
+		},
+	}
+
+	// Generate the snapshot
+	generator := s.manager.SnapshotGenerator()
+	manifest, err := generator.Generate(stream.Context(), req.SourceNodeId, opts)
+	if err != nil {
+		// Send error progress
+		_ = stream.Send(&pb.SnapshotProgress{
+			Phase:    "error",
+			Complete: true,
+			Error:    err.Error(),
+		})
+		return status.Errorf(codes.Internal, "snapshot generation failed: %v", err)
+	}
+
+	// Send final completion message
+	return stream.Send(&pb.SnapshotProgress{
+		SnapshotId:     manifest.SnapshotID,
+		Phase:          "complete",
+		OverallPercent: 100,
+		Lsn:            manifest.LSN,
+		Complete:       true,
+	})
 }
 
 // ApplySnapshot handles the ApplySnapshot RPC.

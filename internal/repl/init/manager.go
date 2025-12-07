@@ -27,10 +27,11 @@ type Manager struct {
 	progress chan ProgressUpdate
 
 	// Sub-initializers for different methods
-	snapshot      *SnapshotInitializer
-	manual        *ManualInitializer
-	reinit        *Reinitializer
-	bidirectional *BidirectionalMergeInitializer
+	snapshot          *SnapshotInitializer
+	manual            *ManualInitializer
+	reinit            *Reinitializer
+	bidirectional     *BidirectionalMergeInitializer
+	snapshotGenerator *SnapshotGenerator // Two-phase snapshot generator (T080)
 }
 
 // AuditWriter is the interface for writing audit log entries.
@@ -91,6 +92,7 @@ func NewManager(pool *pgxpool.Pool, cfg *config.InitConfig, pgCfg *config.Postgr
 	m.manual = NewManualInitializer(pool, m)
 	m.reinit = NewReinitializer(pool, m)
 	m.bidirectional = NewBidirectionalMergeInitializer(pool, m)
+	m.snapshotGenerator = NewSnapshotGenerator(pool, m)
 
 	return m
 }
@@ -98,6 +100,12 @@ func NewManager(pool *pgxpool.Pool, cfg *config.InitConfig, pgCfg *config.Postgr
 // Progress returns the channel for receiving progress updates.
 func (m *Manager) Progress() <-chan ProgressUpdate {
 	return m.progress
+}
+
+// SnapshotGenerator returns the two-phase snapshot generator.
+// Used by the GenerateSnapshot RPC handler (T080).
+func (m *Manager) SnapshotGenerator() *SnapshotGenerator {
+	return m.snapshotGenerator
 }
 
 // IsActive returns true if an initialization is in progress for the given node.
