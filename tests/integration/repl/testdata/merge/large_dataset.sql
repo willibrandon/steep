@@ -9,14 +9,14 @@
 -- Run on each node with appropriate node identifier.
 
 -- =============================================================================
--- Generate Node A Data (local node)
+-- Node A Data
 -- =============================================================================
 -- Generate 9,500 rows: 8,000 matches + 1,000 conflicts + 500 local_only
 -- IDs 1-8000: matches (same data on both)
 -- IDs 8001-9000: conflicts (same ID, different data)
 -- IDs 9001-9500: local_only (only on A)
 
-INSERT INTO public.users (id, name, email, version)
+INSERT INTO public.users (id, name, email, version, created_at, updated_at)
 SELECT
     n as id,
     'user_' || n as name,
@@ -25,18 +25,20 @@ SELECT
         WHEN n <= 8000 THEN 'v1'           -- matches: same version
         WHEN n <= 9000 THEN 'v1_a'         -- conflicts: A has v1_a
         ELSE 'v1'                           -- local_only: normal version
-    END as version
+    END as version,
+    '2024-01-01 00:00:00+00'::timestamptz as created_at,
+    '2024-01-01 00:00:00+00'::timestamptz as updated_at
 FROM generate_series(1, 9500) n;
 
 -- =============================================================================
--- Generate Node B Data (remote node)
+-- Node B Data
 -- =============================================================================
 -- Generate 9,500 rows: 8,000 matches + 1,000 conflicts + 500 remote_only
 -- IDs 1-8000: matches (same data on both)
 -- IDs 8001-9000: conflicts (same ID, different data)
 -- IDs 9501-10000: remote_only (only on B)
 
-INSERT INTO public.users (id, name, email, version)
+INSERT INTO public.users (id, name, email, version, created_at, updated_at)
 SELECT
     CASE
         WHEN n <= 9000 THEN n              -- rows 1-9000 exist on both
@@ -48,7 +50,9 @@ SELECT
         WHEN n <= 8000 THEN 'v1'           -- matches: same version
         WHEN n <= 9000 THEN 'v1_b'         -- conflicts: B has v1_b
         ELSE 'v1'                           -- remote_only: normal version
-    END as version
+    END as version,
+    '2024-01-01 00:00:00+00'::timestamptz as created_at,
+    '2024-01-01 00:00:00+00'::timestamptz as updated_at
 FROM generate_series(1, 9500) n;
 
 -- =============================================================================

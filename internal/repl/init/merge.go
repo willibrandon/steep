@@ -75,20 +75,101 @@ func (m *Merger) RunPreflightChecks(ctx context.Context, tables []MergeTableInfo
 		}
 	}
 
-	// Check for active transactions
+	// Check schema match between local and remote nodes
+	if m.remotePool != nil {
+		for _, t := range tables {
+			match, err := m.compareTableSchemas(ctx, t.Schema, t.Name)
+			if err != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("schema comparison failed for %s.%s: %v", t.Schema, t.Name, err))
+				continue
+			}
+			if !match {
+				result.SchemaMatch = false
+				result.Warnings = append(result.Warnings, fmt.Sprintf("schema mismatch detected for %s.%s", t.Schema, t.Name))
+			}
+		}
+	}
+
+	// Check for active transactions (includes 'idle in transaction' state)
 	var activeCount int
-	query := `
+	txQuery := `
 		SELECT count(*) FROM pg_stat_activity
-		WHERE state = 'active'
+		WHERE state IN ('active', 'idle in transaction', 'idle in transaction (aborted)')
 		AND pid <> pg_backend_pid()
 		AND query NOT LIKE '%pg_stat_activity%'
 	`
-	if err := m.localPool.QueryRow(ctx, query).Scan(&activeCount); err == nil && activeCount > 0 {
+	if err := m.localPool.QueryRow(ctx, txQuery).Scan(&activeCount); err == nil && activeCount > 0 {
 		result.NoActiveTransactions = false
 		result.Warnings = append(result.Warnings, fmt.Sprintf("%d active transactions detected", activeCount))
 	}
 
 	return result, nil
+}
+
+// compareTableSchemas compares the schema of a table between local and remote nodes.
+// Returns true if schemas match, false otherwise.
+func (m *Merger) compareTableSchemas(ctx context.Context, schema, table string) (bool, error) {
+	query := `
+		SELECT column_name, data_type, is_nullable, column_default
+		FROM information_schema.columns
+		WHERE table_schema = $1 AND table_name = $2
+		ORDER BY ordinal_position
+	`
+
+	// Get local columns
+	localRows, err := m.localPool.Query(ctx, query, schema, table)
+	if err != nil {
+		return false, fmt.Errorf("query local schema: %w", err)
+	}
+	defer localRows.Close()
+
+	type columnInfo struct {
+		name       string
+		dataType   string
+		isNullable string
+		colDefault *string
+	}
+
+	var localCols []columnInfo
+	for localRows.Next() {
+		var col columnInfo
+		if err := localRows.Scan(&col.name, &col.dataType, &col.isNullable, &col.colDefault); err != nil {
+			return false, fmt.Errorf("scan local column: %w", err)
+		}
+		localCols = append(localCols, col)
+	}
+
+	// Get remote columns
+	remoteRows, err := m.remotePool.Query(ctx, query, schema, table)
+	if err != nil {
+		return false, fmt.Errorf("query remote schema: %w", err)
+	}
+	defer remoteRows.Close()
+
+	var remoteCols []columnInfo
+	for remoteRows.Next() {
+		var col columnInfo
+		if err := remoteRows.Scan(&col.name, &col.dataType, &col.isNullable, &col.colDefault); err != nil {
+			return false, fmt.Errorf("scan remote column: %w", err)
+		}
+		remoteCols = append(remoteCols, col)
+	}
+
+	// Compare column counts
+	if len(localCols) != len(remoteCols) {
+		return false, nil
+	}
+
+	// Compare each column
+	for i := range localCols {
+		if localCols[i].name != remoteCols[i].name ||
+			localCols[i].dataType != remoteCols[i].dataType ||
+			localCols[i].isNullable != remoteCols[i].isNullable {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // =============================================================================

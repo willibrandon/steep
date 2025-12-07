@@ -152,7 +152,7 @@ func (d *Daemon) Start() error {
 	// This must be done before starting the gRPC server so InitService can be registered
 	slogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	d.initManager = replinit.NewManager(pool.Pool(), &d.config.Initialization, &d.config.PostgreSQL, d.auditWriter, slogger)
-	d.logger.Println("InitManager initialized")
+	d.logger.Println("Node initialization ready")
 
 	// Start gRPC server for node-to-node communication
 	grpcConfig := replgrpc.ServerConfig{

@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/willibrandon/steep/internal/repl/config"
 	"github.com/willibrandon/steep/internal/repl/daemon"
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
@@ -52,7 +51,9 @@ func setupSchemaTestEnv(t *testing.T, ctx context.Context) *schemaTestEnv {
 	}
 	env.network = net
 	t.Cleanup(func() {
-		if err := net.Remove(ctx); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := net.Remove(cleanupCtx); err != nil {
 			t.Logf("Failed to remove network: %v", err)
 		}
 	})
@@ -75,9 +76,7 @@ func setupSchemaTestEnv(t *testing.T, ctx context.Context) *schemaTestEnv {
 			"-c", "max_wal_senders=10",
 			"-c", "max_replication_slots=10",
 		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).
-			WithStartupTimeout(90 * time.Second),
+		WaitingFor: postgresWaitStrategy(),
 	}
 
 	nodeAContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -89,7 +88,9 @@ func setupSchemaTestEnv(t *testing.T, ctx context.Context) *schemaTestEnv {
 	}
 	env.nodeAContainer = nodeAContainer
 	t.Cleanup(func() {
-		if err := nodeAContainer.Terminate(ctx); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := nodeAContainer.Terminate(cleanupCtx); err != nil {
 			t.Logf("Failed to terminate node A container: %v", err)
 		}
 	})
@@ -112,9 +113,7 @@ func setupSchemaTestEnv(t *testing.T, ctx context.Context) *schemaTestEnv {
 			"-c", "max_wal_senders=10",
 			"-c", "max_replication_slots=10",
 		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).
-			WithStartupTimeout(90 * time.Second),
+		WaitingFor: postgresWaitStrategy(),
 	}
 
 	nodeBContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -126,7 +125,9 @@ func setupSchemaTestEnv(t *testing.T, ctx context.Context) *schemaTestEnv {
 	}
 	env.nodeBContainer = nodeBContainer
 	t.Cleanup(func() {
-		if err := nodeBContainer.Terminate(ctx); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := nodeBContainer.Terminate(cleanupCtx); err != nil {
 			t.Logf("Failed to terminate node B container: %v", err)
 		}
 	})
@@ -173,9 +174,9 @@ func setupSchemaTestEnv(t *testing.T, ctx context.Context) *schemaTestEnv {
 		t.Fatalf("Failed to create extension on node B: %v", err)
 	}
 
-	// Start daemons
-	env.nodeAGRPCPort = 15470
-	env.nodeBGRPCPort = 15471
+	// Start daemons with dynamically allocated ports to avoid conflicts
+	env.nodeAGRPCPort = getFreePort(t)
+	env.nodeBGRPCPort = getFreePort(t)
 
 	t.Setenv("PGPASSWORD", testPassword)
 

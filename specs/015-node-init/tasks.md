@@ -230,38 +230,38 @@
 
 ### Extension Tasks (Rust/pgrx)
 
-- [ ] T067a [P] [US7] Add steep_repl.row_hash(record) function in extensions/steep_repl/src/merge.rs (fast 8-byte row hashing)
-- [ ] T067b [P] [US7] Add steep_repl.compare_tables() function in extensions/steep_repl/src/merge.rs (hash-based comparison via postgres_fdw)
-- [ ] T067c [P] [US7] Add steep_repl.merge_audit_log table in extensions/steep_repl/src/lib.rs (merge_id, table, pk, category, resolution, values)
-- [ ] T067d [P] [US7] Add steep_repl.quiesce_writes(table, timeout) function in extensions/steep_repl/src/merge.rs (advisory locks + connection blocking)
+- [x] T067a [P] [US7] Add steep_repl.row_hash(record) function in extensions/steep_repl/src/merge.rs (fast 8-byte row hashing)
+- [x] T067b [P] [US7] Add steep_repl.compare_tables() function in extensions/steep_repl/src/merge.rs (hash-based comparison via postgres_fdw)
+- [x] T067c [P] [US7] Add steep_repl.merge_audit_log table in extensions/steep_repl/src/lib.rs (merge_id, table, pk, category, resolution, values)
+- [x] T067d [P] [US7] Add steep_repl.quiesce_writes(table, timeout) function in extensions/steep_repl/src/merge.rs (advisory locks + connection blocking)
 
 ### Tests for User Story 7
 
 See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests across 11 categories).
 
-- [ ] T067 [P] [US7] Integration tests for overlap analysis in tests/integration/repl/merge_test.go (7 tests: all categories, composite PK, empty, NULL values, multi-table, performance)
-- [ ] T067e [P] [US7] Integration tests for conflict resolution in tests/integration/repl/merge_test.go (5 tests: prefer-a, prefer-b, last-modified, manual, mixed)
-- [ ] T067f [P] [US7] Integration tests for FK ordering in tests/integration/repl/merge_test.go (3 tests: parent/child, deep hierarchy, circular detection)
-- [ ] T067g [P] [US7] Integration tests for data movement in tests/integration/repl/merge_test.go (3 tests: A→B, B→A, bidirectional)
-- [ ] T067h [P] [US7] Integration tests for atomicity in tests/integration/repl/merge_test.go (3 tests: rollback, idempotency, checkpoint)
-- [ ] T067i [P] [US7] Integration tests for audit trail in tests/integration/repl/merge_test.go (2 tests: decision logging, metadata)
-- [ ] T067j [P] [US7] Integration tests for pre-flight checks in tests/integration/repl/merge_test.go (3 tests: schema, PK required, active transactions)
-- [ ] T067k [P] [US7] Integration tests for dry-run mode in tests/integration/repl/merge_test.go (2 tests: preview accuracy, output format)
-- [ ] T067l [P] [US7] Integration tests for PG18 features in tests/integration/repl/merge_test.go (3 tests: origin=none, conflict stats, track_commit_timestamp)
-- [ ] T067m [P] [US7] Performance benchmarks in tests/integration/repl/merge_benchmark_test.go (4 tests: hash analysis, transfer, row_hash, network comparison)
-- [ ] T067n [P] [US7] Create test fixtures in tests/integration/repl/testdata/merge/ (schema.sql, simple_overlap.sql, fk_relationships.sql, large_dataset.sql)
+- [x] T067 [P] [US7] Integration tests for overlap analysis in tests/integration/repl/merge_test.go (7 tests: all categories, composite PK, empty, NULL values, multi-table, performance)
+- [x] T067e [P] [US7] Integration tests for conflict resolution in tests/integration/repl/merge_test.go (5 tests: prefer-a, prefer-b, last-modified, manual, mixed)
+- [x] T067f [P] [US7] Integration tests for FK ordering in tests/integration/repl/merge_test.go (3 tests: parent/child, deep hierarchy, circular detection)
+- [x] T067g [P] [US7] Integration tests for data movement in tests/integration/repl/merge_test.go (3 tests: A→B, B→A, bidirectional)
+- [x] T067h [P] [US7] Integration tests for atomicity in tests/integration/repl/merge_test.go (3 tests: rollback, idempotency, checkpoint)
+- [x] T067i [P] [US7] Integration tests for audit trail in tests/integration/repl/merge_test.go (2 tests: decision logging, metadata)
+- [x] T067j [P] [US7] Integration tests for pre-flight checks in tests/integration/repl/merge_test.go (3 tests: schema, PK required, active transactions)
+- [x] T067k [P] [US7] Integration tests for dry-run mode in tests/integration/repl/merge_test.go (2 tests: preview accuracy, output format)
+- [x] T067l [P] [US7] Integration tests for PG18 features in tests/integration/repl/merge_test.go (3 tests: origin=none, conflict stats, track_commit_timestamp)
+- [x] T067m [P] [US7] Performance benchmarks in tests/integration/repl/merge_benchmark_test.go (4 tests: hash analysis, transfer, row_hash, network comparison)
+- [x] T067n [P] [US7] Create test fixtures in tests/integration/repl/testdata/merge/ (schema.sql, simple_overlap.sql, fk_relationships.sql, large_dataset.sql)
 
 ### Implementation for User Story 7
 
-- [ ] T068 [US7] Implement overlap analysis in internal/repl/init/merge.go (uses extension's compare_tables, processes hash results)
-- [ ] T069 [US7] Add analyze-overlap CLI command in cmd/steep-repl/main.go (`steep-repl analyze-overlap --node-a X --node-b Y --tables X,Y`)
-- [ ] T070 [US7] Implement conflict resolution strategies in internal/repl/init/merge.go (prefer-node-a, prefer-node-b, last-modified, manual)
-- [ ] T071 [US7] Add bidirectional-merge init mode in internal/repl/init/manager.go (quiesce, analyze, resolve, transfer, enable replication with origin=none)
-- [ ] T072 [US7] Add --mode=bidirectional-merge to init CLI in cmd/steep-repl/main.go
-- [ ] T073 [US7] Add --strategy flag for conflict resolution in cmd/steep-repl/main.go
-- [ ] T073a [US7] Add --dry-run flag to bidirectional merge in cmd/steep-repl/main.go (preview without changes)
-- [ ] T073b [US7] Implement FK ordering (topological sort) in internal/repl/init/merge.go (merge parents before children)
-- [ ] T073c [US7] Implement data transfer using COPY protocol in internal/repl/init/merge.go (bulk transfer for performance)
+- [x] T068 [US7] Implement overlap analysis in internal/repl/init/merge.go (uses extension's compare_tables, processes hash results)
+- [x] T069 [US7] Add analyze-overlap CLI command in cmd/steep-repl/main.go (`steep-repl analyze-overlap --node-a X --node-b Y --tables X,Y`)
+- [x] T070 [US7] Implement conflict resolution strategies in internal/repl/init/merge.go (prefer-node-a, prefer-node-b, last-modified, manual)
+- [x] T071 [US7] Add bidirectional-merge init mode in internal/repl/init/manager.go (quiesce, analyze, resolve, transfer, enable replication with origin=none)
+- [x] T072 [US7] Add --mode=bidirectional-merge to init CLI in cmd/steep-repl/main.go
+- [x] T073 [US7] Add --strategy flag for conflict resolution in cmd/steep-repl/main.go
+- [x] T073a [US7] Add --dry-run flag to bidirectional merge in cmd/steep-repl/main.go (preview without changes)
+- [x] T073b [US7] Implement FK ordering (topological sort) in internal/repl/init/merge.go (merge parents before children)
+- [x] T073c [US7] Implement data transfer using COPY protocol in internal/repl/init/merge.go (bulk transfer for performance)
 
 **Checkpoint**: Bidirectional merge reconciles existing data with conflict resolution, full audit trail, and PG18 native replication
 

@@ -13,23 +13,19 @@ extension_sql!(
 -- T067a: Row Hash Function
 -- =============================================================================
 -- Computes a fast 8-byte hash of a row for comparison.
--- Uses MD5 and extracts first 8 bytes as BIGINT for efficiency.
+-- Uses PostgreSQL's native hashtextextended() for maximum performance.
 -- This is NOT cryptographically secure, but sufficient for data comparison.
 
 CREATE FUNCTION steep_repl.row_hash(p_row ANYELEMENT)
 RETURNS BIGINT AS $$
-DECLARE
-    v_md5 bytea;
-BEGIN
-    -- Convert row to text, then hash with MD5
-    -- Extract first 8 bytes as bigint for fast comparison
-    v_md5 := md5(p_row::text)::bytea;
-    RETURN ('x' || substring(encode(v_md5, 'hex') from 1 for 16))::bit(64)::bigint;
-END;
-$$ LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE;
+    -- Use PostgreSQL's built-in hashtextextended for fast 64-bit hashing
+    -- Much faster than MD5: native C implementation, no string manipulation
+    -- The second parameter (0) is a seed value for consistent hashing
+    SELECT hashtextextended(p_row::text, 0)
+$$ LANGUAGE SQL IMMUTABLE STRICT PARALLEL SAFE;
 
 COMMENT ON FUNCTION steep_repl.row_hash(ANYELEMENT) IS
-    'Compute 8-byte hash of a row for fast comparison. Uses MD5 internally.';
+    'Compute 8-byte hash of a row for fast comparison. Uses hashtextextended internally.';
 
 -- =============================================================================
 -- T067b: Compare Tables Function
@@ -97,6 +93,7 @@ BEGIN
 
         IF v_idx > 1 THEN
             v_pk_select := v_pk_select || ', ';
+            v_pk_json := v_pk_json || ', ';
             v_pk_join := v_pk_join || ' AND ';
             v_pk_coalesce := v_pk_coalesce || ', ';
         END IF;
@@ -121,32 +118,51 @@ BEGIN
     -- Query remote server for hashes via dblink (simpler than FDW for dynamic queries)
     CREATE EXTENSION IF NOT EXISTS dblink;
 
-    -- Get connection string from foreign server
+    -- Get connection string from foreign server and user mapping
     DECLARE
         v_conn_str TEXT;
+        v_password TEXT;
     BEGIN
-        SELECT format('host=%s port=%s dbname=%s user=%s',
+        -- Get server options
+        SELECT format('host=%s port=%s dbname=%s',
             (SELECT option_value FROM pg_options_to_table(fs.srvoptions) WHERE option_name = 'host'),
             COALESCE((SELECT option_value FROM pg_options_to_table(fs.srvoptions) WHERE option_name = 'port'), '5432'),
-            (SELECT option_value FROM pg_options_to_table(fs.srvoptions) WHERE option_name = 'dbname'),
-            current_user
+            (SELECT option_value FROM pg_options_to_table(fs.srvoptions) WHERE option_name = 'dbname')
         )
         INTO v_conn_str
         FROM pg_foreign_server fs
         WHERE fs.srvname = p_remote_server;
+
+        -- Get user and password from user mapping
+        SELECT
+            format(' user=%s', COALESCE(
+                (SELECT option_value FROM pg_options_to_table(um.umoptions) WHERE option_name = 'user'),
+                current_user
+            )) ||
+            COALESCE(
+                format(' password=%s', (SELECT option_value FROM pg_options_to_table(um.umoptions) WHERE option_name = 'password')),
+                ''
+            )
+        INTO v_password
+        FROM pg_user_mapping um
+        JOIN pg_foreign_server fs ON um.umserver = fs.oid
+        WHERE fs.srvname = p_remote_server
+          AND um.umuser IN (0, (SELECT oid FROM pg_roles WHERE rolname = current_user));
+
+        v_conn_str := v_conn_str || COALESCE(v_password, format(' user=%s', current_user));
 
         IF v_conn_str IS NULL THEN
             RAISE EXCEPTION 'Foreign server % not found', p_remote_server;
         END IF;
 
         -- Build remote query to get PK + hash
+        -- Note: v_pk_json has 'l.' and 'r.' prefixes for local comparison, but for remote
+        -- we need plain column names since the remote table alias is 't'
         v_remote_query := format(
             'SELECT jsonb_build_object(%s) as pk_json, steep_repl.row_hash(t.*) as row_hash FROM %I.%I t',
-            replace(v_pk_json, 'l.', ''), -- Remove 'l.' prefix for remote query
+            replace(replace(v_pk_json, 'l.', 't.'), 'r.', 't.'), -- Replace prefixes for remote alias
             p_remote_schema, p_remote_table
         );
-        v_remote_query := replace(v_remote_query, 'l.', 't.');
-        v_remote_query := replace(v_remote_query, 'r.', 't.');
 
         -- Fetch remote hashes
         EXECUTE format(
@@ -157,6 +173,7 @@ BEGIN
     END;
 
     -- Build and execute comparison query
+    -- v_pk_json has 'l.' and 'r.' prefixes for the outer join, but for the CTE we need 't.'
     v_compare_query := format($q$
         WITH local_hashes AS (
             SELECT jsonb_build_object(%s) as pk_json, steep_repl.row_hash(t.*) as row_hash
@@ -175,11 +192,10 @@ BEGIN
         FROM local_hashes l
         FULL OUTER JOIN _remote_hashes_%s_%s r ON l.pk_json = r.pk_json
     $q$,
-        replace(v_pk_json, 'l.', 't.'),
+        replace(replace(v_pk_json, 'l.', 't.'), 'r.', 't.'),  -- Replace both l. and r. with t. for CTE
         p_local_schema, p_local_table,
         p_remote_schema, p_remote_table
     );
-    v_compare_query := replace(v_compare_query, 'r.', 't.');
 
     RETURN QUERY EXECUTE v_compare_query;
 END;
