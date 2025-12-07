@@ -1,0 +1,83 @@
+-- Test steep_repl schema and table existence
+-- Verifies all tables are created correctly
+-- Schema exists
+SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'steep_repl') AS schema_exists;
+ schema_exists 
+---------------
+ t
+(1 row)
+
+-- All tables exist
+SELECT tablename FROM pg_tables
+WHERE schemaname = 'steep_repl'
+ORDER BY tablename;
+      tablename      
+---------------------
+ audit_log
+ coordinator_state
+ init_progress
+ init_slots
+ merge_audit_log
+ nodes
+ schema_fingerprints
+ snapshot_progress
+ snapshots
+(9 rows)
+
+-- Check nodes table columns
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'steep_repl' AND table_name = 'nodes'
+ORDER BY ordinal_position;
+          column_name           |        data_type         | is_nullable 
+--------------------------------+--------------------------+-------------
+ node_id                        | text                     | NO
+ node_name                      | text                     | NO
+ host                           | text                     | NO
+ port                           | integer                  | NO
+ grpc_host                      | text                     | YES
+ grpc_port                      | integer                  | YES
+ priority                       | integer                  | NO
+ is_coordinator                 | boolean                  | NO
+ last_seen                      | timestamp with time zone | YES
+ status                         | text                     | NO
+ init_state                     | text                     | NO
+ init_source_node               | text                     | YES
+ init_started_at                | timestamp with time zone | YES
+ init_completed_at              | timestamp with time zone | YES
+ last_sync_throughput_bytes_sec | real                     | YES
+ last_sync_at                   | timestamp with time zone | YES
+(16 rows)
+
+-- Check coordinator_state table columns
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'steep_repl' AND table_name = 'coordinator_state'
+ORDER BY ordinal_position;
+ column_name |        data_type         | is_nullable 
+-------------+--------------------------+-------------
+ key         | text                     | NO
+ value       | jsonb                    | NO
+ updated_at  | timestamp with time zone | NO
+(3 rows)
+
+-- Check audit_log table columns
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'steep_repl' AND table_name = 'audit_log'
+ORDER BY ordinal_position;
+  column_name  |        data_type         
+---------------+--------------------------
+ id            | bigint
+ occurred_at   | timestamp with time zone
+ action        | text
+ actor         | text
+ target_type   | text
+ target_id     | text
+ old_value     | jsonb
+ new_value     | jsonb
+ client_ip     | inet
+ success       | boolean
+ error_message | text
+(11 rows)
+

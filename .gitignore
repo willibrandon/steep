@@ -20,6 +20,8 @@
 
 # Output of the go coverage tool
 *.out
+# Exception for pg_regress expected outputs
+!extensions/steep_repl/tests/pg_regress/expected/*.out
 
 # Go workspace file
 go.work
