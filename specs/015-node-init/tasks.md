@@ -289,11 +289,33 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 
 **Goal**: Generate snapshot separately from application for network transfer and multi-target init
 
+**DBA Experience Focus**: Long-running snapshot operations (potentially hours for multi-TB databases) are stressful for DBAs. This phase prioritizes transparency: real-time progress, accurate ETAs, throughput metrics, and the ability to monitor from both TUI and CLI. Reference implementations studied:
+
+- **bubbles/progress**: Animated progress bar with spring animation and gradient coloring
+- **bubbles/spinner**: Multiple spinner styles (Dot, Pulse, Meter) for indeterminate phases
+- **bubbletea/examples/package-manager**: Spinner + progress + per-item status pattern
+- **schwartzian/progressbar**: Multi-line detail rows, ETA prediction, throughput display
+
+**PostgreSQL 18 Features to Leverage** (researched from postgres repo REL_17_0..REL_18_0):
+
+| Feature | Commit | Benefit for Two-Phase Snapshot |
+|---------|--------|-------------------------------|
+| **COPY REJECT_LIMIT** | 4ac2a9beceb | Set max errors to tolerate with `ON_ERROR=ignore` - enables resilient snapshot application that can skip N bad rows before failing |
+| **pg_stat_progress_copy.tuples_skipped** | 91ecb5e0bc7 | New field tracking skipped rows during COPY - show DBAs exactly how many rows were skipped |
+| **file_copy_method = CLONE** | f78ca6f3ebb | Uses `copy_file_range()` (Linux/FreeBSD) or `copyfile()` (macOS) for faster file copies on COW filesystems |
+| **pg_stat_subscription_stats conflict columns** | 6c2b5edecc0 | 8 new conflict counters (insert_exists, update_origin_differs, etc.) - integrate into merge audit UI |
+| **multiple_unique_conflicts detection** | 73eba5004a0 | Detects when a row violates multiple unique constraints at once - improves conflict resolution UX |
+| **Sequence replication** | ALTER SUBSCRIPTION ... REFRESH SEQUENCES | `pg_get_sequence_data()` for LSN, sequence sync detection - proper sequence handling in snapshots |
+| **pg_createsubscriber --all** | fb2ea12f42b | Creates subscriptions for all databases - inspiration for multi-database snapshot support |
+| **Vacuum delay in progress views** | bb8dff9995f | `track_cost_delay_timing` GUC shows delay time - pattern for our own cost tracking |
+
 ### Tests for Two-Phase Snapshot
 
 - [ ] T079 [P] Integration test for snapshot generate/apply in tests/integration/repl/snapshot_test.go
+- [ ] T079a [P] Integration test for progress streaming during generation in tests/integration/repl/snapshot_test.go
+- [ ] T079b [P] Integration test for progress streaming during application in tests/integration/repl/snapshot_test.go
 
-### Implementation for Two-Phase Snapshot
+### Core Implementation for Two-Phase Snapshot
 
 - [ ] T080 Implement GenerateSnapshot RPC handler in internal/repl/grpc/handlers.go
 - [ ] T081 Implement snapshot generation in internal/repl/init/snapshot.go (create slot, export schema, COPY tables to files, capture sequences)
@@ -304,7 +326,144 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 - [ ] T086 Add snapshot apply CLI command in cmd/steep-repl/main.go (`steep-repl snapshot apply --target <node> --input <path>`)
 - [ ] T087 Add compression support to snapshot operations in internal/repl/init/snapshot.go (gzip, lz4, zstd options)
 
-**Checkpoint**: Two-phase snapshot workflow works for offline transfer scenarios
+### Progress Tracking Infrastructure
+
+**Purpose**: Enable real-time visibility into snapshot generation and application progress
+
+- [ ] T087a Create SnapshotProgress struct in internal/repl/models/snapshot_progress.go with fields:
+  - Phase (generation/application), OverallPercent, CurrentStep (schema/tables/sequences/checksums)
+  - TablesTotal, TablesCompleted, CurrentTable, CurrentTableBytes, CurrentTableTotalBytes
+  - BytesWritten, BytesTotal, RowsWritten, RowsTotal
+  - ThroughputBytesSec (rolling average), ThroughputRowsSec
+  - StartedAt, ETASeconds, CompressionRatio (if compression enabled)
+  - ChecksumVerifications (for application phase), ChecksumsVerified, ChecksumsFailed
+
+- [ ] T087b Add steep_repl.snapshot_progress table in extensions/steep_repl/src/lib.rs (snapshot_id, phase, percent, current_table, bytes_written, bytes_total, throughput, eta, updated_at)
+
+- [ ] T087c Implement progress calculation during COPY TO (generation) in internal/repl/init/snapshot.go:
+  - Track bytes written per table using pg_stat_progress_copy (PG14+)
+  - Fall back to file size polling for PG11-13
+  - Calculate rolling 10-second throughput average
+  - Emit progress updates every 500ms (configurable)
+
+- [ ] T087d Implement progress calculation during COPY FROM (application) in internal/repl/init/snapshot.go:
+  - Track bytes read per table using pg_stat_progress_copy
+  - Track checksum verification as separate sub-phase
+  - Calculate ETA based on remaining bytes and current throughput
+
+- [ ] T087e Add StreamSnapshotProgress RPC handler in internal/repl/grpc/handlers.go (poll snapshot_progress table, stream to clients)
+
+- [ ] T087f Add GetSnapshotProgress RPC handler in internal/repl/grpc/handlers.go (single point-in-time query)
+
+### TUI Progress Components
+
+**Purpose**: Rich visual feedback for DBAs monitoring snapshots in Steep TUI
+
+- [ ] T087g Extend InitProgressData struct in internal/ui/components/init_progress.go to support two-phase snapshot fields:
+  - Phase (generation/application), CurrentStep, CompressionRatio
+  - ChecksumsVerified, ChecksumsFailed, ChecksumStatus
+
+- [ ] T087h Add animated progress bar to init_progress.go using bubbles/progress (gradient from orange → green as progress increases)
+
+- [ ] T087i Add spinner integration to init_progress.go using bubbles/spinner (Dot style for active phases, hidden when idle)
+
+- [ ] T087j Create SnapshotProgressOverlay component in internal/ui/components/snapshot_progress.go:
+  - Two-section layout: Generation Stats | Application Stats
+  - Per-table progress list with current table highlighted
+  - Compression ratio display (if enabled)
+  - Checksum verification status with pass/fail counts
+  - Throughput sparkline showing last 60 seconds (using existing sparkline infra from 011-visualizations)
+
+- [ ] T087k Add snapshot progress view in internal/ui/views/replication/snapshot.go:
+  - List of active/recent snapshots with status
+  - Double-click or Enter to open detailed SnapshotProgressOverlay
+  - S key to start new snapshot, C key to cancel active snapshot
+
+- [ ] T087l Integrate snapshot progress into Nodes view in internal/ui/views/replication/nodes.go:
+  - Show snapshot icon indicator for nodes with active snapshots
+  - Add "Snapshot" column showing generation/application status
+  - Shift+D opens SnapshotProgressOverlay for selected node
+
+### CLI Progress Display
+
+**Purpose**: Real-time progress for DBAs running snapshots from terminal without TUI
+
+- [ ] T087m Add --progress flag to snapshot generate CLI showing live progress bar:
+  - Use schwartzian/progressbar or similar for terminal output
+  - Display: [████████░░░░░░░░░░░░] 42.3% | 15.2 GB / 36.0 GB | 125 MB/s | ETA: 2m 48s
+  - Per-table detail rows showing current table being exported
+  - Color output (disable with --no-color)
+
+- [ ] T087n Add --progress flag to snapshot apply CLI showing live progress bar:
+  - Two-phase display: checksum verification then data loading
+  - Show: ✓ 12/15 checksums verified, then loading progress
+  - Display failed checksums immediately with table name
+
+- [ ] T087o Add --json-progress flag to snapshot commands for machine-readable output:
+  - NDJSON format with progress updates every 500ms
+  - Fields: phase, percent, bytes_complete, bytes_total, throughput, eta_seconds, current_table
+  - Useful for CI/CD pipelines and external monitoring tools
+
+- [ ] T087p Add --quiet flag to suppress progress output (only show errors and final summary)
+
+### Interruption and Resume
+
+**Purpose**: Handle network disconnects, crashes, and intentional pauses gracefully
+
+- [ ] T087q Add snapshot pause/resume support in internal/repl/init/snapshot.go:
+  - Track last completed table in manifest.json
+  - Resume generation from last completed table
+  - Resume application from last verified checksum
+
+- [ ] T087r Add progress persistence to SQLite for CLI resilience in internal/repl/init/snapshot.go:
+  - Write progress to local SQLite every 5 seconds
+  - On CLI restart, detect incomplete snapshot and offer resume
+  - Display: "Incomplete snapshot detected (42.3% complete). Resume? [Y/n]"
+
+### PostgreSQL 18 Feature Integration
+
+**Purpose**: Leverage PG18's new features for better progress tracking, error tolerance, and conflict visibility
+
+- [ ] T087s Add COPY REJECT_LIMIT support in internal/repl/init/snapshot.go:
+  - Detect PG18+ and use `COPY ... WITH (ON_ERROR ignore, REJECT_LIMIT n)`
+  - Add `--error-tolerance N` flag to snapshot apply CLI (default: 0 = fail on first error)
+  - Display skipped rows count in progress: "Applied 50,000 rows (3 skipped)"
+  - Log skipped row details to manifest.json for audit
+
+- [ ] T087t Integrate pg_stat_progress_copy.tuples_skipped in internal/repl/init/snapshot.go:
+  - Query new `tuples_skipped` field during COPY FROM monitoring
+  - Show real-time skipped count in progress overlay
+  - Add TuplesSkipped field to SnapshotProgress model
+
+- [ ] T087u Add file_copy_method detection and optimization in internal/repl/init/snapshot.go:
+  - Detect if target supports CLONE method (Linux/FreeBSD/macOS COW filesystems)
+  - Prefer file system-level copy when `file_copy_method = CLONE` is available
+  - Display copy method in progress: "Using filesystem CLONE (fast mode)"
+
+- [ ] T087v Integrate pg_stat_subscription_stats conflict columns in internal/ui/views/replication/nodes.go:
+  - Query new conflict counters (confl_insert_exists, confl_update_origin_differs, etc.)
+  - Add "Conflicts" column to Nodes view showing total conflict count
+  - Color-code: green (0), yellow (1-10), red (>10)
+  - Press 'F' to open Conflict Details overlay with per-type breakdown
+
+- [ ] T087w Add multiple_unique_conflicts handling in internal/repl/init/merge.go:
+  - Detect when PG18 reports multiple_unique_conflicts
+  - Display all conflicting constraints at once instead of one-by-one
+  - Suggest resolution: "Row violates 3 unique constraints: [idx_email], [idx_phone], [idx_username]"
+
+- [ ] T087x Add sequence synchronization support in internal/repl/init/snapshot.go:
+  - Use `pg_get_sequence_data()` to capture sequence LSN during generation
+  - Include sequence values and LSN in manifest.json
+  - Use `ALTER SUBSCRIPTION ... REFRESH SEQUENCES` pattern for sequence restore
+  - Add SequencesTotal, SequencesSynced to progress tracking
+
+- [ ] T087y [P] Integration test for PG18-specific features in tests/integration/repl/snapshot_pg18_test.go:
+  - Test REJECT_LIMIT error tolerance with intentionally bad rows
+  - Test tuples_skipped tracking accuracy
+  - Test conflict column visibility in stats views
+  - Skip tests gracefully on PG17 and earlier
+
+**Checkpoint**: Two-phase snapshot workflow works for offline transfer scenarios with comprehensive progress monitoring
 
 ---
 
@@ -427,18 +586,27 @@ Task: "Create Snapshot Go model in internal/repl/models/snapshot.go"
 | 8. US6 Schema Sync | P2 | 5 | 0 |
 | 9. US7 Bidirectional | P2 | 24 | 15 |
 | 10. US8 Parallel | P3 | 5 | 0 |
-| 11. Two-Phase | - | 9 | 1 |
+| 11. Two-Phase | P2/P3 | 36 | 7 |
 | 12. Polish | - | 8 | 3 |
-| **Total** | | **112** | **34** |
+| **Total** | | **139** | **40** |
 
 **MVP Scope**: Phases 1-3, 5 (Setup + Foundational + US1 + US3) = 35 tasks
 **P1 Complete**: Add Phase 4 (US2) = 44 tasks
-**Full Feature**: All 112 tasks
+**Full Feature**: All 139 tasks
 
 **Phase 9 Breakdown** (24 tasks):
 - Extension tasks: 4 (T067a-d) - Rust/pgrx row_hash, compare_tables, audit_log, quiesce
 - Integration tests: 11 (T067, T067e-n) - 38 test cases across 11 categories
 - Implementation: 9 (T068-T073c) - Go orchestration, CLI, strategies
+
+**Phase 11 Breakdown** (36 tasks):
+- Tests: 4 (T079, T079a-b, T087y) - Integration tests for generate/apply with progress streaming + PG18 features
+- Core implementation: 8 (T080-T087) - RPC handlers, snapshot logic, CLI commands, compression
+- Progress infrastructure: 6 (T087a-f) - Models, DB table, progress calculation, RPC streaming
+- TUI components: 6 (T087g-l) - Progress overlay, animated bars, spinners, sparklines, view integration
+- CLI progress: 4 (T087m-p) - Terminal progress bars, JSON output, quiet mode
+- Resume support: 2 (T087q-r) - Pause/resume, SQLite persistence
+- PostgreSQL 18 features: 6 (T087s-x) - REJECT_LIMIT, tuples_skipped, file_copy_method, conflict stats, sequence sync
 
 ---
 
