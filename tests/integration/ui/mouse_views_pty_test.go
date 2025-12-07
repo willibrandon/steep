@@ -1,4 +1,5 @@
-package integration
+// Package ui provides integration tests for UI components using PTY.
+package ui
 
 import (
 	"context"
@@ -123,7 +124,7 @@ func buildSteep(t *testing.T, configDir string) string {
 	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/steep")
 	// Get the project root directory dynamically from this test file's location
 	_, thisFile, _, _ := runtime.Caller(0)
-	projectRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	projectRoot := filepath.Join(filepath.Dir(thisFile), "..", "..", "..")
 	buildCmd.Dir = projectRoot
 	if output, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to build steep: %v\n%s", err, output)
@@ -798,7 +799,7 @@ func TestConfigurationViewMouseClick(t *testing.T) {
 	screen := helper.getScreen()
 	t.Logf("Current screen:\n%s", screen)
 
-	// Find config parameter rows - they have "│" separators and parameter names
+	// Find config parameter rows - they have "|" separators and parameter names
 	type rowInfo struct {
 		terminalRow int
 		name        string

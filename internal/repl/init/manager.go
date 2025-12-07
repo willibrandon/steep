@@ -205,6 +205,46 @@ func (m *Manager) CancelInit(ctx context.Context, nodeID string) error {
 	return nil
 }
 
+// CancelAll cancels all active initialization operations.
+// Used for cleanup during testing and daemon shutdown.
+func (m *Manager) CancelAll() []string {
+	m.mu.Lock()
+	nodeIDs := make([]string, 0, len(m.active))
+	for nodeID, op := range m.active {
+		nodeIDs = append(nodeIDs, nodeID)
+		op.Cancel()
+	}
+	m.mu.Unlock()
+
+	// Log cancellations
+	for _, nodeID := range nodeIDs {
+		m.logger.Log(InitEvent{
+			Event:  EventInitCancelled,
+			NodeID: nodeID,
+		})
+	}
+
+	return nodeIDs
+}
+
+// ActiveCount returns the number of active initialization operations.
+func (m *Manager) ActiveCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.active)
+}
+
+// ActiveNodeIDs returns a list of all node IDs with active operations.
+func (m *Manager) ActiveNodeIDs() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	nodeIDs := make([]string, 0, len(m.active))
+	for nodeID := range m.active {
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+	return nodeIDs
+}
+
 // GetProgress returns the current progress for a node.
 // Implemented in T037 (Phase 5: User Story 3).
 func (m *Manager) GetProgress(ctx context.Context, nodeID string) (*models.InitProgress, error) {
@@ -294,6 +334,14 @@ func (m *Manager) UpdateState(ctx context.Context, nodeID string, newState model
 	m.logger.LogStateChange(nodeID, currentState, newState)
 
 	return nil
+}
+
+// registerOperation adds an operation to the active map.
+// Used by initializers that need to register operations for cancellation.
+func (m *Manager) registerOperation(nodeID string, op *Operation) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.active[nodeID] = op
 }
 
 // unregisterOperation removes an operation from the active map.

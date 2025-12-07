@@ -1,5 +1,5 @@
-// Package integration provides integration tests that verify component interactions.
-package integration
+// Package storage provides integration tests for storage components.
+package storage
 
 import (
 	"context"
@@ -40,7 +40,7 @@ func TestMetricsStore_PersistenceAcrossRestarts(t *testing.T) {
 		store := sqlite.NewMetricsStore(db)
 
 		// Write TPS data
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			dp := metrics.NewDataPointAt(now.Add(time.Duration(i)*time.Second), float64(100+i))
 			if err := store.SaveDataPoint(ctx, "tps", "", dp); err != nil {
 				t.Fatalf("SaveDataPoint failed: %v", err)
@@ -50,7 +50,7 @@ func TestMetricsStore_PersistenceAcrossRestarts(t *testing.T) {
 		// Write table size data with keys
 		tables := []string{"public.users", "public.orders", "public.products"}
 		for _, table := range tables {
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				dp := metrics.NewDataPointAt(now.Add(time.Duration(i)*time.Hour), float64((i+1)*1024))
 				if err := store.SaveDataPoint(ctx, "table_size", table, dp); err != nil {
 					t.Fatalf("SaveDataPoint failed for %s: %v", table, err)
@@ -133,12 +133,12 @@ func TestMetricsStore_ConcurrentWritesAndReads(t *testing.T) {
 	errors := make(chan error, 100)
 
 	// 5 writer goroutines
-	for w := 0; w < 5; w++ {
+	for w := range 5 {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
 			metric := "concurrent_metric"
-			for i := 0; i < 100; i++ {
+			for i := range 100 {
 				dp := metrics.NewDataPointAt(now.Add(time.Duration(workerID*100+i)*time.Millisecond), float64(workerID*100+i))
 				if err := store.SaveDataPoint(ctx, metric, "", dp); err != nil {
 					errors <- err
@@ -149,18 +149,16 @@ func TestMetricsStore_ConcurrentWritesAndReads(t *testing.T) {
 	}
 
 	// 3 reader goroutines
-	for r := 0; r < 3; r++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 50; i++ {
+	for range 3 {
+		wg.Go(func() {
+			for range 50 {
 				if _, err := store.GetHistory(ctx, "concurrent_metric", "", now.Add(-time.Hour), 1000); err != nil {
 					errors <- err
 					return
 				}
 				time.Sleep(time.Millisecond)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -208,8 +206,8 @@ func TestMetricsStore_HeatmapAggregation(t *testing.T) {
 	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.Local) // Monday
 
 	// Add TPS data for each hour across a week
-	for day := 0; day < 7; day++ {
-		for hour := 0; hour < 24; hour++ {
+	for day := range 7 {
+		for hour := range 24 {
 			ts := baseTime.AddDate(0, 0, day).Add(time.Duration(hour) * time.Hour)
 			// Value varies by day and hour for testing
 			value := float64(day*100 + hour*10)
@@ -229,8 +227,8 @@ func TestMetricsStore_HeatmapAggregation(t *testing.T) {
 
 	// Verify we have data
 	dataCount := 0
-	for day := 0; day < 7; day++ {
-		for hour := 0; hour < 24; hour++ {
+	for day := range 7 {
+		for hour := range 24 {
 			if matrix[day][hour] >= 0 {
 				dataCount++
 			}
@@ -279,9 +277,9 @@ func TestMetricsStore_LargeDataset(t *testing.T) {
 
 	start := time.Now()
 
-	for batch := 0; batch < totalPoints/batchSize; batch++ {
+	for batch := range totalPoints / batchSize {
 		points := make([]metrics.DataPoint, batchSize)
-		for i := 0; i < batchSize; i++ {
+		for i := range batchSize {
 			idx := batch*batchSize + i
 			points[i] = metrics.NewDataPointAt(now.Add(time.Duration(idx)*time.Second), float64(idx))
 		}

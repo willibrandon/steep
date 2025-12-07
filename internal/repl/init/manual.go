@@ -224,8 +224,19 @@ func (m *ManualInitializer) Complete(ctx context.Context, opts CompleteOptions) 
 	// Clean up any unused prepared slots for this node
 	m.cleanupUnusedPrepareSlots(ctx, opts.TargetNodeID)
 
-	// Start catch-up monitoring in background
-	go m.monitorCatchUp(context.Background(), opts.TargetNodeID)
+	// Register active operation so CancelAll can cancel this
+	opCtx, cancel := context.WithCancel(context.Background())
+	op := &Operation{
+		NodeID:     opts.TargetNodeID,
+		SourceNode: opts.SourceNodeID,
+		Method:     config.InitMethodManual,
+		StartedAt:  time.Now(),
+		Cancel:     cancel,
+	}
+	m.manager.registerOperation(opts.TargetNodeID, op)
+
+	// Start catch-up monitoring in background with cancellable context
+	go m.monitorCatchUp(opCtx, opts.TargetNodeID)
 
 	return nil
 }
@@ -779,6 +790,9 @@ func parseGRPCAddress(addr string) (string, int) {
 
 // monitorCatchUp monitors the catch-up phase and transitions to SYNCHRONIZED when complete.
 func (m *ManualInitializer) monitorCatchUp(ctx context.Context, nodeID string) {
+	// Ensure operation is unregistered when goroutine exits
+	defer m.manager.unregisterOperation(nodeID)
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 

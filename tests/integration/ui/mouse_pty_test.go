@@ -1,4 +1,5 @@
-package integration
+// Package ui provides integration tests for UI components using PTY.
+package ui
 
 import (
 	"bytes"
@@ -90,7 +91,7 @@ ui:
 	buildCmd := exec.Command("go", "build", "-o", steepBinary, "./cmd/steep")
 	// Get the project root directory dynamically from this test file's location
 	_, thisFile, _, _ := runtime.Caller(0)
-	projectRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	projectRoot := filepath.Join(filepath.Dir(thisFile), "..", "..", "..")
 	buildCmd.Dir = projectRoot
 	if output, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to build steep: %v\n%s", err, output)
@@ -183,7 +184,7 @@ ui:
 		return -1
 	}
 
-	// Helper to extract PID from a line (first number after "│ ")
+	// Helper to extract PID from a line (first number after "| ")
 	extractPID := func(line string) string {
 		re := regexp.MustCompile(`│\s*(\d+)\s+`)
 		matches := re.FindStringSubmatch(line)

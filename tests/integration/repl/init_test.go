@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -16,6 +17,19 @@ import (
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
 	pb "github.com/willibrandon/steep/internal/repl/grpc/proto"
 )
+
+// =============================================================================
+// Test Suite Infrastructure
+// =============================================================================
+
+// InitTestSuite runs all initialization tests with shared Docker containers.
+// This significantly reduces test time by reusing containers across tests.
+type InitTestSuite struct {
+	suite.Suite
+	ctx    context.Context
+	cancel context.CancelFunc
+	env    *twoNodeEnv
+}
 
 // twoNodeEnv holds the complete test environment with two PostgreSQL nodes
 // and their respective steep-repl daemons.
@@ -37,16 +51,1140 @@ type twoNodeEnv struct {
 	targetPort      int
 	targetDaemon    *daemon.Daemon
 	targetGRPCPort  int
+
+	// External connection info (for host access)
+	sourceHostExternal string
+	sourcePortExternal int
+	targetHostExternal string
+	targetPortExternal int
 }
 
-// setupTwoNodeEnv creates a complete two-node test environment:
-// - Two PostgreSQL 18 containers with steep_repl extension
-// - steep-repl daemon running on each node
-// - Nodes registered in steep_repl.nodes on both databases
-// - Publication created on source node
-func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
-	t.Helper()
+// TestInitSuite runs the init test suite.
+func TestInitSuite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+	suite.Run(t, new(InitTestSuite))
+}
 
+// SetupSuite creates the shared Docker containers and daemons once for all tests.
+func (s *InitTestSuite) SetupSuite() {
+	s.ctx, s.cancel = context.WithTimeout(context.Background(), 10*time.Minute)
+
+	const testPassword = "test"
+	env := &twoNodeEnv{}
+
+	// Create Docker network for inter-container communication
+	net, err := network.New(s.ctx, network.WithCheckDuplicate())
+	s.Require().NoError(err, "Failed to create Docker network")
+	env.network = net
+
+	// Start source PostgreSQL container
+	sourceReq := testcontainers.ContainerRequest{
+		Image:        "ghcr.io/willibrandon/pg18-steep-repl:latest",
+		ExposedPorts: []string{"5432/tcp"},
+		Networks:     []string{net.Name},
+		NetworkAliases: map[string][]string{
+			net.Name: {"pg-source"},
+		},
+		Env: map[string]string{
+			"POSTGRES_USER":     "test",
+			"POSTGRES_PASSWORD": testPassword,
+			"POSTGRES_DB":       "testdb",
+		},
+		Cmd: []string{
+			"-c", "wal_level=logical",
+			"-c", "max_wal_senders=10",
+			"-c", "max_replication_slots=10",
+		},
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
+			WithStartupTimeout(90 * time.Second),
+	}
+
+	sourceContainer, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: sourceReq,
+		Started:          true,
+	})
+	s.Require().NoError(err, "Failed to start source container")
+	env.sourceContainer = sourceContainer
+
+	// Start target PostgreSQL container
+	targetReq := testcontainers.ContainerRequest{
+		Image:        "ghcr.io/willibrandon/pg18-steep-repl:latest",
+		ExposedPorts: []string{"5432/tcp"},
+		Networks:     []string{net.Name},
+		NetworkAliases: map[string][]string{
+			net.Name: {"pg-target"},
+		},
+		Env: map[string]string{
+			"POSTGRES_USER":     "test",
+			"POSTGRES_PASSWORD": testPassword,
+			"POSTGRES_DB":       "testdb",
+		},
+		Cmd: []string{
+			"-c", "wal_level=logical",
+			"-c", "max_wal_senders=10",
+			"-c", "max_replication_slots=10",
+		},
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
+			WithStartupTimeout(90 * time.Second),
+	}
+
+	targetContainer, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: targetReq,
+		Started:          true,
+	})
+	s.Require().NoError(err, "Failed to start target container")
+	env.targetContainer = targetContainer
+
+	// Get connection info
+	sourceHostExternal, _ := sourceContainer.Host(s.ctx)
+	sourcePortExternal, _ := sourceContainer.MappedPort(s.ctx, "5432")
+	targetHostExternal, _ := targetContainer.Host(s.ctx)
+	targetPortExternal, _ := targetContainer.MappedPort(s.ctx, "5432")
+
+	env.sourceHost = "pg-source" // Docker network hostname
+	env.sourcePort = 5432
+	env.targetHost = "pg-target"
+	env.targetPort = 5432
+	env.sourceHostExternal = sourceHostExternal
+	env.sourcePortExternal = sourcePortExternal.Int()
+	env.targetHostExternal = targetHostExternal
+	env.targetPortExternal = targetPortExternal.Int()
+
+	// Create connection pools using external ports
+	sourceConnStr := fmt.Sprintf("postgres://test:test@%s:%s/testdb?sslmode=disable",
+		sourceHostExternal, sourcePortExternal.Port())
+	env.sourcePool, err = pgxpool.New(s.ctx, sourceConnStr)
+	s.Require().NoError(err, "Failed to create source pool")
+
+	targetConnStr := fmt.Sprintf("postgres://test:test@%s:%s/testdb?sslmode=disable",
+		targetHostExternal, targetPortExternal.Port())
+	env.targetPool, err = pgxpool.New(s.ctx, targetConnStr)
+	s.Require().NoError(err, "Failed to create target pool")
+
+	// Wait for databases to be ready
+	s.waitForDB(env.sourcePool, "source")
+	s.waitForDB(env.targetPool, "target")
+
+	// Create steep_repl extension on both nodes
+	_, err = env.sourcePool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err, "Failed to create extension on source")
+	_, err = env.targetPool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
+	s.Require().NoError(err, "Failed to create extension on target")
+
+	// Start daemons
+	env.sourceGRPCPort = 15460
+	env.targetGRPCPort = 15461
+
+	// Set PGPASSWORD for daemon connections
+	s.T().Setenv("PGPASSWORD", testPassword)
+
+	sourceSocketPath := tempSocketPath(s.T())
+	sourceCfg := &config.Config{
+		NodeID:   "source-node",
+		NodeName: "Source Node",
+		PostgreSQL: config.PostgreSQLConfig{
+			Host:     sourceHostExternal,
+			Port:     sourcePortExternal.Int(),
+			Database: "testdb",
+			User:     "test",
+		},
+		GRPC: config.GRPCConfig{
+			Port: env.sourceGRPCPort,
+		},
+		IPC: config.IPCConfig{
+			Enabled: true,
+			Path:    sourceSocketPath,
+		},
+		HTTP: config.HTTPConfig{
+			Enabled: false,
+		},
+		Initialization: config.InitConfig{
+			Method:          config.InitMethodSnapshot,
+			ParallelWorkers: 4,
+			SchemaSync:      config.SchemaSyncStrict,
+		},
+	}
+
+	env.sourceDaemon, err = daemon.New(sourceCfg, true)
+	s.Require().NoError(err, "Failed to create source daemon")
+	err = env.sourceDaemon.Start()
+	s.Require().NoError(err, "Failed to start source daemon")
+
+	targetSocketPath := tempSocketPath(s.T())
+	targetCfg := &config.Config{
+		NodeID:   "target-node",
+		NodeName: "Target Node",
+		PostgreSQL: config.PostgreSQLConfig{
+			Host:     targetHostExternal,
+			Port:     targetPortExternal.Int(),
+			Database: "testdb",
+			User:     "test",
+		},
+		GRPC: config.GRPCConfig{
+			Port: env.targetGRPCPort,
+		},
+		IPC: config.IPCConfig{
+			Enabled: true,
+			Path:    targetSocketPath,
+		},
+		HTTP: config.HTTPConfig{
+			Enabled: false,
+		},
+		Initialization: config.InitConfig{
+			Method:          config.InitMethodSnapshot,
+			ParallelWorkers: 4,
+			SchemaSync:      config.SchemaSyncStrict,
+		},
+	}
+
+	env.targetDaemon, err = daemon.New(targetCfg, true)
+	s.Require().NoError(err, "Failed to create target daemon")
+	err = env.targetDaemon.Start()
+	s.Require().NoError(err, "Failed to start target daemon")
+
+	// Wait for daemons to be ready
+	time.Sleep(time.Second)
+
+	s.env = env
+	s.T().Log("InitTestSuite: Shared containers and daemons ready")
+}
+
+// TearDownSuite cleans up all resources after all tests complete.
+func (s *InitTestSuite) TearDownSuite() {
+	if s.env != nil {
+		if s.env.sourceDaemon != nil {
+			s.env.sourceDaemon.Stop()
+		}
+		if s.env.targetDaemon != nil {
+			s.env.targetDaemon.Stop()
+		}
+		if s.env.sourcePool != nil {
+			s.env.sourcePool.Close()
+		}
+		if s.env.targetPool != nil {
+			s.env.targetPool.Close()
+		}
+		if s.env.sourceContainer != nil {
+			_ = s.env.sourceContainer.Terminate(context.Background())
+		}
+		if s.env.targetContainer != nil {
+			_ = s.env.targetContainer.Terminate(context.Background())
+		}
+		if s.env.network != nil {
+			_ = s.env.network.Remove(context.Background())
+		}
+	}
+	if s.cancel != nil {
+		s.cancel()
+	}
+}
+
+// SetupTest resets database state before each test.
+func (s *InitTestSuite) SetupTest() {
+	ctx := s.ctx
+
+	// Cancel any active init operations from previous tests
+	if s.env.sourceDaemon != nil && s.env.sourceDaemon.InitManager() != nil {
+		cancelled := s.env.sourceDaemon.InitManager().CancelAll()
+		if len(cancelled) > 0 {
+			s.T().Logf("SetupTest: cancelled %d operations on source: %v", len(cancelled), cancelled)
+		}
+	}
+	if s.env.targetDaemon != nil && s.env.targetDaemon.InitManager() != nil {
+		cancelled := s.env.targetDaemon.InitManager().CancelAll()
+		if len(cancelled) > 0 {
+			s.T().Logf("SetupTest: cancelled %d operations on target: %v", len(cancelled), cancelled)
+		}
+	}
+
+	// Wait for all operations to fully complete (ActiveCount == 0)
+	for i := 0; i < 30; i++ {
+		sourceActive := 0
+		targetActive := 0
+		if s.env.sourceDaemon != nil && s.env.sourceDaemon.InitManager() != nil {
+			sourceActive = s.env.sourceDaemon.InitManager().ActiveCount()
+		}
+		if s.env.targetDaemon != nil && s.env.targetDaemon.InitManager() != nil {
+			targetActive = s.env.targetDaemon.InitManager().ActiveCount()
+		}
+		if sourceActive == 0 && targetActive == 0 {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// Clean up any subscriptions on target
+	rows, _ := s.env.targetPool.Query(ctx, "SELECT subname FROM pg_subscription")
+	if rows != nil {
+		var subs []string
+		for rows.Next() {
+			var name string
+			rows.Scan(&name)
+			subs = append(subs, name)
+		}
+		rows.Close()
+		for _, sub := range subs {
+			s.env.targetPool.Exec(ctx, fmt.Sprintf("DROP SUBSCRIPTION IF EXISTS %s", sub))
+		}
+	}
+
+	// Clean up any publications on source
+	rows, _ = s.env.sourcePool.Query(ctx, "SELECT pubname FROM pg_publication WHERE pubname LIKE 'steep_%'")
+	if rows != nil {
+		var pubs []string
+		for rows.Next() {
+			var name string
+			rows.Scan(&name)
+			pubs = append(pubs, name)
+		}
+		rows.Close()
+		for _, pub := range pubs {
+			s.env.sourcePool.Exec(ctx, fmt.Sprintf("DROP PUBLICATION IF EXISTS %s", pub))
+		}
+	}
+
+	// Clean up replication slots on source
+	rows, _ = s.env.sourcePool.Query(ctx, "SELECT slot_name FROM pg_replication_slots WHERE slot_name LIKE 'steep_%'")
+	if rows != nil {
+		var slots []string
+		for rows.Next() {
+			var name string
+			rows.Scan(&name)
+			slots = append(slots, name)
+		}
+		rows.Close()
+		for _, slot := range slots {
+			s.env.sourcePool.Exec(ctx, fmt.Sprintf("SELECT pg_drop_replication_slot('%s')", slot))
+		}
+	}
+
+	// Drop test tables on both nodes
+	testTables := []string{
+		"test_data", "large_table", "progress_test", "state_test",
+		"cli_test", "cancel_test", "manual_test", "schema_test",
+	}
+	for _, table := range testTables {
+		s.env.sourcePool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", table))
+		s.env.targetPool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", table))
+	}
+
+	// Reset node states
+	s.env.sourcePool.Exec(ctx, `
+		UPDATE steep_repl.nodes SET
+			init_state = 'uninitialized',
+			init_source_node = NULL,
+			init_started_at = NULL,
+			init_completed_at = NULL
+		WHERE node_id = 'source-node'
+	`)
+	s.env.targetPool.Exec(ctx, `
+		UPDATE steep_repl.nodes SET
+			init_state = 'uninitialized',
+			init_source_node = NULL,
+			init_started_at = NULL,
+			init_completed_at = NULL
+		WHERE node_id = 'target-node'
+	`)
+
+	// Clear init_progress
+	s.env.sourcePool.Exec(ctx, "DELETE FROM steep_repl.init_progress")
+	s.env.targetPool.Exec(ctx, "DELETE FROM steep_repl.init_progress")
+
+	// Clear init_slots
+	s.env.sourcePool.Exec(ctx, "DELETE FROM steep_repl.init_slots")
+	s.env.targetPool.Exec(ctx, "DELETE FROM steep_repl.init_slots")
+
+	// Clear audit logs (optional, keeps test isolation)
+	s.env.sourcePool.Exec(ctx, "DELETE FROM steep_repl.audit_log")
+	s.env.targetPool.Exec(ctx, "DELETE FROM steep_repl.audit_log")
+}
+
+// waitForDB waits for database to be ready
+func (s *InitTestSuite) waitForDB(pool *pgxpool.Pool, name string) {
+	for range 30 {
+		var ready int
+		if err := pool.QueryRow(s.ctx, "SELECT 1").Scan(&ready); err == nil {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	s.T().Fatalf("%s database not ready after 30 seconds", name)
+}
+
+// =============================================================================
+// User Story 1: Automatic Snapshot Initialization Tests
+// =============================================================================
+
+// TestInit_AutomaticSnapshotWorkflow tests the complete automatic snapshot initialization
+// by calling the actual StartInit gRPC RPC and verifying the InitManager creates the
+// subscription and copies data.
+func (s *InitTestSuite) TestInit_AutomaticSnapshotWorkflow() {
+	ctx := s.ctx
+	env := s.env
+
+	// Create test data on source
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE TABLE test_data (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL,
+			value INTEGER
+		)
+	`)
+	s.Require().NoError(err, "Failed to create test table on source")
+
+	_, err = env.sourcePool.Exec(ctx, `
+		INSERT INTO test_data (name, value)
+		SELECT 'item_' || i, i * 10
+		FROM generate_series(1, 100) AS i
+	`)
+	s.Require().NoError(err, "Failed to insert test data")
+
+	// Create publication on source
+	_, err = env.sourcePool.Exec(ctx, `
+		CREATE PUBLICATION steep_pub_source_node FOR TABLE test_data
+	`)
+	s.Require().NoError(err, "Failed to create publication")
+
+	// Create matching table on target (required for logical replication)
+	_, err = env.targetPool.Exec(ctx, `
+		CREATE TABLE test_data (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL,
+			value INTEGER
+		)
+	`)
+	s.Require().NoError(err, "Failed to create test table on target")
+
+	// Verify target is empty
+	var countBefore int
+	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM test_data").Scan(&countBefore)
+	s.Require().NoError(err)
+	s.Require().Equal(0, countBefore, "Target should be empty")
+
+	// Connect to target daemon via gRPC
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
+	s.Require().NoError(err, "Failed to dial target daemon gRPC")
+	defer conn.Close()
+
+	initClient := pb.NewInitServiceClient(conn)
+
+	// Call StartInit RPC
+	resp, err := initClient.StartInit(ctx, &pb.StartInitRequest{
+		TargetNodeId: "target-node",
+		SourceNodeId: "source-node",
+		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
+		Options: &pb.InitOptions{
+			ParallelWorkers: 4,
+			SchemaSyncMode:  pb.SchemaSyncMode_SCHEMA_SYNC_STRICT,
+		},
+		SourceNodeInfo: &pb.SourceNodeInfo{
+			Host:     env.sourceHost,
+			Port:     int32(env.sourcePort),
+			Database: "testdb",
+			User:     "test",
+		},
+	})
+	s.Require().NoError(err, "StartInit RPC failed")
+	s.Require().True(resp.Success, "StartInit returned error: %s", resp.Error)
+
+	// Verify InitManager registered the operation
+	initMgr := env.targetDaemon.InitManager()
+	s.Require().NotNil(initMgr, "InitManager should not be nil")
+	s.Assert().True(initMgr.IsActive("target-node"), "Operation should be active")
+
+	// Wait for initialization to complete
+	var initState string
+	initComplete := false
+	for i := range 120 {
+		err = env.targetPool.QueryRow(ctx, `
+			SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
+		`).Scan(&initState)
+		if err != nil {
+			time.Sleep(time.Second)
+			continue
+		}
+
+		s.T().Logf("Init state at %ds: %s", i, initState)
+
+		if initState == "synchronized" {
+			initComplete = true
+			break
+		}
+		if initState == "failed" {
+			var errMsg string
+			env.targetPool.QueryRow(ctx, `
+				SELECT COALESCE(error_message, 'unknown error')
+				FROM steep_repl.init_progress
+				WHERE node_id = 'target-node'
+			`).Scan(&errMsg)
+			s.T().Fatalf("Init failed: %s", errMsg)
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	s.Require().True(initComplete, "Initialization did not complete, final state: %s", initState)
+
+	// Verify data was copied
+	var countAfter int
+	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM test_data").Scan(&countAfter)
+	s.Require().NoError(err)
+	s.Assert().Equal(100, countAfter, "Expected 100 rows on target")
+
+	// Verify sample data
+	var sampleName string
+	var sampleValue int
+	err = env.targetPool.QueryRow(ctx, "SELECT name, value FROM test_data WHERE id = 50").Scan(&sampleName, &sampleValue)
+	s.Require().NoError(err)
+	s.Assert().Equal("item_50", sampleName)
+	s.Assert().Equal(500, sampleValue)
+
+	// Verify subscription was created
+	var subExists bool
+	err = env.targetPool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM pg_subscription WHERE subname LIKE 'steep_sub_%')
+	`).Scan(&subExists)
+	s.Require().NoError(err)
+	s.Assert().True(subExists, "Subscription should exist")
+
+	// Verify init_completed_at was set
+	var completedAt *time.Time
+	err = env.targetPool.QueryRow(ctx, `
+		SELECT init_completed_at FROM steep_repl.nodes WHERE node_id = 'target-node'
+	`).Scan(&completedAt)
+	s.Require().NoError(err)
+	s.Assert().NotNil(completedAt, "init_completed_at should be set")
+}
+
+// TestInit_CancelInit tests cancellation of an in-progress initialization.
+func (s *InitTestSuite) TestInit_CancelInit() {
+	ctx := s.ctx
+	env := s.env
+
+	// Create larger test data to give us time to cancel
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE TABLE large_table (
+			id SERIAL PRIMARY KEY,
+			data TEXT,
+			padding TEXT
+		)
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.sourcePool.Exec(ctx, `
+		INSERT INTO large_table (data, padding)
+		SELECT md5(i::text), repeat('x', 1000)
+		FROM generate_series(1, 5000) AS i
+	`)
+	s.Require().NoError(err)
+
+	// Create publication
+	_, err = env.sourcePool.Exec(ctx, `
+		CREATE PUBLICATION steep_pub_source_node FOR TABLE large_table
+	`)
+	s.Require().NoError(err)
+
+	// Create matching table on target
+	_, err = env.targetPool.Exec(ctx, `
+		CREATE TABLE large_table (
+			id SERIAL PRIMARY KEY,
+			data TEXT,
+			padding TEXT
+		)
+	`)
+	s.Require().NoError(err)
+
+	// Connect to target daemon
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer conn.Close()
+
+	initClient := pb.NewInitServiceClient(conn)
+
+	// Start initialization
+	startResp, err := initClient.StartInit(ctx, &pb.StartInitRequest{
+		TargetNodeId: "target-node",
+		SourceNodeId: "source-node",
+		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
+		SourceNodeInfo: &pb.SourceNodeInfo{
+			Host:     env.sourceHost,
+			Port:     int32(env.sourcePort),
+			Database: "testdb",
+			User:     "test",
+		},
+	})
+	s.Require().NoError(err)
+	s.Require().True(startResp.Success, "StartInit error: %s", startResp.Error)
+
+	// Wait briefly for init to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify operation is active
+	initMgr := env.targetDaemon.InitManager()
+	s.Assert().True(initMgr.IsActive("target-node"), "Expected active operation before cancel")
+
+	// Cancel initialization
+	cancelResp, err := initClient.CancelInit(ctx, &pb.CancelInitRequest{
+		NodeId: "target-node",
+	})
+	s.Require().NoError(err)
+	s.Require().True(cancelResp.Success, "CancelInit error: %s", cancelResp.Error)
+
+	// Wait for cancellation to propagate
+	time.Sleep(time.Second)
+
+	// Verify operation is no longer active
+	for i := 0; i < 10; i++ {
+		if !initMgr.IsActive("target-node") {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Check that cancellation was logged in audit log
+	var auditExists bool
+	err = env.targetPool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM steep_repl.audit_log
+			WHERE action = 'init.cancelled' AND target_id = 'target-node'
+		)
+	`).Scan(&auditExists)
+	s.Require().NoError(err)
+	s.Assert().True(auditExists, "Audit log entry for init.cancelled should exist")
+}
+
+// TestInit_GetProgress tests the GetProgress RPC returns valid progress data.
+func (s *InitTestSuite) TestInit_GetProgress() {
+	ctx := s.ctx
+	env := s.env
+
+	// Create test data
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE TABLE progress_test (id SERIAL PRIMARY KEY, data TEXT);
+		INSERT INTO progress_test (data) SELECT md5(i::text) FROM generate_series(1, 1000) i;
+		CREATE PUBLICATION steep_pub_source_node FOR TABLE progress_test;
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.targetPool.Exec(ctx, `
+		CREATE TABLE progress_test (id SERIAL PRIMARY KEY, data TEXT)
+	`)
+	s.Require().NoError(err)
+
+	// Connect and start init
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer conn.Close()
+
+	initClient := pb.NewInitServiceClient(conn)
+
+	_, err = initClient.StartInit(ctx, &pb.StartInitRequest{
+		TargetNodeId: "target-node",
+		SourceNodeId: "source-node",
+		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
+		SourceNodeInfo: &pb.SourceNodeInfo{
+			Host:     env.sourceHost,
+			Port:     int32(env.sourcePort),
+			Database: "testdb",
+			User:     "test",
+		},
+	})
+	s.Require().NoError(err)
+
+	// Poll for progress
+	var sawProgress bool
+	for range 30 {
+		resp, err := initClient.GetProgress(ctx, &pb.GetProgressRequest{
+			NodeId: "target-node",
+		})
+		if err != nil {
+			s.T().Logf("GetProgress error: %v", err)
+			time.Sleep(time.Second)
+			continue
+		}
+
+		if resp.HasProgress {
+			sawProgress = true
+			s.T().Logf("Progress: phase=%s percent=%.1f tables=%d/%d",
+				resp.Progress.Phase,
+				resp.Progress.OverallPercent,
+				resp.Progress.TablesCompleted,
+				resp.Progress.TablesTotal)
+
+			s.Assert().Equal("target-node", resp.Progress.NodeId)
+			break
+		}
+		time.Sleep(time.Second)
+	}
+
+	if !sawProgress {
+		s.T().Log("Warning: Did not observe progress - init may have completed too quickly")
+	}
+}
+
+// TestInit_StateTransitions tests that the actual state machine transitions occur correctly.
+func (s *InitTestSuite) TestInit_StateTransitions() {
+	ctx := s.ctx
+	env := s.env
+
+	// Create small test data
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE TABLE state_test (id SERIAL PRIMARY KEY, data TEXT);
+		INSERT INTO state_test (data) VALUES ('test');
+		CREATE PUBLICATION steep_pub_source_node FOR TABLE state_test;
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.targetPool.Exec(ctx, `
+		CREATE TABLE state_test (id SERIAL PRIMARY KEY, data TEXT)
+	`)
+	s.Require().NoError(err)
+
+	// Track observed states
+	observedStates := make(map[string]bool)
+
+	// Query initial state
+	var state string
+	env.targetPool.QueryRow(ctx, `
+		SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
+	`).Scan(&state)
+	observedStates[state] = true
+	s.T().Logf("Initial state: %s", state)
+
+	// Start init
+	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
+	s.Require().NoError(err)
+	defer conn.Close()
+
+	initClient := pb.NewInitServiceClient(conn)
+
+	_, err = initClient.StartInit(ctx, &pb.StartInitRequest{
+		TargetNodeId: "target-node",
+		SourceNodeId: "source-node",
+		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
+		SourceNodeInfo: &pb.SourceNodeInfo{
+			Host:     env.sourceHost,
+			Port:     int32(env.sourcePort),
+			Database: "testdb",
+			User:     "test",
+		},
+	})
+	s.Require().NoError(err)
+
+	// Poll states until synchronized or failed
+	for range 60 {
+		err = env.targetPool.QueryRow(ctx, `
+			SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
+		`).Scan(&state)
+		if err != nil {
+			time.Sleep(time.Second)
+			continue
+		}
+
+		if !observedStates[state] {
+			s.T().Logf("State transition: -> %s", state)
+			observedStates[state] = true
+		}
+
+		if state == "synchronized" || state == "failed" {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Verify expected states were observed
+	expectedStates := []string{"uninitialized", "preparing"}
+	for _, expected := range expectedStates {
+		s.Assert().True(observedStates[expected], "Expected to observe state %q", expected)
+	}
+
+	// Final state should be synchronized
+	s.Assert().Equal("synchronized", state, "Final state should be synchronized")
+
+	s.T().Logf("All observed states: %v", observedStates)
+}
+
+// =============================================================================
+// CLI Command Integration Tests
+// =============================================================================
+
+// TestCLI_InitStart tests the 'steep-repl init start' CLI command.
+func (s *InitTestSuite) TestCLI_InitStart() {
+	ctx := s.ctx
+	env := s.env
+
+	// Create test data on source
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE TABLE cli_test (id SERIAL PRIMARY KEY, data TEXT);
+		INSERT INTO cli_test (data) SELECT 'row_' || i FROM generate_series(1, 50) AS i;
+		CREATE PUBLICATION steep_pub_source_node FOR TABLE cli_test;
+	`)
+	s.Require().NoError(err)
+
+	// Create matching table on target
+	_, err = env.targetPool.Exec(ctx, `CREATE TABLE cli_test (id SERIAL PRIMARY KEY, data TEXT)`)
+	s.Require().NoError(err)
+
+	// Execute CLI via gRPC client directly (simulating CLI behavior)
+	clientCfg := replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.targetGRPCPort),
+		Timeout: 30 * time.Second,
+	}
+	client, err := replgrpc.NewClient(ctx, clientCfg)
+	s.Require().NoError(err)
+	defer client.Close()
+
+	resp, err := client.StartInit(ctx, &pb.StartInitRequest{
+		TargetNodeId: "target-node",
+		SourceNodeId: "source-node",
+		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
+		SourceNodeInfo: &pb.SourceNodeInfo{
+			Host:     env.sourceHost,
+			Port:     int32(env.sourcePort),
+			Database: "testdb",
+			User:     "test",
+		},
+		Options: &pb.InitOptions{
+			ParallelWorkers: 4,
+			SchemaSyncMode:  pb.SchemaSyncMode_SCHEMA_SYNC_STRICT,
+		},
+	})
+	s.Require().NoError(err)
+	s.Require().True(resp.Success, "CLI init start returned error: %s", resp.Error)
+
+	// Wait for completion
+	var state string
+	for i := 0; i < 60; i++ {
+		err = env.targetPool.QueryRow(ctx, `
+			SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
+		`).Scan(&state)
+		if err == nil && (state == "synchronized" || state == "failed") {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+
+	s.Assert().Equal("synchronized", state)
+
+	// Verify data was copied
+	var count int
+	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM cli_test").Scan(&count)
+	s.Require().NoError(err)
+	s.Assert().Equal(50, count)
+}
+
+// TestCLI_InitCancel tests the 'steep-repl init cancel' CLI command.
+func (s *InitTestSuite) TestCLI_InitCancel() {
+	ctx := s.ctx
+	env := s.env
+
+	// Create larger test data to have time to cancel
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE TABLE cancel_test (id SERIAL PRIMARY KEY, data TEXT, padding TEXT);
+		INSERT INTO cancel_test (data, padding)
+		SELECT 'row_' || i, repeat('x', 500) FROM generate_series(1, 3000) AS i;
+		CREATE PUBLICATION steep_pub_source_node FOR TABLE cancel_test;
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.targetPool.Exec(ctx, `
+		CREATE TABLE cancel_test (id SERIAL PRIMARY KEY, data TEXT, padding TEXT)
+	`)
+	s.Require().NoError(err)
+
+	// Connect to target daemon
+	clientCfg := replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.targetGRPCPort),
+		Timeout: 30 * time.Second,
+	}
+	client, err := replgrpc.NewClient(ctx, clientCfg)
+	s.Require().NoError(err)
+	defer client.Close()
+
+	// Start init
+	startResp, err := client.StartInit(ctx, &pb.StartInitRequest{
+		TargetNodeId: "target-node",
+		SourceNodeId: "source-node",
+		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
+		SourceNodeInfo: &pb.SourceNodeInfo{
+			Host:     env.sourceHost,
+			Port:     int32(env.sourcePort),
+			Database: "testdb",
+			User:     "test",
+		},
+	})
+	s.Require().NoError(err)
+	s.Require().True(startResp.Success, "StartInit error: %s", startResp.Error)
+
+	// Wait briefly for init to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Cancel via CLI (simulated)
+	cancelResp, err := client.CancelInit(ctx, &pb.CancelInitRequest{
+		NodeId: "target-node",
+	})
+	s.Require().NoError(err)
+	s.Require().True(cancelResp.Success, "CLI init cancel returned error: %s", cancelResp.Error)
+
+	// Verify cancellation was logged
+	time.Sleep(time.Second)
+	var auditExists bool
+	err = env.targetPool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM steep_repl.audit_log
+			WHERE action = 'init.cancelled' AND target_id = 'target-node'
+		)
+	`).Scan(&auditExists)
+	s.Require().NoError(err)
+	s.Assert().True(auditExists, "Audit log entry for init.cancelled should exist")
+}
+
+// TestCLI_InitPrepare tests the 'steep-repl init prepare' CLI command.
+func (s *InitTestSuite) TestCLI_InitPrepare() {
+	ctx := s.ctx
+	env := s.env
+
+	// Connect to source daemon (prepare runs on source)
+	clientCfg := replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.sourceGRPCPort),
+		Timeout: 30 * time.Second,
+	}
+	client, err := replgrpc.NewClient(ctx, clientCfg)
+	s.Require().NoError(err)
+	defer client.Close()
+
+	// Call PrepareInit (what CLI does)
+	slotName := "steep_init_source_node"
+	resp, err := client.PrepareInit(ctx, &pb.PrepareInitRequest{
+		NodeId:   "source-node",
+		SlotName: slotName,
+	})
+	s.Require().NoError(err)
+	s.Require().True(resp.Success, "PrepareInit failed: %s", resp.Error)
+
+	// Verify slot was created
+	s.T().Logf("PrepareInit succeeded: slot=%s lsn=%s", resp.SlotName, resp.Lsn)
+
+	s.Assert().Equal(slotName, resp.SlotName)
+	s.Assert().NotEmpty(resp.Lsn)
+	s.Assert().NotNil(resp.CreatedAt)
+
+	// Verify slot exists in PostgreSQL
+	var slotExists bool
+	err = env.sourcePool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)
+	`, slotName).Scan(&slotExists)
+	s.Require().NoError(err)
+	s.Assert().True(slotExists, "Replication slot should exist")
+
+	// Verify slot was recorded in init_slots table
+	var recordedLSN string
+	err = env.sourcePool.QueryRow(ctx, `
+		SELECT lsn FROM steep_repl.init_slots WHERE slot_name = $1
+	`, slotName).Scan(&recordedLSN)
+	s.Require().NoError(err)
+	s.Assert().Equal(resp.Lsn, recordedLSN)
+
+	// Verify calling prepare again fails (slot already exists)
+	resp2, err := client.PrepareInit(ctx, &pb.PrepareInitRequest{
+		NodeId:   "source-node",
+		SlotName: slotName,
+	})
+	s.Require().NoError(err)
+	s.Assert().False(resp2.Success, "Second PrepareInit should fail")
+	s.Assert().NotEmpty(resp2.Error)
+}
+
+// TestCLI_InitComplete tests the 'steep-repl init complete' CLI command.
+// This is T028: Integration test for full prepare/complete workflow.
+func (s *InitTestSuite) TestCLI_InitComplete() {
+	ctx := s.ctx
+	env := s.env
+
+	// === Step 1: Create test data on source ===
+	_, err := env.sourcePool.Exec(ctx, `
+		CREATE TABLE manual_test (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL,
+			value INTEGER
+		)
+	`)
+	s.Require().NoError(err)
+
+	_, err = env.sourcePool.Exec(ctx, `
+		INSERT INTO manual_test (name, value)
+		SELECT 'item_' || i, i * 10
+		FROM generate_series(1, 100) AS i
+	`)
+	s.Require().NoError(err)
+
+	// Create publication on source
+	_, err = env.sourcePool.Exec(ctx, `
+		CREATE PUBLICATION steep_pub_source_node FOR TABLE manual_test
+	`)
+	s.Require().NoError(err)
+
+	// === Step 2: Call PrepareInit on source ===
+	sourceClient, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.sourceGRPCPort),
+		Timeout: 30 * time.Second,
+	})
+	s.Require().NoError(err)
+	defer sourceClient.Close()
+
+	slotName := "steep_init_source_node"
+	prepareResp, err := sourceClient.PrepareInit(ctx, &pb.PrepareInitRequest{
+		NodeId:   "source-node",
+		SlotName: slotName,
+	})
+	s.Require().NoError(err)
+	s.Require().True(prepareResp.Success, "PrepareInit error: %s", prepareResp.Error)
+
+	s.T().Logf("Prepared slot %s at LSN %s", prepareResp.SlotName, prepareResp.Lsn)
+
+	// === Step 3: Backup from source and restore to target ===
+	// Run pg_dump inside source container
+	dumpCode, dumpOutput, err := env.sourceContainer.Exec(ctx, []string{
+		"pg_dump",
+		"-h", "localhost",
+		"-U", "test",
+		"-d", "testdb",
+		"-t", "manual_test",
+		"-Fp",
+		"-f", "/tmp/backup.sql",
+	})
+	s.Require().NoError(err)
+	dumpOutputBytes, _ := io.ReadAll(dumpOutput)
+	s.Require().Equal(0, dumpCode, "pg_dump failed: %s", string(dumpOutputBytes))
+	s.T().Log("pg_dump completed successfully")
+
+	// Copy the dump file from source to target container
+	dumpFileReader, err := env.sourceContainer.CopyFileFromContainer(ctx, "/tmp/backup.sql")
+	s.Require().NoError(err)
+	dumpData, err := io.ReadAll(dumpFileReader)
+	dumpFileReader.Close()
+	s.Require().NoError(err)
+	s.T().Logf("Dump file size: %d bytes", len(dumpData))
+
+	// Copy to target container
+	err = env.targetContainer.CopyToContainer(ctx, dumpData, "/tmp/backup.sql", 0644)
+	s.Require().NoError(err)
+
+	// Run psql to restore on target container
+	restoreCode, restoreOutput, err := env.targetContainer.Exec(ctx, []string{
+		"psql",
+		"-h", "localhost",
+		"-U", "test",
+		"-d", "testdb",
+		"-f", "/tmp/backup.sql",
+	})
+	s.Require().NoError(err)
+	restoreOutputBytes, _ := io.ReadAll(restoreOutput)
+	s.Require().Equal(0, restoreCode, "psql restore failed: %s", string(restoreOutputBytes))
+	s.T().Log("Restore completed successfully")
+
+	// Verify target has data after restore
+	var countBefore int
+	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM manual_test").Scan(&countBefore)
+	s.Require().NoError(err)
+	s.Require().Equal(100, countBefore, "Target should have 100 rows after restore")
+
+	// === Step 4: Call CompleteInit on target ===
+	targetClient, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
+		Address: fmt.Sprintf("localhost:%d", env.targetGRPCPort),
+		Timeout: 30 * time.Second,
+	})
+	s.Require().NoError(err)
+	defer targetClient.Close()
+
+	completeResp, err := targetClient.CompleteInit(ctx, &pb.CompleteInitRequest{
+		TargetNodeId:   "target-node",
+		SourceNodeId:   "source-node",
+		SourceLsn:      prepareResp.Lsn,
+		SchemaSyncMode: pb.SchemaSyncMode_SCHEMA_SYNC_STRICT,
+		SourceNodeInfo: &pb.SourceNodeInfo{
+			Host:     env.sourceHost,
+			Port:     int32(env.sourcePort),
+			Database: "testdb",
+			User:     "test",
+		},
+		SkipSchemaCheck: true,
+	})
+	s.Require().NoError(err)
+	s.Require().True(completeResp.Success, "CompleteInit error: %s", completeResp.Error)
+
+	s.T().Logf("CompleteInit succeeded: state=%v", completeResp.State)
+
+	// === Step 5: Verify subscription was created ===
+	var subExists bool
+	err = env.targetPool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM pg_subscription
+			WHERE subname = 'steep_sub_target_node_from_source_node'
+		)
+	`).Scan(&subExists)
+	s.Require().NoError(err)
+	s.Assert().True(subExists, "Subscription should exist after CompleteInit")
+
+	// === Step 6: Wait for state to transition to SYNCHRONIZED ===
+	var initState string
+	for i := 0; i < 60; i++ {
+		err = env.targetPool.QueryRow(ctx, `
+			SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
+		`).Scan(&initState)
+		if err != nil {
+			time.Sleep(time.Second)
+			continue
+		}
+
+		s.T().Logf("Init state at %ds: %s", i, initState)
+
+		if initState == "synchronized" {
+			break
+		}
+		if initState == "failed" {
+			s.T().Fatalf("Init failed unexpectedly")
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	s.Assert().Equal("synchronized", initState)
+
+	// === Step 7: Verify replication works ===
+	_, err = env.sourcePool.Exec(ctx, `
+		INSERT INTO manual_test (name, value) VALUES ('new_item', 9999)
+	`)
+	s.Require().NoError(err)
+
+	// Wait for replication
+	time.Sleep(2 * time.Second)
+
+	var newValue int
+	err = env.targetPool.QueryRow(ctx, `
+		SELECT value FROM manual_test WHERE name = 'new_item'
+	`).Scan(&newValue)
+	if err != nil {
+		s.T().Logf("New item not yet replicated (expected in manual init): %v", err)
+	} else {
+		s.Assert().Equal(9999, newValue, "Replicated value mismatch")
+		s.T().Log("Replication verified: new item replicated successfully")
+	}
+}
+
+// =============================================================================
+// Backward-Compatible Standalone Helper Functions
+// =============================================================================
+// These functions are used by other test files (reinit_test.go, schema_test.go)
+// that haven't been converted to suite pattern yet.
+
+// setupTwoNodeEnv creates a two-node test environment for standalone tests.
+// Used by reinit_test.go.
+func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
 	const testPassword = "test"
 	env := &twoNodeEnv{}
 
@@ -56,9 +1194,29 @@ func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
 		t.Fatalf("Failed to create Docker network: %v", err)
 	}
 	env.network = net
+
+	// Cleanup on test completion
 	t.Cleanup(func() {
-		if err := net.Remove(ctx); err != nil {
-			t.Logf("Failed to remove network: %v", err)
+		if env.sourceDaemon != nil {
+			env.sourceDaemon.Stop()
+		}
+		if env.targetDaemon != nil {
+			env.targetDaemon.Stop()
+		}
+		if env.sourcePool != nil {
+			env.sourcePool.Close()
+		}
+		if env.targetPool != nil {
+			env.targetPool.Close()
+		}
+		if env.sourceContainer != nil {
+			env.sourceContainer.Terminate(context.Background())
+		}
+		if env.targetContainer != nil {
+			env.targetContainer.Terminate(context.Background())
+		}
+		if env.network != nil {
+			env.network.Remove(context.Background())
 		}
 	})
 
@@ -93,11 +1251,6 @@ func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
 		t.Fatalf("Failed to start source container: %v", err)
 	}
 	env.sourceContainer = sourceContainer
-	t.Cleanup(func() {
-		if err := sourceContainer.Terminate(ctx); err != nil {
-			t.Logf("Failed to terminate source container: %v", err)
-		}
-	})
 
 	// Start target PostgreSQL container
 	targetReq := testcontainers.ContainerRequest{
@@ -130,11 +1283,6 @@ func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
 		t.Fatalf("Failed to start target container: %v", err)
 	}
 	env.targetContainer = targetContainer
-	t.Cleanup(func() {
-		if err := targetContainer.Terminate(ctx); err != nil {
-			t.Logf("Failed to terminate target container: %v", err)
-		}
-	})
 
 	// Get connection info
 	sourceHostExternal, _ := sourceContainer.Host(ctx)
@@ -146,6 +1294,10 @@ func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
 	env.sourcePort = 5432
 	env.targetHost = "pg-target"
 	env.targetPort = 5432
+	env.sourceHostExternal = sourceHostExternal
+	env.sourcePortExternal = sourcePortExternal.Int()
+	env.targetHostExternal = targetHostExternal
+	env.targetPortExternal = targetPortExternal.Int()
 
 	// Create connection pools using external ports
 	sourceConnStr := fmt.Sprintf("postgres://test:test@%s:%s/testdb?sslmode=disable",
@@ -154,7 +1306,6 @@ func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
 	if err != nil {
 		t.Fatalf("Failed to create source pool: %v", err)
 	}
-	t.Cleanup(func() { env.sourcePool.Close() })
 
 	targetConnStr := fmt.Sprintf("postgres://test:test@%s:%s/testdb?sslmode=disable",
 		targetHostExternal, targetPortExternal.Port())
@@ -162,7 +1313,6 @@ func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
 	if err != nil {
 		t.Fatalf("Failed to create target pool: %v", err)
 	}
-	t.Cleanup(func() { env.targetPool.Close() })
 
 	// Wait for databases to be ready
 	waitForDB(t, ctx, env.sourcePool, "source")
@@ -179,8 +1329,8 @@ func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
 	}
 
 	// Start daemons
-	env.sourceGRPCPort = 15460
-	env.targetGRPCPort = 15461
+	env.sourceGRPCPort = 15462 // Different ports from suite to avoid conflicts
+	env.targetGRPCPort = 15463
 
 	// Set PGPASSWORD for daemon connections
 	t.Setenv("PGPASSWORD", testPassword)
@@ -216,10 +1366,10 @@ func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
 	if err != nil {
 		t.Fatalf("Failed to create source daemon: %v", err)
 	}
-	if err := env.sourceDaemon.Start(); err != nil {
+	err = env.sourceDaemon.Start()
+	if err != nil {
 		t.Fatalf("Failed to start source daemon: %v", err)
 	}
-	t.Cleanup(func() { env.sourceDaemon.Stop() })
 
 	targetSocketPath := tempSocketPath(t)
 	targetCfg := &config.Config{
@@ -252,10 +1402,10 @@ func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
 	if err != nil {
 		t.Fatalf("Failed to create target daemon: %v", err)
 	}
-	if err := env.targetDaemon.Start(); err != nil {
+	err = env.targetDaemon.Start()
+	if err != nil {
 		t.Fatalf("Failed to start target daemon: %v", err)
 	}
-	t.Cleanup(func() { env.targetDaemon.Stop() })
 
 	// Wait for daemons to be ready
 	time.Sleep(time.Second)
@@ -263,9 +1413,9 @@ func setupTwoNodeEnv(t *testing.T, ctx context.Context) *twoNodeEnv {
 	return env
 }
 
-// waitForDB waits for database to be ready
+// waitForDB waits for database to be ready (standalone version).
+// Used by schema_test.go, reinit_test.go, and other standalone tests.
 func waitForDB(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) {
-	t.Helper()
 	for range 30 {
 		var ready int
 		if err := pool.QueryRow(ctx, "SELECT 1").Scan(&ready); err == nil {
@@ -276,1059 +1426,11 @@ func waitForDB(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name strin
 	t.Fatalf("%s database not ready after 30 seconds", name)
 }
 
-// TestInit_AutomaticSnapshotWorkflow tests the complete automatic snapshot initialization
-// by calling the actual StartInit gRPC RPC and verifying the InitManager creates the
-// subscription and copies data.
-func TestInit_AutomaticSnapshotWorkflow(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
-
-	// Create test data on source
-	_, err := env.sourcePool.Exec(ctx, `
-		CREATE TABLE test_data (
-			id SERIAL PRIMARY KEY,
-			name TEXT NOT NULL,
-			value INTEGER
-		)
-	`)
-	if err != nil {
-		t.Fatalf("Failed to create test table on source: %v", err)
-	}
-
-	_, err = env.sourcePool.Exec(ctx, `
-		INSERT INTO test_data (name, value)
-		SELECT 'item_' || i, i * 10
-		FROM generate_series(1, 100) AS i
-	`)
-	if err != nil {
-		t.Fatalf("Failed to insert test data: %v", err)
-	}
-
-	// Create publication on source
-	_, err = env.sourcePool.Exec(ctx, `
-		CREATE PUBLICATION steep_pub_source_node FOR TABLE test_data
-	`)
-	if err != nil {
-		t.Fatalf("Failed to create publication: %v", err)
-	}
-
-	// Create matching table on target (required for logical replication)
-	_, err = env.targetPool.Exec(ctx, `
-		CREATE TABLE test_data (
-			id SERIAL PRIMARY KEY,
-			name TEXT NOT NULL,
-			value INTEGER
-		)
-	`)
-	if err != nil {
-		t.Fatalf("Failed to create test table on target: %v", err)
-	}
-
-	// Verify target is empty
-	var countBefore int
-	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM test_data").Scan(&countBefore)
-	if err != nil {
-		t.Fatalf("Failed to count rows: %v", err)
-	}
-	if countBefore != 0 {
-		t.Fatalf("Target should be empty, got %d rows", countBefore)
-	}
-
-	// Connect to target daemon via gRPC
-	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
-	if err != nil {
-		t.Fatalf("Failed to dial target daemon gRPC: %v", err)
-	}
-	defer conn.Close()
-
-	initClient := pb.NewInitServiceClient(conn)
-
-	// Call StartInit RPC - this invokes the actual InitManager.StartInit
-	// Include SourceNodeInfo for auto-registration of source node on target
-	resp, err := initClient.StartInit(ctx, &pb.StartInitRequest{
-		TargetNodeId: "target-node",
-		SourceNodeId: "source-node",
-		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
-		Options: &pb.InitOptions{
-			ParallelWorkers: 4,
-			SchemaSyncMode:  pb.SchemaSyncMode_SCHEMA_SYNC_STRICT,
-		},
-		SourceNodeInfo: &pb.SourceNodeInfo{
-			Host:     env.sourceHost,
-			Port:     int32(env.sourcePort),
-			Database: "testdb",
-			User:     "test",
-		},
-	})
-	if err != nil {
-		t.Fatalf("StartInit RPC failed: %v", err)
-	}
-	if !resp.Success {
-		t.Fatalf("StartInit returned error: %s", resp.Error)
-	}
-
-	// Verify InitManager registered the operation
-	initMgr := env.targetDaemon.InitManager()
-	if initMgr == nil {
-		t.Fatal("InitManager should not be nil")
-	}
-	if !initMgr.IsActive("target-node") {
-		t.Error("Operation should be active for target-node")
-	}
-
-	// Verify state changed to PREPARING or COPYING
-	var initState string
-	err = env.targetPool.QueryRow(ctx, `
-		SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
-	`).Scan(&initState)
-	if err != nil {
-		t.Fatalf("Failed to query init state: %v", err)
-	}
-	if initState != "preparing" && initState != "copying" {
-		t.Errorf("Expected state 'preparing' or 'copying', got %q", initState)
-	}
-
-	// Wait for initialization to complete (subscription sync + catch-up)
-	// Poll the state until SYNCHRONIZED or timeout
-	initComplete := false
-	for i := range 120 { // Wait up to 2 minutes
-		err = env.targetPool.QueryRow(ctx, `
-			SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
-		`).Scan(&initState)
-		if err != nil {
-			t.Logf("State poll error: %v", err)
-			time.Sleep(time.Second)
-			continue
-		}
-
-		t.Logf("Init state at %ds: %s", i, initState)
-
-		if initState == "synchronized" {
-			initComplete = true
-			break
-		}
-		if initState == "failed" {
-			// Get error message from progress table
-			var errMsg string
-			env.targetPool.QueryRow(ctx, `
-				SELECT COALESCE(error_message, 'unknown error')
-				FROM steep_repl.init_progress
-				WHERE node_id = 'target-node'
-			`).Scan(&errMsg)
-			t.Fatalf("Init failed: %s", errMsg)
-		}
-
-		time.Sleep(time.Second)
-	}
-
-	if !initComplete {
-		t.Fatalf("Initialization did not complete within timeout, final state: %s", initState)
-	}
-
-	// Verify data was copied
-	var countAfter int
-	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM test_data").Scan(&countAfter)
-	if err != nil {
-		t.Fatalf("Failed to count rows after init: %v", err)
-	}
-	if countAfter != 100 {
-		t.Errorf("Expected 100 rows on target, got %d", countAfter)
-	}
-
-	// Verify sample data
-	var sampleName string
-	var sampleValue int
-	err = env.targetPool.QueryRow(ctx, "SELECT name, value FROM test_data WHERE id = 50").Scan(&sampleName, &sampleValue)
-	if err != nil {
-		t.Fatalf("Failed to query sample: %v", err)
-	}
-	if sampleName != "item_50" || sampleValue != 500 {
-		t.Errorf("Sample mismatch: got name=%q value=%d, want name='item_50' value=500", sampleName, sampleValue)
-	}
-
-	// Verify subscription was created
-	var subExists bool
-	err = env.targetPool.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM pg_subscription WHERE subname LIKE 'steep_sub_%')
-	`).Scan(&subExists)
-	if err != nil {
-		t.Fatalf("Failed to check subscription: %v", err)
-	}
-	if !subExists {
-		t.Error("Subscription should exist after initialization")
-	}
-
-	// Verify init_completed_at was set
-	var completedAt *time.Time
-	err = env.targetPool.QueryRow(ctx, `
-		SELECT init_completed_at FROM steep_repl.nodes WHERE node_id = 'target-node'
-	`).Scan(&completedAt)
-	if err != nil {
-		t.Fatalf("Failed to query completion time: %v", err)
-	}
-	if completedAt == nil {
-		t.Error("init_completed_at should be set after successful initialization")
-	}
-}
-
-// TestInit_CancelInit tests cancellation of an in-progress initialization
-// by calling CancelInit RPC and verifying cleanup.
-func TestInit_CancelInit(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
-
-	// Create larger test data to give us time to cancel
-	_, err := env.sourcePool.Exec(ctx, `
-		CREATE TABLE large_table (
-			id SERIAL PRIMARY KEY,
-			data TEXT,
-			padding TEXT
-		)
-	`)
-	if err != nil {
-		t.Fatalf("Failed to create table: %v", err)
-	}
-
-	_, err = env.sourcePool.Exec(ctx, `
-		INSERT INTO large_table (data, padding)
-		SELECT md5(i::text), repeat('x', 1000)
-		FROM generate_series(1, 5000) AS i
-	`)
-	if err != nil {
-		t.Fatalf("Failed to insert data: %v", err)
-	}
-
-	// Create publication
-	_, err = env.sourcePool.Exec(ctx, `
-		CREATE PUBLICATION steep_pub_source_node FOR TABLE large_table
-	`)
-	if err != nil {
-		t.Fatalf("Failed to create publication: %v", err)
-	}
-
-	// Create matching table on target
-	_, err = env.targetPool.Exec(ctx, `
-		CREATE TABLE large_table (
-			id SERIAL PRIMARY KEY,
-			data TEXT,
-			padding TEXT
-		)
-	`)
-	if err != nil {
-		t.Fatalf("Failed to create table on target: %v", err)
-	}
-
-	// Connect to target daemon
-	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
-	if err != nil {
-		t.Fatalf("Failed to dial: %v", err)
-	}
-	defer conn.Close()
-
-	initClient := pb.NewInitServiceClient(conn)
-
-	// Start initialization with SourceNodeInfo for auto-registration
-	startResp, err := initClient.StartInit(ctx, &pb.StartInitRequest{
-		TargetNodeId: "target-node",
-		SourceNodeId: "source-node",
-		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
-		SourceNodeInfo: &pb.SourceNodeInfo{
-			Host:     env.sourceHost,
-			Port:     int32(env.sourcePort),
-			Database: "testdb",
-			User:     "test",
-		},
-	})
-	if err != nil {
-		t.Fatalf("StartInit failed: %v", err)
-	}
-	if !startResp.Success {
-		t.Fatalf("StartInit error: %s", startResp.Error)
-	}
-
-	// Wait briefly for init to start
-	time.Sleep(500 * time.Millisecond)
-
-	// Verify operation is active
-	initMgr := env.targetDaemon.InitManager()
-	if !initMgr.IsActive("target-node") {
-		t.Error("Expected active operation before cancel")
-	}
-
-	// Cancel initialization
-	cancelResp, err := initClient.CancelInit(ctx, &pb.CancelInitRequest{
-		NodeId: "target-node",
-	})
-	if err != nil {
-		t.Fatalf("CancelInit failed: %v", err)
-	}
-	if !cancelResp.Success {
-		t.Fatalf("CancelInit error: %s", cancelResp.Error)
-	}
-
-	// Wait for cancellation to propagate
-	time.Sleep(time.Second)
-
-	// Verify operation is no longer active (may take a moment)
-	for i := 0; i < 10; i++ {
-		if !initMgr.IsActive("target-node") {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	// Check that cancellation was logged in audit log
-	var auditExists bool
-	err = env.targetPool.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM steep_repl.audit_log
-			WHERE action = 'init.cancelled' AND target_id = 'target-node'
-		)
-	`).Scan(&auditExists)
-	if err != nil {
-		t.Fatalf("Failed to check audit log: %v", err)
-	}
-	if !auditExists {
-		t.Error("Audit log entry for init.cancelled should exist")
-	}
-}
-
-// TestInit_GetProgress tests the GetProgress RPC returns valid progress data.
-func TestInit_GetProgress(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
-
-	// Create test data
-	_, err := env.sourcePool.Exec(ctx, `
-		CREATE TABLE progress_test (id SERIAL PRIMARY KEY, data TEXT);
-		INSERT INTO progress_test (data) SELECT md5(i::text) FROM generate_series(1, 1000) i;
-		CREATE PUBLICATION steep_pub_source_node FOR TABLE progress_test;
-	`)
-	if err != nil {
-		t.Fatalf("Failed to setup source: %v", err)
-	}
-
-	_, err = env.targetPool.Exec(ctx, `
-		CREATE TABLE progress_test (id SERIAL PRIMARY KEY, data TEXT)
-	`)
-	if err != nil {
-		t.Fatalf("Failed to setup target: %v", err)
-	}
-
-	// Connect and start init
-	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
-	if err != nil {
-		t.Fatalf("Failed to dial: %v", err)
-	}
-	defer conn.Close()
-
-	initClient := pb.NewInitServiceClient(conn)
-
-	_, err = initClient.StartInit(ctx, &pb.StartInitRequest{
-		TargetNodeId: "target-node",
-		SourceNodeId: "source-node",
-		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
-	})
-	if err != nil {
-		t.Fatalf("StartInit failed: %v", err)
-	}
-
-	// Poll for progress
-	var sawProgress bool
-	for range 30 {
-		resp, err := initClient.GetProgress(ctx, &pb.GetProgressRequest{
-			NodeId: "target-node",
-		})
-		if err != nil {
-			t.Logf("GetProgress error: %v", err)
-			time.Sleep(time.Second)
-			continue
-		}
-
-		if resp.HasProgress {
-			sawProgress = true
-			t.Logf("Progress: phase=%s percent=%.1f tables=%d/%d",
-				resp.Progress.Phase,
-				resp.Progress.OverallPercent,
-				resp.Progress.TablesCompleted,
-				resp.Progress.TablesTotal)
-
-			// Verify progress has expected fields
-			if resp.Progress.NodeId != "target-node" {
-				t.Errorf("NodeId = %q, want 'target-node'", resp.Progress.NodeId)
-			}
-			break
-		}
-		time.Sleep(time.Second)
-	}
-
-	if !sawProgress {
-		t.Log("Warning: Did not observe progress - init may have completed too quickly")
-	}
-}
-
-// TestInit_StateTransitions tests that the actual state machine transitions occur correctly.
-func TestInit_StateTransitions(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
-
-	// Create small test data
-	_, err := env.sourcePool.Exec(ctx, `
-		CREATE TABLE state_test (id SERIAL PRIMARY KEY, data TEXT);
-		INSERT INTO state_test (data) VALUES ('test');
-		CREATE PUBLICATION steep_pub_source_node FOR TABLE state_test;
-	`)
-	if err != nil {
-		t.Fatalf("Failed to setup source: %v", err)
-	}
-
-	_, err = env.targetPool.Exec(ctx, `
-		CREATE TABLE state_test (id SERIAL PRIMARY KEY, data TEXT)
-	`)
-	if err != nil {
-		t.Fatalf("Failed to setup target: %v", err)
-	}
-
-	// Track observed states
-	observedStates := make(map[string]bool)
-
-	// Query initial state
-	var state string
-	env.targetPool.QueryRow(ctx, `
-		SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
-	`).Scan(&state)
-	observedStates[state] = true
-	t.Logf("Initial state: %s", state)
-
-	// Start init
-	conn, err := replgrpc.Dial(ctx, fmt.Sprintf("localhost:%d", env.targetGRPCPort), "", "", "")
-	if err != nil {
-		t.Fatalf("Failed to dial: %v", err)
-	}
-	defer conn.Close()
-
-	initClient := pb.NewInitServiceClient(conn)
-
-	_, err = initClient.StartInit(ctx, &pb.StartInitRequest{
-		TargetNodeId: "target-node",
-		SourceNodeId: "source-node",
-		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
-		SourceNodeInfo: &pb.SourceNodeInfo{
-			Host:     env.sourceHost,
-			Port:     int32(env.sourcePort),
-			Database: "testdb",
-			User:     "test",
-		},
-	})
-	if err != nil {
-		t.Fatalf("StartInit failed: %v", err)
-	}
-
-	// Poll states until synchronized or failed
-	for range 60 {
-		err = env.targetPool.QueryRow(ctx, `
-			SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
-		`).Scan(&state)
-		if err != nil {
-			time.Sleep(time.Second)
-			continue
-		}
-
-		if !observedStates[state] {
-			t.Logf("State transition: -> %s", state)
-			observedStates[state] = true
-		}
-
-		if state == "synchronized" || state == "failed" {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	// Verify expected states were observed
-	// Must see: uninitialized (start), preparing, copying, catching_up, synchronized
-	expectedStates := []string{"uninitialized", "preparing"}
-	for _, expected := range expectedStates {
-		if !observedStates[expected] {
-			t.Errorf("Expected to observe state %q", expected)
-		}
-	}
-
-	// Final state should be synchronized
-	if state != "synchronized" {
-		t.Errorf("Final state = %q, want 'synchronized'", state)
-	}
-
-	t.Logf("All observed states: %v", observedStates)
-}
-
-// =============================================================================
-// CLI Command Integration Tests
-// =============================================================================
-
-// TestCLI_InitStart tests the 'steep-repl init start' CLI command.
-func TestCLI_InitStart(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
-
-	// Create test data on source
-	_, err := env.sourcePool.Exec(ctx, `
-		CREATE TABLE cli_test (id SERIAL PRIMARY KEY, data TEXT);
-		INSERT INTO cli_test (data) SELECT 'row_' || i FROM generate_series(1, 50) AS i;
-		CREATE PUBLICATION steep_pub_source_node FOR TABLE cli_test;
-	`)
-	if err != nil {
-		t.Fatalf("Failed to setup source: %v", err)
-	}
-
-	// Create matching table on target
-	_, err = env.targetPool.Exec(ctx, `CREATE TABLE cli_test (id SERIAL PRIMARY KEY, data TEXT)`)
-	if err != nil {
-		t.Fatalf("Failed to setup target: %v", err)
-	}
-
-	// Build the CLI command arguments
-	args := []string{
-		"init", "start", "target-node",
-		"--from", "source-node",
-		"--source-host", env.sourceHost,
-		"--source-port", fmt.Sprintf("%d", env.sourcePort),
-		"--source-database", "testdb",
-		"--source-user", "test",
-		"--remote", fmt.Sprintf("localhost:%d", env.targetGRPCPort),
-		"--insecure",
-	}
-
-	// Execute CLI via gRPC client directly (simulating CLI behavior)
-	clientCfg := replgrpc.ClientConfig{
-		Address: fmt.Sprintf("localhost:%d", env.targetGRPCPort),
-		Timeout: 30 * time.Second,
-	}
-	client, err := replgrpc.NewClient(ctx, clientCfg)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
-	defer client.Close()
-
-	// This is what the CLI does internally
-	resp, err := client.StartInit(ctx, &pb.StartInitRequest{
-		TargetNodeId: "target-node",
-		SourceNodeId: "source-node",
-		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
-		SourceNodeInfo: &pb.SourceNodeInfo{
-			Host:     env.sourceHost,
-			Port:     int32(env.sourcePort),
-			Database: "testdb",
-			User:     "test",
-		},
-		Options: &pb.InitOptions{
-			ParallelWorkers: 4,
-			SchemaSyncMode:  pb.SchemaSyncMode_SCHEMA_SYNC_STRICT,
-		},
-	})
-	if err != nil {
-		t.Fatalf("CLI init start failed: %v", err)
-	}
-	if !resp.Success {
-		t.Fatalf("CLI init start returned error: %s", resp.Error)
-	}
-
-	t.Logf("CLI args would be: %v", args)
-
-	// Wait for completion
-	var state string
-	for i := 0; i < 60; i++ {
-		err = env.targetPool.QueryRow(ctx, `
-			SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
-		`).Scan(&state)
-		if err == nil && (state == "synchronized" || state == "failed") {
-			break
-		}
-		time.Sleep(time.Second)
-	}
-
-	if state != "synchronized" {
-		t.Errorf("Expected synchronized state, got %s", state)
-	}
-
-	// Verify data was copied
-	var count int
-	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM cli_test").Scan(&count)
-	if err != nil {
-		t.Fatalf("Failed to count rows: %v", err)
-	}
-	if count != 50 {
-		t.Errorf("Expected 50 rows, got %d", count)
-	}
-}
-
-// TestCLI_InitCancel tests the 'steep-repl init cancel' CLI command.
-func TestCLI_InitCancel(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
-
-	// Create larger test data to have time to cancel
-	_, err := env.sourcePool.Exec(ctx, `
-		CREATE TABLE cancel_test (id SERIAL PRIMARY KEY, data TEXT, padding TEXT);
-		INSERT INTO cancel_test (data, padding)
-		SELECT 'row_' || i, repeat('x', 500) FROM generate_series(1, 3000) AS i;
-		CREATE PUBLICATION steep_pub_source_node FOR TABLE cancel_test;
-	`)
-	if err != nil {
-		t.Fatalf("Failed to setup source: %v", err)
-	}
-
-	_, err = env.targetPool.Exec(ctx, `
-		CREATE TABLE cancel_test (id SERIAL PRIMARY KEY, data TEXT, padding TEXT)
-	`)
-	if err != nil {
-		t.Fatalf("Failed to setup target: %v", err)
-	}
-
-	// Connect to target daemon
-	clientCfg := replgrpc.ClientConfig{
-		Address: fmt.Sprintf("localhost:%d", env.targetGRPCPort),
-		Timeout: 30 * time.Second,
-	}
-	client, err := replgrpc.NewClient(ctx, clientCfg)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
-	defer client.Close()
-
-	// Start init
-	startResp, err := client.StartInit(ctx, &pb.StartInitRequest{
-		TargetNodeId: "target-node",
-		SourceNodeId: "source-node",
-		Method:       pb.InitMethod_INIT_METHOD_SNAPSHOT,
-		SourceNodeInfo: &pb.SourceNodeInfo{
-			Host:     env.sourceHost,
-			Port:     int32(env.sourcePort),
-			Database: "testdb",
-			User:     "test",
-		},
-	})
-	if err != nil {
-		t.Fatalf("StartInit failed: %v", err)
-	}
-	if !startResp.Success {
-		t.Fatalf("StartInit error: %s", startResp.Error)
-	}
-
-	// Wait briefly for init to start
-	time.Sleep(500 * time.Millisecond)
-
-	// Cancel via CLI (simulated)
-	cancelResp, err := client.CancelInit(ctx, &pb.CancelInitRequest{
-		NodeId: "target-node",
-	})
-	if err != nil {
-		t.Fatalf("CLI init cancel failed: %v", err)
-	}
-	if !cancelResp.Success {
-		t.Fatalf("CLI init cancel returned error: %s", cancelResp.Error)
-	}
-
-	// Verify cancellation was logged
-	time.Sleep(time.Second)
-	var auditExists bool
-	err = env.targetPool.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM steep_repl.audit_log
-			WHERE action = 'init.cancelled' AND target_id = 'target-node'
-		)
-	`).Scan(&auditExists)
-	if err != nil {
-		t.Fatalf("Failed to check audit log: %v", err)
-	}
-	if !auditExists {
-		t.Error("Audit log entry for init.cancelled should exist")
-	}
-}
-
-// TestCLI_InitPrepare tests the 'steep-repl init prepare' CLI command.
-// This tests the prepare phase of manual initialization workflow.
-func TestCLI_InitPrepare(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
-
-	// Connect to source daemon (prepare runs on source)
-	clientCfg := replgrpc.ClientConfig{
-		Address: fmt.Sprintf("localhost:%d", env.sourceGRPCPort),
-		Timeout: 30 * time.Second,
-	}
-	client, err := replgrpc.NewClient(ctx, clientCfg)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
-	defer client.Close()
-
-	// Call PrepareInit (what CLI does)
-	slotName := "steep_init_source_node"
-	resp, err := client.PrepareInit(ctx, &pb.PrepareInitRequest{
-		NodeId:   "source-node",
-		SlotName: slotName,
-	})
-	if err != nil {
-		t.Fatalf("CLI init prepare failed: %v", err)
-	}
-
-	if !resp.Success {
-		t.Fatalf("PrepareInit failed: %s", resp.Error)
-	}
-
-	// Verify slot was created
-	t.Logf("PrepareInit succeeded: slot=%s lsn=%s", resp.SlotName, resp.Lsn)
-
-	if resp.SlotName != slotName {
-		t.Errorf("SlotName = %q, want %q", resp.SlotName, slotName)
-	}
-	if resp.Lsn == "" {
-		t.Error("LSN should not be empty")
-	}
-	if resp.CreatedAt == nil {
-		t.Error("CreatedAt should be set")
-	}
-
-	// Verify slot exists in PostgreSQL
-	var slotExists bool
-	err = env.sourcePool.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)
-	`, slotName).Scan(&slotExists)
-	if err != nil {
-		t.Fatalf("Failed to check slot: %v", err)
-	}
-	if !slotExists {
-		t.Error("Replication slot should exist in pg_replication_slots")
-	}
-
-	// Verify slot was recorded in init_slots table
-	var recordedLSN string
-	err = env.sourcePool.QueryRow(ctx, `
-		SELECT lsn FROM steep_repl.init_slots WHERE slot_name = $1
-	`, slotName).Scan(&recordedLSN)
-	if err != nil {
-		t.Fatalf("Failed to query init_slots: %v", err)
-	}
-	if recordedLSN != resp.Lsn {
-		t.Errorf("Recorded LSN = %q, want %q", recordedLSN, resp.Lsn)
-	}
-
-	// Verify calling prepare again fails (slot already exists)
-	resp2, err := client.PrepareInit(ctx, &pb.PrepareInitRequest{
-		NodeId:   "source-node",
-		SlotName: slotName,
-	})
-	if err != nil {
-		t.Fatalf("Second PrepareInit call failed unexpectedly: %v", err)
-	}
-	if resp2.Success {
-		t.Error("Second PrepareInit should fail because slot already exists")
-	}
-	if resp2.Error == "" {
-		t.Error("Second PrepareInit should have an error message")
-	}
-}
-
-// TestCLI_InitComplete tests the 'steep-repl init complete' CLI command.
-// This is T028: Integration test for full prepare/complete workflow.
-func TestCLI_InitComplete(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
-
-	// === Step 1: Create test data on source ===
-	_, err := env.sourcePool.Exec(ctx, `
-		CREATE TABLE manual_test (
-			id SERIAL PRIMARY KEY,
-			name TEXT NOT NULL,
-			value INTEGER
-		)
-	`)
-	if err != nil {
-		t.Fatalf("Failed to create test table on source: %v", err)
-	}
-
-	_, err = env.sourcePool.Exec(ctx, `
-		INSERT INTO manual_test (name, value)
-		SELECT 'item_' || i, i * 10
-		FROM generate_series(1, 100) AS i
-	`)
-	if err != nil {
-		t.Fatalf("Failed to insert test data: %v", err)
-	}
-
-	// Create publication on source
-	_, err = env.sourcePool.Exec(ctx, `
-		CREATE PUBLICATION steep_pub_source_node FOR TABLE manual_test
-	`)
-	if err != nil {
-		t.Fatalf("Failed to create publication: %v", err)
-	}
-
-	// === Step 2: Call PrepareInit on source ===
-	sourceClient, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
-		Address: fmt.Sprintf("localhost:%d", env.sourceGRPCPort),
-		Timeout: 30 * time.Second,
-	})
-	if err != nil {
-		t.Fatalf("Failed to create source client: %v", err)
-	}
-	defer sourceClient.Close()
-
-	slotName := "steep_init_source_node"
-	prepareResp, err := sourceClient.PrepareInit(ctx, &pb.PrepareInitRequest{
-		NodeId:   "source-node",
-		SlotName: slotName,
-	})
-	if err != nil {
-		t.Fatalf("PrepareInit failed: %v", err)
-	}
-	if !prepareResp.Success {
-		t.Fatalf("PrepareInit error: %s", prepareResp.Error)
-	}
-
-	t.Logf("Prepared slot %s at LSN %s", prepareResp.SlotName, prepareResp.Lsn)
-
-	// === Step 3: Backup from source and restore to target (like a DBA would) ===
-	// Use pg_dump on source container, then pg_restore on target container
-
-	// Run pg_dump inside source container, writing to a file (avoids stdout binary issues)
-	dumpCode, dumpOutput, err := env.sourceContainer.Exec(ctx, []string{
-		"pg_dump",
-		"-h", "localhost",
-		"-U", "test",
-		"-d", "testdb",
-		"-t", "manual_test",
-		"-Fp", // Plain text format (SQL)
-		"-f", "/tmp/backup.sql",
-	})
-	if err != nil {
-		t.Fatalf("Failed to exec pg_dump: %v", err)
-	}
-	dumpOutputBytes, _ := io.ReadAll(dumpOutput)
-	if dumpCode != 0 {
-		t.Fatalf("pg_dump failed with exit code %d: %s", dumpCode, string(dumpOutputBytes))
-	}
-	t.Log("pg_dump completed successfully")
-
-	// Copy the dump file from source to target container
-	// First, read the file from source container
-	dumpFileReader, err := env.sourceContainer.CopyFileFromContainer(ctx, "/tmp/backup.sql")
-	if err != nil {
-		t.Fatalf("Failed to copy dump from source: %v", err)
-	}
-	dumpData, err := io.ReadAll(dumpFileReader)
-	dumpFileReader.Close()
-	if err != nil {
-		t.Fatalf("Failed to read dump file: %v", err)
-	}
-	t.Logf("Dump file size: %d bytes", len(dumpData))
-
-	// Copy to target container
-	err = env.targetContainer.CopyToContainer(ctx, dumpData, "/tmp/backup.sql", 0644)
-	if err != nil {
-		t.Fatalf("Failed to copy dump to target: %v", err)
-	}
-
-	// Run psql to restore on target container (plain format uses psql, not pg_restore)
-	restoreCode, restoreOutput, err := env.targetContainer.Exec(ctx, []string{
-		"psql",
-		"-h", "localhost",
-		"-U", "test",
-		"-d", "testdb",
-		"-f", "/tmp/backup.sql",
-	})
-	if err != nil {
-		t.Fatalf("Failed to exec psql restore: %v", err)
-	}
-	restoreOutputBytes, _ := io.ReadAll(restoreOutput)
-	if restoreCode != 0 {
-		t.Fatalf("psql restore failed with exit code %d: %s", restoreCode, string(restoreOutputBytes))
-	}
-	t.Log("Restore completed successfully")
-
-	// Verify target has data after restore
-	var countBefore int
-	err = env.targetPool.QueryRow(ctx, "SELECT COUNT(*) FROM manual_test").Scan(&countBefore)
-	if err != nil {
-		t.Fatalf("Failed to count rows: %v", err)
-	}
-	if countBefore != 100 {
-		t.Fatalf("Target should have 100 rows after restore, got %d", countBefore)
-	}
-
-	// Verify sample data matches
-	var sampleName string
-	var sampleValue int
-	err = env.targetPool.QueryRow(ctx, "SELECT name, value FROM manual_test WHERE id = 50").Scan(&sampleName, &sampleValue)
-	if err != nil {
-		t.Fatalf("Failed to query sample: %v", err)
-	}
-	if sampleName != "item_50" || sampleValue != 500 {
-		t.Fatalf("Restored data mismatch: got name=%q value=%d, want name='item_50' value=500", sampleName, sampleValue)
-	}
-	t.Log("Backup/restore verified: data matches source")
-
-	// === Step 4: Call CompleteInit on target ===
-	targetClient, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
-		Address: fmt.Sprintf("localhost:%d", env.targetGRPCPort),
-		Timeout: 30 * time.Second,
-	})
-	if err != nil {
-		t.Fatalf("Failed to create target client: %v", err)
-	}
-	defer targetClient.Close()
-
-	completeResp, err := targetClient.CompleteInit(ctx, &pb.CompleteInitRequest{
-		TargetNodeId:   "target-node",
-		SourceNodeId:   "source-node",
-		SourceLsn:      prepareResp.Lsn,
-		SchemaSyncMode: pb.SchemaSyncMode_SCHEMA_SYNC_STRICT,
-		SourceNodeInfo: &pb.SourceNodeInfo{
-			Host:     env.sourceHost,
-			Port:     int32(env.sourcePort),
-			Database: "testdb",
-			User:     "test",
-		},
-		SkipSchemaCheck: true, // Skip schema check since we're using simulated restore
-	})
-	if err != nil {
-		t.Fatalf("CompleteInit failed: %v", err)
-	}
-	if !completeResp.Success {
-		t.Fatalf("CompleteInit error: %s", completeResp.Error)
-	}
-
-	t.Logf("CompleteInit succeeded: state=%v", completeResp.State)
-
-	// === Step 5: Verify subscription was created with copy_data=false ===
-	// Note: hyphens in node IDs are converted to underscores in subscription names
-	var subExists bool
-	err = env.targetPool.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM pg_subscription
-			WHERE subname = 'steep_sub_target_node_from_source_node'
-		)
-	`).Scan(&subExists)
-	if err != nil {
-		t.Fatalf("Failed to check subscription: %v", err)
-	}
-	if !subExists {
-		t.Error("Subscription should exist after CompleteInit")
-	}
-
-	// === Step 6: Wait for state to transition to SYNCHRONIZED ===
-	var initState string
-	for i := 0; i < 60; i++ {
-		err = env.targetPool.QueryRow(ctx, `
-			SELECT init_state FROM steep_repl.nodes WHERE node_id = 'target-node'
-		`).Scan(&initState)
-		if err != nil {
-			t.Logf("State poll error: %v", err)
-			time.Sleep(time.Second)
-			continue
-		}
-
-		t.Logf("Init state at %ds: %s", i, initState)
-
-		if initState == "synchronized" {
-			break
-		}
-		if initState == "failed" {
-			t.Fatalf("Init failed unexpectedly")
-		}
-
-		time.Sleep(time.Second)
-	}
-
-	if initState != "synchronized" {
-		t.Errorf("Expected state 'synchronized', got %q", initState)
-	}
-
-	// === Step 7: Verify replication works by inserting new data on source ===
-	_, err = env.sourcePool.Exec(ctx, `
-		INSERT INTO manual_test (name, value) VALUES ('new_item', 9999)
-	`)
-	if err != nil {
-		t.Fatalf("Failed to insert new data on source: %v", err)
-	}
-
-	// Wait for replication
-	time.Sleep(2 * time.Second)
-
-	// Check that new data replicated to target
-	var newValue int
-	err = env.targetPool.QueryRow(ctx, `
-		SELECT value FROM manual_test WHERE name = 'new_item'
-	`).Scan(&newValue)
-	if err != nil {
-		t.Logf("New item not yet replicated (expected in manual init): %v", err)
-	} else if newValue != 9999 {
-		t.Errorf("Replicated value = %d, want 9999", newValue)
-	} else {
-		t.Log("Replication verified: new item replicated successfully")
-	}
-}
-
 // TestInit_ManualSchemaVerification tests schema verification during CompleteInit.
 // This is T029: Integration test for schema verification during complete.
-func TestInit_ManualSchemaVerification(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-
-	env := setupTwoNodeEnv(t, ctx)
+func (s *InitTestSuite) TestInit_ManualSchemaVerification() {
+	ctx := s.ctx
+	env := s.env
 
 	// === Create table on source ===
 	_, err := env.sourcePool.Exec(ctx, `
@@ -1339,26 +1441,20 @@ func TestInit_ManualSchemaVerification(t *testing.T) {
 			created_at TIMESTAMP DEFAULT NOW()
 		)
 	`)
-	if err != nil {
-		t.Fatalf("Failed to create table on source: %v", err)
-	}
+	s.Require().NoError(err)
 
 	// Create publication
 	_, err = env.sourcePool.Exec(ctx, `
 		CREATE PUBLICATION steep_pub_source_node FOR TABLE schema_test
 	`)
-	if err != nil {
-		t.Fatalf("Failed to create publication: %v", err)
-	}
+	s.Require().NoError(err)
 
 	// === Prepare slot on source ===
 	sourceClient, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
 		Address: fmt.Sprintf("localhost:%d", env.sourceGRPCPort),
 		Timeout: 30 * time.Second,
 	})
-	if err != nil {
-		t.Fatalf("Failed to create source client: %v", err)
-	}
+	s.Require().NoError(err)
 	defer sourceClient.Close()
 
 	slotName := "steep_init_source_node"
@@ -1366,12 +1462,8 @@ func TestInit_ManualSchemaVerification(t *testing.T) {
 		NodeId:   "source-node",
 		SlotName: slotName,
 	})
-	if err != nil {
-		t.Fatalf("PrepareInit failed: %v", err)
-	}
-	if !prepareResp.Success {
-		t.Fatalf("PrepareInit error: %s", prepareResp.Error)
-	}
+	s.Require().NoError(err)
+	s.Require().True(prepareResp.Success, "PrepareInit error: %s", prepareResp.Error)
 
 	// === Create MISMATCHED table on target (different columns) ===
 	_, err = env.targetPool.Exec(ctx, `
@@ -1383,18 +1475,14 @@ func TestInit_ManualSchemaVerification(t *testing.T) {
 			extra_column TEXT  -- Extra column not on source
 		)
 	`)
-	if err != nil {
-		t.Fatalf("Failed to create table on target: %v", err)
-	}
+	s.Require().NoError(err)
 
 	// === Try CompleteInit with STRICT mode - should fail ===
 	targetClient, err := replgrpc.NewClient(ctx, replgrpc.ClientConfig{
 		Address: fmt.Sprintf("localhost:%d", env.targetGRPCPort),
 		Timeout: 30 * time.Second,
 	})
-	if err != nil {
-		t.Fatalf("Failed to create target client: %v", err)
-	}
+	s.Require().NoError(err)
 	defer targetClient.Close()
 
 	completeResp, err := targetClient.CompleteInit(ctx, &pb.CompleteInitRequest{
@@ -1408,20 +1496,15 @@ func TestInit_ManualSchemaVerification(t *testing.T) {
 			Database: "testdb",
 			User:     "test",
 		},
-		SkipSchemaCheck: false, // Enable schema check
+		SkipSchemaCheck: false,
 	})
-	if err != nil {
-		t.Fatalf("CompleteInit RPC failed: %v", err)
-	}
+	s.Require().NoError(err)
 
 	// With schema mismatch and STRICT mode, should fail
 	if completeResp.Success {
-		t.Error("CompleteInit should fail with schema mismatch in STRICT mode")
+		s.T().Error("CompleteInit should fail with schema mismatch in STRICT mode")
 	} else {
-		t.Logf("CompleteInit correctly failed with schema mismatch: %s", completeResp.Error)
-		if len(completeResp.SchemaMismatches) == 0 {
-			t.Log("Note: Schema mismatches not returned in response (may be logged instead)")
-		}
+		s.T().Logf("CompleteInit correctly failed with schema mismatch: %s", completeResp.Error)
 	}
 
 	// === Fix the schema on target ===
@@ -1434,19 +1517,15 @@ func TestInit_ManualSchemaVerification(t *testing.T) {
 			created_at TIMESTAMP DEFAULT NOW()
 		)
 	`)
-	if err != nil {
-		t.Fatalf("Failed to fix table on target: %v", err)
-	}
+	s.Require().NoError(err)
 
-	// === Try again with skip_schema_check - should succeed ===
-	// Need to reset node state first
+	// Reset node state
 	_, err = env.targetPool.Exec(ctx, `
 		UPDATE steep_repl.nodes SET init_state = 'uninitialized' WHERE node_id = 'target-node'
 	`)
-	if err != nil {
-		t.Fatalf("Failed to reset node state: %v", err)
-	}
+	s.Require().NoError(err)
 
+	// === Try again with skip_schema_check - should succeed ===
 	completeResp2, err := targetClient.CompleteInit(ctx, &pb.CompleteInitRequest{
 		TargetNodeId:   "target-node",
 		SourceNodeId:   "source-node",
@@ -1460,13 +1539,11 @@ func TestInit_ManualSchemaVerification(t *testing.T) {
 		},
 		SkipSchemaCheck: true,
 	})
-	if err != nil {
-		t.Fatalf("CompleteInit RPC failed: %v", err)
-	}
+	s.Require().NoError(err)
 
 	if !completeResp2.Success {
-		t.Errorf("CompleteInit should succeed with fixed schema: %s", completeResp2.Error)
+		s.T().Errorf("CompleteInit should succeed with fixed schema: %s", completeResp2.Error)
 	} else {
-		t.Log("CompleteInit succeeded with matching schema")
+		s.T().Log("CompleteInit succeeded with matching schema")
 	}
 }
