@@ -179,9 +179,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	statusCode := http.StatusOK
-	if overallStatus == "unhealthy" {
+	switch overallStatus {
+	case "unhealthy":
 		statusCode = http.StatusServiceUnavailable
-	} else if overallStatus == "degraded" {
+	case "degraded":
 		statusCode = http.StatusOK // Still return 200 for degraded
 	}
 

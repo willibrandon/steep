@@ -275,11 +275,11 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 
 ### Implementation for User Story 8
 
-- [ ] T074 [US8] Add parallel_workers config in internal/repl/config/config.go (default 4, range 1-16)
-- [ ] T075 [US8] Implement parallel table copying in internal/repl/init/snapshot.go (worker pool pattern)
-- [ ] T076 [US8] Add PG18 parallel COPY support detection in internal/repl/init/snapshot.go (use streaming=parallel)
-- [ ] T077 [US8] Add --parallel flag to snapshot and init CLI commands in cmd/steep-repl/main.go
-- [ ] T078 [US8] Show parallel worker count in progress display in internal/ui/components/progress.go
+- [x] T074 [US8] Add parallel_workers config in internal/repl/config/config.go (default 4, range 1-16)
+- [x] T075 [US8] Implement parallel table copying in internal/repl/init/snapshot.go (worker pool pattern)
+- [x] T076 [US8] Add PG18 parallel COPY support detection in internal/repl/init/snapshot.go (use streaming=parallel)
+- [x] T077 [US8] Add --parallel flag to snapshot and init CLI commands in cmd/steep-repl/main.go
+- [x] T078 [US8] Show parallel worker count in progress display in internal/ui/components/progress.go
 
 **Checkpoint**: Parallel workers accelerate snapshot operations
 
