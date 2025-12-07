@@ -205,20 +205,65 @@
 
 **Independent Test**: Set up two nodes with overlapping data, run bidirectional merge, verify reconciliation
 
+**Reference Documentation**:
+- `specs/015-node-init/PG18_BIDIRECTIONAL_REPLICATION.md` - PostgreSQL 18 features
+- `specs/015-node-init/US7_TEST_PLAN.md` - Comprehensive test plan (38 tests)
+
+### Architecture Decisions
+
+1. **Hash-Based Comparison via postgres_fdw**
+   - Extension computes row hashes (Rust/pgrx - fast)
+   - postgres_fdw transfers only PKs + 8-byte hashes (minimal network: ~16 bytes/row vs ~500+ bytes/row)
+   - PostgreSQL compares using indexes/hash joins (optimized)
+   - Full row data fetched only for conflicts
+
+2. **Audit Log in Extension**
+   - All merge decisions logged to `steep_repl.merge_audit_log`
+   - Keeps audit data with source of truth
+   - Enables SQL-based compliance queries
+
+3. **PostgreSQL 18 Native Features**
+   - `origin = none` on subscriptions (prevents ping-pong)
+   - `track_commit_timestamp = on` (required for last-modified resolution)
+   - `pg_stat_subscription_stats` for conflict monitoring
+   - `retain_dead_tuples` for enhanced conflict detection
+
+### Extension Tasks (Rust/pgrx)
+
+- [ ] T067a [P] [US7] Add steep_repl.row_hash(record) function in extensions/steep_repl/src/merge.rs (fast 8-byte row hashing)
+- [ ] T067b [P] [US7] Add steep_repl.compare_tables() function in extensions/steep_repl/src/merge.rs (hash-based comparison via postgres_fdw)
+- [ ] T067c [P] [US7] Add steep_repl.merge_audit_log table in extensions/steep_repl/src/lib.rs (merge_id, table, pk, category, resolution, values)
+- [ ] T067d [P] [US7] Add steep_repl.quiesce_writes(table, timeout) function in extensions/steep_repl/src/merge.rs (advisory locks + connection blocking)
+
 ### Tests for User Story 7
 
-- [ ] T067 [P] [US7] Integration test for overlap analysis in tests/integration/repl/merge_test.go
+See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests across 11 categories).
+
+- [ ] T067 [P] [US7] Integration tests for overlap analysis in tests/integration/repl/merge_test.go (7 tests: all categories, composite PK, empty, NULL values, multi-table, performance)
+- [ ] T067e [P] [US7] Integration tests for conflict resolution in tests/integration/repl/merge_test.go (5 tests: prefer-a, prefer-b, last-modified, manual, mixed)
+- [ ] T067f [P] [US7] Integration tests for FK ordering in tests/integration/repl/merge_test.go (3 tests: parent/child, deep hierarchy, circular detection)
+- [ ] T067g [P] [US7] Integration tests for data movement in tests/integration/repl/merge_test.go (3 tests: A→B, B→A, bidirectional)
+- [ ] T067h [P] [US7] Integration tests for atomicity in tests/integration/repl/merge_test.go (3 tests: rollback, idempotency, checkpoint)
+- [ ] T067i [P] [US7] Integration tests for audit trail in tests/integration/repl/merge_test.go (2 tests: decision logging, metadata)
+- [ ] T067j [P] [US7] Integration tests for pre-flight checks in tests/integration/repl/merge_test.go (3 tests: schema, PK required, active transactions)
+- [ ] T067k [P] [US7] Integration tests for dry-run mode in tests/integration/repl/merge_test.go (2 tests: preview accuracy, output format)
+- [ ] T067l [P] [US7] Integration tests for PG18 features in tests/integration/repl/merge_test.go (3 tests: origin=none, conflict stats, track_commit_timestamp)
+- [ ] T067m [P] [US7] Performance benchmarks in tests/integration/repl/merge_benchmark_test.go (4 tests: hash analysis, transfer, row_hash, network comparison)
+- [ ] T067n [P] [US7] Create test fixtures in tests/integration/repl/testdata/merge/ (schema.sql, simple_overlap.sql, fk_relationships.sql, large_dataset.sql)
 
 ### Implementation for User Story 7
 
-- [ ] T068 [US7] Implement overlap analysis in internal/repl/init/merge.go (compare PKs, count matches/conflicts/unique)
-- [ ] T069 [US7] Add analyze-overlap CLI command in cmd/steep-repl/main.go (`steep-repl analyze-overlap --tables X,Y`)
+- [ ] T068 [US7] Implement overlap analysis in internal/repl/init/merge.go (uses extension's compare_tables, processes hash results)
+- [ ] T069 [US7] Add analyze-overlap CLI command in cmd/steep-repl/main.go (`steep-repl analyze-overlap --node-a X --node-b Y --tables X,Y`)
 - [ ] T070 [US7] Implement conflict resolution strategies in internal/repl/init/merge.go (prefer-node-a, prefer-node-b, last-modified, manual)
-- [ ] T071 [US7] Add bidirectional-merge init mode in internal/repl/init/manager.go (quiesce, analyze, resolve, enable replication)
+- [ ] T071 [US7] Add bidirectional-merge init mode in internal/repl/init/manager.go (quiesce, analyze, resolve, transfer, enable replication with origin=none)
 - [ ] T072 [US7] Add --mode=bidirectional-merge to init CLI in cmd/steep-repl/main.go
 - [ ] T073 [US7] Add --strategy flag for conflict resolution in cmd/steep-repl/main.go
+- [ ] T073a [US7] Add --dry-run flag to bidirectional merge in cmd/steep-repl/main.go (preview without changes)
+- [ ] T073b [US7] Implement FK ordering (topological sort) in internal/repl/init/merge.go (merge parents before children)
+- [ ] T073c [US7] Implement data transfer using COPY protocol in internal/repl/init/merge.go (bulk transfer for performance)
 
-**Checkpoint**: Bidirectional merge reconciles existing data with conflict resolution
+**Checkpoint**: Bidirectional merge reconciles existing data with conflict resolution, full audit trail, and PG18 native replication
 
 ---
 
@@ -380,15 +425,20 @@ Task: "Create Snapshot Go model in internal/repl/models/snapshot.go"
 | 6. US4 Partial Reinit | P2 | 8 | 1 |
 | 7. US5 Fingerprinting | P2 | 9 | 2 |
 | 8. US6 Schema Sync | P2 | 5 | 0 |
-| 9. US7 Bidirectional | P2 | 7 | 1 |
+| 9. US7 Bidirectional | P2 | 24 | 15 |
 | 10. US8 Parallel | P3 | 5 | 0 |
 | 11. Two-Phase | - | 9 | 1 |
 | 12. Polish | - | 8 | 3 |
-| **Total** | | **95** | **20** |
+| **Total** | | **112** | **34** |
 
 **MVP Scope**: Phases 1-3, 5 (Setup + Foundational + US1 + US3) = 35 tasks
 **P1 Complete**: Add Phase 4 (US2) = 44 tasks
-**Full Feature**: All 95 tasks
+**Full Feature**: All 112 tasks
+
+**Phase 9 Breakdown** (24 tasks):
+- Extension tasks: 4 (T067a-d) - Rust/pgrx row_hash, compare_tables, audit_log, quiesce
+- Integration tests: 11 (T067, T067e-n) - 38 test cases across 11 categories
+- Implementation: 9 (T068-T073c) - Go orchestration, CLI, strategies
 
 ---
 
