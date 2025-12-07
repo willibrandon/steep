@@ -1,5 +1,5 @@
-// Package maintenance_test contains unit tests for maintenance functionality.
-package maintenance_test
+// Package queries_test contains unit tests for maintenance functionality.
+package queries_test
 
 import (
 	"testing"

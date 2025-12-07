@@ -1,4 +1,4 @@
-package locks_test
+package components_test
 
 import (
 	"strings"

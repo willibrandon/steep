@@ -1,4 +1,4 @@
-package maintenance_test
+package models_test
 
 import (
 	"testing"
@@ -137,8 +137,8 @@ func TestOperationHistory(t *testing.T) {
 	})
 }
 
-// TestFormatDuration verifies duration formatting (tested via string comparison).
-func TestFormatDuration(t *testing.T) {
+// TestOperationProgress_FormatDuration verifies duration formatting (tested via string comparison).
+func TestOperationProgress_FormatDuration(t *testing.T) {
 	tests := []struct {
 		name     string
 		duration time.Duration

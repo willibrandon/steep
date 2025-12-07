@@ -1,4 +1,4 @@
-package locks_test
+package models_test
 
 import (
 	"sort"
