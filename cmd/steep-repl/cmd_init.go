@@ -42,6 +42,7 @@ Examples:
 		newInitCancelCmd(),
 		newInitProgressCmd(),
 		newInitReinitCmd(),
+		newInitMergeCmd(),
 	)
 
 	return cmd
@@ -749,5 +750,209 @@ func runInitReinitGRPC(nodeID string, full bool, tables []string, schema, remote
 	if resp.State == pb.InitState_INIT_STATE_UNINITIALIZED {
 		fmt.Printf("Now run 'init start' to begin initialization again.\n")
 	}
+	return nil
+}
+
+// newInitMergeCmd creates the init merge subcommand for bidirectional merge initialization.
+func newInitMergeCmd() *cobra.Command {
+	var (
+		nodeAID          string
+		nodeBID          string
+		nodeBConnStr     string
+		tables           []string
+		strategy         string
+		dryRun           bool
+		schemaSync       string
+		quiesceTimeoutMs int
+		remoteAddr       string
+		caFile           string
+		insecure         bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "merge",
+		Short: "Merge existing data and set up bidirectional replication",
+		Long: `Merge existing data on two nodes and set up bidirectional replication.
+
+This command is used when both nodes already have data that needs to be
+synchronized. It:
+1. Analyzes overlapping data between both nodes
+2. Resolves conflicts according to the specified strategy
+3. Transfers unique rows to both nodes
+4. Sets up bidirectional replication with origin=none
+
+Use --dry-run to preview changes without applying them.
+
+Conflict resolution strategies:
+  prefer-node-a    Keep local node's values for conflicts (default)
+  prefer-node-b    Keep remote node's values for conflicts
+  last-modified    Keep most recently modified row (requires timestamp column)
+  manual           Log conflicts for later manual resolution
+
+Examples:
+  # Merge public.users and public.orders tables
+  steep-repl init merge --node-a node-1 --node-b node-2 \
+    --node-b-connstr "host=pg2 port=5432 dbname=app user=repl" \
+    --tables public.users,public.orders \
+    --strategy prefer-node-a \
+    --remote localhost:15460 --insecure
+
+  # Dry-run to preview changes
+  steep-repl init merge --node-a node-1 --node-b node-2 \
+    --node-b-connstr "host=pg2 port=5432 dbname=app user=repl" \
+    --tables public.users \
+    --dry-run \
+    --remote localhost:15460 --insecure`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if nodeAID == "" {
+				return fmt.Errorf("--node-a flag is required")
+			}
+			if nodeBID == "" {
+				return fmt.Errorf("--node-b flag is required")
+			}
+			if nodeBConnStr == "" {
+				return fmt.Errorf("--node-b-connstr flag is required")
+			}
+			if len(tables) == 0 {
+				return fmt.Errorf("--tables flag is required")
+			}
+
+			fmt.Printf("Bidirectional merge: %s <-> %s\n", nodeAID, nodeBID)
+			fmt.Printf("  Tables: %v\n", tables)
+			fmt.Printf("  Strategy: %s\n", strategy)
+			fmt.Printf("  Dry run: %v\n", dryRun)
+			fmt.Println()
+
+			return runInitMergeGRPC(nodeAID, nodeBID, nodeBConnStr, tables, strategy, dryRun, schemaSync, quiesceTimeoutMs, remoteAddr, caFile, insecure)
+		},
+	}
+
+	// Required flags
+	cmd.Flags().StringVar(&nodeAID, "node-a", "", "local node ID (required)")
+	cmd.Flags().StringVar(&nodeBID, "node-b", "", "remote node ID (required)")
+	cmd.Flags().StringVar(&nodeBConnStr, "node-b-connstr", "", "connection string for remote node (required)")
+	cmd.Flags().StringSliceVar(&tables, "tables", nil, "tables to merge (comma-separated, format: schema.table)")
+	_ = cmd.MarkFlagRequired("node-a")
+	_ = cmd.MarkFlagRequired("node-b")
+	_ = cmd.MarkFlagRequired("node-b-connstr")
+	_ = cmd.MarkFlagRequired("tables")
+
+	// Options
+	cmd.Flags().StringVar(&strategy, "strategy", "prefer-node-a", "conflict resolution: prefer-node-a, prefer-node-b, last-modified, manual")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview changes without applying")
+	cmd.Flags().StringVar(&schemaSync, "schema-sync", "strict", "schema sync mode: strict, auto, manual")
+	cmd.Flags().IntVar(&quiesceTimeoutMs, "quiesce-timeout", 5000, "timeout for quiescing writes (ms)")
+
+	// Connection flags
+	cmd.Flags().StringVar(&remoteAddr, "remote", "", "daemon gRPC address (host:port) - required")
+	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
+	_ = cmd.MarkFlagRequired("remote")
+
+	return cmd
+}
+
+// runInitMergeGRPC starts bidirectional merge via gRPC.
+func runInitMergeGRPC(nodeAID, nodeBID, nodeBConnStr string, tables []string, strategy string, dryRun bool, schemaSync string, quiesceTimeoutMs int, remoteAddr, caFile string, insecure bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute) // Long timeout for merge
+	defer cancel()
+
+	clientCfg := replgrpc.ClientConfig{
+		Address: remoteAddr,
+		Timeout: 10 * time.Minute,
+	}
+	if !insecure {
+		clientCfg.CAFile = caFile
+	}
+
+	client, err := replgrpc.NewClient(ctx, clientCfg)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	defer client.Close()
+
+	// Convert strategy string to proto enum
+	var pbStrategy pb.ConflictStrategy
+	switch strategy {
+	case "prefer-node-a":
+		pbStrategy = pb.ConflictStrategy_CONFLICT_STRATEGY_PREFER_NODE_A
+	case "prefer-node-b":
+		pbStrategy = pb.ConflictStrategy_CONFLICT_STRATEGY_PREFER_NODE_B
+	case "last-modified":
+		pbStrategy = pb.ConflictStrategy_CONFLICT_STRATEGY_LAST_MODIFIED
+	case "manual":
+		pbStrategy = pb.ConflictStrategy_CONFLICT_STRATEGY_MANUAL
+	default:
+		pbStrategy = pb.ConflictStrategy_CONFLICT_STRATEGY_PREFER_NODE_A
+	}
+
+	// Convert schema sync to proto enum
+	var pbSchemaSync pb.SchemaSyncMode
+	switch schemaSync {
+	case "strict":
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_STRICT
+	case "auto":
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_AUTO
+	case "manual":
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_MANUAL
+	default:
+		pbSchemaSync = pb.SchemaSyncMode_SCHEMA_SYNC_STRICT
+	}
+
+	resp, err := client.StartBidirectionalMerge(ctx, &pb.StartBidirectionalMergeRequest{
+		NodeAId:          nodeAID,
+		NodeBId:          nodeBID,
+		NodeBConnStr:     nodeBConnStr,
+		Tables:           tables,
+		Strategy:         pbStrategy,
+		DryRun:           dryRun,
+		SchemaSync:       pbSchemaSync,
+		QuiesceTimeoutMs: int32(quiesceTimeoutMs),
+	})
+	if err != nil {
+		return fmt.Errorf("gRPC call failed: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("bidirectional merge failed: %s", resp.Error)
+	}
+
+	fmt.Println("Bidirectional merge completed successfully!")
+	fmt.Println()
+
+	if resp.Result != nil {
+		fmt.Printf("Summary:\n")
+		fmt.Printf("  Tables processed: %d\n", resp.Result.TablesProcessed)
+		fmt.Printf("  Conflicts detected: %d\n", resp.Result.ConflictsDetected)
+		fmt.Printf("  Conflicts resolved: %d\n", resp.Result.ConflictsResolved)
+		fmt.Printf("  Rows A -> B: %d\n", resp.Result.RowsTransferredAToB)
+		fmt.Printf("  Rows B -> A: %d\n", resp.Result.RowsTransferredBToA)
+		fmt.Printf("  Replication setup: %v\n", resp.Result.ReplicationSetup)
+
+		if resp.Result.ReplicationSetup {
+			fmt.Printf("  Slot A -> B: %s\n", resp.Result.SlotAToB)
+			fmt.Printf("  Slot B -> A: %s\n", resp.Result.SlotBToA)
+		}
+
+		if len(resp.Result.TableResults) > 0 {
+			fmt.Println()
+			fmt.Println("Table details:")
+			for _, tr := range resp.Result.TableResults {
+				fmt.Printf("  %s.%s:\n", tr.Schema, tr.Table)
+				fmt.Printf("    A-only: %d, B-only: %d, conflicts: %d, identical: %d\n",
+					tr.RowsAOnly, tr.RowsBOnly, tr.RowsConflict, tr.RowsIdentical)
+				if tr.Resolution != "" {
+					fmt.Printf("    Resolution: %s\n", tr.Resolution)
+				}
+			}
+		}
+	}
+
+	if dryRun {
+		fmt.Println()
+		fmt.Println("This was a dry run. No changes were applied.")
+		fmt.Println("Remove --dry-run to apply changes.")
+	}
+
 	return nil
 }

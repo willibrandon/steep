@@ -22,19 +22,20 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	InitService_StartInit_FullMethodName             = "/steep.repl.v1.InitService/StartInit"
-	InitService_PrepareInit_FullMethodName           = "/steep.repl.v1.InitService/PrepareInit"
-	InitService_CompleteInit_FullMethodName          = "/steep.repl.v1.InitService/CompleteInit"
-	InitService_CancelInit_FullMethodName            = "/steep.repl.v1.InitService/CancelInit"
-	InitService_GetProgress_FullMethodName           = "/steep.repl.v1.InitService/GetProgress"
-	InitService_StreamProgress_FullMethodName        = "/steep.repl.v1.InitService/StreamProgress"
-	InitService_StartReinit_FullMethodName           = "/steep.repl.v1.InitService/StartReinit"
-	InitService_CompareSchemas_FullMethodName        = "/steep.repl.v1.InitService/CompareSchemas"
-	InitService_GetSchemaFingerprints_FullMethodName = "/steep.repl.v1.InitService/GetSchemaFingerprints"
-	InitService_GetColumnDiff_FullMethodName         = "/steep.repl.v1.InitService/GetColumnDiff"
-	InitService_CaptureFingerprints_FullMethodName   = "/steep.repl.v1.InitService/CaptureFingerprints"
-	InitService_GenerateSnapshot_FullMethodName      = "/steep.repl.v1.InitService/GenerateSnapshot"
-	InitService_ApplySnapshot_FullMethodName         = "/steep.repl.v1.InitService/ApplySnapshot"
+	InitService_StartInit_FullMethodName               = "/steep.repl.v1.InitService/StartInit"
+	InitService_PrepareInit_FullMethodName             = "/steep.repl.v1.InitService/PrepareInit"
+	InitService_CompleteInit_FullMethodName            = "/steep.repl.v1.InitService/CompleteInit"
+	InitService_CancelInit_FullMethodName              = "/steep.repl.v1.InitService/CancelInit"
+	InitService_GetProgress_FullMethodName             = "/steep.repl.v1.InitService/GetProgress"
+	InitService_StreamProgress_FullMethodName          = "/steep.repl.v1.InitService/StreamProgress"
+	InitService_StartReinit_FullMethodName             = "/steep.repl.v1.InitService/StartReinit"
+	InitService_CompareSchemas_FullMethodName          = "/steep.repl.v1.InitService/CompareSchemas"
+	InitService_GetSchemaFingerprints_FullMethodName   = "/steep.repl.v1.InitService/GetSchemaFingerprints"
+	InitService_GetColumnDiff_FullMethodName           = "/steep.repl.v1.InitService/GetColumnDiff"
+	InitService_CaptureFingerprints_FullMethodName     = "/steep.repl.v1.InitService/CaptureFingerprints"
+	InitService_GenerateSnapshot_FullMethodName        = "/steep.repl.v1.InitService/GenerateSnapshot"
+	InitService_ApplySnapshot_FullMethodName           = "/steep.repl.v1.InitService/ApplySnapshot"
+	InitService_StartBidirectionalMerge_FullMethodName = "/steep.repl.v1.InitService/StartBidirectionalMerge"
 )
 
 // InitServiceClient is the client API for InitService service.
@@ -67,6 +68,8 @@ type InitServiceClient interface {
 	GenerateSnapshot(ctx context.Context, in *GenerateSnapshotRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotProgress], error)
 	// Apply snapshot (two-phase, phase 2)
 	ApplySnapshot(ctx context.Context, in *ApplySnapshotRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotProgress], error)
+	// Start bidirectional merge initialization
+	StartBidirectionalMerge(ctx context.Context, in *StartBidirectionalMergeRequest, opts ...grpc.CallOption) (*StartBidirectionalMergeResponse, error)
 }
 
 type initServiceClient struct {
@@ -234,6 +237,16 @@ func (c *initServiceClient) ApplySnapshot(ctx context.Context, in *ApplySnapshot
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type InitService_ApplySnapshotClient = grpc.ServerStreamingClient[SnapshotProgress]
 
+func (c *initServiceClient) StartBidirectionalMerge(ctx context.Context, in *StartBidirectionalMergeRequest, opts ...grpc.CallOption) (*StartBidirectionalMergeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartBidirectionalMergeResponse)
+	err := c.cc.Invoke(ctx, InitService_StartBidirectionalMerge_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // InitServiceServer is the server API for InitService service.
 // All implementations must embed UnimplementedInitServiceServer
 // for forward compatibility.
@@ -264,6 +277,8 @@ type InitServiceServer interface {
 	GenerateSnapshot(*GenerateSnapshotRequest, grpc.ServerStreamingServer[SnapshotProgress]) error
 	// Apply snapshot (two-phase, phase 2)
 	ApplySnapshot(*ApplySnapshotRequest, grpc.ServerStreamingServer[SnapshotProgress]) error
+	// Start bidirectional merge initialization
+	StartBidirectionalMerge(context.Context, *StartBidirectionalMergeRequest) (*StartBidirectionalMergeResponse, error)
 	mustEmbedUnimplementedInitServiceServer()
 }
 
@@ -312,6 +327,9 @@ func (UnimplementedInitServiceServer) GenerateSnapshot(*GenerateSnapshotRequest,
 }
 func (UnimplementedInitServiceServer) ApplySnapshot(*ApplySnapshotRequest, grpc.ServerStreamingServer[SnapshotProgress]) error {
 	return status.Error(codes.Unimplemented, "method ApplySnapshot not implemented")
+}
+func (UnimplementedInitServiceServer) StartBidirectionalMerge(context.Context, *StartBidirectionalMergeRequest) (*StartBidirectionalMergeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StartBidirectionalMerge not implemented")
 }
 func (UnimplementedInitServiceServer) mustEmbedUnimplementedInitServiceServer() {}
 func (UnimplementedInitServiceServer) testEmbeddedByValue()                     {}
@@ -547,6 +565,24 @@ func _InitService_ApplySnapshot_Handler(srv interface{}, stream grpc.ServerStrea
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type InitService_ApplySnapshotServer = grpc.ServerStreamingServer[SnapshotProgress]
 
+func _InitService_StartBidirectionalMerge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartBidirectionalMergeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InitServiceServer).StartBidirectionalMerge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InitService_StartBidirectionalMerge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InitServiceServer).StartBidirectionalMerge(ctx, req.(*StartBidirectionalMergeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // InitService_ServiceDesc is the grpc.ServiceDesc for InitService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -593,6 +629,10 @@ var InitService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CaptureFingerprints",
 			Handler:    _InitService_CaptureFingerprints_Handler,
+		},
+		{
+			MethodName: "StartBidirectionalMerge",
+			Handler:    _InitService_StartBidirectionalMerge_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

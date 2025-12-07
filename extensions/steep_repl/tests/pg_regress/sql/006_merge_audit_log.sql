@@ -1,0 +1,165 @@
+-- Test merge audit log table and functions
+-- Verifies merge_audit_log table, log_merge_decision, get_merge_summary, etc.
+
+-- =============================================================================
+-- Test merge_audit_log table structure
+-- =============================================================================
+
+-- Table should exist with correct columns
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'steep_repl' AND table_name = 'merge_audit_log'
+ORDER BY ordinal_position;
+
+-- Indexes should exist
+SELECT indexname FROM pg_indexes
+WHERE schemaname = 'steep_repl' AND tablename = 'merge_audit_log'
+ORDER BY indexname;
+
+-- =============================================================================
+-- Test log_merge_decision function
+-- =============================================================================
+
+-- Generate a test merge ID
+DO $$
+DECLARE
+    v_merge_id UUID := gen_random_uuid();
+    v_id BIGINT;
+BEGIN
+    -- Log a match
+    SELECT steep_repl.log_merge_decision(
+        v_merge_id,
+        'public', 'test_table',
+        '{"id": 1}'::jsonb,
+        'match',
+        NULL, NULL, NULL, NULL
+    ) INTO v_id;
+
+    IF v_id IS NULL OR v_id <= 0 THEN
+        RAISE EXCEPTION 'log_merge_decision should return positive ID for match';
+    END IF;
+
+    -- Log a conflict with resolution
+    SELECT steep_repl.log_merge_decision(
+        v_merge_id,
+        'public', 'test_table',
+        '{"id": 2}'::jsonb,
+        'conflict',
+        'kept_a',
+        '{"id": 2, "name": "alice"}'::jsonb,
+        '{"id": 2, "name": "bob"}'::jsonb,
+        'strategy:prefer-node-a'
+    ) INTO v_id;
+
+    IF v_id IS NULL OR v_id <= 0 THEN
+        RAISE EXCEPTION 'log_merge_decision should return positive ID for conflict';
+    END IF;
+
+    -- Log a local_only
+    SELECT steep_repl.log_merge_decision(
+        v_merge_id,
+        'public', 'test_table',
+        '{"id": 3}'::jsonb,
+        'local_only',
+        NULL,
+        '{"id": 3, "name": "charlie"}'::jsonb,
+        NULL,
+        NULL
+    ) INTO v_id;
+
+    -- Log a remote_only
+    SELECT steep_repl.log_merge_decision(
+        v_merge_id,
+        'public', 'test_table',
+        '{"id": 4}'::jsonb,
+        'remote_only',
+        NULL,
+        NULL,
+        '{"id": 4, "name": "diana"}'::jsonb,
+        NULL
+    ) INTO v_id;
+
+    -- Store merge_id for subsequent tests
+    PERFORM set_config('test.merge_id', v_merge_id::text, false);
+END $$;
+
+SELECT 'log_merge_decision inserts correctly' AS test_result;
+
+-- Verify entries were inserted
+SELECT category, resolution, pk_value
+FROM steep_repl.merge_audit_log
+WHERE merge_id = current_setting('test.merge_id')::uuid
+ORDER BY id;
+
+-- =============================================================================
+-- Test get_merge_summary function
+-- =============================================================================
+
+SELECT category, resolution, count
+FROM steep_repl.get_merge_summary(current_setting('test.merge_id')::uuid)
+ORDER BY category, resolution;
+
+-- =============================================================================
+-- Test get_merge_conflicts function
+-- =============================================================================
+
+SELECT category, resolution, pk_value, node_a_value IS NOT NULL AS has_a, node_b_value IS NOT NULL AS has_b
+FROM steep_repl.get_merge_conflicts(current_setting('test.merge_id')::uuid);
+
+-- =============================================================================
+-- Test category constraint
+-- =============================================================================
+
+-- Invalid category should fail
+DO $$
+BEGIN
+    INSERT INTO steep_repl.merge_audit_log (merge_id, table_schema, table_name, pk_value, category)
+    VALUES (gen_random_uuid(), 'public', 'test', '{"id": 1}'::jsonb, 'invalid_category');
+    RAISE EXCEPTION 'Should have failed on invalid category';
+EXCEPTION
+    WHEN check_violation THEN
+        -- Expected
+        NULL;
+END $$;
+
+SELECT 'category constraint works' AS test_result;
+
+-- =============================================================================
+-- Test resolution constraint
+-- =============================================================================
+
+-- Invalid resolution should fail
+DO $$
+BEGIN
+    INSERT INTO steep_repl.merge_audit_log (merge_id, table_schema, table_name, pk_value, category, resolution)
+    VALUES (gen_random_uuid(), 'public', 'test', '{"id": 1}'::jsonb, 'conflict', 'invalid_resolution');
+    RAISE EXCEPTION 'Should have failed on invalid resolution';
+EXCEPTION
+    WHEN check_violation THEN
+        -- Expected
+        NULL;
+END $$;
+
+SELECT 'resolution constraint works' AS test_result;
+
+-- =============================================================================
+-- Test prune_merge_audit_log function
+-- =============================================================================
+
+-- Insert an old entry
+INSERT INTO steep_repl.merge_audit_log (merge_id, table_schema, table_name, pk_value, category, resolved_at)
+VALUES (gen_random_uuid(), 'public', 'old_table', '{"id": 999}'::jsonb, 'match', now() - interval '100 days');
+
+-- Prune entries older than 90 days
+SELECT steep_repl.prune_merge_audit_log('90 days'::interval) >= 1 AS pruned_old_entries;
+
+-- Verify old entry is gone
+SELECT count(*) = 0 AS old_entry_deleted
+FROM steep_repl.merge_audit_log
+WHERE table_name = 'old_table' AND pk_value = '{"id": 999}'::jsonb;
+
+-- =============================================================================
+-- Cleanup
+-- =============================================================================
+
+DELETE FROM steep_repl.merge_audit_log WHERE merge_id = current_setting('test.merge_id')::uuid;

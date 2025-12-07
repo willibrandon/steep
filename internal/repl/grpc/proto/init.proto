@@ -52,6 +52,9 @@ service InitService {
 
     // Apply snapshot (two-phase, phase 2)
     rpc ApplySnapshot(ApplySnapshotRequest) returns (stream SnapshotProgress);
+
+    // Start bidirectional merge initialization
+    rpc StartBidirectionalMerge(StartBidirectionalMergeRequest) returns (StartBidirectionalMergeResponse);
 }
 
 // =============================================================================
@@ -76,6 +79,15 @@ enum InitMethod {
     INIT_METHOD_MANUAL = 2;        // User-provided backup
     INIT_METHOD_TWO_PHASE = 3;     // Generate then apply
     INIT_METHOD_DIRECT = 4;        // Combined two-phase (smaller DBs)
+    INIT_METHOD_BIDIRECTIONAL_MERGE = 5;  // Merge existing data, then enable replication
+}
+
+enum ConflictStrategy {
+    CONFLICT_STRATEGY_UNSPECIFIED = 0;
+    CONFLICT_STRATEGY_PREFER_NODE_A = 1;  // Keep local values
+    CONFLICT_STRATEGY_PREFER_NODE_B = 2;  // Keep remote values
+    CONFLICT_STRATEGY_LAST_MODIFIED = 3;  // Keep most recently modified
+    CONFLICT_STRATEGY_MANUAL = 4;         // Log conflicts for manual resolution
 }
 
 enum SchemaSyncMode {
@@ -377,4 +389,47 @@ message SnapshotProgress {
     string lsn = 9;                    // Captured/applied LSN
     bool complete = 10;
     string error = 11;
+}
+
+// =============================================================================
+// Bidirectional Merge Initialization
+// =============================================================================
+
+message StartBidirectionalMergeRequest {
+    string node_a_id = 1;              // Local node ID
+    string node_b_id = 2;              // Remote node ID
+    string node_b_conn_str = 3;        // Connection string for remote node
+    repeated string tables = 4;        // Tables to merge (schema.table format)
+    ConflictStrategy strategy = 5;     // Conflict resolution strategy
+    bool dry_run = 6;                  // Preview without applying changes
+    SchemaSyncMode schema_sync = 7;    // Schema sync mode
+    int32 quiesce_timeout_ms = 8;      // Timeout for quiescing writes (default 5000)
+}
+
+message StartBidirectionalMergeResponse {
+    bool success = 1;
+    string error = 2;
+    BidirectionalMergeResult result = 3;
+}
+
+message BidirectionalMergeResult {
+    int64 tables_processed = 1;
+    int64 conflicts_detected = 2;
+    int64 conflicts_resolved = 3;
+    int64 rows_transferred_a_to_b = 4;
+    int64 rows_transferred_b_to_a = 5;
+    bool replication_setup = 6;
+    string slot_a_to_b = 7;           // Replication slot name A -> B
+    string slot_b_to_a = 8;           // Replication slot name B -> A
+    repeated TableMergeResult table_results = 9;
+}
+
+message TableMergeResult {
+    string schema = 1;
+    string table = 2;
+    int64 rows_a_only = 3;            // Rows only in node A (copied to B)
+    int64 rows_b_only = 4;            // Rows only in node B (copied to A)
+    int64 rows_conflict = 5;          // Rows with conflicting values
+    int64 rows_identical = 6;         // Rows identical on both nodes
+    string resolution = 7;            // How conflicts were resolved
 }

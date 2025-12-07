@@ -29,6 +29,8 @@ mod schema_fingerprints;
 mod init_slots;
 mod snapshots;
 mod fingerprint_functions;
+mod merge;
+mod merge_audit_log;
 mod utils;
 
 // Re-export utility functions for SQL access

@@ -55,6 +55,8 @@ Direct Run (for debugging):
 		newInitTLSCmd(),
 		newInitCmd(),
 		newSchemaCmd(),
+		newAnalyzeOverlapCmd(),
+		newMergeCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

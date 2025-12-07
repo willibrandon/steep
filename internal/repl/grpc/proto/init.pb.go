@@ -95,11 +95,12 @@ func (InitState) EnumDescriptor() ([]byte, []int) {
 type InitMethod int32
 
 const (
-	InitMethod_INIT_METHOD_UNSPECIFIED InitMethod = 0
-	InitMethod_INIT_METHOD_SNAPSHOT    InitMethod = 1 // Automatic via copy_data=true
-	InitMethod_INIT_METHOD_MANUAL      InitMethod = 2 // User-provided backup
-	InitMethod_INIT_METHOD_TWO_PHASE   InitMethod = 3 // Generate then apply
-	InitMethod_INIT_METHOD_DIRECT      InitMethod = 4 // Combined two-phase (smaller DBs)
+	InitMethod_INIT_METHOD_UNSPECIFIED         InitMethod = 0
+	InitMethod_INIT_METHOD_SNAPSHOT            InitMethod = 1 // Automatic via copy_data=true
+	InitMethod_INIT_METHOD_MANUAL              InitMethod = 2 // User-provided backup
+	InitMethod_INIT_METHOD_TWO_PHASE           InitMethod = 3 // Generate then apply
+	InitMethod_INIT_METHOD_DIRECT              InitMethod = 4 // Combined two-phase (smaller DBs)
+	InitMethod_INIT_METHOD_BIDIRECTIONAL_MERGE InitMethod = 5 // Merge existing data, then enable replication
 )
 
 // Enum value maps for InitMethod.
@@ -110,13 +111,15 @@ var (
 		2: "INIT_METHOD_MANUAL",
 		3: "INIT_METHOD_TWO_PHASE",
 		4: "INIT_METHOD_DIRECT",
+		5: "INIT_METHOD_BIDIRECTIONAL_MERGE",
 	}
 	InitMethod_value = map[string]int32{
-		"INIT_METHOD_UNSPECIFIED": 0,
-		"INIT_METHOD_SNAPSHOT":    1,
-		"INIT_METHOD_MANUAL":      2,
-		"INIT_METHOD_TWO_PHASE":   3,
-		"INIT_METHOD_DIRECT":      4,
+		"INIT_METHOD_UNSPECIFIED":         0,
+		"INIT_METHOD_SNAPSHOT":            1,
+		"INIT_METHOD_MANUAL":              2,
+		"INIT_METHOD_TWO_PHASE":           3,
+		"INIT_METHOD_DIRECT":              4,
+		"INIT_METHOD_BIDIRECTIONAL_MERGE": 5,
 	}
 )
 
@@ -145,6 +148,61 @@ func (x InitMethod) Number() protoreflect.EnumNumber {
 // Deprecated: Use InitMethod.Descriptor instead.
 func (InitMethod) EnumDescriptor() ([]byte, []int) {
 	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{1}
+}
+
+type ConflictStrategy int32
+
+const (
+	ConflictStrategy_CONFLICT_STRATEGY_UNSPECIFIED   ConflictStrategy = 0
+	ConflictStrategy_CONFLICT_STRATEGY_PREFER_NODE_A ConflictStrategy = 1 // Keep local values
+	ConflictStrategy_CONFLICT_STRATEGY_PREFER_NODE_B ConflictStrategy = 2 // Keep remote values
+	ConflictStrategy_CONFLICT_STRATEGY_LAST_MODIFIED ConflictStrategy = 3 // Keep most recently modified
+	ConflictStrategy_CONFLICT_STRATEGY_MANUAL        ConflictStrategy = 4 // Log conflicts for manual resolution
+)
+
+// Enum value maps for ConflictStrategy.
+var (
+	ConflictStrategy_name = map[int32]string{
+		0: "CONFLICT_STRATEGY_UNSPECIFIED",
+		1: "CONFLICT_STRATEGY_PREFER_NODE_A",
+		2: "CONFLICT_STRATEGY_PREFER_NODE_B",
+		3: "CONFLICT_STRATEGY_LAST_MODIFIED",
+		4: "CONFLICT_STRATEGY_MANUAL",
+	}
+	ConflictStrategy_value = map[string]int32{
+		"CONFLICT_STRATEGY_UNSPECIFIED":   0,
+		"CONFLICT_STRATEGY_PREFER_NODE_A": 1,
+		"CONFLICT_STRATEGY_PREFER_NODE_B": 2,
+		"CONFLICT_STRATEGY_LAST_MODIFIED": 3,
+		"CONFLICT_STRATEGY_MANUAL":        4,
+	}
+)
+
+func (x ConflictStrategy) Enum() *ConflictStrategy {
+	p := new(ConflictStrategy)
+	*p = x
+	return p
+}
+
+func (x ConflictStrategy) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ConflictStrategy) Descriptor() protoreflect.EnumDescriptor {
+	return file_internal_repl_grpc_proto_init_proto_enumTypes[2].Descriptor()
+}
+
+func (ConflictStrategy) Type() protoreflect.EnumType {
+	return &file_internal_repl_grpc_proto_init_proto_enumTypes[2]
+}
+
+func (x ConflictStrategy) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ConflictStrategy.Descriptor instead.
+func (ConflictStrategy) EnumDescriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{2}
 }
 
 type SchemaSyncMode int32
@@ -183,11 +241,11 @@ func (x SchemaSyncMode) String() string {
 }
 
 func (SchemaSyncMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_internal_repl_grpc_proto_init_proto_enumTypes[2].Descriptor()
+	return file_internal_repl_grpc_proto_init_proto_enumTypes[3].Descriptor()
 }
 
 func (SchemaSyncMode) Type() protoreflect.EnumType {
-	return &file_internal_repl_grpc_proto_init_proto_enumTypes[2]
+	return &file_internal_repl_grpc_proto_init_proto_enumTypes[3]
 }
 
 func (x SchemaSyncMode) Number() protoreflect.EnumNumber {
@@ -196,7 +254,7 @@ func (x SchemaSyncMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SchemaSyncMode.Descriptor instead.
 func (SchemaSyncMode) EnumDescriptor() ([]byte, []int) {
-	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{2}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{3}
 }
 
 type ComparisonStatus int32
@@ -238,11 +296,11 @@ func (x ComparisonStatus) String() string {
 }
 
 func (ComparisonStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_internal_repl_grpc_proto_init_proto_enumTypes[3].Descriptor()
+	return file_internal_repl_grpc_proto_init_proto_enumTypes[4].Descriptor()
 }
 
 func (ComparisonStatus) Type() protoreflect.EnumType {
-	return &file_internal_repl_grpc_proto_init_proto_enumTypes[3]
+	return &file_internal_repl_grpc_proto_init_proto_enumTypes[4]
 }
 
 func (x ComparisonStatus) Number() protoreflect.EnumNumber {
@@ -251,7 +309,7 @@ func (x ComparisonStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ComparisonStatus.Descriptor instead.
 func (ComparisonStatus) EnumDescriptor() ([]byte, []int) {
-	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{3}
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{4}
 }
 
 type StartInitRequest struct {
@@ -2630,6 +2688,366 @@ func (x *SnapshotProgress) GetError() string {
 	return ""
 }
 
+type StartBidirectionalMergeRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	NodeAId          string                 `protobuf:"bytes,1,opt,name=node_a_id,json=nodeAId,proto3" json:"node_a_id,omitempty"`                                           // Local node ID
+	NodeBId          string                 `protobuf:"bytes,2,opt,name=node_b_id,json=nodeBId,proto3" json:"node_b_id,omitempty"`                                           // Remote node ID
+	NodeBConnStr     string                 `protobuf:"bytes,3,opt,name=node_b_conn_str,json=nodeBConnStr,proto3" json:"node_b_conn_str,omitempty"`                          // Connection string for remote node
+	Tables           []string               `protobuf:"bytes,4,rep,name=tables,proto3" json:"tables,omitempty"`                                                              // Tables to merge (schema.table format)
+	Strategy         ConflictStrategy       `protobuf:"varint,5,opt,name=strategy,proto3,enum=steep.repl.v1.ConflictStrategy" json:"strategy,omitempty"`                     // Conflict resolution strategy
+	DryRun           bool                   `protobuf:"varint,6,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`                                               // Preview without applying changes
+	SchemaSync       SchemaSyncMode         `protobuf:"varint,7,opt,name=schema_sync,json=schemaSync,proto3,enum=steep.repl.v1.SchemaSyncMode" json:"schema_sync,omitempty"` // Schema sync mode
+	QuiesceTimeoutMs int32                  `protobuf:"varint,8,opt,name=quiesce_timeout_ms,json=quiesceTimeoutMs,proto3" json:"quiesce_timeout_ms,omitempty"`               // Timeout for quiescing writes (default 5000)
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *StartBidirectionalMergeRequest) Reset() {
+	*x = StartBidirectionalMergeRequest{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartBidirectionalMergeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartBidirectionalMergeRequest) ProtoMessage() {}
+
+func (x *StartBidirectionalMergeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartBidirectionalMergeRequest.ProtoReflect.Descriptor instead.
+func (*StartBidirectionalMergeRequest) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *StartBidirectionalMergeRequest) GetNodeAId() string {
+	if x != nil {
+		return x.NodeAId
+	}
+	return ""
+}
+
+func (x *StartBidirectionalMergeRequest) GetNodeBId() string {
+	if x != nil {
+		return x.NodeBId
+	}
+	return ""
+}
+
+func (x *StartBidirectionalMergeRequest) GetNodeBConnStr() string {
+	if x != nil {
+		return x.NodeBConnStr
+	}
+	return ""
+}
+
+func (x *StartBidirectionalMergeRequest) GetTables() []string {
+	if x != nil {
+		return x.Tables
+	}
+	return nil
+}
+
+func (x *StartBidirectionalMergeRequest) GetStrategy() ConflictStrategy {
+	if x != nil {
+		return x.Strategy
+	}
+	return ConflictStrategy_CONFLICT_STRATEGY_UNSPECIFIED
+}
+
+func (x *StartBidirectionalMergeRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
+func (x *StartBidirectionalMergeRequest) GetSchemaSync() SchemaSyncMode {
+	if x != nil {
+		return x.SchemaSync
+	}
+	return SchemaSyncMode_SCHEMA_SYNC_UNSPECIFIED
+}
+
+func (x *StartBidirectionalMergeRequest) GetQuiesceTimeoutMs() int32 {
+	if x != nil {
+		return x.QuiesceTimeoutMs
+	}
+	return 0
+}
+
+type StartBidirectionalMergeResponse struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Success       bool                      `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error         string                    `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Result        *BidirectionalMergeResult `protobuf:"bytes,3,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartBidirectionalMergeResponse) Reset() {
+	*x = StartBidirectionalMergeResponse{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartBidirectionalMergeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartBidirectionalMergeResponse) ProtoMessage() {}
+
+func (x *StartBidirectionalMergeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartBidirectionalMergeResponse.ProtoReflect.Descriptor instead.
+func (*StartBidirectionalMergeResponse) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *StartBidirectionalMergeResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *StartBidirectionalMergeResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *StartBidirectionalMergeResponse) GetResult() *BidirectionalMergeResult {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+type BidirectionalMergeResult struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	TablesProcessed     int64                  `protobuf:"varint,1,opt,name=tables_processed,json=tablesProcessed,proto3" json:"tables_processed,omitempty"`
+	ConflictsDetected   int64                  `protobuf:"varint,2,opt,name=conflicts_detected,json=conflictsDetected,proto3" json:"conflicts_detected,omitempty"`
+	ConflictsResolved   int64                  `protobuf:"varint,3,opt,name=conflicts_resolved,json=conflictsResolved,proto3" json:"conflicts_resolved,omitempty"`
+	RowsTransferredAToB int64                  `protobuf:"varint,4,opt,name=rows_transferred_a_to_b,json=rowsTransferredAToB,proto3" json:"rows_transferred_a_to_b,omitempty"`
+	RowsTransferredBToA int64                  `protobuf:"varint,5,opt,name=rows_transferred_b_to_a,json=rowsTransferredBToA,proto3" json:"rows_transferred_b_to_a,omitempty"`
+	ReplicationSetup    bool                   `protobuf:"varint,6,opt,name=replication_setup,json=replicationSetup,proto3" json:"replication_setup,omitempty"`
+	SlotAToB            string                 `protobuf:"bytes,7,opt,name=slot_a_to_b,json=slotAToB,proto3" json:"slot_a_to_b,omitempty"` // Replication slot name A -> B
+	SlotBToA            string                 `protobuf:"bytes,8,opt,name=slot_b_to_a,json=slotBToA,proto3" json:"slot_b_to_a,omitempty"` // Replication slot name B -> A
+	TableResults        []*TableMergeResult    `protobuf:"bytes,9,rep,name=table_results,json=tableResults,proto3" json:"table_results,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *BidirectionalMergeResult) Reset() {
+	*x = BidirectionalMergeResult{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BidirectionalMergeResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BidirectionalMergeResult) ProtoMessage() {}
+
+func (x *BidirectionalMergeResult) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BidirectionalMergeResult.ProtoReflect.Descriptor instead.
+func (*BidirectionalMergeResult) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *BidirectionalMergeResult) GetTablesProcessed() int64 {
+	if x != nil {
+		return x.TablesProcessed
+	}
+	return 0
+}
+
+func (x *BidirectionalMergeResult) GetConflictsDetected() int64 {
+	if x != nil {
+		return x.ConflictsDetected
+	}
+	return 0
+}
+
+func (x *BidirectionalMergeResult) GetConflictsResolved() int64 {
+	if x != nil {
+		return x.ConflictsResolved
+	}
+	return 0
+}
+
+func (x *BidirectionalMergeResult) GetRowsTransferredAToB() int64 {
+	if x != nil {
+		return x.RowsTransferredAToB
+	}
+	return 0
+}
+
+func (x *BidirectionalMergeResult) GetRowsTransferredBToA() int64 {
+	if x != nil {
+		return x.RowsTransferredBToA
+	}
+	return 0
+}
+
+func (x *BidirectionalMergeResult) GetReplicationSetup() bool {
+	if x != nil {
+		return x.ReplicationSetup
+	}
+	return false
+}
+
+func (x *BidirectionalMergeResult) GetSlotAToB() string {
+	if x != nil {
+		return x.SlotAToB
+	}
+	return ""
+}
+
+func (x *BidirectionalMergeResult) GetSlotBToA() string {
+	if x != nil {
+		return x.SlotBToA
+	}
+	return ""
+}
+
+func (x *BidirectionalMergeResult) GetTableResults() []*TableMergeResult {
+	if x != nil {
+		return x.TableResults
+	}
+	return nil
+}
+
+type TableMergeResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Schema        string                 `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
+	Table         string                 `protobuf:"bytes,2,opt,name=table,proto3" json:"table,omitempty"`
+	RowsAOnly     int64                  `protobuf:"varint,3,opt,name=rows_a_only,json=rowsAOnly,proto3" json:"rows_a_only,omitempty"`           // Rows only in node A (copied to B)
+	RowsBOnly     int64                  `protobuf:"varint,4,opt,name=rows_b_only,json=rowsBOnly,proto3" json:"rows_b_only,omitempty"`           // Rows only in node B (copied to A)
+	RowsConflict  int64                  `protobuf:"varint,5,opt,name=rows_conflict,json=rowsConflict,proto3" json:"rows_conflict,omitempty"`    // Rows with conflicting values
+	RowsIdentical int64                  `protobuf:"varint,6,opt,name=rows_identical,json=rowsIdentical,proto3" json:"rows_identical,omitempty"` // Rows identical on both nodes
+	Resolution    string                 `protobuf:"bytes,7,opt,name=resolution,proto3" json:"resolution,omitempty"`                             // How conflicts were resolved
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TableMergeResult) Reset() {
+	*x = TableMergeResult{}
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TableMergeResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TableMergeResult) ProtoMessage() {}
+
+func (x *TableMergeResult) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_repl_grpc_proto_init_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TableMergeResult.ProtoReflect.Descriptor instead.
+func (*TableMergeResult) Descriptor() ([]byte, []int) {
+	return file_internal_repl_grpc_proto_init_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *TableMergeResult) GetSchema() string {
+	if x != nil {
+		return x.Schema
+	}
+	return ""
+}
+
+func (x *TableMergeResult) GetTable() string {
+	if x != nil {
+		return x.Table
+	}
+	return ""
+}
+
+func (x *TableMergeResult) GetRowsAOnly() int64 {
+	if x != nil {
+		return x.RowsAOnly
+	}
+	return 0
+}
+
+func (x *TableMergeResult) GetRowsBOnly() int64 {
+	if x != nil {
+		return x.RowsBOnly
+	}
+	return 0
+}
+
+func (x *TableMergeResult) GetRowsConflict() int64 {
+	if x != nil {
+		return x.RowsConflict
+	}
+	return 0
+}
+
+func (x *TableMergeResult) GetRowsIdentical() int64 {
+	if x != nil {
+		return x.RowsIdentical
+	}
+	return 0
+}
+
+func (x *TableMergeResult) GetResolution() string {
+	if x != nil {
+		return x.Resolution
+	}
+	return ""
+}
+
 var File_internal_repl_grpc_proto_init_proto protoreflect.FileDescriptor
 
 const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
@@ -2829,7 +3247,41 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\x03lsn\x18\t \x01(\tR\x03lsn\x12\x1a\n" +
 	"\bcomplete\x18\n" +
 	" \x01(\bR\bcomplete\x12\x14\n" +
-	"\x05error\x18\v \x01(\tR\x05error*\xff\x01\n" +
+	"\x05error\x18\v \x01(\tR\x05error\"\xdb\x02\n" +
+	"\x1eStartBidirectionalMergeRequest\x12\x1a\n" +
+	"\tnode_a_id\x18\x01 \x01(\tR\anodeAId\x12\x1a\n" +
+	"\tnode_b_id\x18\x02 \x01(\tR\anodeBId\x12%\n" +
+	"\x0fnode_b_conn_str\x18\x03 \x01(\tR\fnodeBConnStr\x12\x16\n" +
+	"\x06tables\x18\x04 \x03(\tR\x06tables\x12;\n" +
+	"\bstrategy\x18\x05 \x01(\x0e2\x1f.steep.repl.v1.ConflictStrategyR\bstrategy\x12\x17\n" +
+	"\adry_run\x18\x06 \x01(\bR\x06dryRun\x12>\n" +
+	"\vschema_sync\x18\a \x01(\x0e2\x1d.steep.repl.v1.SchemaSyncModeR\n" +
+	"schemaSync\x12,\n" +
+	"\x12quiesce_timeout_ms\x18\b \x01(\x05R\x10quiesceTimeoutMs\"\x92\x01\n" +
+	"\x1fStartBidirectionalMergeResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12?\n" +
+	"\x06result\x18\x03 \x01(\v2'.steep.repl.v1.BidirectionalMergeResultR\x06result\"\xc0\x03\n" +
+	"\x18BidirectionalMergeResult\x12)\n" +
+	"\x10tables_processed\x18\x01 \x01(\x03R\x0ftablesProcessed\x12-\n" +
+	"\x12conflicts_detected\x18\x02 \x01(\x03R\x11conflictsDetected\x12-\n" +
+	"\x12conflicts_resolved\x18\x03 \x01(\x03R\x11conflictsResolved\x124\n" +
+	"\x17rows_transferred_a_to_b\x18\x04 \x01(\x03R\x13rowsTransferredAToB\x124\n" +
+	"\x17rows_transferred_b_to_a\x18\x05 \x01(\x03R\x13rowsTransferredBToA\x12+\n" +
+	"\x11replication_setup\x18\x06 \x01(\bR\x10replicationSetup\x12\x1d\n" +
+	"\vslot_a_to_b\x18\a \x01(\tR\bslotAToB\x12\x1d\n" +
+	"\vslot_b_to_a\x18\b \x01(\tR\bslotBToA\x12D\n" +
+	"\rtable_results\x18\t \x03(\v2\x1f.steep.repl.v1.TableMergeResultR\ftableResults\"\xec\x01\n" +
+	"\x10TableMergeResult\x12\x16\n" +
+	"\x06schema\x18\x01 \x01(\tR\x06schema\x12\x14\n" +
+	"\x05table\x18\x02 \x01(\tR\x05table\x12\x1e\n" +
+	"\vrows_a_only\x18\x03 \x01(\x03R\trowsAOnly\x12\x1e\n" +
+	"\vrows_b_only\x18\x04 \x01(\x03R\trowsBOnly\x12#\n" +
+	"\rrows_conflict\x18\x05 \x01(\x03R\frowsConflict\x12%\n" +
+	"\x0erows_identical\x18\x06 \x01(\x03R\rrowsIdentical\x12\x1e\n" +
+	"\n" +
+	"resolution\x18\a \x01(\tR\n" +
+	"resolution*\xff\x01\n" +
 	"\tInitState\x12\x1a\n" +
 	"\x16INIT_STATE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18INIT_STATE_UNINITIALIZED\x10\x01\x12\x18\n" +
@@ -2839,14 +3291,21 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\x17INIT_STATE_SYNCHRONIZED\x10\x05\x12\x17\n" +
 	"\x13INIT_STATE_DIVERGED\x10\x06\x12\x15\n" +
 	"\x11INIT_STATE_FAILED\x10\a\x12\x1d\n" +
-	"\x19INIT_STATE_REINITIALIZING\x10\b*\x8e\x01\n" +
+	"\x19INIT_STATE_REINITIALIZING\x10\b*\xb3\x01\n" +
 	"\n" +
 	"InitMethod\x12\x1b\n" +
 	"\x17INIT_METHOD_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14INIT_METHOD_SNAPSHOT\x10\x01\x12\x16\n" +
 	"\x12INIT_METHOD_MANUAL\x10\x02\x12\x19\n" +
 	"\x15INIT_METHOD_TWO_PHASE\x10\x03\x12\x16\n" +
-	"\x12INIT_METHOD_DIRECT\x10\x04*s\n" +
+	"\x12INIT_METHOD_DIRECT\x10\x04\x12#\n" +
+	"\x1fINIT_METHOD_BIDIRECTIONAL_MERGE\x10\x05*\xc2\x01\n" +
+	"\x10ConflictStrategy\x12!\n" +
+	"\x1dCONFLICT_STRATEGY_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fCONFLICT_STRATEGY_PREFER_NODE_A\x10\x01\x12#\n" +
+	"\x1fCONFLICT_STRATEGY_PREFER_NODE_B\x10\x02\x12#\n" +
+	"\x1fCONFLICT_STRATEGY_LAST_MODIFIED\x10\x03\x12\x1c\n" +
+	"\x18CONFLICT_STRATEGY_MANUAL\x10\x04*s\n" +
 	"\x0eSchemaSyncMode\x12\x1b\n" +
 	"\x17SCHEMA_SYNC_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12SCHEMA_SYNC_STRICT\x10\x01\x12\x14\n" +
@@ -2857,7 +3316,8 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\x17COMPARISON_STATUS_MATCH\x10\x01\x12\x1e\n" +
 	"\x1aCOMPARISON_STATUS_MISMATCH\x10\x02\x12 \n" +
 	"\x1cCOMPARISON_STATUS_LOCAL_ONLY\x10\x03\x12!\n" +
-	"\x1dCOMPARISON_STATUS_REMOTE_ONLY\x10\x042\xb9\t\n" +
+	"\x1dCOMPARISON_STATUS_REMOTE_ONLY\x10\x042\xb3\n" +
+	"\n" +
 	"\vInitService\x12N\n" +
 	"\tStartInit\x12\x1f.steep.repl.v1.StartInitRequest\x1a .steep.repl.v1.StartInitResponse\x12T\n" +
 	"\vPrepareInit\x12!.steep.repl.v1.PrepareInitRequest\x1a\".steep.repl.v1.PrepareInitResponse\x12W\n" +
@@ -2872,7 +3332,8 @@ const file_internal_repl_grpc_proto_init_proto_rawDesc = "" +
 	"\rGetColumnDiff\x12#.steep.repl.v1.GetColumnDiffRequest\x1a$.steep.repl.v1.GetColumnDiffResponse\x12l\n" +
 	"\x13CaptureFingerprints\x12).steep.repl.v1.CaptureFingerprintsRequest\x1a*.steep.repl.v1.CaptureFingerprintsResponse\x12]\n" +
 	"\x10GenerateSnapshot\x12&.steep.repl.v1.GenerateSnapshotRequest\x1a\x1f.steep.repl.v1.SnapshotProgress0\x01\x12W\n" +
-	"\rApplySnapshot\x12#.steep.repl.v1.ApplySnapshotRequest\x1a\x1f.steep.repl.v1.SnapshotProgress0\x01B Z\x1esteep/internal/repl/grpc/protob\x06proto3"
+	"\rApplySnapshot\x12#.steep.repl.v1.ApplySnapshotRequest\x1a\x1f.steep.repl.v1.SnapshotProgress0\x01\x12x\n" +
+	"\x17StartBidirectionalMerge\x12-.steep.repl.v1.StartBidirectionalMergeRequest\x1a..steep.repl.v1.StartBidirectionalMergeResponseB Z\x1esteep/internal/repl/grpc/protob\x06proto3"
 
 var (
 	file_internal_repl_grpc_proto_init_proto_rawDescOnce sync.Once
@@ -2886,107 +3347,118 @@ func file_internal_repl_grpc_proto_init_proto_rawDescGZIP() []byte {
 	return file_internal_repl_grpc_proto_init_proto_rawDescData
 }
 
-var file_internal_repl_grpc_proto_init_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_internal_repl_grpc_proto_init_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_internal_repl_grpc_proto_init_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_internal_repl_grpc_proto_init_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_internal_repl_grpc_proto_init_proto_goTypes = []any{
-	(InitState)(0),                        // 0: steep.repl.v1.InitState
-	(InitMethod)(0),                       // 1: steep.repl.v1.InitMethod
-	(SchemaSyncMode)(0),                   // 2: steep.repl.v1.SchemaSyncMode
-	(ComparisonStatus)(0),                 // 3: steep.repl.v1.ComparisonStatus
-	(*StartInitRequest)(nil),              // 4: steep.repl.v1.StartInitRequest
-	(*SourceNodeInfo)(nil),                // 5: steep.repl.v1.SourceNodeInfo
-	(*InitOptions)(nil),                   // 6: steep.repl.v1.InitOptions
-	(*StartInitResponse)(nil),             // 7: steep.repl.v1.StartInitResponse
-	(*PrepareInitRequest)(nil),            // 8: steep.repl.v1.PrepareInitRequest
-	(*PrepareInitResponse)(nil),           // 9: steep.repl.v1.PrepareInitResponse
-	(*CompleteInitRequest)(nil),           // 10: steep.repl.v1.CompleteInitRequest
-	(*CompleteInitResponse)(nil),          // 11: steep.repl.v1.CompleteInitResponse
-	(*CancelInitRequest)(nil),             // 12: steep.repl.v1.CancelInitRequest
-	(*CancelInitResponse)(nil),            // 13: steep.repl.v1.CancelInitResponse
-	(*GetProgressRequest)(nil),            // 14: steep.repl.v1.GetProgressRequest
-	(*GetProgressResponse)(nil),           // 15: steep.repl.v1.GetProgressResponse
-	(*StreamProgressRequest)(nil),         // 16: steep.repl.v1.StreamProgressRequest
-	(*ProgressUpdate)(nil),                // 17: steep.repl.v1.ProgressUpdate
-	(*InitProgress)(nil),                  // 18: steep.repl.v1.InitProgress
-	(*TableProgress)(nil),                 // 19: steep.repl.v1.TableProgress
-	(*StartReinitRequest)(nil),            // 20: steep.repl.v1.StartReinitRequest
-	(*ReinitScope)(nil),                   // 21: steep.repl.v1.ReinitScope
-	(*TableList)(nil),                     // 22: steep.repl.v1.TableList
-	(*StartReinitResponse)(nil),           // 23: steep.repl.v1.StartReinitResponse
-	(*CompareSchemasRequest)(nil),         // 24: steep.repl.v1.CompareSchemasRequest
-	(*CompareSchemasResponse)(nil),        // 25: steep.repl.v1.CompareSchemasResponse
-	(*SchemaComparison)(nil),              // 26: steep.repl.v1.SchemaComparison
-	(*ColumnDifference)(nil),              // 27: steep.repl.v1.ColumnDifference
-	(*GetSchemaFingerprintsRequest)(nil),  // 28: steep.repl.v1.GetSchemaFingerprintsRequest
-	(*GetSchemaFingerprintsResponse)(nil), // 29: steep.repl.v1.GetSchemaFingerprintsResponse
-	(*TableFingerprint)(nil),              // 30: steep.repl.v1.TableFingerprint
-	(*GetColumnDiffRequest)(nil),          // 31: steep.repl.v1.GetColumnDiffRequest
-	(*GetColumnDiffResponse)(nil),         // 32: steep.repl.v1.GetColumnDiffResponse
-	(*CaptureFingerprintsRequest)(nil),    // 33: steep.repl.v1.CaptureFingerprintsRequest
-	(*CaptureFingerprintsResponse)(nil),   // 34: steep.repl.v1.CaptureFingerprintsResponse
-	(*GenerateSnapshotRequest)(nil),       // 35: steep.repl.v1.GenerateSnapshotRequest
-	(*ApplySnapshotRequest)(nil),          // 36: steep.repl.v1.ApplySnapshotRequest
-	(*SnapshotProgress)(nil),              // 37: steep.repl.v1.SnapshotProgress
-	(*timestamppb.Timestamp)(nil),         // 38: google.protobuf.Timestamp
+	(InitState)(0),                          // 0: steep.repl.v1.InitState
+	(InitMethod)(0),                         // 1: steep.repl.v1.InitMethod
+	(ConflictStrategy)(0),                   // 2: steep.repl.v1.ConflictStrategy
+	(SchemaSyncMode)(0),                     // 3: steep.repl.v1.SchemaSyncMode
+	(ComparisonStatus)(0),                   // 4: steep.repl.v1.ComparisonStatus
+	(*StartInitRequest)(nil),                // 5: steep.repl.v1.StartInitRequest
+	(*SourceNodeInfo)(nil),                  // 6: steep.repl.v1.SourceNodeInfo
+	(*InitOptions)(nil),                     // 7: steep.repl.v1.InitOptions
+	(*StartInitResponse)(nil),               // 8: steep.repl.v1.StartInitResponse
+	(*PrepareInitRequest)(nil),              // 9: steep.repl.v1.PrepareInitRequest
+	(*PrepareInitResponse)(nil),             // 10: steep.repl.v1.PrepareInitResponse
+	(*CompleteInitRequest)(nil),             // 11: steep.repl.v1.CompleteInitRequest
+	(*CompleteInitResponse)(nil),            // 12: steep.repl.v1.CompleteInitResponse
+	(*CancelInitRequest)(nil),               // 13: steep.repl.v1.CancelInitRequest
+	(*CancelInitResponse)(nil),              // 14: steep.repl.v1.CancelInitResponse
+	(*GetProgressRequest)(nil),              // 15: steep.repl.v1.GetProgressRequest
+	(*GetProgressResponse)(nil),             // 16: steep.repl.v1.GetProgressResponse
+	(*StreamProgressRequest)(nil),           // 17: steep.repl.v1.StreamProgressRequest
+	(*ProgressUpdate)(nil),                  // 18: steep.repl.v1.ProgressUpdate
+	(*InitProgress)(nil),                    // 19: steep.repl.v1.InitProgress
+	(*TableProgress)(nil),                   // 20: steep.repl.v1.TableProgress
+	(*StartReinitRequest)(nil),              // 21: steep.repl.v1.StartReinitRequest
+	(*ReinitScope)(nil),                     // 22: steep.repl.v1.ReinitScope
+	(*TableList)(nil),                       // 23: steep.repl.v1.TableList
+	(*StartReinitResponse)(nil),             // 24: steep.repl.v1.StartReinitResponse
+	(*CompareSchemasRequest)(nil),           // 25: steep.repl.v1.CompareSchemasRequest
+	(*CompareSchemasResponse)(nil),          // 26: steep.repl.v1.CompareSchemasResponse
+	(*SchemaComparison)(nil),                // 27: steep.repl.v1.SchemaComparison
+	(*ColumnDifference)(nil),                // 28: steep.repl.v1.ColumnDifference
+	(*GetSchemaFingerprintsRequest)(nil),    // 29: steep.repl.v1.GetSchemaFingerprintsRequest
+	(*GetSchemaFingerprintsResponse)(nil),   // 30: steep.repl.v1.GetSchemaFingerprintsResponse
+	(*TableFingerprint)(nil),                // 31: steep.repl.v1.TableFingerprint
+	(*GetColumnDiffRequest)(nil),            // 32: steep.repl.v1.GetColumnDiffRequest
+	(*GetColumnDiffResponse)(nil),           // 33: steep.repl.v1.GetColumnDiffResponse
+	(*CaptureFingerprintsRequest)(nil),      // 34: steep.repl.v1.CaptureFingerprintsRequest
+	(*CaptureFingerprintsResponse)(nil),     // 35: steep.repl.v1.CaptureFingerprintsResponse
+	(*GenerateSnapshotRequest)(nil),         // 36: steep.repl.v1.GenerateSnapshotRequest
+	(*ApplySnapshotRequest)(nil),            // 37: steep.repl.v1.ApplySnapshotRequest
+	(*SnapshotProgress)(nil),                // 38: steep.repl.v1.SnapshotProgress
+	(*StartBidirectionalMergeRequest)(nil),  // 39: steep.repl.v1.StartBidirectionalMergeRequest
+	(*StartBidirectionalMergeResponse)(nil), // 40: steep.repl.v1.StartBidirectionalMergeResponse
+	(*BidirectionalMergeResult)(nil),        // 41: steep.repl.v1.BidirectionalMergeResult
+	(*TableMergeResult)(nil),                // 42: steep.repl.v1.TableMergeResult
+	(*timestamppb.Timestamp)(nil),           // 43: google.protobuf.Timestamp
 }
 var file_internal_repl_grpc_proto_init_proto_depIdxs = []int32{
 	1,  // 0: steep.repl.v1.StartInitRequest.method:type_name -> steep.repl.v1.InitMethod
-	6,  // 1: steep.repl.v1.StartInitRequest.options:type_name -> steep.repl.v1.InitOptions
-	5,  // 2: steep.repl.v1.StartInitRequest.source_node_info:type_name -> steep.repl.v1.SourceNodeInfo
-	2,  // 3: steep.repl.v1.InitOptions.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
+	7,  // 1: steep.repl.v1.StartInitRequest.options:type_name -> steep.repl.v1.InitOptions
+	6,  // 2: steep.repl.v1.StartInitRequest.source_node_info:type_name -> steep.repl.v1.SourceNodeInfo
+	3,  // 3: steep.repl.v1.InitOptions.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
 	0,  // 4: steep.repl.v1.StartInitResponse.state:type_name -> steep.repl.v1.InitState
-	38, // 5: steep.repl.v1.PrepareInitResponse.created_at:type_name -> google.protobuf.Timestamp
-	2,  // 6: steep.repl.v1.CompleteInitRequest.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
-	5,  // 7: steep.repl.v1.CompleteInitRequest.source_node_info:type_name -> steep.repl.v1.SourceNodeInfo
+	43, // 5: steep.repl.v1.PrepareInitResponse.created_at:type_name -> google.protobuf.Timestamp
+	3,  // 6: steep.repl.v1.CompleteInitRequest.schema_sync_mode:type_name -> steep.repl.v1.SchemaSyncMode
+	6,  // 7: steep.repl.v1.CompleteInitRequest.source_node_info:type_name -> steep.repl.v1.SourceNodeInfo
 	0,  // 8: steep.repl.v1.CompleteInitResponse.state:type_name -> steep.repl.v1.InitState
-	26, // 9: steep.repl.v1.CompleteInitResponse.schema_mismatches:type_name -> steep.repl.v1.SchemaComparison
+	27, // 9: steep.repl.v1.CompleteInitResponse.schema_mismatches:type_name -> steep.repl.v1.SchemaComparison
 	0,  // 10: steep.repl.v1.CancelInitResponse.previous_state:type_name -> steep.repl.v1.InitState
-	18, // 11: steep.repl.v1.GetProgressResponse.progress:type_name -> steep.repl.v1.InitProgress
-	18, // 12: steep.repl.v1.ProgressUpdate.progress:type_name -> steep.repl.v1.InitProgress
-	38, // 13: steep.repl.v1.ProgressUpdate.timestamp:type_name -> google.protobuf.Timestamp
+	19, // 11: steep.repl.v1.GetProgressResponse.progress:type_name -> steep.repl.v1.InitProgress
+	19, // 12: steep.repl.v1.ProgressUpdate.progress:type_name -> steep.repl.v1.InitProgress
+	43, // 13: steep.repl.v1.ProgressUpdate.timestamp:type_name -> google.protobuf.Timestamp
 	0,  // 14: steep.repl.v1.InitProgress.state:type_name -> steep.repl.v1.InitState
-	38, // 15: steep.repl.v1.InitProgress.started_at:type_name -> google.protobuf.Timestamp
-	19, // 16: steep.repl.v1.InitProgress.completed_tables:type_name -> steep.repl.v1.TableProgress
-	21, // 17: steep.repl.v1.StartReinitRequest.scope:type_name -> steep.repl.v1.ReinitScope
-	22, // 18: steep.repl.v1.ReinitScope.tables:type_name -> steep.repl.v1.TableList
+	43, // 15: steep.repl.v1.InitProgress.started_at:type_name -> google.protobuf.Timestamp
+	20, // 16: steep.repl.v1.InitProgress.completed_tables:type_name -> steep.repl.v1.TableProgress
+	22, // 17: steep.repl.v1.StartReinitRequest.scope:type_name -> steep.repl.v1.ReinitScope
+	23, // 18: steep.repl.v1.ReinitScope.tables:type_name -> steep.repl.v1.TableList
 	0,  // 19: steep.repl.v1.StartReinitResponse.state:type_name -> steep.repl.v1.InitState
-	26, // 20: steep.repl.v1.CompareSchemasResponse.comparisons:type_name -> steep.repl.v1.SchemaComparison
-	3,  // 21: steep.repl.v1.SchemaComparison.status:type_name -> steep.repl.v1.ComparisonStatus
-	27, // 22: steep.repl.v1.SchemaComparison.differences:type_name -> steep.repl.v1.ColumnDifference
-	30, // 23: steep.repl.v1.GetSchemaFingerprintsResponse.fingerprints:type_name -> steep.repl.v1.TableFingerprint
-	27, // 24: steep.repl.v1.GetColumnDiffResponse.differences:type_name -> steep.repl.v1.ColumnDifference
-	30, // 25: steep.repl.v1.CaptureFingerprintsResponse.fingerprints:type_name -> steep.repl.v1.TableFingerprint
-	4,  // 26: steep.repl.v1.InitService.StartInit:input_type -> steep.repl.v1.StartInitRequest
-	8,  // 27: steep.repl.v1.InitService.PrepareInit:input_type -> steep.repl.v1.PrepareInitRequest
-	10, // 28: steep.repl.v1.InitService.CompleteInit:input_type -> steep.repl.v1.CompleteInitRequest
-	12, // 29: steep.repl.v1.InitService.CancelInit:input_type -> steep.repl.v1.CancelInitRequest
-	14, // 30: steep.repl.v1.InitService.GetProgress:input_type -> steep.repl.v1.GetProgressRequest
-	16, // 31: steep.repl.v1.InitService.StreamProgress:input_type -> steep.repl.v1.StreamProgressRequest
-	20, // 32: steep.repl.v1.InitService.StartReinit:input_type -> steep.repl.v1.StartReinitRequest
-	24, // 33: steep.repl.v1.InitService.CompareSchemas:input_type -> steep.repl.v1.CompareSchemasRequest
-	28, // 34: steep.repl.v1.InitService.GetSchemaFingerprints:input_type -> steep.repl.v1.GetSchemaFingerprintsRequest
-	31, // 35: steep.repl.v1.InitService.GetColumnDiff:input_type -> steep.repl.v1.GetColumnDiffRequest
-	33, // 36: steep.repl.v1.InitService.CaptureFingerprints:input_type -> steep.repl.v1.CaptureFingerprintsRequest
-	35, // 37: steep.repl.v1.InitService.GenerateSnapshot:input_type -> steep.repl.v1.GenerateSnapshotRequest
-	36, // 38: steep.repl.v1.InitService.ApplySnapshot:input_type -> steep.repl.v1.ApplySnapshotRequest
-	7,  // 39: steep.repl.v1.InitService.StartInit:output_type -> steep.repl.v1.StartInitResponse
-	9,  // 40: steep.repl.v1.InitService.PrepareInit:output_type -> steep.repl.v1.PrepareInitResponse
-	11, // 41: steep.repl.v1.InitService.CompleteInit:output_type -> steep.repl.v1.CompleteInitResponse
-	13, // 42: steep.repl.v1.InitService.CancelInit:output_type -> steep.repl.v1.CancelInitResponse
-	15, // 43: steep.repl.v1.InitService.GetProgress:output_type -> steep.repl.v1.GetProgressResponse
-	17, // 44: steep.repl.v1.InitService.StreamProgress:output_type -> steep.repl.v1.ProgressUpdate
-	23, // 45: steep.repl.v1.InitService.StartReinit:output_type -> steep.repl.v1.StartReinitResponse
-	25, // 46: steep.repl.v1.InitService.CompareSchemas:output_type -> steep.repl.v1.CompareSchemasResponse
-	29, // 47: steep.repl.v1.InitService.GetSchemaFingerprints:output_type -> steep.repl.v1.GetSchemaFingerprintsResponse
-	32, // 48: steep.repl.v1.InitService.GetColumnDiff:output_type -> steep.repl.v1.GetColumnDiffResponse
-	34, // 49: steep.repl.v1.InitService.CaptureFingerprints:output_type -> steep.repl.v1.CaptureFingerprintsResponse
-	37, // 50: steep.repl.v1.InitService.GenerateSnapshot:output_type -> steep.repl.v1.SnapshotProgress
-	37, // 51: steep.repl.v1.InitService.ApplySnapshot:output_type -> steep.repl.v1.SnapshotProgress
-	39, // [39:52] is the sub-list for method output_type
-	26, // [26:39] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	27, // 20: steep.repl.v1.CompareSchemasResponse.comparisons:type_name -> steep.repl.v1.SchemaComparison
+	4,  // 21: steep.repl.v1.SchemaComparison.status:type_name -> steep.repl.v1.ComparisonStatus
+	28, // 22: steep.repl.v1.SchemaComparison.differences:type_name -> steep.repl.v1.ColumnDifference
+	31, // 23: steep.repl.v1.GetSchemaFingerprintsResponse.fingerprints:type_name -> steep.repl.v1.TableFingerprint
+	28, // 24: steep.repl.v1.GetColumnDiffResponse.differences:type_name -> steep.repl.v1.ColumnDifference
+	31, // 25: steep.repl.v1.CaptureFingerprintsResponse.fingerprints:type_name -> steep.repl.v1.TableFingerprint
+	2,  // 26: steep.repl.v1.StartBidirectionalMergeRequest.strategy:type_name -> steep.repl.v1.ConflictStrategy
+	3,  // 27: steep.repl.v1.StartBidirectionalMergeRequest.schema_sync:type_name -> steep.repl.v1.SchemaSyncMode
+	41, // 28: steep.repl.v1.StartBidirectionalMergeResponse.result:type_name -> steep.repl.v1.BidirectionalMergeResult
+	42, // 29: steep.repl.v1.BidirectionalMergeResult.table_results:type_name -> steep.repl.v1.TableMergeResult
+	5,  // 30: steep.repl.v1.InitService.StartInit:input_type -> steep.repl.v1.StartInitRequest
+	9,  // 31: steep.repl.v1.InitService.PrepareInit:input_type -> steep.repl.v1.PrepareInitRequest
+	11, // 32: steep.repl.v1.InitService.CompleteInit:input_type -> steep.repl.v1.CompleteInitRequest
+	13, // 33: steep.repl.v1.InitService.CancelInit:input_type -> steep.repl.v1.CancelInitRequest
+	15, // 34: steep.repl.v1.InitService.GetProgress:input_type -> steep.repl.v1.GetProgressRequest
+	17, // 35: steep.repl.v1.InitService.StreamProgress:input_type -> steep.repl.v1.StreamProgressRequest
+	21, // 36: steep.repl.v1.InitService.StartReinit:input_type -> steep.repl.v1.StartReinitRequest
+	25, // 37: steep.repl.v1.InitService.CompareSchemas:input_type -> steep.repl.v1.CompareSchemasRequest
+	29, // 38: steep.repl.v1.InitService.GetSchemaFingerprints:input_type -> steep.repl.v1.GetSchemaFingerprintsRequest
+	32, // 39: steep.repl.v1.InitService.GetColumnDiff:input_type -> steep.repl.v1.GetColumnDiffRequest
+	34, // 40: steep.repl.v1.InitService.CaptureFingerprints:input_type -> steep.repl.v1.CaptureFingerprintsRequest
+	36, // 41: steep.repl.v1.InitService.GenerateSnapshot:input_type -> steep.repl.v1.GenerateSnapshotRequest
+	37, // 42: steep.repl.v1.InitService.ApplySnapshot:input_type -> steep.repl.v1.ApplySnapshotRequest
+	39, // 43: steep.repl.v1.InitService.StartBidirectionalMerge:input_type -> steep.repl.v1.StartBidirectionalMergeRequest
+	8,  // 44: steep.repl.v1.InitService.StartInit:output_type -> steep.repl.v1.StartInitResponse
+	10, // 45: steep.repl.v1.InitService.PrepareInit:output_type -> steep.repl.v1.PrepareInitResponse
+	12, // 46: steep.repl.v1.InitService.CompleteInit:output_type -> steep.repl.v1.CompleteInitResponse
+	14, // 47: steep.repl.v1.InitService.CancelInit:output_type -> steep.repl.v1.CancelInitResponse
+	16, // 48: steep.repl.v1.InitService.GetProgress:output_type -> steep.repl.v1.GetProgressResponse
+	18, // 49: steep.repl.v1.InitService.StreamProgress:output_type -> steep.repl.v1.ProgressUpdate
+	24, // 50: steep.repl.v1.InitService.StartReinit:output_type -> steep.repl.v1.StartReinitResponse
+	26, // 51: steep.repl.v1.InitService.CompareSchemas:output_type -> steep.repl.v1.CompareSchemasResponse
+	30, // 52: steep.repl.v1.InitService.GetSchemaFingerprints:output_type -> steep.repl.v1.GetSchemaFingerprintsResponse
+	33, // 53: steep.repl.v1.InitService.GetColumnDiff:output_type -> steep.repl.v1.GetColumnDiffResponse
+	35, // 54: steep.repl.v1.InitService.CaptureFingerprints:output_type -> steep.repl.v1.CaptureFingerprintsResponse
+	38, // 55: steep.repl.v1.InitService.GenerateSnapshot:output_type -> steep.repl.v1.SnapshotProgress
+	38, // 56: steep.repl.v1.InitService.ApplySnapshot:output_type -> steep.repl.v1.SnapshotProgress
+	40, // 57: steep.repl.v1.InitService.StartBidirectionalMerge:output_type -> steep.repl.v1.StartBidirectionalMergeResponse
+	44, // [44:58] is the sub-list for method output_type
+	30, // [30:44] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_internal_repl_grpc_proto_init_proto_init() }
@@ -3004,8 +3476,8 @@ func file_internal_repl_grpc_proto_init_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_repl_grpc_proto_init_proto_rawDesc), len(file_internal_repl_grpc_proto_init_proto_rawDesc)),
-			NumEnums:      4,
-			NumMessages:   34,
+			NumEnums:      5,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

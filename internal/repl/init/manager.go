@@ -27,9 +27,10 @@ type Manager struct {
 	progress chan ProgressUpdate
 
 	// Sub-initializers for different methods
-	snapshot *SnapshotInitializer
-	manual   *ManualInitializer
-	reinit   *Reinitializer
+	snapshot      *SnapshotInitializer
+	manual        *ManualInitializer
+	reinit        *Reinitializer
+	bidirectional *BidirectionalMergeInitializer
 }
 
 // AuditWriter is the interface for writing audit log entries.
@@ -88,6 +89,7 @@ func NewManager(pool *pgxpool.Pool, cfg *config.InitConfig, pgCfg *config.Postgr
 	m.snapshot = NewSnapshotInitializer(pool, m)
 	m.manual = NewManualInitializer(pool, m)
 	m.reinit = NewReinitializer(pool, m)
+	m.bidirectional = NewBidirectionalMergeInitializer(pool, m)
 
 	return m
 }

@@ -598,6 +598,80 @@ func (s *InitServer) ApplySnapshot(req *pb.ApplySnapshotRequest, stream grpc.Ser
 	return status.Error(codes.Unimplemented, "not implemented: ApplySnapshot (see T083)")
 }
 
+// StartBidirectionalMerge handles the StartBidirectionalMerge RPC.
+// Merges existing data on both nodes and sets up bidirectional replication.
+func (s *InitServer) StartBidirectionalMerge(ctx context.Context, req *pb.StartBidirectionalMergeRequest) (*pb.StartBidirectionalMergeResponse, error) {
+	s.logRequest("StartBidirectionalMerge", fmt.Sprintf("%s <-> %s", req.NodeAId, req.NodeBId))
+
+	// Validate required fields
+	if req.NodeAId == "" {
+		return nil, status.Error(codes.InvalidArgument, "node_a_id is required")
+	}
+	if req.NodeBId == "" {
+		return nil, status.Error(codes.InvalidArgument, "node_b_id is required")
+	}
+	if req.NodeBConnStr == "" {
+		return nil, status.Error(codes.InvalidArgument, "node_b_conn_str is required")
+	}
+	if len(req.Tables) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one table is required")
+	}
+
+	// Build bidirectional merge request
+	mergeReq := replinit.BidirectionalMergeRequest{
+		NodeAID:          req.NodeAId,
+		NodeBID:          req.NodeBId,
+		NodeBConnStr:     req.NodeBConnStr,
+		Tables:           req.Tables,
+		Strategy:         protoStrategyToConfig(req.Strategy),
+		DryRun:           req.DryRun,
+		SchemaSync:       protoSchemaSyncToConfig(req.SchemaSync),
+		QuiesceTimeoutMs: int(req.QuiesceTimeoutMs),
+	}
+
+	// Default quiesce timeout
+	if mergeReq.QuiesceTimeoutMs == 0 {
+		mergeReq.QuiesceTimeoutMs = 5000
+	}
+
+	// Execute bidirectional merge
+	result, err := s.manager.Bidirectional().Initialize(ctx, mergeReq)
+	if err != nil {
+		return &pb.StartBidirectionalMergeResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// Build response
+	resp := &pb.StartBidirectionalMergeResponse{
+		Success: true,
+		Result: &pb.BidirectionalMergeResult{
+			ReplicationSetup: result.ReplicationSetup,
+			SlotAToB:         result.SlotAToB,
+			SlotBToA:         result.SlotBToA,
+		},
+	}
+
+	// Populate merge result details
+	if result.MergeResult != nil {
+		resp.Result.TablesProcessed = int64(len(result.MergeResult.Tables))
+		resp.Result.ConflictsDetected = result.MergeResult.TotalConflicts
+		resp.Result.ConflictsResolved = result.MergeResult.ConflictsResolved
+		resp.Result.RowsTransferredAToB = result.MergeResult.RowsTransferredAToB
+		resp.Result.RowsTransferredBToA = result.MergeResult.RowsTransferredBToA
+
+		// Note: Per-table results not currently tracked in MergeResult
+		// The Tables field is just a list of table names
+	}
+
+	if result.Error != nil {
+		resp.Error = result.Error.Error()
+	}
+
+	return resp, nil
+}
+
 // logRequest logs an incoming RPC request.
 func (s *InitServer) logRequest(method string, detail string) {
 	if !s.debug {
@@ -622,8 +696,26 @@ func protoMethodToConfig(m pb.InitMethod) config.InitMethod {
 		return config.InitMethodTwoPhase
 	case pb.InitMethod_INIT_METHOD_DIRECT:
 		return config.InitMethodDirect
+	case pb.InitMethod_INIT_METHOD_BIDIRECTIONAL_MERGE:
+		return config.InitMethodBidirectionalMerge
 	default:
 		return config.InitMethodSnapshot // Default to snapshot
+	}
+}
+
+// protoStrategyToConfig converts a proto ConflictStrategy to replinit.ConflictStrategy.
+func protoStrategyToConfig(s pb.ConflictStrategy) replinit.ConflictStrategy {
+	switch s {
+	case pb.ConflictStrategy_CONFLICT_STRATEGY_PREFER_NODE_A:
+		return replinit.StrategyPreferNodeA
+	case pb.ConflictStrategy_CONFLICT_STRATEGY_PREFER_NODE_B:
+		return replinit.StrategyPreferNodeB
+	case pb.ConflictStrategy_CONFLICT_STRATEGY_LAST_MODIFIED:
+		return replinit.StrategyLastModified
+	case pb.ConflictStrategy_CONFLICT_STRATEGY_MANUAL:
+		return replinit.StrategyManual
+	default:
+		return replinit.StrategyPreferNodeA // Default
 	}
 }
 

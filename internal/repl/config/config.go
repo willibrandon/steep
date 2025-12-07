@@ -35,6 +35,8 @@ const (
 	InitMethodTwoPhase InitMethod = "two-phase"
 	// InitMethodDirect combines two-phase in one step for smaller DBs.
 	InitMethodDirect InitMethod = "direct"
+	// InitMethodBidirectionalMerge merges existing data on both nodes before enabling replication.
+	InitMethodBidirectionalMerge InitMethod = "bidirectional-merge"
 )
 
 // SchemaSyncMode defines how schema mismatches are handled during initialization.
@@ -272,10 +274,10 @@ func (c *Config) Validate() error {
 func (ic *InitConfig) Validate() error {
 	// Validate method
 	switch ic.Method {
-	case InitMethodSnapshot, InitMethodManual, InitMethodTwoPhase, InitMethodDirect, "":
+	case InitMethodSnapshot, InitMethodManual, InitMethodTwoPhase, InitMethodDirect, InitMethodBidirectionalMerge, "":
 		// Valid
 	default:
-		return fmt.Errorf("repl.initialization.method must be one of: snapshot, manual, two-phase, direct")
+		return fmt.Errorf("repl.initialization.method must be one of: snapshot, manual, two-phase, direct, bidirectional-merge")
 	}
 
 	// Validate parallel workers (1-16, 0 means use default)

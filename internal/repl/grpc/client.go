@@ -188,3 +188,8 @@ func (c *Client) GetColumnDiff(ctx context.Context, req *pb.GetColumnDiffRequest
 func (c *Client) CaptureFingerprints(ctx context.Context, req *pb.CaptureFingerprintsRequest) (*pb.CaptureFingerprintsResponse, error) {
 	return c.initClient.CaptureFingerprints(ctx, req)
 }
+
+// StartBidirectionalMerge starts bidirectional merge initialization.
+func (c *Client) StartBidirectionalMerge(ctx context.Context, req *pb.StartBidirectionalMergeRequest) (*pb.StartBidirectionalMergeResponse, error) {
+	return c.initClient.StartBidirectionalMerge(ctx, req)
+}
