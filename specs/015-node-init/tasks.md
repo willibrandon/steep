@@ -338,8 +338,6 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
   - StartedAt, ETASeconds, CompressionRatio (if compression enabled)
   - ChecksumVerifications (for application phase), ChecksumsVerified, ChecksumsFailed
 
-- [ ] T087b Add steep_repl.snapshot_progress table in extensions/steep_repl/src/lib.rs (snapshot_id, phase, percent, current_table, bytes_written, bytes_total, throughput, eta, updated_at)
-
 - [ ] T087c Implement progress calculation during COPY TO (generation) in internal/repl/init/snapshot.go:
   - Track bytes written per table using pg_stat_progress_copy (PG14+)
   - Fall back to file size polling for PG11-13
