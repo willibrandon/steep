@@ -572,6 +572,50 @@ shared_preload_libraries = 'steep_repl'  # Required for background worker
 max_worker_processes = 16
 ```
 
+## Mode Detection Strategy
+
+**Design Decision**: No coordination between daemon and extension. The CLI decides which mode to use based on flags.
+
+### Why No Coordination?
+
+We evaluated several coordination approaches:
+
+| Option | Description | Rejected Because |
+|--------|-------------|------------------|
+| Extension polls daemon | Background worker checks if daemon is running | Adds complexity, race conditions, polling overhead |
+| Daemon registers with extension | Daemon writes to `steep_repl.daemon_state` | Adds coupling, daemon must know about extension |
+| Advisory lock coordination | Daemon holds lock, extension checks | Unnecessary complexity |
+
+**Chosen approach**: CLI decides independently. The whole point of extension-native is that **the daemon becomes optional**.
+
+### Auto-Detection Precedence (FR-012)
+
+When neither `--remote` nor `--direct` is specified:
+
+1. **Try direct mode first** - call extension function
+2. **If extension doesn't support the operation** - fall back to daemon (if `--remote` configured)
+3. **If both fail** - error with clear message
+
+```go
+// CLI pseudo-code
+func executeOperation(op Operation) error {
+    if flags.Remote != "" {
+        return executeViaDaemon(op)  // Explicit daemon mode
+    }
+    if flags.Direct || flags.Remote == "" {
+        // Try extension first
+        err := executeViaExtension(op)
+        if err == nil || flags.Direct {
+            return err  // Success or explicit --direct (fail if extension fails)
+        }
+        // Fall back to daemon only if auto-detecting
+        return executeViaDaemon(op)
+    }
+}
+```
+
+This keeps components decoupled and follows the design goal: **"when Postgres is up, steep_repl is up."**
+
 ## Migration Path
 
 ### Phase 1: Parallel Operation (v0.x)
@@ -579,12 +623,13 @@ max_worker_processes = 16
 Both daemon and extension work simultaneously. Users can choose either:
 - Daemon mode (existing): `steep-repl snapshot generate --remote localhost:15460`
 - Extension mode (new): `steep-repl snapshot generate --direct` (connects to PostgreSQL)
+- Auto-detect (default): CLI tries extension first, falls back to daemon
 
 ### Phase 2: Extension Default (v1.0)
 
 - Extension mode becomes default
 - Daemon mode deprecated but still functional
-- CLI auto-detects: if `--remote` specified, use gRPC; otherwise, use PostgreSQL
+- CLI always tries extension first
 
 ### Phase 3: Daemon Removal (v2.0)
 
