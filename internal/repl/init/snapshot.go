@@ -1698,13 +1698,20 @@ func (g *SnapshotGenerator) recordSnapshot(ctx context.Context, manifest *models
 	query := `
 		INSERT INTO steep_repl.snapshots (
 			snapshot_id, source_node_id, lsn, storage_path, size_bytes,
-			table_count, compression, checksum, status
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			table_count, compression, checksum, status, phase,
+			overall_percent, tables_completed, completed_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
 		ON CONFLICT (snapshot_id) DO UPDATE SET
+			lsn = EXCLUDED.lsn,
+			storage_path = EXCLUDED.storage_path,
 			size_bytes = EXCLUDED.size_bytes,
 			table_count = EXCLUDED.table_count,
 			checksum = EXCLUDED.checksum,
-			status = EXCLUDED.status
+			status = EXCLUDED.status,
+			phase = EXCLUDED.phase,
+			overall_percent = EXCLUDED.overall_percent,
+			tables_completed = EXCLUDED.tables_completed,
+			completed_at = EXCLUDED.completed_at
 	`
 
 	_, err = g.pool.Exec(ctx, query,
@@ -1717,6 +1724,9 @@ func (g *SnapshotGenerator) recordSnapshot(ctx context.Context, manifest *models
 		string(manifest.Compression),
 		checksumStr,
 		string(models.SnapshotStatusComplete),
+		string(models.PhaseIdle),
+		100.0,                // overall_percent
+		len(manifest.Tables), // tables_completed
 	)
 
 	return err
@@ -2340,10 +2350,14 @@ func (a *SnapshotApplier) createSubscription(ctx context.Context, targetNodeID s
 func (a *SnapshotApplier) markSnapshotApplied(ctx context.Context, snapshotID, targetNodeID string) error {
 	query := `
 		UPDATE steep_repl.snapshots
-		SET status = 'applied'
+		SET status = 'applied',
+			phase = 'idle',
+			target_node_id = $2,
+			overall_percent = 100,
+			completed_at = now()
 		WHERE snapshot_id = $1
 	`
-	_, err := a.pool.Exec(ctx, query, snapshotID)
+	_, err := a.pool.Exec(ctx, query, snapshotID, targetNodeID)
 	a.logger.LogPhaseCompleted(targetNodeID, "snapshot_applied", 0)
 	return err
 }

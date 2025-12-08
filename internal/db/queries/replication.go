@@ -886,3 +886,160 @@ func derefFloat64(f *float64) float64 {
 	}
 	return *f
 }
+
+// =============================================================================
+// Snapshot queries (steep_repl extension)
+// =============================================================================
+
+// GetSnapshots retrieves snapshots from the steep_repl.snapshots table.
+// Returns empty slice if the schema/table doesn't exist (extension not installed).
+func GetSnapshots(ctx context.Context, pool *pgxpool.Pool) ([]models.SnapshotInfo, error) {
+	// First check if the steep_repl schema exists
+	var schemaExists bool
+	err := pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.schemata
+			WHERE schema_name = 'steep_repl'
+		)
+	`).Scan(&schemaExists)
+	if err != nil {
+		logger.Error("GetSnapshots: failed to check steep_repl schema", "error", err)
+		return nil, fmt.Errorf("check steep_repl schema: %w", err)
+	}
+	if !schemaExists {
+		return []models.SnapshotInfo{}, nil
+	}
+
+	// Check if snapshots table exists
+	var tableExists bool
+	err = pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'steep_repl' AND table_name = 'snapshots'
+		)
+	`).Scan(&tableExists)
+	if err != nil {
+		logger.Error("GetSnapshots: failed to check steep_repl.snapshots table", "error", err)
+		return nil, fmt.Errorf("check steep_repl.snapshots table: %w", err)
+	}
+	if !tableExists {
+		return []models.SnapshotInfo{}, nil
+	}
+
+	query := `
+		SELECT
+			s.snapshot_id,
+			s.source_node_id,
+			s.target_node_id,
+			s.lsn,
+			s.storage_path,
+			COALESCE(s.compression, 'gzip') AS compression,
+			s.checksum,
+			COALESCE(s.status, 'pending') AS status,
+			COALESCE(s.phase, 'idle') AS phase,
+			s.error_message,
+			COALESCE(s.overall_percent, 0) AS overall_percent,
+			s.current_table,
+			COALESCE(s.table_count, 0) AS table_count,
+			COALESCE(s.tables_completed, 0) AS tables_completed,
+			COALESCE(s.size_bytes, 0) AS size_bytes,
+			COALESCE(s.bytes_written, 0) AS bytes_written,
+			COALESCE(s.rows_total, 0) AS rows_total,
+			COALESCE(s.rows_written, 0) AS rows_written,
+			COALESCE(s.throughput_bytes_sec, 0) AS throughput_bytes_sec,
+			COALESCE(s.eta_seconds, 0) AS eta_seconds,
+			COALESCE(s.compression_ratio, 0) AS compression_ratio,
+			s.created_at,
+			s.started_at,
+			s.completed_at,
+			s.expires_at,
+			-- Join to get node names
+			COALESCE(src.node_name, s.source_node_id) AS source_node_name,
+			COALESCE(tgt.node_name, s.target_node_id) AS target_node_name
+		FROM steep_repl.snapshots s
+		LEFT JOIN steep_repl.nodes src ON s.source_node_id = src.node_id
+		LEFT JOIN steep_repl.nodes tgt ON s.target_node_id = tgt.node_id
+		ORDER BY s.created_at DESC
+		LIMIT 100
+	`
+
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		logger.Error("GetSnapshots: failed to query steep_repl.snapshots", "error", err)
+		return nil, fmt.Errorf("query steep_repl.snapshots: %w", err)
+	}
+	defer rows.Close()
+
+	var snapshots []models.SnapshotInfo
+	for rows.Next() {
+		var s models.SnapshotInfo
+		var targetNodeID, lsn, storagePath, checksum, errorMessage, currentTable *string
+		var targetNodeName *string
+
+		err := rows.Scan(
+			&s.SnapshotID,
+			&s.SourceNodeID,
+			&targetNodeID,
+			&lsn,
+			&storagePath,
+			&s.Compression,
+			&checksum,
+			&s.Status,
+			&s.Phase,
+			&errorMessage,
+			&s.OverallPercent,
+			&currentTable,
+			&s.TableCount,
+			&s.TablesCompleted,
+			&s.SizeBytes,
+			&s.BytesWritten,
+			&s.RowsTotal,
+			&s.RowsWritten,
+			&s.ThroughputBytesSec,
+			&s.ETASeconds,
+			&s.CompressionRatio,
+			&s.CreatedAt,
+			&s.StartedAt,
+			&s.CompletedAt,
+			&s.ExpiresAt,
+			&s.SourceNodeName,
+			&targetNodeName,
+		)
+		if err != nil {
+			logger.Error("GetSnapshots: failed to scan snapshot row", "error", err)
+			return nil, fmt.Errorf("scan snapshot row: %w", err)
+		}
+
+		// Handle nullable fields
+		if targetNodeID != nil {
+			s.TargetNodeID = *targetNodeID
+		}
+		if targetNodeName != nil {
+			s.TargetNodeName = *targetNodeName
+		}
+		if lsn != nil {
+			s.LSN = *lsn
+		}
+		if storagePath != nil {
+			s.StoragePath = *storagePath
+		}
+		if checksum != nil {
+			s.Checksum = *checksum
+		}
+		if errorMessage != nil {
+			s.ErrorMessage = *errorMessage
+		}
+		if currentTable != nil {
+			s.CurrentTable = *currentTable
+		}
+
+		snapshots = append(snapshots, s)
+	}
+
+	if err := rows.Err(); err != nil {
+		logger.Error("GetSnapshots: error iterating snapshots", "error", err)
+		return nil, fmt.Errorf("iterate snapshots: %w", err)
+	}
+
+	return snapshots, nil
+}

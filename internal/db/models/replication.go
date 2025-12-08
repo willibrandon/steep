@@ -446,6 +446,8 @@ type ReplicationData struct {
 	Subscriptions []Subscription
 	// ClusterNodes is the list of steep_repl cluster nodes
 	ClusterNodes []ClusterNode
+	// Snapshots is the list of steep_repl snapshot records
+	Snapshots []SnapshotInfo
 	// LagHistory is the in-memory ring buffer keyed by replica name
 	LagHistory map[string][]float64
 	// RefreshTime is when the data was fetched
@@ -619,4 +621,106 @@ func (c *ReplicationConfig) AllParams() []ConfigParam {
 		c.HotStandby,
 		c.ArchiveMode,
 	}
+}
+
+// =============================================================================
+// SnapshotInfo - snapshot data for TUI display
+// =============================================================================
+
+// SnapshotInfo represents a snapshot record from steep_repl.snapshots.
+// This is a TUI-friendly struct for displaying snapshot information.
+type SnapshotInfo struct {
+	// Identity
+	SnapshotID   string `json:"snapshot_id"`
+	SourceNodeID string `json:"source_node_id"`
+	TargetNodeID string `json:"target_node_id"`
+
+	// Node names (resolved from joins)
+	SourceNodeName string `json:"source_node_name"`
+	TargetNodeName string `json:"target_node_name"`
+
+	// Snapshot metadata
+	LSN         string `json:"lsn"`
+	StoragePath string `json:"storage_path"`
+	Compression string `json:"compression"`
+	Checksum    string `json:"checksum"`
+
+	// Status tracking
+	Status       string `json:"status"` // pending, generating, complete, applying, applied, failed, cancelled, expired
+	Phase        string `json:"phase"`  // idle, schema, data, indexes, constraints, sequences, verify
+	ErrorMessage string `json:"error_message"`
+
+	// Progress tracking
+	OverallPercent     float32 `json:"overall_percent"`
+	CurrentTable       string  `json:"current_table"`
+	TableCount         int     `json:"table_count"`
+	TablesCompleted    int     `json:"tables_completed"`
+	SizeBytes          int64   `json:"size_bytes"`
+	BytesWritten       int64   `json:"bytes_written"`
+	RowsTotal          int64   `json:"rows_total"`
+	RowsWritten        int64   `json:"rows_written"`
+	ThroughputBytesSec float32 `json:"throughput_bytes_sec"`
+	ETASeconds         int     `json:"eta_seconds"`
+	CompressionRatio   float32 `json:"compression_ratio"`
+
+	// Timestamps
+	CreatedAt   time.Time  `json:"created_at"`
+	StartedAt   *time.Time `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+}
+
+// IsActive returns true if the snapshot operation is in progress.
+func (s *SnapshotInfo) IsActive() bool {
+	return s.Status == "generating" || s.Status == "applying"
+}
+
+// IsFailed returns true if the snapshot operation failed.
+func (s *SnapshotInfo) IsFailed() bool {
+	return s.Status == "failed" || s.Status == "cancelled"
+}
+
+// IsComplete returns true if the snapshot generation is complete.
+func (s *SnapshotInfo) IsComplete() bool {
+	return s.Status == "complete" || s.Status == "applied"
+}
+
+// FormatSize returns a human-readable size string.
+func (s *SnapshotInfo) FormatSize() string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+		TB = GB * 1024
+	)
+
+	b := s.SizeBytes
+	switch {
+	case b >= TB:
+		return fmt.Sprintf("%.1f TB", float64(b)/TB)
+	case b >= GB:
+		return fmt.Sprintf("%.1f GB", float64(b)/GB)
+	case b >= MB:
+		return fmt.Sprintf("%.1f MB", float64(b)/MB)
+	case b >= KB:
+		return fmt.Sprintf("%.0f KB", float64(b)/KB)
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
+}
+
+// FormatProgress returns a human-readable progress string.
+func (s *SnapshotInfo) FormatProgress() string {
+	if s.IsComplete() {
+		return "100%"
+	}
+	return fmt.Sprintf("%.1f%%", s.OverallPercent)
+}
+
+// FormatTables returns a human-readable tables progress string.
+func (s *SnapshotInfo) FormatTables() string {
+	if s.TableCount == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d/%d", s.TablesCompleted, s.TableCount)
 }

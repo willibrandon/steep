@@ -7,8 +7,7 @@
 //! - init_progress: Real-time initialization progress tracking
 //! - schema_fingerprints: Schema fingerprints for drift detection
 //! - init_slots: Replication slots for manual initialization
-//! - snapshots: Generated snapshot manifests for two-phase initialization
-//! - snapshot_progress: Real-time two-phase snapshot progress tracking
+//! - snapshots: Snapshot manifests with real-time progress tracking (unified table)
 //!
 //! Requires PostgreSQL 18 or later.
 

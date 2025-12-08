@@ -246,6 +246,8 @@ func (v *ReplicationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Update cluster nodes from the data
 			v.updateClusterNodes(msg.Data.ClusterNodes)
+			// Update snapshots from the data
+			v.updateSnapshots(msg.Data.Snapshots)
 			// Fetch SQLite lag history periodically when using longer windows
 			if v.timeWindow > time.Minute {
 				// Refresh every 30 seconds

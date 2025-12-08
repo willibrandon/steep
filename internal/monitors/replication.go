@@ -170,6 +170,12 @@ func (m *ReplicationMonitor) FetchOnce(ctx context.Context) ui.ReplicationDataMs
 		data.ClusterNodes = clusterNodes
 	}
 
+	// Fetch snapshots from steep_repl.snapshots (if extension installed)
+	snapshots, err := queries.GetSnapshots(ctx, m.pool)
+	if err == nil {
+		data.Snapshots = snapshots
+	}
+
 	// Copy lag history to data
 	m.lagHistoryLock.RLock()
 	for name, buf := range m.lagHistory {

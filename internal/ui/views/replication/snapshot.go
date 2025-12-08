@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/willibrandon/steep/internal/db/models"
 	"github.com/willibrandon/steep/internal/ui/components"
 	"github.com/willibrandon/steep/internal/ui/styles"
 )
@@ -391,12 +392,13 @@ func (v *ReplicationView) buildSnapshotProgressData(snap SnapshotEntry) *compone
 	}
 
 	// Set tables/bytes based on phase
-	if snap.Phase == components.PhaseGeneration {
+	switch snap.Phase {
+	case components.PhaseGeneration:
 		data.GenTablesTotal = snap.TablesTotal
 		data.GenTablesCompleted = snap.TablesDone
 		data.GenBytesTotal = snap.BytesTotal
 		data.GenBytesWritten = snap.BytesDone
-	} else if snap.Phase == components.PhaseApplication {
+	case components.PhaseApplication:
 		data.AppTablesTotal = snap.TablesTotal
 		data.AppTablesCompleted = snap.TablesDone
 		data.AppBytesTotal = snap.BytesTotal
@@ -408,4 +410,55 @@ func (v *ReplicationView) buildSnapshotProgressData(snap SnapshotEntry) *compone
 	}
 
 	return data
+}
+
+// updateSnapshots converts SnapshotInfo from the database to SnapshotEntry for display.
+func (v *ReplicationView) updateSnapshots(infos []models.SnapshotInfo) {
+	v.snapshots = make([]SnapshotEntry, len(infos))
+	for i, info := range infos {
+		entry := SnapshotEntry{
+			SnapshotID:  info.SnapshotID,
+			SourceNode:  info.SourceNodeName,
+			TargetNode:  info.TargetNodeName,
+			Status:      info.Status,
+			Progress:    float64(info.OverallPercent),
+			BytesTotal:  info.SizeBytes,
+			BytesDone:   info.BytesWritten,
+			TablesTotal: info.TableCount,
+			TablesDone:  info.TablesCompleted,
+			StartedAt:   info.CreatedAt,
+		}
+
+		// Set phase based on status
+		switch info.Status {
+		case "generating":
+			entry.Phase = components.PhaseGeneration
+		case "applying":
+			entry.Phase = components.PhaseApplication
+		default:
+			entry.Phase = components.PhaseIdle
+		}
+
+		// Set completed time
+		if info.CompletedAt != nil {
+			entry.CompletedAt = info.CompletedAt
+		}
+
+		// Set started time
+		if info.StartedAt != nil {
+			entry.StartedAt = *info.StartedAt
+		}
+
+		// Set error message
+		if info.ErrorMessage != "" {
+			entry.ErrorMessage = info.ErrorMessage
+		}
+
+		v.snapshots[i] = entry
+	}
+
+	// Reset selection if out of bounds
+	if v.snapshotSelectedIdx >= len(v.snapshots) {
+		v.snapshotSelectedIdx = max(0, len(v.snapshots)-1)
+	}
 }

@@ -52,4 +52,7 @@ Thumbs.db
 /backups/
 
 # Certificates
-/certs/
+certs/
+
+# Snapshots
+snapshots/
