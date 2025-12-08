@@ -363,9 +363,9 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
   - Phase (generation/application), CurrentStep, CompressionRatio
   - ChecksumsVerified, ChecksumsFailed, ChecksumStatus
 
-- [ ] T087h Add animated progress bar to init_progress.go using bubbles/progress (gradient from orange → green as progress increases)
+- [ ] T087h Add animated progress bar to progress.go using bubbles/progress (gradient from orange → green as progress increases)
 
-- [ ] T087i Add spinner integration to init_progress.go using bubbles/spinner (Dot style for active phases, hidden when idle)
+- [ ] T087i Add spinner integration to progress.go using bubbles/spinner (Dot style for active phases, hidden when idle)
 
 - [ ] T087j Create SnapshotProgressOverlay component in internal/ui/components/snapshot_progress.go:
   - Two-section layout: Generation Stats | Application Stats
@@ -374,7 +374,7 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
   - Checksum verification status with pass/fail counts
   - Throughput sparkline showing last 60 seconds (using existing sparkline infra from 011-visualizations)
 
-- [ ] T087k Add snapshot progress view in internal/ui/views/replication/snapshot.go:
+- [ ] T087k Add snapshot progress tab in internal/ui/views/replication/snapshot.go:
   - List of active/recent snapshots with status
   - Double-click or Enter to open detailed SnapshotProgressOverlay
   - S key to start new snapshot, C key to cancel active snapshot
