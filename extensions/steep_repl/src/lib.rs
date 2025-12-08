@@ -29,7 +29,6 @@ mod init_progress;
 mod schema_fingerprints;
 mod init_slots;
 mod snapshots;
-mod snapshot_progress;
 mod fingerprint_functions;
 mod merge;
 mod merge_audit_log;

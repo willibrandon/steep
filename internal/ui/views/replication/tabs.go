@@ -16,6 +16,7 @@ const (
 	TabSlots
 	TabLogical
 	TabNodes
+	TabSnapshots
 	TabSetup
 )
 
@@ -30,6 +31,8 @@ func (t ViewTab) String() string {
 		return "Logical"
 	case TabNodes:
 		return "Nodes"
+	case TabSnapshots:
+		return "Snapshots"
 	case TabSetup:
 		return "Setup"
 	default:
@@ -47,6 +50,7 @@ func TabBar(activeTab ViewTab, width int) string {
 		{"Slots", TabSlots},
 		{"Logical", TabLogical},
 		{"Nodes", TabNodes},
+		{"Snapshots", TabSnapshots},
 		{"Setup", TabSetup},
 	}
 
@@ -92,10 +96,10 @@ func TabBar(activeTab ViewTab, width int) string {
 
 // NextTab returns the next tab (wraps around).
 func NextTab(current ViewTab) ViewTab {
-	return ViewTab((int(current) + 1) % 5)
+	return ViewTab((int(current) + 1) % 6)
 }
 
 // PrevTab returns the previous tab (wraps around).
 func PrevTab(current ViewTab) ViewTab {
-	return ViewTab((int(current) + 4) % 5)
+	return ViewTab((int(current) + 5) % 6)
 }

@@ -15,6 +15,10 @@ func HelpOverlay(width, height int, activeTab ViewTab) string {
 		return SlotsHelpOverlay(width, height)
 	case TabLogical:
 		return LogicalHelpOverlay(width, height)
+	case TabNodes:
+		return NodesHelpOverlay(width, height)
+	case TabSnapshots:
+		return SnapshotsHelpOverlay(width, height)
 	case TabSetup:
 		return SetupHelpOverlay(width, height)
 	default:
@@ -82,7 +86,7 @@ func SlotsHelpOverlay(width, height int) string {
 		{"", ""},
 		{"Actions", ""},
 		{"d / Enter", "View slot details"},
-		{"D", "Drop inactive slot (confirm)"},
+		{"x", "Drop inactive slot (confirm)"},
 		{"s", "Cycle sort column"},
 		{"S", "Toggle sort direction"},
 		{"r", "Refresh data"},
@@ -144,6 +148,75 @@ func SetupHelpOverlay(width, height int) string {
 		{"", ""},
 		{"General", ""},
 		{"y", "Copy to clipboard"},
+		{"h / ?", "Toggle this help"},
+		{"Esc / q", "Close overlay / Back"},
+	}
+
+	return renderHelp(title, keyBindings, width, height)
+}
+
+// NodesHelpOverlay renders help for the Nodes tab.
+func NodesHelpOverlay(width, height int) string {
+	title := styles.HelpTitleStyle.Render("Cluster Nodes Help")
+
+	keyBindings := []struct {
+		key  string
+		desc string
+	}{
+		{"Navigation", ""},
+		{"j / ↓", "Move down"},
+		{"k / ↑", "Move up"},
+		{"g / Home", "Go to top"},
+		{"G / End", "Go to bottom"},
+		{"Tab / → / ←", "Switch tabs"},
+		{"", ""},
+		{"Actions", ""},
+		{"d / Enter", "View node details"},
+		{"C", "Cancel initialization"},
+		{"r", "Refresh data"},
+		{"", ""},
+		{"Progress Overlay", ""},
+		{"", "Shows detailed init progress"},
+		{"", "Phase, tables, throughput, ETA"},
+		{"C", "Cancel initialization (confirm)"},
+		{"", ""},
+		{"General", ""},
+		{"h / ?", "Toggle this help"},
+		{"Esc / q", "Close overlay / Back"},
+	}
+
+	return renderHelp(title, keyBindings, width, height)
+}
+
+// SnapshotsHelpOverlay renders help for the Snapshots tab.
+func SnapshotsHelpOverlay(width, height int) string {
+	title := styles.HelpTitleStyle.Render("Snapshots Help")
+
+	keyBindings := []struct {
+		key  string
+		desc string
+	}{
+		{"Navigation", ""},
+		{"j / ↓", "Move down"},
+		{"k / ↑", "Move up"},
+		{"g / Home", "Go to top"},
+		{"G / End", "Go to bottom"},
+		{"Tab / → / ←", "Switch tabs"},
+		{"", ""},
+		{"Actions", ""},
+		{"d / Enter", "View snapshot details"},
+		{"S", "Start new snapshot"},
+		{"C", "Cancel active snapshot"},
+		{"r", "Refresh data"},
+		{"", ""},
+		{"Progress Overlay", ""},
+		{"", "Two-section layout: Gen | Apply"},
+		{"", "Per-table progress with scroll"},
+		{"", "Throughput sparkline (60s)"},
+		{"j / k", "Scroll table list"},
+		{"C", "Cancel snapshot (confirm)"},
+		{"", ""},
+		{"General", ""},
 		{"h / ?", "Toggle this help"},
 		{"Esc / q", "Close overlay / Back"},
 	}

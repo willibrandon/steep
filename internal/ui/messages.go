@@ -360,3 +360,17 @@ type CancelInitResultMsg struct {
 	Success bool
 	Error   error
 }
+
+// Snapshot messages (steep-repl)
+
+// CancelSnapshotRequestMsg requests cancellation of an active snapshot.
+type CancelSnapshotRequestMsg struct {
+	SnapshotID string
+}
+
+// CancelSnapshotResultMsg contains the result of a cancel snapshot attempt.
+type CancelSnapshotResultMsg struct {
+	SnapshotID string
+	Success    bool
+	Error      error
+}

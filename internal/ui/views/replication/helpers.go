@@ -166,11 +166,13 @@ func (v *ReplicationView) renderFooter() string {
 		case TabOverview:
 			hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [t]opology [s/S]ort [w]indow [y]ank [h]elp")
 		case TabSlots:
-			hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [D]rop [h]elp")
+			hints = styles.FooterHintStyle.Render("[j/k]nav [d]etail [x]drop [h]elp")
 		case TabLogical:
 			hints = styles.FooterHintStyle.Render("[j/k]nav [p]ubs/subs [d]etail [h]elp")
 		case TabNodes:
 			hints = styles.FooterHintStyle.Render("[j/k]nav [d]etails [C]ancel [h]elp")
+		case TabSnapshots:
+			hints = styles.FooterHintStyle.Render("[j/k]nav [d]etails [S]tart [C]ancel [h]elp")
 		case TabSetup:
 			hints = styles.FooterHintStyle.Render("[c]heck [e]dit [p]hysical l[o]gical con[n]str [h]elp")
 		}

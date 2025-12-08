@@ -165,6 +165,8 @@ func (v *ReplicationView) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		return v.handleLogicalKeys(key)
 	case TabNodes:
 		return v.handleNodesKeys(key)
+	case TabSnapshots:
+		return v.handleSnapshotsKeys(key)
 	case TabSetup:
 		return v.handleSetupKeys(key)
 	}
@@ -252,7 +254,8 @@ func (v *ReplicationView) handleSlotsKeys(key string) tea.Cmd {
 			v.slotSelectedIdx = len(v.data.Slots) - 1
 			v.ensureSlotVisible()
 		}
-	case "D":
+	case "x":
+		// Drop inactive slot
 		if v.readOnly {
 			v.showToast("Cannot drop slots in read-only mode", true)
 			return nil
@@ -432,6 +435,116 @@ func (v *ReplicationView) cancelInitCmd() tea.Cmd {
 	}
 	return func() tea.Msg {
 		return ui.CancelInitRequestMsg{NodeID: nodeID}
+	}
+}
+
+// handleSnapshotsKeys handles keys specific to the Snapshots tab.
+func (v *ReplicationView) handleSnapshotsKeys(key string) tea.Cmd {
+	// Handle snapshot progress overlay mode
+	if v.mode == ModeSnapshotProgress {
+		switch key {
+		case "esc", "q":
+			v.snapshotOverlay.Hide()
+			v.mode = ModeNormal
+		case "C":
+			// Cancel active snapshot
+			if v.snapshotOverlay == nil || !v.snapshotOverlay.IsVisible() {
+				return nil
+			}
+			if v.readOnly {
+				v.showToast("Cannot cancel snapshot in read-only mode", true)
+				return nil
+			}
+			// Only allow cancel if snapshot is active
+			phase := v.snapshotOverlay.GetPhase()
+			if phase != "generation" && phase != "application" {
+				v.showToast("Snapshot is not active", false)
+				return nil
+			}
+			// Show confirmation dialog
+			v.mode = ModeConfirmCancelSnap
+		case "j", "k", "down", "up":
+			// Forward scroll keys to overlay
+			v.snapshotOverlay.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+		}
+		return nil
+	}
+
+	// Handle confirm cancel snapshot mode
+	if v.mode == ModeConfirmCancelSnap {
+		switch key {
+		case "y", "Y":
+			v.mode = ModeSnapshotProgress
+			return v.cancelSnapshotCmd()
+		case "n", "N", "esc", "q":
+			v.mode = ModeSnapshotProgress
+		}
+		return nil
+	}
+
+	// Normal Snapshots tab mode
+	switch key {
+	case "j", "down":
+		v.moveSnapshotSelection(1)
+	case "k", "up":
+		v.moveSnapshotSelection(-1)
+	case "g", "home":
+		v.snapshotSelectedIdx = 0
+		v.ensureSnapshotVisible()
+	case "G", "end":
+		if len(v.snapshots) > 0 {
+			v.snapshotSelectedIdx = len(v.snapshots) - 1
+			v.ensureSnapshotVisible()
+		}
+	case "ctrl+d", "pgdown":
+		v.moveSnapshotSelection(10)
+	case "ctrl+u", "pgup":
+		v.moveSnapshotSelection(-10)
+	case "d", "enter":
+		// Show detailed snapshot progress overlay
+		if len(v.snapshots) > 0 && v.snapshotSelectedIdx < len(v.snapshots) {
+			snap := v.snapshots[v.snapshotSelectedIdx]
+			progressData := v.buildSnapshotProgressData(snap)
+			v.snapshotOverlay.Show(progressData)
+			v.mode = ModeSnapshotProgress
+		}
+	case "S":
+		// Start new snapshot
+		if v.readOnly {
+			v.showToast("Cannot start snapshot in read-only mode", true)
+			return nil
+		}
+		// TODO: Implement snapshot start wizard/dialog
+		v.showToast("Snapshot start not yet implemented", false)
+	case "C":
+		// Cancel active snapshot from list
+		if v.readOnly {
+			v.showToast("Cannot cancel snapshot in read-only mode", true)
+			return nil
+		}
+		if len(v.snapshots) > 0 && v.snapshotSelectedIdx < len(v.snapshots) {
+			snap := v.snapshots[v.snapshotSelectedIdx]
+			if snap.Status == "generating" || snap.Status == "applying" {
+				// Show snapshot in overlay and confirm cancel
+				progressData := v.buildSnapshotProgressData(snap)
+				v.snapshotOverlay.Show(progressData)
+				v.mode = ModeConfirmCancelSnap
+			} else {
+				v.showToast("Snapshot is not active", false)
+			}
+		}
+	}
+	return nil
+}
+
+// cancelSnapshotCmd sends a cancel snapshot request for the selected snapshot.
+func (v *ReplicationView) cancelSnapshotCmd() tea.Cmd {
+	snapshotID := v.snapshotOverlay.GetSnapshotID()
+	if snapshotID == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		return ui.CancelSnapshotRequestMsg{SnapshotID: snapshotID}
 	}
 }
 

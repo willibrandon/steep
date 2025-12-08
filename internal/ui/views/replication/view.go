@@ -32,8 +32,10 @@ const (
 	ModeConfirmWizardExecute
 	ModeConfirmAlterSystem
 	ModeConnStringBuilder
-	ModeNodeProgress      // Detailed init progress overlay
-	ModeConfirmCancelInit // Confirm cancel initialization
+	ModeNodeProgress       // Detailed init progress overlay
+	ModeConfirmCancelInit  // Confirm cancel initialization
+	ModeSnapshotProgress   // Detailed snapshot progress overlay
+	ModeConfirmCancelSnap  // Confirm cancel snapshot
 )
 
 // SortColumn represents the available sort columns for replicas.
@@ -150,6 +152,12 @@ type ReplicationView struct {
 
 	// Progress overlay state
 	progressOverlay *components.InitProgressOverlay
+
+	// Snapshots tab state
+	snapshots            []SnapshotEntry
+	snapshotSelectedIdx  int
+	snapshotScrollOffset int
+	snapshotOverlay      *components.SnapshotProgressOverlay
 }
 
 // NewReplicationView creates a new replication view.
@@ -164,6 +172,7 @@ func NewReplicationView() *ReplicationView {
 		logicalFocusPubs: true,
 		topologyExpanded: make(map[string]bool),
 		progressOverlay:  components.NewInitProgressOverlay(),
+		snapshotOverlay:  components.NewSnapshotProgressOverlay(),
 	}
 }
 
@@ -437,6 +446,12 @@ func (v *ReplicationView) View() string {
 			content = v.renderNodeProgressOverlay()
 		} else {
 			content = v.renderNodes()
+		}
+	case TabSnapshots:
+		if v.mode == ModeSnapshotProgress {
+			content = v.renderSnapshotProgressOverlay()
+		} else {
+			content = v.renderSnapshots()
 		}
 	case TabSetup:
 		content = v.renderSetup()
