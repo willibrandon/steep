@@ -358,7 +358,7 @@ show_info() {
     echo ""
     echo "  4. Trigger init (terminal 3):"
     echo "     # Note: pg-source:5432 is the Docker internal address (container-to-container)"
-    echo "     ./bin/steep-repl init start target-node --from source-node \\"
+    echo "     ./bin/steep-repl node start target-node --from source-node \\"
     echo "       --source-host pg-source --source-port 5432 --source-database $PG_DATABASE --source-user $PG_USER \\"
     echo "       --remote localhost:15461 --insecure"
     echo ""

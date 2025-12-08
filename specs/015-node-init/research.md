@@ -48,7 +48,7 @@ WHERE srsubid = (SELECT oid FROM pg_subscription WHERE subname = 'steep_sub');
 **Implementation**:
 ```bash
 # Phase 1: Generate on source
-steep-repl snapshot generate --source node_a --output /snapshots/2025-12-04/
+steep-repl snapshot generate node_a --output /snapshots/2025-12-04/
 
 # Creates:
 # /snapshots/2025-12-04/manifest.json  (LSN, tables, checksums)
@@ -58,7 +58,7 @@ steep-repl snapshot generate --source node_a --output /snapshots/2025-12-04/
 # /snapshots/2025-12-04/sequences.json
 
 # Phase 2: Apply on target
-steep-repl snapshot apply --target node_b --input /snapshots/2025-12-04/
+steep-repl snapshot apply node_b --input /snapshots/2025-12-04/
 ```
 
 **Alternatives Considered**:
@@ -79,7 +79,7 @@ steep-repl snapshot apply --target node_b --input /snapshots/2025-12-04/
 **Workflow**:
 ```bash
 # Step 1: Prepare (creates slot, records LSN)
-steep-repl init prepare --node node_a --slot steep_init_slot
+steep-repl node prepare node_a --slot steep_init_slot
 # Output: LSN: 0/1234ABCD, Slot: steep_init_slot
 
 # Step 2: User runs their backup (steep-repl not involved)
@@ -89,7 +89,7 @@ pg_basebackup -D /backup -S steep_init_slot -X stream -v
 pg_restore ...
 
 # Step 4: Complete (verifies, creates subscription)
-steep-repl init complete --node node_b --source node_a --source-lsn 0/1234ABCD
+steep-repl node complete node_b --source node_a --source-lsn 0/1234ABCD
 ```
 
 **Key Queries**:

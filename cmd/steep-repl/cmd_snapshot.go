@@ -26,15 +26,15 @@ then applying it to target nodes. This is useful for:
 - Network transfers where direct PostgreSQL connection isn't available
 
 Available subcommands:
-  steep-repl snapshot generate    Generate a snapshot to disk
-  steep-repl snapshot apply       Apply a snapshot from disk
+  steep-repl snapshot generate <source-node>    Generate a snapshot to disk
+  steep-repl snapshot apply <target-node>       Apply a snapshot from disk
 
 Examples:
   # Generate a snapshot from node-a
-  steep-repl snapshot generate --source node-a --output /snapshots/node-a
+  steep-repl snapshot generate node-a --output /snapshots/node-a
 
   # Apply snapshot to node-b
-  steep-repl snapshot apply --target node-b --input /snapshots/node-a`,
+  steep-repl snapshot apply node-b --input /snapshots/node-a`,
 	}
 
 	cmd.AddCommand(
@@ -49,7 +49,6 @@ Examples:
 // Implements T085: Add snapshot generate CLI command.
 func newSnapshotGenerateCmd() *cobra.Command {
 	var (
-		sourceNodeID    string
 		outputPath      string
 		compression     string
 		parallelWorkers int
@@ -60,7 +59,7 @@ func newSnapshotGenerateCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "generate",
+		Use:   "generate <source-node>",
 		Short: "Generate a two-phase snapshot to disk",
 		Long: `Generate a consistent snapshot of a node's data to disk.
 
@@ -74,17 +73,16 @@ The snapshot captures a consistent point-in-time using a logical replication slo
 
 Examples:
   # Generate uncompressed snapshot
-  steep-repl snapshot generate --source node-a --output /snapshots/node-a --remote localhost:9090 --insecure
+  steep-repl snapshot generate node-a --output /snapshots/node-a --remote localhost:9090 --insecure
 
   # Generate with gzip compression
-  steep-repl snapshot generate --source node-a --output /snapshots/node-a --compression gzip --remote localhost:9090 --insecure
+  steep-repl snapshot generate node-a --output /snapshots/node-a --compression gzip --remote localhost:9090 --insecure
 
   # Generate with 8 parallel workers
-  steep-repl snapshot generate --source node-a --output /snapshots/node-a --parallel 8 --remote localhost:9090 --insecure`,
+  steep-repl snapshot generate node-a --output /snapshots/node-a --parallel 8 --remote localhost:9090 --insecure`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if sourceNodeID == "" {
-				return fmt.Errorf("--source flag is required")
-			}
+			sourceNodeID := args[0]
 			if outputPath == "" {
 				return fmt.Errorf("--output flag is required")
 			}
@@ -99,9 +97,7 @@ Examples:
 	}
 
 	// Required flags
-	cmd.Flags().StringVar(&sourceNodeID, "source", "", "source node ID to snapshot (required)")
 	cmd.Flags().StringVar(&outputPath, "output", "", "output directory path (required)")
-	_ = cmd.MarkFlagRequired("source")
 	_ = cmd.MarkFlagRequired("output")
 
 	// Options
@@ -196,7 +192,6 @@ func runSnapshotGenerate(sourceNodeID, outputPath, compression string, parallelW
 // Implements T086: Add snapshot apply CLI command.
 func newSnapshotApplyCmd() *cobra.Command {
 	var (
-		targetNodeID    string
 		inputPath       string
 		sourceNodeID    string
 		parallelWorkers int
@@ -208,7 +203,7 @@ func newSnapshotApplyCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "apply",
+		Use:   "apply <target-node>",
 		Short: "Apply a two-phase snapshot from disk",
 		Long: `Apply a snapshot to a target node from disk.
 
@@ -220,17 +215,16 @@ The apply process:
 
 Examples:
   # Apply snapshot to target node
-  steep-repl snapshot apply --target node-b --input /snapshots/node-a --remote localhost:9091 --insecure
+  steep-repl snapshot apply node-b --input /snapshots/node-a --remote localhost:9091 --insecure
 
   # Apply without checksum verification (faster but less safe)
-  steep-repl snapshot apply --target node-b --input /snapshots/node-a --verify=false --remote localhost:9091 --insecure
+  steep-repl snapshot apply node-b --input /snapshots/node-a --verify=false --remote localhost:9091 --insecure
 
   # Apply with source node ID for subscription setup
-  steep-repl snapshot apply --target node-b --input /snapshots/node-a --source node-a --remote localhost:9091 --insecure`,
+  steep-repl snapshot apply node-b --input /snapshots/node-a --source node-a --remote localhost:9091 --insecure`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if targetNodeID == "" {
-				return fmt.Errorf("--target flag is required")
-			}
+			targetNodeID := args[0]
 			if inputPath == "" {
 				return fmt.Errorf("--input flag is required")
 			}
@@ -253,9 +247,7 @@ Examples:
 	}
 
 	// Required flags
-	cmd.Flags().StringVar(&targetNodeID, "target", "", "target node ID to apply snapshot to (required)")
 	cmd.Flags().StringVar(&inputPath, "input", "", "input directory path containing snapshot (required)")
-	_ = cmd.MarkFlagRequired("target")
 	_ = cmd.MarkFlagRequired("input")
 
 	// Options

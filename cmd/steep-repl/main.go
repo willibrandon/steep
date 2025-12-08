@@ -20,9 +20,9 @@ var (
 func main() {
 	rootCmd := &cobra.Command{
 		Use:   "steep-repl",
-		Short: "Steep bidirectional replication daemon",
-		Long: `steep-repl is a background daemon that coordinates bidirectional replication
-across PostgreSQL 18 instances. It manages node registration, coordinator election,
+		Short: "Steep replication daemon",
+		Long: `steep-repl is a background daemon that coordinates replication
+across PostgreSQL servers. It manages node registration, schema synchronization,
 and provides status via IPC, gRPC, and HTTP endpoints.
 
 Service Management:
@@ -52,8 +52,8 @@ Direct Run (for debugging):
 		newRestartCmd(),
 		newStatusCmd(),
 		newHealthCmd(),
-		newInitTLSCmd(),
-		newInitCmd(),
+		newTLSCmd(),
+		newNodeCmd(),
 		newSchemaCmd(),
 		newAnalyzeOverlapCmd(),
 		newMergeCmd(),

@@ -1,6 +1,6 @@
 repl:
   enabled: true
-  node_id: "1"
+  node_id: "source-node"
   node_name: "Source Node"
 
   postgresql:
@@ -18,7 +18,6 @@ repl:
     path: /tmp/steep-repl-source.sock
 
   http:
-    enabled: true
-    port: 8080
+    enabled: false
 
 debug: true

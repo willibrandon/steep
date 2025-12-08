@@ -8,19 +8,22 @@ use pgrx::prelude::*;
 extension_sql!(
     r#"
 -- Compute fingerprint for a single table
--- Returns SHA256 hash of column definitions (name, type, default, nullable) in ordinal order
+-- Returns SHA256 hash of column definitions (name, type, nullable) in ordinal order
+-- NOTE: column_default is intentionally excluded because:
+--   1. Default expressions can differ between servers (e.g., sequence names)
+--   2. Defaults don't affect replication compatibility - each server uses its own
+--   3. What matters for replication is column name, type, and nullability
 CREATE FUNCTION steep_repl.compute_fingerprint(p_schema TEXT, p_table TEXT)
 RETURNS TEXT AS $$
     SELECT encode(sha256(string_agg(
-        column_name || ':' || data_type || ':' ||
-        coalesce(column_default, 'NULL') || ':' || is_nullable,
+        column_name || ':' || data_type || ':' || is_nullable,
         '|' ORDER BY ordinal_position
     )::bytea), 'hex')
     FROM information_schema.columns
     WHERE table_schema = p_schema AND table_name = p_table;
 $$ LANGUAGE sql STABLE;
 
-COMMENT ON FUNCTION steep_repl.compute_fingerprint(TEXT, TEXT) IS 'Compute SHA256 fingerprint of table column definitions';
+COMMENT ON FUNCTION steep_repl.compute_fingerprint(TEXT, TEXT) IS 'Compute SHA256 fingerprint of table column definitions (name, type, nullable)';
 
 -- Capture fingerprint for a table (insert or update) with node_id
 CREATE FUNCTION steep_repl.capture_fingerprint(p_node_id TEXT, p_schema TEXT, p_table TEXT)

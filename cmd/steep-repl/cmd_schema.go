@@ -25,13 +25,13 @@ func newSchemaCmd() *cobra.Command {
 between nodes before and during replication.
 
 Available subcommands:
-  steep-repl schema capture --node <node>                         Capture fingerprints
+  steep-repl schema capture <node>                                Capture fingerprints
   steep-repl schema compare <node-a> <node-b>                     Compare schemas
   steep-repl schema diff <node-a> <node-b> --table <schema.table> Show column diff
 
 Examples:
   # Capture fingerprints for local node
-  steep-repl schema capture --node node-a --remote localhost:15460 --insecure
+  steep-repl schema capture node-a --remote localhost:15460 --insecure
 
   # Compare schemas between two nodes
   steep-repl schema compare node-a node-b --remote-a localhost:15460 --remote-b localhost:15461 --insecure
@@ -548,7 +548,6 @@ func splitTableName(name string) [2]string {
 // newSchemaCaptureCmd creates the schema capture subcommand (T060).
 func newSchemaCaptureCmd() *cobra.Command {
 	var (
-		nodeID     string
 		remoteAddr string
 		caFile     string
 		insecure   bool
@@ -556,7 +555,7 @@ func newSchemaCaptureCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "capture",
+		Use:   "capture <node>",
 		Short: "Capture schema fingerprints for a node",
 		Long: `Capture and store schema fingerprints for a node's database.
 
@@ -566,10 +565,9 @@ table and can be retrieved via gRPC for remote comparison.
 
 Run this command periodically or before initializing replication to ensure
 accurate schema drift detection.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if nodeID == "" {
-				return fmt.Errorf("--node flag is required")
-			}
+			nodeID := args[0]
 			if remoteAddr == "" {
 				return fmt.Errorf("--remote flag is required")
 			}
@@ -578,12 +576,10 @@ accurate schema drift detection.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&nodeID, "node", "", "node ID to capture fingerprints for (required)")
 	cmd.Flags().StringVar(&remoteAddr, "remote", "", "gRPC address of daemon (host:port)")
 	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
 	cmd.Flags().StringSliceVar(&schemas, "schemas", nil, "schemas to capture (default: all)")
-	_ = cmd.MarkFlagRequired("node")
 	_ = cmd.MarkFlagRequired("remote")
 
 	return cmd

@@ -904,11 +904,11 @@ For databases under 100GB, a simpler direct mode combines both phases:
 
 ```bash
 # Direct initialization (combines both phases)
-steep-repl init node_b --from node_a --method direct
+steep-repl node start node_b --from node_a --method direct
 
 # Equivalent to:
-# steep-repl snapshot generate --source node_a --output /tmp/... && \
-# steep-repl snapshot apply --target node_b --input /tmp/... && \
+# steep-repl snapshot generate node_a --output /tmp/... && \
+# steep-repl snapshot apply node_b --input /tmp/... && \
 # rm -rf /tmp/...
 ```
 
@@ -960,7 +960,7 @@ For large databases where snapshot is impractical (multi-TB), users can initiali
 │     pg_restore -d mydb backup.dump                              │
 │                                                                 │
 │  3. User tells steep-repl to complete setup:                    │
-│     steep-repl init complete --node node_b \                   │
+│     steep-repl node complete node_b \                          │
 │         --source-lsn 0/1234ABCD \                              │
 │         --backup-time "2025-12-03 14:30:00"                    │
 │                                                                 │
@@ -978,23 +978,23 @@ For large databases where snapshot is impractical (multi-TB), users can initiali
 
 ```bash
 # Option 1: Automatic snapshot (small/medium databases)
-steep-repl init node_b --from node_a --method snapshot
+steep-repl node start node_b --from node_a --method snapshot
 
 # Option 2: Manual from backup (large databases)
 # Step 1: On source, create consistent backup
-steep-repl init prepare --node node_a --slot steep_init_slot
+steep-repl node prepare node_a --slot steep_init_slot
 
 # Step 2: User performs backup/restore (their tooling)
 pg_basebackup -D /backup -S steep_init_slot ...
 # ... restore on target ...
 
 # Step 3: Complete initialization
-steep-repl init complete --node node_b \
+steep-repl node complete node_b \
     --source node_a \
     --source-lsn 0/1234ABCD
 
 # Option 3: Initialize from existing replica
-steep-repl init from-replica --node node_b --replica-of node_a
+steep-repl node from-replica node_b --replica-of node_a
 ```
 
 ### 6.4 Reinitialization (Recovery)
@@ -1014,13 +1014,13 @@ For large databases, reinitialize only affected tables:
 
 ```bash
 # Reinitialize specific tables
-steep-repl reinit --node node_b --tables orders,line_items
+steep-repl node reinit node_b --tables orders,line_items
 
 # Reinitialize entire schema
-steep-repl reinit --node node_b --schema sales
+steep-repl node reinit node_b --schema sales
 
 # Full reinitialization
-steep-repl reinit --node node_b --full
+steep-repl node reinit node_b --full
 ```
 
 #### Reinitialization Flow
@@ -1143,7 +1143,7 @@ Both nodes have existing data, potentially with overlapping primary keys or conf
 Stop application writes on both nodes before setup:
 
 ```bash
-steep-repl init --mode=bidirectional-merge --quiesce-writes
+steep-repl node merge --mode=bidirectional-merge --quiesce-writes
 [INFO] Pausing application writes on Node A...
 [INFO] Pausing application writes on Node B...
 [INFO] Waiting for in-flight transactions to complete...
@@ -3819,7 +3819,7 @@ replication:
 
 ```bash
 # steep-repl can generate self-signed certs for testing
-steep-repl tls generate --node hq --output /etc/steep/certs/
+steep-repl tls init --name hq --output /etc/steep/certs/
 
 # For production, use proper PKI (Let's Encrypt, internal CA, etc.)
 ```
@@ -4170,7 +4170,7 @@ steep-repl node add --name node_c \
     --from-node hq
 
 # 4. Initialize from existing node
-steep-repl init node_c --from hq --method snapshot
+steep-repl node start node_c --from hq --method snapshot
 # (Or use manual backup method for large DBs)
 
 # 5. Verify replication

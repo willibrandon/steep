@@ -62,7 +62,7 @@
 
 **Goal**: Initialize a new node from an existing node using automatic snapshot (copy_data=true) for databases under 100GB
 
-**Independent Test**: Run `steep-repl init node_b --from node_a --method snapshot` and verify data appears on target with subscription active
+**Independent Test**: Run `steep-repl node start node_b --from node_a --method snapshot` and verify data appears on target with subscription active
 
 ### Tests for User Story 1
 
@@ -77,7 +77,7 @@
 - [x] T023 [US1] Implement CancelInit RPC handler in internal/repl/grpc/init_handlers.go (drop subscription, cleanup partial data, reset state)
 - [x] T024 [US1] Add progress polling for pg_subscription_rel sync state in internal/repl/init/snapshot.go (track per-table i/d/s/r states)
 - [x] T025 [US1] Add large table detection and handling in internal/repl/init/snapshot.go (threshold check, alternate method for >10GB tables)
-- [x] T026 [US1] Add init command CLI implementation in cmd/steep-repl/main.go (`steep-repl init <target> --from <source> [--method snapshot] [--parallel N]`)
+- [x] T026 [US1] Add init command CLI implementation in cmd/steep-repl/main.go (`steep-repl node start <target> --from <source> [--method snapshot] [--parallel N]`)
 - [x] T027 [US1] Emit structured JSON logs for all state transitions in internal/repl/init/snapshot.go (init.started, init.state_change, init.completed)
 
 **Checkpoint**: Automatic snapshot initialization works end-to-end with state tracking and cancellation
@@ -101,8 +101,8 @@
 - [x] T031 [US2] Implement prepare logic in internal/repl/init/manual.go (pg_create_logical_replication_slot, pg_current_wal_lsn)
 - [x] T032 [US2] Implement CompleteInit RPC handler in internal/repl/grpc/init_handlers.go (verify schema, install metadata, create subscription)
 - [x] T033 [US2] Implement complete logic in internal/repl/init/manual.go (schema check, CREATE SUBSCRIPTION with copy_data=false, origin advance)
-- [x] T034 [US2] Add init prepare CLI command in cmd/steep-repl/main.go (`steep-repl init prepare --node <node> --slot <name>`)
-- [x] T035 [US2] Add init complete CLI command in cmd/steep-repl/main.go (`steep-repl init complete --node <target> --source <source> --source-lsn <lsn>`)
+- [x] T034 [US2] Add init prepare CLI command in cmd/steep-repl/main.go (`steep-repl node prepare <node> --slot <name>`)
+- [x] T035 [US2] Add init complete CLI command in cmd/steep-repl/main.go (`steep-repl node complete <target> --source <source> --source-lsn <lsn>`)
 - [x] T036 [US2] Handle WAL catch-up phase after complete in internal/repl/init/manual.go (track lag until caught up, transition to SYNCHRONIZED)
 
 **Checkpoint**: Manual initialization workflow works with user-managed backup/restore
@@ -134,7 +134,7 @@
 
 **Goal**: Reinitialize specific tables when they diverge without full node reinit
 
-**Independent Test**: Corrupt data in one table, run `steep-repl reinit --node node_b --tables orders`, verify only that table resynchronized
+**Independent Test**: Corrupt data in one table, run `steep-repl node reinit node_b --tables orders`, verify only that table resynchronized
 
 ### Tests for User Story 4
 
@@ -147,7 +147,7 @@
 - [X] T048 [US4] Add table-scope reinit in internal/repl/init/reinit.go (--tables flag processing, selective TRUNCATE/COPY)
 - [X] T049 [US4] Add schema-scope reinit in internal/repl/init/reinit.go (--schema flag processing, iterate tables)
 - [X] T050 [US4] Add full reinit in internal/repl/init/reinit.go (--full flag processing, complete node reinit)
-- [X] T051 [US4] Add reinit CLI command in cmd/steep-repl/main.go (`steep-repl reinit --node <node> [--tables X,Y] [--schema S] [--full]`)
+- [X] T051 [US4] Add reinit CLI command in cmd/steep-repl/main.go (`steep-repl node reinit <node> [--tables X,Y] [--schema S] [--full]`)
 - [X] T052 [US4] Add REINITIALIZING state handling and UI indication in internal/ui/views/replication.go
 
 **Checkpoint**: Partial reinitialization works for tables, schemas, or full node
@@ -174,7 +174,7 @@
 - [X] T057 [US5] Implement CompareSchemas RPC handler in internal/repl/grpc/handlers.go
 - [X] T058 [US5] Add schema compare CLI command in cmd/steep-repl/main.go (`steep-repl schema compare <node-a> <node-b>`)
 - [X] T059 [US5] Add schema diff CLI command in cmd/steep-repl/main.go (`steep-repl schema diff <node-a> <node-b> <table>`)
-- [X] T060 [US5] Add schema capture CLI command in cmd/steep-repl/main.go (`steep-repl schema capture --node <node>`)
+- [X] T060 [US5] Add schema capture CLI command in cmd/steep-repl/main.go (`steep-repl schema capture <node>`)
 - [X] T061 [US5] Integrate schema check before init in internal/repl/init/manager.go (fail fast on mismatch in strict mode, use source daemon gRPC for remote fingerprints)
 
 **Checkpoint**: Schema fingerprinting detects drift with detailed diff output
@@ -254,7 +254,7 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 ### Implementation for User Story 7
 
 - [x] T068 [US7] Implement overlap analysis in internal/repl/init/merge.go (uses extension's compare_tables, processes hash results)
-- [x] T069 [US7] Add analyze-overlap CLI command in cmd/steep-repl/main.go (`steep-repl analyze-overlap --node-a X --node-b Y --tables X,Y`)
+- [x] T069 [US7] Add analyze-overlap CLI command in cmd/steep-repl/main.go (`steep-repl analyze-overlap <node-a-conn> <node-b-conn> --tables X,Y`)
 - [x] T070 [US7] Implement conflict resolution strategies in internal/repl/init/merge.go (prefer-node-a, prefer-node-b, last-modified, manual)
 - [x] T071 [US7] Add bidirectional-merge init mode in internal/repl/init/manager.go (quiesce, analyze, resolve, transfer, enable replication with origin=none)
 - [x] T072 [US7] Add --mode=bidirectional-merge to init CLI in cmd/steep-repl/main.go
@@ -322,8 +322,8 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 - [x] T082 Create manifest.json generator in internal/repl/init/snapshot.go (LSN, table list, checksums, sizes)
 - [x] T083 Implement ApplySnapshot RPC handler in internal/repl/grpc/init_handlers.go
 - [x] T084 Implement snapshot application in internal/repl/init/snapshot.go (verify checksums, COPY FROM files, restore sequences, FK handling with topo sort or drop/recreate)
-- [x] T085 Add snapshot generate CLI command in cmd/steep-repl/cmd_snapshot.go (`steep-repl snapshot generate --source <node> --output <path>`)
-- [x] T086 Add snapshot apply CLI command in cmd/steep-repl/cmd_snapshot.go (`steep-repl snapshot apply --target <node> --input <path>`)
+- [x] T085 Add snapshot generate CLI command in cmd/steep-repl/cmd_snapshot.go (`steep-repl snapshot generate <source-node> --output <path>`)
+- [x] T086 Add snapshot apply CLI command in cmd/steep-repl/cmd_snapshot.go (`steep-repl snapshot apply <target-node> --input <path>`)
 - [x] T087 Add compression support to snapshot operations in internal/repl/init/snapshot.go (gzip, lz4, zstd with tests)
 
 ### Progress Tracking Infrastructure
@@ -473,7 +473,7 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 
 - [ ] T088 [P] Add snapshot list CLI command in cmd/steep-repl/main.go (`steep-repl snapshot list`)
 - [ ] T089 [P] Add snapshot delete CLI command in cmd/steep-repl/main.go (`steep-repl snapshot delete <id>`)
-- [ ] T090 [P] Add schema export CLI command in cmd/steep-repl/main.go (`steep-repl schema export --node <node> --output <file>`)
+- [ ] T090 [P] Add schema export CLI command in cmd/steep-repl/main.go (`steep-repl schema export <node> --output <file>`)
 - [ ] T091 Add resume support for interrupted snapshot operations in internal/repl/init/snapshot.go
 - [ ] T092 Add retry logic with exponential backoff for transient failures in internal/repl/init/manager.go
 - [ ] T093 Validate all quickstart.md scenarios work end-to-end

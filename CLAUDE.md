@@ -378,7 +378,7 @@ NEVER blame "old extension schema", "stale database", or suggest dropping/recrea
 - 014-repl-foundation: PostgreSQL-backed node store with constraints (priority 1-100, port 1-65535, valid status)
 - 014-repl-foundation: TLS support for gRPC (optional cert/key/CA configuration)
 - 014-repl-foundation: PostgreSQL connection pooling with automatic reconnection and exponential backoff
-- 014-repl-foundation: CLI commands: run, install, uninstall, start, stop, restart, status, init-tls, health
+- 014-repl-foundation: CLI commands: run, install, uninstall, start, stop, restart, status, tls init, health
 - 014-repl-foundation: Integration tests with testcontainers-go and Docker image (ghcr.io/willibrandon/pg18-steep-repl)
 - 014-repl-foundation: Make targets: build-repl, build-repl-daemon, build-repl-ext, test-repl, test-repl-integration
 - 014-repl-foundation: Multi-platform CI (Linux, macOS, Windows) with PostgreSQL 18

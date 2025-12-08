@@ -8,22 +8,32 @@
 All commands are subcommands of `steep-repl`:
 
 ```
-steep-repl init       # Initialize a node
-steep-repl reinit     # Reinitialize a diverged node
+steep-repl node       # Node initialization and management
 steep-repl snapshot   # Two-phase snapshot operations
 steep-repl schema     # Schema comparison and fingerprinting
 ```
 
+Node subcommands:
+```
+steep-repl node start <target>     # Start automatic snapshot initialization
+steep-repl node prepare <node>     # Prepare for manual initialization
+steep-repl node complete <target>  # Complete manual initialization
+steep-repl node cancel <node>      # Cancel in-progress initialization
+steep-repl node progress <node>    # Check initialization progress
+steep-repl node reinit <node>      # Reinitialize a diverged node
+steep-repl node merge <a> <b>      # Merge two nodes with existing data
+```
+
 ---
 
-## steep-repl init
+## steep-repl node
 
 Initialize a node for bidirectional replication.
 
 ### Automatic Snapshot Initialization
 
 ```bash
-steep-repl init <target-node> --from <source-node> [options]
+steep-repl node start <target-node> --from <source-node> [options]
 ```
 
 **Arguments:**
@@ -44,13 +54,13 @@ steep-repl init <target-node> --from <source-node> [options]
 **Examples:**
 ```bash
 # Basic automatic initialization
-steep-repl init node_b --from node_a
+steep-repl node start node_b --from node_a
 
 # With parallel workers and auto schema sync
-steep-repl init node_b --from node_a --parallel 8 --schema-sync auto
+steep-repl node start node_b --from node_a --parallel 8 --schema-sync auto
 
 # Force reinit with truncation
-steep-repl init node_b --from node_a --force
+steep-repl node start node_b --from node_a --force
 ```
 
 **Output:**
@@ -75,11 +85,13 @@ Press Ctrl+C to cancel
 ### Manual Initialization (Prepare)
 
 ```bash
-steep-repl init prepare --node <node> --slot <slot-name>
+steep-repl node prepare <node> --slot <slot-name>
 ```
 
 **Arguments:**
-- `--node <node>`: Node to prepare for initialization
+- `<node>`: Node to prepare for initialization
+
+**Options:**
 - `--slot <slot-name>`: Replication slot name to create
 
 **Options:**
@@ -89,7 +101,7 @@ steep-repl init prepare --node <node> --slot <slot-name>
 
 **Example:**
 ```bash
-steep-repl init prepare --node node_a --slot steep_init_20251204
+steep-repl node prepare node_a --slot steep_init_20251204
 
 # Output:
 # Replication slot created
@@ -100,17 +112,19 @@ steep-repl init prepare --node node_a --slot steep_init_20251204
 # Next steps:
 #   1. Run your backup: pg_basebackup -D /backup -S steep_init_20251204
 #   2. Restore to target node
-#   3. Run: steep-repl init complete --node <target> --source node_a --source-lsn 0/1A234B00
+#   3. Run: steep-repl node complete <target> --source node_a --source-lsn 0/1A234B00
 ```
 
 ### Manual Initialization (Complete)
 
 ```bash
-steep-repl init complete --node <target> --source <source> --source-lsn <lsn>
+steep-repl node complete <target> --source <source> --source-lsn <lsn>
 ```
 
 **Arguments:**
-- `--node <target>`: Target node that received the backup
+- `<target>`: Target node that received the backup
+
+**Required Flags:**
 - `--source <source>`: Source node the backup came from
 - `--source-lsn <lsn>`: LSN from the prepare step
 
@@ -122,7 +136,7 @@ steep-repl init complete --node <target> --source <source> --source-lsn <lsn>
 
 **Example:**
 ```bash
-steep-repl init complete --node node_b --source node_a --source-lsn 0/1A234B00
+steep-repl node complete node_b --source node_a --source-lsn 0/1A234B00
 
 # Output:
 # Completing initialization of node_b...
@@ -149,11 +163,11 @@ steep-repl init complete --node node_b --source node_a --source-lsn 0/1A234B00
 ### Cancel Initialization
 
 ```bash
-steep-repl init cancel --node <node> [--cleanup]
+steep-repl node cancel <node> [--cleanup]
 ```
 
 **Arguments:**
-- `--node <node>`: Node to cancel initialization for
+- `<node>`: Node to cancel initialization for
 
 **Options:**
 | Option | Default | Description |
@@ -162,14 +176,14 @@ steep-repl init cancel --node <node> [--cleanup]
 
 ---
 
-## steep-repl reinit
+## steep-repl node reinit
 
 Reinitialize a diverged or corrupted node.
 
 ### Syntax
 
 ```bash
-steep-repl reinit --node <node> [scope] [options]
+steep-repl node reinit <node> [scope] [options]
 ```
 
 **Scope (mutually exclusive):**
@@ -189,13 +203,13 @@ steep-repl reinit --node <node> [scope] [options]
 **Examples:**
 ```bash
 # Reinitialize specific tables
-steep-repl reinit --node node_b --tables public.orders,public.line_items
+steep-repl node reinit node_b --tables public.orders,public.line_items
 
 # Reinitialize entire schema
-steep-repl reinit --node node_b --schema sales
+steep-repl node reinit node_b --schema sales
 
 # Full reinitialization
-steep-repl reinit --node node_b --full --confirm
+steep-repl node reinit node_b --full --confirm
 ```
 
 **Output:**
@@ -232,11 +246,13 @@ Two-phase snapshot operations.
 ### Generate Snapshot
 
 ```bash
-steep-repl snapshot generate --source <node> --output <path> [options]
+steep-repl snapshot generate <source-node> --output <path> [options]
 ```
 
 **Arguments:**
-- `--source <node>`: Source node
+- `<source-node>`: Source node to snapshot
+
+**Required Flags:**
 - `--output <path>`: Output directory or S3 path
 
 **Options:**
@@ -248,7 +264,7 @@ steep-repl snapshot generate --source <node> --output <path> [options]
 
 **Example:**
 ```bash
-steep-repl snapshot generate --source node_a --output /snapshots/2025-12-04
+steep-repl snapshot generate node_a --output /snapshots/2025-12-04
 
 # Output:
 # Generating snapshot from node_a...
@@ -283,11 +299,13 @@ steep-repl snapshot generate --source node_a --output /snapshots/2025-12-04
 ### Apply Snapshot
 
 ```bash
-steep-repl snapshot apply --target <node> --input <path> [options]
+steep-repl snapshot apply <target-node> --input <path> [options]
 ```
 
 **Arguments:**
-- `--target <node>`: Target node
+- `<target-node>`: Target node to apply snapshot to
+
+**Required Flags:**
 - `--input <path>`: Snapshot directory or S3 path
 
 **Options:**
@@ -369,13 +387,13 @@ steep-repl schema diff node_a node_b public.customers
 ### Capture Fingerprints
 
 ```bash
-steep-repl schema capture --node <node> [--schemas <list>]
+steep-repl schema capture <node> [--schemas <list>]
 ```
 
 ### Export Fingerprints
 
 ```bash
-steep-repl schema export --node <node> --output <file>
+steep-repl schema export <node> --output <file>
 ```
 
 ---

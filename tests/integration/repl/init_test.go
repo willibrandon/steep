@@ -803,7 +803,7 @@ func (s *InitTestSuite) TestInit_StateTransitions() {
 // CLI Command Integration Tests
 // =============================================================================
 
-// TestCLI_InitStart tests the 'steep-repl init start' CLI command.
+// TestCLI_InitStart tests the 'steep-repl node start' CLI command.
 func (s *InitTestSuite) TestCLI_InitStart() {
 	ctx := s.ctx
 	env := s.env
@@ -868,7 +868,7 @@ func (s *InitTestSuite) TestCLI_InitStart() {
 	s.Assert().Equal(50, count)
 }
 
-// TestCLI_InitCancel tests the 'steep-repl init cancel' CLI command.
+// TestCLI_InitCancel tests the 'steep-repl node cancel' CLI command.
 func (s *InitTestSuite) TestCLI_InitCancel() {
 	ctx := s.ctx
 	env := s.env
@@ -934,7 +934,7 @@ func (s *InitTestSuite) TestCLI_InitCancel() {
 	s.Assert().True(auditExists, "Audit log entry for init.cancelled should exist")
 }
 
-// TestCLI_InitPrepare tests the 'steep-repl init prepare' CLI command.
+// TestCLI_InitPrepare tests the 'steep-repl node prepare' CLI command.
 func (s *InitTestSuite) TestCLI_InitPrepare() {
 	ctx := s.ctx
 	env := s.env
@@ -990,7 +990,7 @@ func (s *InitTestSuite) TestCLI_InitPrepare() {
 	s.Assert().NotEmpty(resp2.Error)
 }
 
-// TestCLI_InitComplete tests the 'steep-repl init complete' CLI command.
+// TestCLI_InitComplete tests the 'steep-repl node complete' CLI command.
 // This is T028: Integration test for full prepare/complete workflow.
 func (s *InitTestSuite) TestCLI_InitComplete() {
 	ctx := s.ctx

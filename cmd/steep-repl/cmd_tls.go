@@ -9,8 +9,33 @@ import (
 	"github.com/willibrandon/steep/internal/repl/grpc/certs"
 )
 
-// newInitTLSCmd creates the init-tls subcommand for generating mTLS certificates.
-func newInitTLSCmd() *cobra.Command {
+// newTLSCmd creates the tls command group for certificate management.
+func newTLSCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "tls",
+		Short: "TLS certificate management commands",
+		Long: `Manage TLS certificates for secure gRPC communication between nodes.
+
+Available subcommands:
+  steep-repl tls init    Generate CA and server/client certificates
+
+Examples:
+  # Generate certificates with defaults
+  steep-repl tls init
+
+  # Generate with custom hosts
+  steep-repl tls init --hosts localhost,192.168.1.10,node1.example.com`,
+	}
+
+	cmd.AddCommand(
+		newTLSInitCmd(),
+	)
+
+	return cmd
+}
+
+// newTLSInitCmd creates the tls init subcommand for generating mTLS certificates.
+func newTLSInitCmd() *cobra.Command {
 	var (
 		outputDir string
 		nodeName  string
@@ -19,19 +44,19 @@ func newInitTLSCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "init-tls",
+		Use:   "init",
 		Short: "Generate mTLS certificates for secure node communication",
 		Long: `Generate a CA and server/client certificates for mTLS.
 
 This creates all certificates needed for secure gRPC communication:
-  - ca.crt, ca.key       CA certificate and key
+  - ca.crt, ca.key           CA certificate and key
   - server.crt, server.key   Server certificate for this node
   - client.crt, client.key   Client certificate for connecting to other nodes
 
-Example:
-  steep-repl init-tls
-  steep-repl init-tls --hosts localhost,192.168.1.10,node1.example.com
-  steep-repl init-tls --output ~/.config/steep/certs --days 365`,
+Examples:
+  steep-repl tls init
+  steep-repl tls init --hosts localhost,192.168.1.10,node1.example.com
+  steep-repl tls init --output ~/.config/steep/certs --days 365`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Default output directory
 			if outputDir == "" {
@@ -76,7 +101,7 @@ Example:
 
 			fmt.Println("\nFor multi-node setup:")
 			fmt.Println("  1. Copy ca.crt to all nodes")
-			fmt.Println("  2. Run 'steep-repl init-tls' on each node with appropriate --hosts")
+			fmt.Println("  2. Run 'steep-repl tls init' on each node with appropriate --hosts")
 			fmt.Println("  3. Each node uses its own server.crt/key and the shared ca.crt")
 
 			return nil

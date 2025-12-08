@@ -17,8 +17,6 @@ import (
 // newAnalyzeOverlapCmd creates the analyze-overlap command for overlap analysis.
 func newAnalyzeOverlapCmd() *cobra.Command {
 	var (
-		nodeAAddr    string
-		nodeBAddr    string
 		tables       string
 		outputJSON   bool
 		detailed     bool
@@ -26,7 +24,7 @@ func newAnalyzeOverlapCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "analyze-overlap",
+		Use:   "analyze-overlap <node-a-conn> <node-b-conn>",
 		Short: "Analyze data overlap between two nodes",
 		Long: `Analyze data overlap between two nodes for bidirectional merge planning.
 
@@ -41,14 +39,18 @@ primary keys and 8-byte hashes across the network instead of full rows.
 
 Examples:
   # Analyze specific tables
-  steep-repl analyze-overlap --node-a localhost:5432 --node-b remotehost:5432 --tables users,orders
+  steep-repl analyze-overlap localhost:5432 remotehost:5432 --tables users,orders
 
   # Output as JSON for scripting
-  steep-repl analyze-overlap --node-a localhost:5432 --node-b remotehost:5432 --tables users --json
+  steep-repl analyze-overlap localhost:5432 remotehost:5432 --tables users --json
 
   # Show detailed row-by-row analysis
-  steep-repl analyze-overlap --node-a localhost:5432 --node-b remotehost:5432 --tables users --detailed`,
+  steep-repl analyze-overlap localhost:5432 remotehost:5432 --tables users --detailed`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			nodeAAddr := args[0]
+			nodeBAddr := args[1]
+
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
@@ -184,15 +186,11 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&nodeAAddr, "node-a", "", "Node A connection string (local node)")
-	cmd.Flags().StringVar(&nodeBAddr, "node-b", "", "Node B connection string (remote node)")
 	cmd.Flags().StringVar(&tables, "tables", "", "Comma-separated list of tables to analyze")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Output results as JSON")
 	cmd.Flags().BoolVar(&detailed, "detailed", false, "Show detailed row-by-row analysis")
 	cmd.Flags().StringVar(&remoteServer, "remote-server", "node_b_fdw", "Name of postgres_fdw foreign server")
 
-	cmd.MarkFlagRequired("node-a")
-	cmd.MarkFlagRequired("node-b")
 	cmd.MarkFlagRequired("tables")
 
 	return cmd
@@ -201,8 +199,6 @@ Examples:
 // newMergeCmd creates the merge command group.
 func newMergeCmd() *cobra.Command {
 	var (
-		nodeAAddr    string
-		nodeBAddr    string
 		tables       string
 		strategy     string
 		dryRun       bool
@@ -210,7 +206,7 @@ func newMergeCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "merge",
+		Use:   "merge <node-a-conn> <node-b-conn>",
 		Short: "Bidirectional merge operations",
 		Long: `Perform bidirectional merge operations between two nodes.
 
@@ -231,14 +227,18 @@ Conflict Resolution Strategies:
 
 Examples:
   # Merge with prefer-node-a strategy
-  steep-repl merge --node-a localhost:5432 --node-b remotehost:5432 --tables users,orders --strategy prefer-node-a
+  steep-repl merge localhost:5432 remotehost:5432 --tables users,orders --strategy prefer-node-a
 
   # Dry run to preview changes
-  steep-repl merge --node-a localhost:5432 --node-b remotehost:5432 --tables users --dry-run
+  steep-repl merge localhost:5432 remotehost:5432 --tables users --dry-run
 
   # Generate manual conflict report
-  steep-repl merge --node-a localhost:5432 --node-b remotehost:5432 --tables users --strategy manual`,
+  steep-repl merge localhost:5432 remotehost:5432 --tables users --strategy manual`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			nodeAAddr := args[0]
+			nodeBAddr := args[1]
+
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			defer cancel()
 
@@ -431,15 +431,11 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&nodeAAddr, "node-a", "", "Node A connection string (local node)")
-	cmd.Flags().StringVar(&nodeBAddr, "node-b", "", "Node B connection string (remote node)")
 	cmd.Flags().StringVar(&tables, "tables", "", "Comma-separated list of tables to merge")
 	cmd.Flags().StringVar(&strategy, "strategy", "prefer-node-a", "Conflict resolution strategy")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without applying")
 	cmd.Flags().StringVar(&remoteServer, "remote-server", "node_b_fdw", "Name of postgres_fdw foreign server")
 
-	cmd.MarkFlagRequired("node-a")
-	cmd.MarkFlagRequired("node-b")
 	cmd.MarkFlagRequired("tables")
 
 	return cmd

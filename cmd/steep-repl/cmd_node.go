@@ -11,27 +11,30 @@ import (
 	replinit "github.com/willibrandon/steep/internal/repl/init"
 )
 
-// newInitCmd creates the init command group for node initialization.
-func newInitCmd() *cobra.Command {
+// newNodeCmd creates the node command group for node management.
+func newNodeCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Node initialization commands",
-		Long: `Initialize nodes for bidirectional replication.
+		Use:   "node",
+		Short: "Node management commands",
+		Long: `Manage nodes for bidirectional replication.
 
 Available subcommands:
-  steep-repl init <target> --from <source>    Start automatic snapshot initialization
-  steep-repl init prepare --node <node>       Prepare for manual initialization
-  steep-repl init complete --node <target>    Complete manual initialization
-  steep-repl init cancel --node <node>        Cancel in-progress initialization
+  steep-repl node start <target> --from <source>    Start automatic snapshot initialization
+  steep-repl node prepare <node>                    Prepare for manual initialization
+  steep-repl node complete <target>                 Complete manual initialization
+  steep-repl node cancel <node>                     Cancel in-progress initialization
+  steep-repl node progress <node>                   Check initialization progress
+  steep-repl node reinit <node>                     Reinitialize a node
+  steep-repl node merge <node-a> <node-b>           Merge two nodes with existing data
 
 Examples:
   # Automatic snapshot initialization (recommended for <100GB)
-  steep-repl init node-b --from node-a
+  steep-repl node start node-b --from node-a
 
   # Manual initialization for large databases
-  steep-repl init prepare --node node-a --slot init_slot_001
+  steep-repl node prepare node-a --slot init_slot_001
   # ... run pg_basebackup and restore on node-b ...
-  steep-repl init complete --node node-b --source node-a --lsn 0/1A234B00`,
+  steep-repl node complete node-b --source node-a --lsn 0/1A234B00`,
 	}
 
 	// Add subcommands
@@ -194,14 +197,13 @@ func runInitStartGRPC(targetNodeID, sourceNodeID, method string, parallelWorkers
 	}
 
 	fmt.Println("Initialization started successfully")
-	fmt.Printf("Monitor progress with: steep-repl init progress --node %s --remote %s --insecure\n", targetNodeID, remoteAddr)
+	fmt.Printf("Monitor progress with: steep-repl node progress %s --remote %s --insecure\n", targetNodeID, remoteAddr)
 	return nil
 }
 
 // newInitPrepareCmd creates the init prepare subcommand for manual initialization.
 func newInitPrepareCmd() *cobra.Command {
 	var (
-		nodeID     string
 		slotName   string
 		remoteAddr string
 		caFile     string
@@ -209,7 +211,7 @@ func newInitPrepareCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "prepare",
+		Use:   "prepare <node-id>",
 		Short: "Prepare for manual initialization",
 		Long: `Prepare for manual initialization by creating a replication slot and
 recording the LSN. This is step 1 of the manual initialization workflow.
@@ -219,14 +221,13 @@ This command should be run on the SOURCE node.
 After running this command:
 1. Use pg_basebackup or pg_dump to create a backup from the source
 2. Restore the backup on the target node
-3. Run 'steep-repl init complete' on the TARGET node to finish initialization
+3. Run 'steep-repl node complete' on the TARGET node to finish initialization
 
 Example:
-  steep-repl init prepare --node source-node --slot init_slot_001 --remote localhost:15460 --insecure`,
+  steep-repl node prepare source-node --slot init_slot_001 --remote localhost:15460 --insecure`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if nodeID == "" {
-				return fmt.Errorf("--node flag is required")
-			}
+			nodeID := args[0]
 			if slotName == "" {
 				slotName = fmt.Sprintf("steep_init_%s", replinit.SanitizeSlotName(nodeID))
 			}
@@ -239,12 +240,10 @@ Example:
 		},
 	}
 
-	cmd.Flags().StringVar(&nodeID, "node", "", "node ID to prepare (required)")
 	cmd.Flags().StringVar(&slotName, "slot", "", "replication slot name (default: steep_init_<node>)")
 	cmd.Flags().StringVar(&remoteAddr, "remote", "", "daemon gRPC address (host:port) - required")
 	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
-	_ = cmd.MarkFlagRequired("node")
 	_ = cmd.MarkFlagRequired("remote")
 
 	return cmd
@@ -297,7 +296,7 @@ func runInitPrepareGRPC(nodeID, slotName, remoteAddr, caFile string, insecure bo
 	fmt.Println("  2. Restore the backup on the target node")
 	fmt.Println()
 	fmt.Println("  3. Complete initialization on the target:")
-	fmt.Printf("     steep-repl init complete --node <target> --source %s --lsn %s \\\n", nodeID, resp.Lsn)
+	fmt.Printf("     steep-repl node complete <target> --source %s --lsn %s \\\n", nodeID, resp.Lsn)
 	fmt.Println("       --source-host <source-host> --source-port 5432 --remote <target-daemon> --insecure")
 
 	return nil
@@ -306,7 +305,6 @@ func runInitPrepareGRPC(nodeID, slotName, remoteAddr, caFile string, insecure bo
 // newInitCompleteCmd creates the init complete subcommand for manual initialization.
 func newInitCompleteCmd() *cobra.Command {
 	var (
-		targetNodeID    string
 		sourceNodeID    string
 		sourceLSN       string
 		schemaSync      string
@@ -323,7 +321,7 @@ func newInitCompleteCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "complete",
+		Use:   "complete <target-node-id>",
 		Short: "Complete manual initialization",
 		Long: `Complete manual initialization after restoring a backup.
 This is step 2 of the manual initialization workflow.
@@ -331,7 +329,7 @@ This is step 2 of the manual initialization workflow.
 This command should be run on the TARGET node.
 
 Before running this command:
-1. Run 'steep-repl init prepare' on the source node
+1. Run 'steep-repl node prepare' on the source node
 2. Use pg_basebackup or pg_dump to create a backup
 3. Restore the backup on the target node
 
@@ -339,13 +337,12 @@ This command will verify the schema matches and create the subscription
 to start replication from the recorded LSN.
 
 Example:
-  steep-repl init complete --node target-node --source source-node --lsn 0/1A234B00 \
+  steep-repl node complete target-node --source source-node --lsn 0/1A234B00 \
     --source-host pg-source --source-port 5432 --source-database testdb --source-user test \
     --remote localhost:15461 --insecure`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if targetNodeID == "" {
-				return fmt.Errorf("--node flag is required")
-			}
+			targetNodeID := args[0]
 			if sourceNodeID == "" {
 				return fmt.Errorf("--source flag is required")
 			}
@@ -370,7 +367,6 @@ Example:
 		},
 	}
 
-	cmd.Flags().StringVar(&targetNodeID, "node", "", "target node ID (required)")
 	cmd.Flags().StringVar(&sourceNodeID, "source", "", "source node ID (required)")
 	cmd.Flags().StringVar(&sourceLSN, "lsn", "", "source LSN from prepare step (auto-detected if not specified)")
 	cmd.Flags().StringVar(&schemaSync, "schema-sync", "strict", "schema sync mode: strict, auto, manual")
@@ -383,7 +379,6 @@ Example:
 	cmd.Flags().StringVar(&remoteAddr, "remote", "", "daemon gRPC address (host:port) - required")
 	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
-	_ = cmd.MarkFlagRequired("node")
 	_ = cmd.MarkFlagRequired("source")
 	_ = cmd.MarkFlagRequired("source-host")
 	_ = cmd.MarkFlagRequired("remote")
@@ -452,7 +447,7 @@ func runInitCompleteGRPC(targetNodeID, sourceNodeID, sourceLSN, schemaSync strin
 	fmt.Println()
 	fmt.Println("The node is now catching up with WAL changes from the source.")
 	fmt.Println("Monitor progress with:")
-	fmt.Printf("  steep-repl init progress --node %s --remote %s --insecure\n", targetNodeID, remoteAddr)
+	fmt.Printf("  steep-repl node progress %s --remote %s --insecure\n", targetNodeID, remoteAddr)
 
 	return nil
 }
@@ -460,37 +455,35 @@ func runInitCompleteGRPC(targetNodeID, sourceNodeID, sourceLSN, schemaSync strin
 // newInitCancelCmd creates the init cancel subcommand.
 func newInitCancelCmd() *cobra.Command {
 	var (
-		nodeID     string
 		remoteAddr string
 		caFile     string
 		insecure   bool
 	)
 
 	cmd := &cobra.Command{
-		Use:   "cancel",
+		Use:   "cancel <node-id>",
 		Short: "Cancel in-progress initialization",
 		Long: `Cancel an in-progress initialization. This will:
 - Drop any partial subscriptions
 - Clean up partial data on the target node
 - Reset the node state to UNINITIALIZED
 
-Use this if initialization is taking too long or has stalled.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if nodeID == "" {
-				return fmt.Errorf("--node flag is required")
-			}
+Use this if initialization is taking too long or has stalled.
 
+Example:
+  steep-repl node cancel target-node --remote localhost:15461 --insecure`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			nodeID := args[0]
 			fmt.Printf("Cancelling initialization for node %s...\n", nodeID)
 
 			return runInitCancelGRPC(nodeID, remoteAddr, caFile, insecure)
 		},
 	}
 
-	cmd.Flags().StringVar(&nodeID, "node", "", "node ID to cancel initialization for (required)")
 	cmd.Flags().StringVar(&remoteAddr, "remote", "", "daemon gRPC address (host:port) - required")
 	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
-	_ = cmd.MarkFlagRequired("node")
 	_ = cmd.MarkFlagRequired("remote")
 
 	return cmd
@@ -533,33 +526,31 @@ func runInitCancelGRPC(nodeID, remoteAddr, caFile string, insecure bool) error {
 // newInitProgressCmd creates the init progress subcommand to check initialization progress.
 func newInitProgressCmd() *cobra.Command {
 	var (
-		nodeID     string
 		remoteAddr string
 		caFile     string
 		insecure   bool
 	)
 
 	cmd := &cobra.Command{
-		Use:   "progress",
+		Use:   "progress <node-id>",
 		Short: "Check initialization progress",
 		Long: `Check the current initialization progress for a node.
 
 Shows the current state, phase, progress percentage, and other details
-about an ongoing or completed initialization.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if nodeID == "" {
-				return fmt.Errorf("--node flag is required")
-			}
+about an ongoing or completed initialization.
 
+Example:
+  steep-repl node progress target-node --remote localhost:15461 --insecure`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			nodeID := args[0]
 			return runInitProgressGRPC(nodeID, remoteAddr, caFile, insecure)
 		},
 	}
 
-	cmd.Flags().StringVar(&nodeID, "node", "", "node ID to check progress for (required)")
 	cmd.Flags().StringVar(&remoteAddr, "remote", "", "daemon gRPC address (host:port) - required")
 	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
-	_ = cmd.MarkFlagRequired("node")
 	_ = cmd.MarkFlagRequired("remote")
 
 	return cmd
@@ -630,7 +621,6 @@ func runInitProgressGRPC(nodeID, remoteAddr, caFile string, insecure bool) error
 // newInitReinitCmd creates the init reinit subcommand to reinitialize a node.
 func newInitReinitCmd() *cobra.Command {
 	var (
-		nodeID     string
 		full       bool
 		tables     []string
 		schema     string
@@ -640,7 +630,7 @@ func newInitReinitCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "reinit",
+		Use:   "reinit <node-id>",
 		Short: "Reinitialize a node",
 		Long: `Reinitialize a node that is already synchronized or has diverged.
 
@@ -649,17 +639,16 @@ You can reinitialize the full node, specific tables, or an entire schema.
 
 Examples:
   # Full reinit
-  steep-repl init reinit --node target-node --full --remote localhost:15461 --insecure
+  steep-repl node reinit target-node --full --remote localhost:15461 --insecure
 
   # Reinit specific tables
-  steep-repl init reinit --node target-node --tables public.users,public.orders --remote localhost:15461 --insecure
+  steep-repl node reinit target-node --tables public.users,public.orders --remote localhost:15461 --insecure
 
   # Reinit entire schema
-  steep-repl init reinit --node target-node --schema public --remote localhost:15461 --insecure`,
+  steep-repl node reinit target-node --schema public --remote localhost:15461 --insecure`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if nodeID == "" {
-				return fmt.Errorf("--node flag is required")
-			}
+			nodeID := args[0]
 
 			// Validate scope - exactly one must be specified
 			scopeCount := 0
@@ -685,14 +674,12 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&nodeID, "node", "", "node ID to reinitialize (required)")
 	cmd.Flags().BoolVar(&full, "full", false, "full node reinitialization")
 	cmd.Flags().StringSliceVar(&tables, "tables", nil, "specific tables to reinitialize (comma-separated, format: schema.table)")
 	cmd.Flags().StringVar(&schema, "schema", "", "entire schema to reinitialize")
 	cmd.Flags().StringVar(&remoteAddr, "remote", "", "daemon gRPC address (host:port) - required")
 	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
-	_ = cmd.MarkFlagRequired("node")
 	_ = cmd.MarkFlagRequired("remote")
 
 	return cmd
@@ -745,10 +732,10 @@ func runInitReinitGRPC(nodeID string, full bool, tables []string, schema, remote
 		fmt.Printf("Tables affected: %d\n", resp.TablesAffected)
 	}
 
-	// Only suggest init start for full reinit (state = UNINITIALIZED)
+	// Only suggest node start for full reinit (state = UNINITIALIZED)
 	// Partial reinit handles re-copying automatically
 	if resp.State == pb.InitState_INIT_STATE_UNINITIALIZED {
-		fmt.Printf("Now run 'init start' to begin initialization again.\n")
+		fmt.Printf("Now run 'node start' to begin initialization again.\n")
 	}
 	return nil
 }
@@ -756,8 +743,6 @@ func runInitReinitGRPC(nodeID string, full bool, tables []string, schema, remote
 // newInitMergeCmd creates the init merge subcommand for bidirectional merge initialization.
 func newInitMergeCmd() *cobra.Command {
 	var (
-		nodeAID          string
-		nodeBID          string
 		nodeBConnStr     string
 		tables           []string
 		strategy         string
@@ -770,7 +755,7 @@ func newInitMergeCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "merge",
+		Use:   "merge <node-a> <node-b>",
 		Short: "Merge existing data and set up bidirectional replication",
 		Long: `Merge existing data on two nodes and set up bidirectional replication.
 
@@ -791,25 +776,22 @@ Conflict resolution strategies:
 
 Examples:
   # Merge public.users and public.orders tables
-  steep-repl init merge --node-a node-1 --node-b node-2 \
+  steep-repl node merge node-1 node-2 \
     --node-b-connstr "host=pg2 port=5432 dbname=app user=repl" \
     --tables public.users,public.orders \
     --strategy prefer-node-a \
     --remote localhost:15460 --insecure
 
   # Dry-run to preview changes
-  steep-repl init merge --node-a node-1 --node-b node-2 \
+  steep-repl node merge node-1 node-2 \
     --node-b-connstr "host=pg2 port=5432 dbname=app user=repl" \
     --tables public.users \
     --dry-run \
     --remote localhost:15460 --insecure`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if nodeAID == "" {
-				return fmt.Errorf("--node-a flag is required")
-			}
-			if nodeBID == "" {
-				return fmt.Errorf("--node-b flag is required")
-			}
+			nodeAID := args[0]
+			nodeBID := args[1]
 			if nodeBConnStr == "" {
 				return fmt.Errorf("--node-b-connstr flag is required")
 			}
@@ -828,12 +810,8 @@ Examples:
 	}
 
 	// Required flags
-	cmd.Flags().StringVar(&nodeAID, "node-a", "", "local node ID (required)")
-	cmd.Flags().StringVar(&nodeBID, "node-b", "", "remote node ID (required)")
 	cmd.Flags().StringVar(&nodeBConnStr, "node-b-connstr", "", "connection string for remote node (required)")
 	cmd.Flags().StringSliceVar(&tables, "tables", nil, "tables to merge (comma-separated, format: schema.table)")
-	_ = cmd.MarkFlagRequired("node-a")
-	_ = cmd.MarkFlagRequired("node-b")
 	_ = cmd.MarkFlagRequired("node-b-connstr")
 	_ = cmd.MarkFlagRequired("tables")
 

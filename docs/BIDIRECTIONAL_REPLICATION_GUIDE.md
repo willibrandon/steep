@@ -349,14 +349,14 @@ replication:
 **Manual Initialization** - Section 6.3:
 ```bash
 # Step 1: Prepare on source
-steep-repl init prepare --node node_a --slot steep_init_slot
+steep-repl node prepare node_a --slot steep_init_slot
 
 # Step 2: User performs backup/restore (their tooling)
 pg_basebackup -D /backup -S steep_init_slot ...
 # ... restore on target ...
 
 # Step 3: Complete initialization
-steep-repl init complete --node node_b \
+steep-repl node complete node_b \
     --source node_a \
     --source-lsn 0/1234ABCD
 ```
@@ -364,13 +364,13 @@ steep-repl init complete --node node_b \
 **Reinitialization** - Section 6.4:
 ```bash
 # Reinitialize specific tables
-steep-repl reinit --node node_b --tables orders,line_items
+steep-repl node reinit node_b --tables orders,line_items
 
 # Reinitialize entire schema
-steep-repl reinit --node node_b --schema sales
+steep-repl node reinit node_b --schema sales
 
 # Full reinitialization
-steep-repl reinit --node node_b --full
+steep-repl node reinit node_b --full
 ```
 
 **Schema Fingerprinting** - Section 17.4:
@@ -448,8 +448,8 @@ UNINITIALIZED → PREPARING → COPYING → CATCHING_UP → SYNCHRONIZED
 
 #### Acceptance Criteria
 
-- [ ] `steep-repl init node_b --from node_a --method snapshot` works
-- [ ] `steep-repl init prepare/complete` workflow for manual init
+- [ ] `steep-repl node start node_b --from node_a --method snapshot` works
+- [ ] `steep-repl node prepare/complete` workflow for manual init
 - [ ] Progress tracking with % complete, rows/sec, ETA
 - [ ] `steep-repl reinit --tables` for partial reinitialization
 - [ ] Schema fingerprint comparison across nodes

@@ -22,11 +22,11 @@ As a DBA, I want to initialize a new node from an existing node using automatic 
 
 **Why this priority**: This is the primary, most common initialization method. Most users will use this for databases under 100GB. It provides the fastest path to a working replication setup.
 
-**Independent Test**: Can be fully tested by running `steep-repl init node_b --from node_a --method snapshot` and verifying data appears on the target node with subscription active.
+**Independent Test**: Can be fully tested by running `steep-repl node start node_b --from node_a --method snapshot` and verifying data appears on the target node with subscription active.
 
 **Acceptance Scenarios**:
 
-1. **Given** a registered source node (node_a) with data, **When** I run `steep-repl init node_b --from node_a --method snapshot`, **Then** the target node receives a copy of all data and a subscription is created starting from the snapshot LSN.
+1. **Given** a registered source node (node_a) with data, **When** I run `steep-repl node start node_b --from node_a --method snapshot`, **Then** the target node receives a copy of all data and a subscription is created starting from the snapshot LSN.
 
 2. **Given** an initialization in progress, **When** I view the Steep TUI, **Then** I see real-time progress including overall percentage, current table, rows/sec throughput, and ETA.
 
@@ -46,9 +46,9 @@ As a DBA, I want to initialize a node from my own pg_dump/pg_basebackup for larg
 
 **Acceptance Scenarios**:
 
-1. **Given** a source node (node_a), **When** I run `steep-repl init prepare --node node_a --slot steep_init_slot`, **Then** a replication slot is created and the current LSN is recorded for later use.
+1. **Given** a source node (node_a), **When** I run `steep-repl node prepare node_a --slot steep_init_slot`, **Then** a replication slot is created and the current LSN is recorded for later use.
 
-2. **Given** I have restored my backup to the target node, **When** I run `steep-repl init complete --node node_b --source node_a --source-lsn 0/1234ABCD`, **Then** the system verifies schema, installs steep_repl metadata, creates the subscription, and applies WAL changes since the backup.
+2. **Given** I have restored my backup to the target node, **When** I run `steep-repl node complete node_b --source node_a --source-lsn 0/1234ABCD`, **Then** the system verifies schema, installs steep_repl metadata, creates the subscription, and applies WAL changes since the backup.
 
 3. **Given** a manual initialization in progress, **When** the schema on target doesn't match source, **Then** the system reports the mismatch and follows the configured schema_sync mode (strict: fail, auto: apply DDL, manual: warn).
 
@@ -80,15 +80,15 @@ As a DBA, I want to reinitialize specific tables when they diverge without full 
 
 **Why this priority**: Full reinitialization can take hours for large databases. Partial reinit allows surgical recovery, keeping most replication active.
 
-**Independent Test**: Can be tested by corrupting data in a single table, running `steep-repl reinit --node node_b --tables orders`, and verifying only that table is resynchronized.
+**Independent Test**: Can be tested by corrupting data in a single table, running `steep-repl node reinit node_b --tables orders`, and verifying only that table is resynchronized.
 
 **Acceptance Scenarios**:
 
-1. **Given** a diverged table (orders), **When** I run `steep-repl reinit --node node_b --tables orders,line_items`, **Then** only those tables are truncated and recopied while other tables continue normal replication.
+1. **Given** a diverged table (orders), **When** I run `steep-repl node reinit node_b --tables orders,line_items`, **Then** only those tables are truncated and recopied while other tables continue normal replication.
 
-2. **Given** all tables in a schema need reinit, **When** I run `steep-repl reinit --node node_b --schema sales`, **Then** all tables in that schema are reinitialized together.
+2. **Given** all tables in a schema need reinit, **When** I run `steep-repl node reinit node_b --schema sales`, **Then** all tables in that schema are reinitialized together.
 
-3. **Given** a full reinit is needed, **When** I run `steep-repl reinit --node node_b --full`, **Then** the node is completely reinitialized from scratch.
+3. **Given** a full reinit is needed, **When** I run `steep-repl node reinit node_b --full`, **Then** the node is completely reinitialized from scratch.
 
 4. **Given** a partial reinit in progress, **When** viewing the TUI, **Then** I see which tables are being reinitialized and which continue normal operation.
 
@@ -142,7 +142,7 @@ As a DBA, I want to set up bidirectional replication between nodes that both alr
 
 **Acceptance Scenarios**:
 
-1. **Given** two nodes with existing data, **When** I run `steep-repl init --mode=bidirectional-merge`, **Then** writes are quiesced on both nodes.
+1. **Given** two nodes with existing data, **When** I run `steep-repl node merge --mode=bidirectional-merge`, **Then** writes are quiesced on both nodes.
 
 2. **Given** quiesced nodes, **When** overlap analysis runs, **Then** I see counts of matching rows, conflicting rows, and unique rows per table.
 

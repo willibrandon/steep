@@ -773,7 +773,7 @@ psql -c "CREATE EXTENSION steep_repl;"
 | `steep-repl restart` | Restart the service |
 | `steep-repl status [--json]` | Show service status and health |
 | `steep-repl run [--debug]` | Run in foreground (for debugging) |
-| `steep-repl init-tls` | Generate mTLS certificates for secure node communication |
+| `steep-repl tls init` | Generate mTLS certificates for secure node communication |
 | `steep-repl health HOST:PORT` | Check health of a remote node via gRPC |
 
 ### Configuration
@@ -798,7 +798,7 @@ repl:
   # gRPC server for node-to-node communication
   grpc:
     port: 5433
-    # Optional TLS configuration (use init-tls to generate certs)
+    # Optional TLS configuration (use 'tls init' to generate certs)
     # tls:
     #   cert_file: /path/to/server.crt
     #   key_file: /path/to/server.key

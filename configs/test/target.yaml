@@ -1,6 +1,6 @@
 repl:
   enabled: true
-  node_id: "2"
+  node_id: "target-node"
   node_name: "Target Node"
 
   postgresql:
@@ -19,6 +19,5 @@ repl:
 
   http:
     enabled: false
-    port: 8080
 
 debug: true

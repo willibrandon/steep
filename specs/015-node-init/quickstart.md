@@ -20,7 +20,7 @@ Best for databases under 100GB.
 
 ```bash
 # Initialize node_b from node_a
-steep-repl init node_b --from node_a
+steep-repl node start node_b --from node_a
 
 # Monitor progress in TUI
 steep --view replication
@@ -42,7 +42,7 @@ Best for databases over 100GB where you control backup timing.
 ### Step 1: Prepare on Source
 
 ```bash
-steep-repl init prepare --node node_a --slot steep_init_slot
+steep-repl node prepare node_a --slot steep_init_slot
 
 # Output:
 #   Slot: steep_init_slot
@@ -70,8 +70,7 @@ pg_restore -h node_b_host -d mydb -j 4 /backup
 ### Step 4: Complete Initialization
 
 ```bash
-steep-repl init complete \
-    --node node_b \
+steep-repl node complete node_b \
     --source node_a \
     --source-lsn 0/1A234B00
 ```
@@ -128,10 +127,10 @@ When specific tables have diverged but the rest of the node is healthy.
 
 ```bash
 # Reinitialize specific tables
-steep-repl reinit --node node_b --tables public.orders,public.line_items
+steep-repl node reinit node_b --tables public.orders,public.line_items
 
 # Or reinitialize entire schema
-steep-repl reinit --node node_b --schema sales
+steep-repl node reinit node_b --schema sales
 ```
 
 **What happens:**
@@ -152,7 +151,7 @@ steep-repl analyze-overlap --tables orders,customers
 # Output shows conflicts that need resolution
 
 # Resolve and enable replication
-steep-repl init --mode=bidirectional-merge \
+steep-repl node merge --mode=bidirectional-merge \
     --strategy prefer-node-a  # or: prefer-node-b, last-modified, manual
 ```
 
@@ -162,7 +161,7 @@ steep-repl init --mode=bidirectional-merge \
 
 ```bash
 # Watch progress
-steep-repl init node_b --from node_a
+steep-repl node start node_b --from node_a
 # Shows real-time progress bar
 
 # Or check status separately
@@ -208,7 +207,7 @@ steep-repl schema diff node_a node_b public.customers
 
 ```bash
 # Use auto mode to fix mismatches
-steep-repl init node_b --from node_a --schema-sync auto
+steep-repl node start node_b --from node_a --schema-sync auto
 ```
 
 ## Troubleshooting
@@ -223,8 +222,8 @@ steep-repl status --node node_b
 steep-repl logs --node node_b --tail 100
 
 # Cancel and retry
-steep-repl init cancel --node node_b
-steep-repl init node_b --from node_a
+steep-repl node cancel node_b
+steep-repl node start node_b --from node_a
 ```
 
 ### Schema Mismatch in Strict Mode
@@ -234,7 +233,7 @@ steep-repl init node_b --from node_a
 steep-repl schema diff node_a node_b public.orders
 
 # Fix manually or use auto mode
-steep-repl init node_b --from node_a --schema-sync auto
+steep-repl node start node_b --from node_a --schema-sync auto
 ```
 
 ### Partial Failure
@@ -249,10 +248,10 @@ steep-repl status --node node_b
 steep-repl logs --node node_b --level error
 
 # Retry from where it left off (if resumable)
-steep-repl init node_b --from node_a --resume
+steep-repl node start node_b --from node_a --resume
 
 # Or restart completely
-steep-repl init node_b --from node_a --force
+steep-repl node start node_b --from node_a --force
 ```
 
 ## Configuration
