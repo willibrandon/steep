@@ -20,13 +20,44 @@ Move all business logic into the PostgreSQL extension. When PostgreSQL is up, st
 
 ## Prerequisites
 
-**Superuser Required**: steep_repl requires PostgreSQL superuser privileges. This is non-negotiable because:
-- `COPY TO PROGRAM` and `COPY TO` with arbitrary paths require superuser
-- Creating logical replication slots requires replication privilege or superuser
-- Background workers require `shared_preload_libraries` configuration
-- Cross-node operations via dblink/postgres_fdw require appropriate permissions
+### Privilege Requirements (Graduated, Not Blanket Superuser)
 
-Users who cannot grant superuser access cannot use steep_repl. This is acceptable for a DBA-focused replication tool.
+steep_repl operations have graduated privilege requirements. **Superuser is NOT required for most operations.**
+
+| Operation | Minimum Privilege Required |
+|-----------|---------------------------|
+| Schema fingerprinting | SELECT on information_schema |
+| Node registration/heartbeat | INSERT/UPDATE on steep_repl.nodes |
+| Snapshot export (COPY TO STDOUT) | SELECT on tables being exported |
+| Snapshot import (COPY FROM STDIN) | INSERT on tables being imported |
+| Replication slot creation | REPLICATION role attribute |
+| Replication origin functions | Superuser (or explicit GRANT) |
+| dblink/postgres_fdw operations | USAGE on extension + connection perms |
+| Background worker operations | Extension in shared_preload_libraries |
+
+**Key insight**: We use `COPY TO STDOUT` / `COPY FROM STDIN`, not `COPY TO '/file'`. The CLI handles file I/O client-side, so server-side file access permissions (pg_read_server_files, pg_write_server_files) are not needed.
+
+### Recommended Role Setup
+
+For most steep_repl operations, create a dedicated role:
+
+```sql
+-- Create steep_repl role with REPLICATION attribute
+CREATE ROLE steep_repl WITH LOGIN REPLICATION PASSWORD 'secure_password';
+
+-- Grant permissions on steep_repl schema
+GRANT USAGE ON SCHEMA steep_repl TO steep_repl;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA steep_repl TO steep_repl;
+
+-- Grant permissions on user tables (for snapshot export/import)
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO steep_repl;  -- for export
+GRANT INSERT ON ALL TABLES IN SCHEMA public TO steep_repl;  -- for import
+
+-- Grant extension usage for cross-node operations
+GRANT USAGE ON FOREIGN DATA WRAPPER postgres_fdw TO steep_repl;
+```
+
+Only replication origin functions require superuser by default, but these can be GRANTed to the steep_repl role if needed.
 
 ## Architecture
 
