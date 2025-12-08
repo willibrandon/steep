@@ -366,6 +366,8 @@ NEVER blame "old extension schema", "stale database", or suggest dropping/recrea
 - Docker (ghcr.io/willibrandon/pg18-steep-repl for integration tests) (014-repl-foundation)
 - Go 1.25.4 (per go.mod), Rust + pgrx 0.16.1 (PostgreSQL extension) + pgx/pgxpool (database), bubbletea/bubbles/lipgloss (TUI), grpc-go/protobuf (daemon communication), viper (config) (015-node-init)
 - PostgreSQL 18 (steep_repl schema - nodes, coordinator_state, audit_log + new tables), YAML config (015-node-init)
+- Rust (pgrx 0.16.1) for extension, Go 1.25.4 for CLI + pgrx (background workers, shared memory, SPI), pgx/v5 (CLI database access) (016-extension-native)
+- PostgreSQL 18+ (steep_repl schema tables, shared memory for progress) (016-extension-native)
 
 ## Recent Changes
 - 014-repl-foundation: steep-repl replication daemon with gRPC and IPC interfaces
