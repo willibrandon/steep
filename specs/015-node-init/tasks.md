@@ -275,11 +275,11 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 
 ### Implementation for User Story 8
 
-- [x] T074 [US8] Add parallel_workers config in internal/repl/config/config.go (default 4, range 1-16)
-- [x] T075 [US8] Implement parallel table copying in internal/repl/init/snapshot.go (worker pool pattern)
-- [x] T076 [US8] Add PG18 parallel COPY support detection in internal/repl/init/snapshot.go (use streaming=parallel)
-- [x] T077 [US8] Add --parallel flag to snapshot and init CLI commands in cmd/steep-repl/main.go
-- [x] T078 [US8] Show parallel worker count in progress display in internal/ui/components/progress.go
+- [ ] T074 [US8] Add parallel_workers config in internal/repl/config/config.go (default 4, range 1-16)
+- [ ] T075 [US8] Implement parallel table copying in internal/repl/init/snapshot.go (worker pool pattern)
+- [ ] T076 [US8] Add PG18 parallel COPY support detection in internal/repl/init/snapshot.go (use streaming=parallel)
+- [ ] T077 [US8] Add --parallel flag to snapshot and init CLI commands in cmd/steep-repl/main.go
+- [ ] T078 [US8] Show parallel worker count in progress display in internal/ui/components/progress.go
 
 **Checkpoint**: Parallel workers accelerate snapshot operations
 
@@ -330,7 +330,7 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 
 **Purpose**: Enable real-time visibility into snapshot generation and application progress
 
-- [X] T087a Create SnapshotProgress struct in internal/repl/models/snapshot_progress.go with fields:
+- [ ] T087a Create SnapshotProgress struct in internal/repl/models/snapshot_progress.go with fields:
   - Phase (generation/application), OverallPercent, CurrentStep (schema/tables/sequences/checksums)
   - TablesTotal, TablesCompleted, CurrentTable, CurrentTableBytes, CurrentTableTotalBytes
   - BytesWritten, BytesTotal, RowsWritten, RowsTotal
@@ -349,21 +349,21 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
   - Track checksum verification as separate sub-phase
   - Calculate ETA based on remaining bytes and current throughput
 
-- [X] T087e Add StreamSnapshotProgress RPC handler in internal/repl/grpc/handlers.go (poll snapshot_progress table, stream to clients)
+- [ ] T087e Add StreamSnapshotProgress RPC handler in internal/repl/grpc/handlers.go (poll snapshot_progress table, stream to clients)
 
-- [X] T087f Add GetSnapshotProgress RPC handler in internal/repl/grpc/handlers.go (single point-in-time query)
+- [ ] T087f Add GetSnapshotProgress RPC handler in internal/repl/grpc/handlers.go (single point-in-time query)
 
 ### TUI Progress Components
 
 **Purpose**: Rich visual feedback for DBAs monitoring snapshots in Steep TUI
 
-- [X] T087g Extend InitProgressData struct in internal/ui/components/init_progress.go to support two-phase snapshot fields:
+- [ ] T087g Extend InitProgressData struct in internal/ui/components/init_progress.go to support two-phase snapshot fields:
   - Phase (generation/application), CurrentStep, CompressionRatio
   - ChecksumsVerified, ChecksumsFailed, ChecksumStatus
 
-- [X] T087h Add animated progress bar to progress.go using bubbles/progress (gradient from orange → green as progress increases)
+- [ ] T087h Add animated progress bar to progress.go using bubbles/progress (gradient from orange → green as progress increases)
 
-- [X] T087i Add spinner integration to progress.go using bubbles/spinner (Dot style for active phases, hidden when idle)
+- [ ] T087i Add spinner integration to progress.go using bubbles/spinner (Dot style for active phases, hidden when idle)
 
 - [ ] T087j Create SnapshotProgressOverlay component in internal/ui/components/snapshot_progress.go:
   - Two-section layout: Generation Stats | Application Stats
