@@ -253,15 +253,15 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 
 ### Implementation for User Story 7
 
-- [x] T068 [US7] Implement overlap analysis in internal/repl/init/merge.go (uses extension's compare_tables, processes hash results)
-- [x] T069 [US7] Add analyze-overlap CLI command in cmd/steep-repl/main.go (`steep-repl analyze-overlap <node-a-conn> <node-b-conn> --tables X,Y`)
-- [x] T070 [US7] Implement conflict resolution strategies in internal/repl/init/merge.go (prefer-node-a, prefer-node-b, last-modified, manual)
-- [x] T071 [US7] Add bidirectional-merge init mode in internal/repl/init/manager.go (quiesce, analyze, resolve, transfer, enable replication with origin=none)
-- [x] T072 [US7] Add --mode=bidirectional-merge to init CLI in cmd/steep-repl/main.go
-- [x] T073 [US7] Add --strategy flag for conflict resolution in cmd/steep-repl/main.go
-- [x] T073a [US7] Add --dry-run flag to bidirectional merge in cmd/steep-repl/main.go (preview without changes)
-- [x] T073b [US7] Implement FK ordering (topological sort) in internal/repl/init/merge.go (merge parents before children)
-- [x] T073c [US7] Implement data transfer using COPY protocol in internal/repl/init/merge.go (bulk transfer for performance)
+- [ ] T068 [US7] Implement overlap analysis in internal/repl/init/merge.go (uses extension's compare_tables, processes hash results)
+- [ ] T069 [US7] Add analyze-overlap CLI command in cmd/steep-repl/main.go (`steep-repl analyze-overlap <node-a-conn> <node-b-conn> --tables X,Y`)
+- [ ] T070 [US7] Implement conflict resolution strategies in internal/repl/init/merge.go (prefer-node-a, prefer-node-b, last-modified, manual)
+- [ ] T071 [US7] Add bidirectional-merge init mode in internal/repl/init/manager.go (quiesce, analyze, resolve, transfer, enable replication with origin=none)
+- [ ] T072 [US7] Add --mode=bidirectional-merge to init CLI in cmd/steep-repl/main.go
+- [ ] T073 [US7] Add --strategy flag for conflict resolution in cmd/steep-repl/main.go
+- [ ] T073a [US7] Add --dry-run flag to bidirectional merge in cmd/steep-repl/main.go (preview without changes)
+- [ ] T073b [US7] Implement FK ordering (topological sort) in internal/repl/init/merge.go (merge parents before children)
+- [ ] T073c [US7] Implement data transfer using COPY protocol in internal/repl/init/merge.go (bulk transfer for performance)
 
 **Checkpoint**: Bidirectional merge reconciles existing data with conflict resolution, full audit trail, and PG18 native replication
 
