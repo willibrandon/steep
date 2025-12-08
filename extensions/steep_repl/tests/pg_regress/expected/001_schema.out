@@ -21,7 +21,7 @@ ORDER BY tablename;
  nodes
  schema_fingerprints
  snapshots
-(9 rows)
+(8 rows)
 
 -- Check nodes table columns
 SELECT column_name, data_type, is_nullable
