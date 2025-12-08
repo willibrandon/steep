@@ -6,6 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/progress"
+	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/willibrandon/steep/internal/ui/styles"
@@ -31,19 +34,97 @@ type InitProgressData struct {
 	ParallelWorkers     int
 	ErrorMessage        string
 	SourceNode          string
+
+	// Two-phase snapshot fields (T087g)
+	CurrentStep       string  // Current step: schema, tables, sequences, checksums
+	CompressionRatio  float64 // Compression ratio (e.g., 0.35 means 35% of original size)
+	ChecksumsVerified int     // Number of checksums verified (application phase)
+	ChecksumsFailed   int     // Number of checksum failures (application phase)
+	ChecksumStatus    string  // Checksum verification status: verifying, passed, failed
 }
 
 // InitProgressOverlay renders a detailed progress overlay for node initialization.
+// It integrates bubbles/progress for animated progress bars and bubbles/spinner
+// for activity indication during active phases (T087h, T087i).
 type InitProgressOverlay struct {
 	width    int
 	height   int
 	visible  bool
 	progress *InitProgressData
+
+	// Animated progress bar (T087h) - gradient from orange → green as progress increases
+	overallProgress progress.Model
+	tableProgress   progress.Model
+
+	// Spinner (T087i) - Dot style for active phases, hidden when idle
+	spinner spinner.Model
 }
 
 // NewInitProgressOverlay creates a new initialization progress overlay.
 func NewInitProgressOverlay() *InitProgressOverlay {
-	return &InitProgressOverlay{}
+	// Create animated progress bar with orange → green gradient (T087h)
+	overallProg := progress.New(
+		progress.WithScaledGradient("#FF8C00", "#00FF00"), // Orange to Green gradient
+		progress.WithWidth(40),
+		progress.WithoutPercentage(), // We render percentage separately
+	)
+
+	tableProg := progress.New(
+		progress.WithScaledGradient("#FF8C00", "#00FF00"), // Orange to Green gradient
+		progress.WithWidth(40),
+		progress.WithoutPercentage(),
+	)
+
+	// Create spinner with Dot style (T087i)
+	s := spinner.New(
+		spinner.WithSpinner(spinner.Dot),
+		spinner.WithStyle(lipgloss.NewStyle().Foreground(styles.ColorAccent)),
+	)
+
+	return &InitProgressOverlay{
+		overallProgress: overallProg,
+		tableProgress:   tableProg,
+		spinner:         s,
+	}
+}
+
+// Init initializes the overlay's animated components.
+// Call this to get the initial command for the spinner animation.
+func (p *InitProgressOverlay) Init() tea.Cmd {
+	return p.spinner.Tick
+}
+
+// Update handles messages for the animated components (spinner and progress bar).
+// This should be called from the parent model's Update function.
+func (p *InitProgressOverlay) Update(msg tea.Msg) (*InitProgressOverlay, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	// Only process spinner ticks when visible and actively initializing
+	if p.visible && p.progress != nil && isActiveState(p.progress.State) {
+		switch msg := msg.(type) {
+		case spinner.TickMsg:
+			var cmd tea.Cmd
+			p.spinner, cmd = p.spinner.Update(msg)
+			cmds = append(cmds, cmd)
+
+		case progress.FrameMsg:
+			// Handle progress bar animation frames
+			var cmd tea.Cmd
+			overallModel, cmd := p.overallProgress.Update(msg)
+			p.overallProgress = overallModel.(progress.Model)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+
+			tableModel, cmd := p.tableProgress.Update(msg)
+			p.tableProgress = tableModel.(progress.Model)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+	}
+
+	return p, tea.Batch(cmds...)
 }
 
 // SetSize sets the overlay dimensions.
@@ -53,9 +134,23 @@ func (p *InitProgressOverlay) SetSize(width, height int) {
 }
 
 // Show displays the overlay with the given progress data.
-func (p *InitProgressOverlay) Show(progress *InitProgressData) {
+// Returns a command to start animations if the state is active.
+func (p *InitProgressOverlay) Show(progress *InitProgressData) tea.Cmd {
 	p.progress = progress
 	p.visible = true
+
+	// Start animations for active states
+	if isActiveState(progress.State) {
+		// Set progress bar values and trigger animation
+		overallCmd := p.overallProgress.SetPercent(progress.OverallPercent / 100.0)
+		tableCmd := p.tableProgress.SetPercent(progress.CurrentTablePercent / 100.0)
+		return tea.Batch(p.spinner.Tick, overallCmd, tableCmd)
+	}
+
+	// For non-active states, just update progress bars without animation
+	p.overallProgress.SetPercent(progress.OverallPercent / 100.0)
+	p.tableProgress.SetPercent(progress.CurrentTablePercent / 100.0)
+	return nil
 }
 
 // Hide hides the overlay.
@@ -92,9 +187,20 @@ func (p *InitProgressOverlay) IsInitializing() bool {
 	return isActiveState(p.progress.State)
 }
 
-// SetProgress updates the progress data.
-func (p *InitProgressOverlay) SetProgress(progress *InitProgressData) {
+// SetProgress updates the progress data and triggers progress bar animation.
+// Returns a command to animate the progress bars to the new values.
+func (p *InitProgressOverlay) SetProgress(progress *InitProgressData) tea.Cmd {
 	p.progress = progress
+
+	if progress == nil {
+		return nil
+	}
+
+	// Animate progress bars to new values
+	overallCmd := p.overallProgress.SetPercent(progress.OverallPercent / 100.0)
+	tableCmd := p.tableProgress.SetPercent(progress.CurrentTablePercent / 100.0)
+
+	return tea.Batch(overallCmd, tableCmd)
 }
 
 // View renders the progress overlay.
@@ -132,13 +238,23 @@ func (p *InitProgressOverlay) View() string {
 	}
 	lines = append(lines, titleStyle.Render(fmt.Sprintf("Node Initialization: %s", nodeDisplay)))
 
-	// State and Phase
+	// State and Phase with spinner for active states (T087i)
 	stateColor := stateToColor(pr.State)
 	stateStyle := lipgloss.NewStyle().Foreground(stateColor).Bold(true)
-	lines = append(lines, labelStyle.Render("State:")+stateStyle.Render(pr.State))
+	stateText := stateStyle.Render(pr.State)
+	if isActiveState(pr.State) {
+		// Show spinner before state for active phases
+		stateText = p.spinner.View() + " " + stateText
+	}
+	lines = append(lines, labelStyle.Render("State:")+stateText)
 
 	if pr.Phase != "" {
 		lines = append(lines, labelStyle.Render("Phase:")+valueStyle.Render(phaseDisplayName(pr.Phase)))
+	}
+
+	// Current step within phase (two-phase snapshot)
+	if pr.CurrentStep != "" {
+		lines = append(lines, labelStyle.Render("Step:")+valueStyle.Render(stepDisplayName(pr.CurrentStep)))
 	}
 
 	if pr.SourceNode != "" {
@@ -147,9 +263,9 @@ func (p *InitProgressOverlay) View() string {
 
 	lines = append(lines, "")
 
-	// Overall progress bar
+	// Overall progress bar - use animated bubbles/progress bar (T087h)
 	lines = append(lines, labelStyle.Render("Overall:"))
-	lines = append(lines, renderProgressBar(pr.OverallPercent, 40))
+	lines = append(lines, p.renderAnimatedProgressBar(p.overallProgress, pr.OverallPercent))
 	lines = append(lines, "")
 
 	// Tables progress
@@ -158,10 +274,10 @@ func (p *InitProgressOverlay) View() string {
 		lines = append(lines, labelStyle.Render("Tables:")+valueStyle.Render(tablesLine))
 	}
 
-	// Current table with its progress
+	// Current table with its progress - use animated bubbles/progress bar (T087h)
 	if pr.CurrentTable != "" {
 		lines = append(lines, labelStyle.Render("Current Table:")+valueStyle.Render(pr.CurrentTable))
-		lines = append(lines, renderProgressBar(pr.CurrentTablePercent, 40))
+		lines = append(lines, p.renderAnimatedProgressBar(p.tableProgress, pr.CurrentTablePercent))
 	}
 
 	lines = append(lines, "")
@@ -188,6 +304,48 @@ func (p *InitProgressOverlay) View() string {
 	// Parallel workers
 	if pr.ParallelWorkers > 1 {
 		lines = append(lines, labelStyle.Render("Workers:")+valueStyle.Render(fmt.Sprintf("%d", pr.ParallelWorkers)))
+	}
+
+	// Compression ratio (two-phase snapshot)
+	if pr.CompressionRatio > 0 {
+		compressionPct := pr.CompressionRatio * 100
+		lines = append(lines, labelStyle.Render("Compression:")+valueStyle.Render(fmt.Sprintf("%.1f%% of original", compressionPct)))
+	}
+
+	// Checksum verification status (application phase)
+	if pr.ChecksumsVerified > 0 || pr.ChecksumsFailed > 0 || pr.ChecksumStatus != "" {
+		lines = append(lines, "")
+		lines = append(lines, titleStyle.Render("Checksum Verification"))
+
+		var checksumStatusDisplay string
+		switch pr.ChecksumStatus {
+		case "verifying":
+			checksumStatusDisplay = "⏳ Verifying..."
+		case "passed":
+			checksumStatusDisplay = "✓ Passed"
+		case "failed":
+			checksumStatusDisplay = "✗ Failed"
+		default:
+			checksumStatusDisplay = pr.ChecksumStatus
+		}
+		if checksumStatusDisplay != "" {
+			statusColor := checksumStatusToColor(pr.ChecksumStatus)
+			statusStyle := lipgloss.NewStyle().Foreground(statusColor)
+			lines = append(lines, labelStyle.Render("Status:")+statusStyle.Render(checksumStatusDisplay))
+		}
+
+		if pr.ChecksumsVerified > 0 || pr.ChecksumsFailed > 0 {
+			verifiedStyle := lipgloss.NewStyle().Foreground(styles.ColorSuccess)
+			failedStyle := lipgloss.NewStyle().Foreground(styles.ColorError)
+
+			verifiedText := verifiedStyle.Render(fmt.Sprintf("%d passed", pr.ChecksumsVerified))
+			if pr.ChecksumsFailed > 0 {
+				failedText := failedStyle.Render(fmt.Sprintf("%d failed", pr.ChecksumsFailed))
+				lines = append(lines, labelStyle.Render("Checksums:")+verifiedText+", "+failedText)
+			} else {
+				lines = append(lines, labelStyle.Render("Checksums:")+verifiedText)
+			}
+		}
 	}
 
 	lines = append(lines, "")
@@ -242,37 +400,11 @@ func (p *InitProgressOverlay) View() string {
 	return dialogStyle.Render(content)
 }
 
-// renderProgressBar renders a text-based progress bar.
-func renderProgressBar(percent float64, width int) string {
-	if percent < 0 {
-		percent = 0
-	}
-	if percent > 100 {
-		percent = 100
-	}
-
-	filled := int(float64(width) * percent / 100)
-	empty := width - filled
-
-	// Color based on progress
-	var barColor lipgloss.Color
-	switch {
-	case percent >= 100:
-		barColor = styles.ColorSuccess
-	case percent >= 50:
-		barColor = styles.ColorAccent
-	default:
-		barColor = lipgloss.Color("214") // Orange
-	}
-
-	filledStyle := lipgloss.NewStyle().Foreground(barColor)
-	emptyStyle := lipgloss.NewStyle().Foreground(styles.ColorMuted)
-
-	bar := filledStyle.Render(strings.Repeat("█", filled)) +
-		emptyStyle.Render(strings.Repeat("░", empty))
-
+// renderAnimatedProgressBar renders a bubbles/progress bar with percentage (T087h).
+// The progress bar uses a gradient from orange → green as progress increases.
+func (p *InitProgressOverlay) renderAnimatedProgressBar(prog progress.Model, percent float64) string {
 	percentStyle := lipgloss.NewStyle().Width(6)
-	return fmt.Sprintf("%s %s", bar, percentStyle.Render(fmt.Sprintf("%.1f%%", percent)))
+	return fmt.Sprintf("%s %s", prog.View(), percentStyle.Render(fmt.Sprintf("%.1f%%", percent)))
 }
 
 // stateToColor returns the appropriate color for an init state.
@@ -304,6 +436,36 @@ func phaseDisplayName(phase string) string {
 		return "WAL Catch-up"
 	default:
 		return phase
+	}
+}
+
+// stepDisplayName returns a human-readable name for the current step.
+func stepDisplayName(step string) string {
+	switch step {
+	case "schema":
+		return "Exporting Schema"
+	case "tables":
+		return "Copying Tables"
+	case "sequences":
+		return "Syncing Sequences"
+	case "checksums":
+		return "Verifying Checksums"
+	default:
+		return step
+	}
+}
+
+// checksumStatusToColor returns the appropriate color for a checksum status.
+func checksumStatusToColor(status string) lipgloss.Color {
+	switch status {
+	case "passed":
+		return styles.ColorSuccess
+	case "failed":
+		return styles.ColorError
+	case "verifying":
+		return styles.ColorAccent
+	default:
+		return styles.ColorMuted
 	}
 }
 

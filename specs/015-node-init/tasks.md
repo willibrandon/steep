@@ -359,13 +359,13 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 
 **Purpose**: Rich visual feedback for DBAs monitoring snapshots in Steep TUI
 
-- [ ] T087g Extend InitProgressData struct in internal/ui/components/init_progress.go to support two-phase snapshot fields:
+- [X] T087g Extend InitProgressData struct in internal/ui/components/init_progress.go to support two-phase snapshot fields:
   - Phase (generation/application), CurrentStep, CompressionRatio
   - ChecksumsVerified, ChecksumsFailed, ChecksumStatus
 
-- [ ] T087h Add animated progress bar to progress.go using bubbles/progress (gradient from orange → green as progress increases)
+- [X] T087h Add animated progress bar to progress.go using bubbles/progress (gradient from orange → green as progress increases)
 
-- [ ] T087i Add spinner integration to progress.go using bubbles/spinner (Dot style for active phases, hidden when idle)
+- [X] T087i Add spinner integration to progress.go using bubbles/spinner (Dot style for active phases, hidden when idle)
 
 - [ ] T087j Create SnapshotProgressOverlay component in internal/ui/components/snapshot_progress.go:
   - Two-section layout: Generation Stats | Application Stats
