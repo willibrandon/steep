@@ -330,13 +330,14 @@ See `specs/015-node-init/US7_TEST_PLAN.md` for comprehensive test plan (38 tests
 
 **Purpose**: Enable real-time visibility into snapshot generation and application progress
 
-- [ ] T087a Create SnapshotProgress struct in internal/repl/models/snapshot_progress.go with fields:
+- [x] T087a Create SnapshotProgress struct in internal/repl/models/snapshot.go with fields:
   - Phase (generation/application), OverallPercent, CurrentStep (schema/tables/sequences/checksums)
   - TablesTotal, TablesCompleted, CurrentTable, CurrentTableBytes, CurrentTableTotalBytes
   - BytesWritten, BytesTotal, RowsWritten, RowsTotal
   - ThroughputBytesSec (rolling average), ThroughputRowsSec
   - StartedAt, ETASeconds, CompressionRatio (if compression enabled)
   - ChecksumVerifications (for application phase), ChecksumsVerified, ChecksumsFailed
+  - **Note**: Also added RollingThroughput helper type for throughput calculation
 
 - [ ] T087c Implement progress calculation during COPY TO (generation) in internal/repl/init/snapshot.go:
   - Track bytes written per table using pg_stat_progress_copy (PG14+)
