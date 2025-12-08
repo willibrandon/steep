@@ -18,6 +18,7 @@ CREATE TABLE steep_repl.snapshots (
     lsn TEXT,
     storage_path TEXT,
     compression TEXT DEFAULT 'gzip',
+    parallel INTEGER NOT NULL DEFAULT 4,
     checksum TEXT,
 
     -- Status tracking
@@ -52,7 +53,7 @@ CREATE TABLE steep_repl.snapshots (
     CONSTRAINT snapshots_percent_check CHECK (overall_percent >= 0 AND overall_percent <= 100),
     CONSTRAINT snapshots_compression_check CHECK (compression IN ('none', 'gzip', 'lz4', 'zstd')),
     CONSTRAINT snapshots_status_check CHECK (status IN ('pending', 'generating', 'complete', 'applying', 'applied', 'failed', 'cancelled', 'expired')),
-    CONSTRAINT snapshots_phase_check CHECK (phase IN ('idle', 'schema', 'data', 'indexes', 'constraints', 'sequences', 'verify'))
+    CONSTRAINT snapshots_phase_check CHECK (phase IN ('idle', 'schema', 'data', 'indexes', 'constraints', 'sequences', 'verify', 'finalizing'))
 );
 
 -- Comments
@@ -63,9 +64,10 @@ COMMENT ON COLUMN steep_repl.snapshots.target_node_id IS 'Node snapshot is being
 COMMENT ON COLUMN steep_repl.snapshots.lsn IS 'WAL position at snapshot time';
 COMMENT ON COLUMN steep_repl.snapshots.storage_path IS 'File system or S3 path';
 COMMENT ON COLUMN steep_repl.snapshots.compression IS 'Compression type (none, gzip, lz4, zstd)';
+COMMENT ON COLUMN steep_repl.snapshots.parallel IS 'Number of parallel workers for COPY operations';
 COMMENT ON COLUMN steep_repl.snapshots.checksum IS 'SHA256 of manifest';
 COMMENT ON COLUMN steep_repl.snapshots.status IS 'Overall status: pending, generating, complete, applying, applied, failed, cancelled, expired';
-COMMENT ON COLUMN steep_repl.snapshots.phase IS 'Current phase: idle, schema, data, indexes, constraints, sequences, verify';
+COMMENT ON COLUMN steep_repl.snapshots.phase IS 'Current phase: idle, schema, data, indexes, constraints, sequences, verify, finalizing';
 COMMENT ON COLUMN steep_repl.snapshots.error_message IS 'Error details if status is failed';
 COMMENT ON COLUMN steep_repl.snapshots.overall_percent IS 'Overall completion percentage (0-100)';
 COMMENT ON COLUMN steep_repl.snapshots.current_table IS 'Table currently being processed';

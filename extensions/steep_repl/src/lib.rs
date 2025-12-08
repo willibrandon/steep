@@ -32,16 +32,23 @@ mod fingerprint_functions;
 mod merge;
 mod merge_audit_log;
 mod utils;
+mod work_queue;
+mod progress;
+mod notify;
 
 // Re-export utility functions for SQL access
 pub use utils::{steep_repl_version, steep_repl_min_pg_version};
 
 // =============================================================================
-// PostgreSQL 18 Version Check
+// PostgreSQL 18 Version Check and Extension Initialization
 // =============================================================================
 
-/// Check that we're running on PostgreSQL 18 or later.
-/// This is enforced at extension load time.
+/// Initialize the steep_repl extension.
+///
+/// This function:
+/// 1. Checks PostgreSQL version (18+ required)
+/// 2. Initializes shared memory for progress tracking
+/// 3. Registers background worker (if loaded via shared_preload_libraries)
 #[pg_guard]
 pub extern "C-unwind" fn _PG_init() {
     // PostgreSQL version is checked at compile time via pgrx features.
@@ -53,6 +60,19 @@ pub extern "C-unwind" fn _PG_init() {
             version
         );
     }
+
+    // Initialize shared memory for operation progress tracking.
+    // This allocates a PgLwLock-protected struct in shared memory
+    // that can be read by SQL functions and written by background workers.
+    progress::init_shared_memory();
+
+    // Note: Background worker registration (BackgroundWorkerBuilder) requires
+    // the extension to be loaded via shared_preload_libraries. This will be
+    // implemented in T007 (Phase 2: Foundational).
+    //
+    // For now, direct mode operations will work without background workers.
+    // Operations will be executed synchronously in the client connection
+    // instead of being queued to the work_queue table.
 }
 
 // =============================================================================
@@ -69,7 +89,8 @@ pub mod pg_test {
 
     #[must_use]
     pub fn postgresql_conf_options() -> Vec<&'static str> {
-        // return any postgresql.conf settings that are required for your tests
-        vec![]
+        // Load steep_repl via shared_preload_libraries so that shared memory
+        // for progress tracking is initialized before tests run.
+        vec!["shared_preload_libraries='steep_repl'"]
     }
 }

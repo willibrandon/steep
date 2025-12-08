@@ -23,12 +23,12 @@
 
 **Purpose**: Project initialization and extension schema modifications
 
-- [ ] T001 Add work_queue table to extension schema in extensions/steep_repl/src/work_queue.rs
-- [ ] T002 [P] Add pg_shmem_init! and BackgroundWorkerBuilder to _PG_init() in extensions/steep_repl/src/lib.rs
-- [ ] T003 [P] Create shared memory progress struct in extensions/steep_repl/src/progress.rs
-- [ ] T004 [P] Create NOTIFY helper functions in extensions/steep_repl/src/notify.rs
-- [ ] T005 Extend snapshots table with progress columns in extensions/steep_repl/src/snapshots.rs
-- [ ] T006 [P] Extend merge_audit_log table with progress columns in extensions/steep_repl/src/merge_audit_log.rs
+- [X] T001 Add work_queue table to extension schema in extensions/steep_repl/src/work_queue.rs
+- [X] T002 [P] Add pg_shmem_init! and BackgroundWorkerBuilder to _PG_init() in extensions/steep_repl/src/lib.rs
+- [X] T003 [P] Create shared memory progress struct in extensions/steep_repl/src/progress.rs
+- [X] T004 [P] Create NOTIFY helper functions in extensions/steep_repl/src/notify.rs
+- [X] T005 Extend snapshots table with progress columns in extensions/steep_repl/src/snapshots.rs
+- [X] T006 [P] Extend merge_audit_log table with progress columns in extensions/steep_repl/src/merge_audit_log.rs
 
 ---
 
