@@ -31,12 +31,21 @@ Available subcommands:
   steep-repl snapshot generate <source-node>    Generate a snapshot to disk
   steep-repl snapshot apply <target-node>       Apply a snapshot from disk
 
-Examples:
-  # Generate a snapshot from node-a
-  steep-repl snapshot generate node-a --output /snapshots/node-a
+Connection modes:
+  --direct    Connect directly to PostgreSQL using the steep_repl extension
+  --remote    Connect to the daemon via gRPC (legacy mode)
 
-  # Apply snapshot to node-b
-  steep-repl snapshot apply node-b --input /snapshots/node-a`,
+If neither is specified, auto-detection tries direct mode first, then daemon.
+
+Examples:
+  # Generate a snapshot using direct mode (preferred)
+  steep-repl snapshot generate node-a --output /snapshots/node-a --direct -c "postgres://user@host/db"
+
+  # Generate a snapshot using daemon mode (legacy)
+  steep-repl snapshot generate node-a --output /snapshots/node-a --remote localhost:9090 --insecure
+
+  # Apply snapshot using direct mode
+  steep-repl snapshot apply node-b --input /snapshots/node-a --direct -c "postgres://user@host/db"`,
 	}
 
 	cmd.AddCommand(

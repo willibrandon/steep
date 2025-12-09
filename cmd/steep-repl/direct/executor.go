@@ -320,7 +320,7 @@ type SchemaFingerprint struct {
 // Returns the number of fingerprints captured.
 func (e *Executor) CaptureFingerprints(ctx context.Context, nodeID string) (int, error) {
 	var count int
-	err := e.client.QueryRow(ctx, `SELECT steep_repl.capture_fingerprints($1)`, nodeID).Scan(&count)
+	err := e.client.QueryRow(ctx, `SELECT steep_repl.capture_all_fingerprints($1)`, nodeID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to capture fingerprints: %w", err)
 	}
@@ -332,10 +332,10 @@ func (e *Executor) GetFingerprints(ctx context.Context, nodeID string) ([]Schema
 	var fingerprints []SchemaFingerprint
 
 	rows, err := e.client.Query(ctx, `
-		SELECT schema_name, table_name, fingerprint, column_definitions, captured_at
+		SELECT table_schema, table_name, fingerprint, column_definitions, captured_at
 		FROM steep_repl.schema_fingerprints
 		WHERE node_id = $1
-		ORDER BY schema_name, table_name
+		ORDER BY table_schema, table_name
 	`, nodeID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get fingerprints: %w", err)
