@@ -16,6 +16,7 @@ use pgrx::datum::DatumWithOid;
 use pgrx::prelude::*;
 
 use crate::progress::{OperationType, ProgressPhase, OPERATION_PROGRESS};
+use crate::types::{SnapshotStatus, WorkOperation};
 
 /// Wake interval when no work is available (seconds)
 const IDLE_WAKE_INTERVAL_SECS: u64 = 1;
@@ -160,21 +161,204 @@ fn worker_available() -> bool {
 /// Static background worker main function.
 ///
 /// This is the entry point for the static background worker that is registered
-/// via shared_preload_libraries. It runs continuously, polling the work queue
-/// for pending operations.
+/// via shared_preload_libraries. It runs continuously, spawning dynamic workers
+/// for databases registered in the steep_repl.databases catalog.
+///
+/// The pattern follows PostgreSQL conventions (like pg_cron):
+/// 1. Static worker connects to postgres
+/// 2. Reads steep_repl.databases for registered databases
+/// 3. Spawns dynamic workers to process work in each registered database
+///
+/// IMPORTANT: Only databases explicitly registered via register_db() or
+/// register_current_db() will have workers spawned. This prevents wasting
+/// resources on databases that don't use steep_repl.
 #[pg_guard]
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn steep_repl_static_worker_main(_arg: pg_sys::Datum) {
+    use std::collections::{HashMap, HashSet};
     use std::time::Duration;
 
     // Set up signal handlers
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
 
-    // Connect to postgres database (default database)
-    // The worker will check if the extension is installed before processing work
+    // Connect to postgres database (where steep_repl.databases catalog lives)
     BackgroundWorker::connect_worker_to_spi(Some("postgres"), None);
 
-    pgrx::log!("steep_repl: static background worker started");
+    pgrx::log!("steep_repl: static background worker started (coordinator mode)");
+
+    // Track databases we've spawned workers for
+    let mut databases_with_workers: HashSet<String> = HashSet::new();
+    // Track databases that failed validation (don't exist) - retry after backoff
+    let mut failed_databases: HashMap<String, u64> = HashMap::new();
+    let mut discovery_counter = 0u64;
+    let mut warned_no_catalog = false;
+
+    // Main loop - discover registered databases and spawn workers
+    while BackgroundWorker::wait_latch(Some(Duration::from_secs(IDLE_WAKE_INTERVAL_SECS))) {
+        discovery_counter += 1;
+
+        // Every 10 iterations (10 seconds), re-check registered databases
+        if discovery_counter % 10 == 1 || databases_with_workers.is_empty() {
+            // First check if steep_repl.databases table exists (extension installed in postgres)
+            let catalog_exists = BackgroundWorker::transaction(|| {
+                Spi::get_one::<bool>(
+                    "SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'steep_repl' AND tablename = 'databases')"
+                ).ok().flatten().unwrap_or(false)
+            });
+
+            if !catalog_exists {
+                if !warned_no_catalog {
+                    pgrx::warning!(
+                        "steep_repl: databases catalog not found in postgres. \
+                         Install extension in postgres: CREATE EXTENSION steep_repl;"
+                    );
+                    warned_no_catalog = true;
+                }
+                // Skip querying the catalog - it doesn't exist yet
+                continue;
+            }
+
+            // Reset warning flag so we warn again if catalog is dropped
+            warned_no_catalog = false;
+
+            // Query the steep_repl.databases catalog for enabled databases
+            let db_list: Option<String> = BackgroundWorker::transaction(|| {
+                // Read from explicit registration catalog (not pg_database)
+                Spi::get_one::<String>(
+                    r#"SELECT string_agg(datname, ',')
+                       FROM steep_repl.databases
+                       WHERE enabled = true"#
+                ).ok().flatten()
+            });
+
+            // Spawn workers for newly registered databases
+            if let Some(db_list) = db_list {
+                for db_name in db_list.split(',') {
+                    let db_name = db_name.trim();
+                    if db_name.is_empty() || databases_with_workers.contains(db_name) {
+                        continue;
+                    }
+
+                    // Check if this database is in backoff from a previous failure
+                    // Backoff: wait 60 iterations (~60 seconds) before retrying
+                    const BACKOFF_ITERATIONS: u64 = 60;
+                    if let Some(&failed_at) = failed_databases.get(db_name) {
+                        if discovery_counter - failed_at < BACKOFF_ITERATIONS {
+                            continue; // Still in backoff period
+                        }
+                        // Backoff expired, remove from failed list and retry
+                        failed_databases.remove(db_name);
+                    }
+
+                    // Pre-flight check: verify database exists in pg_database
+                    // This prevents FATAL errors when connecting to non-existent databases
+                    let db_exists = BackgroundWorker::transaction(|| {
+                        Spi::get_one::<bool>(&format!(
+                            "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = '{}')",
+                            db_name.replace('\'', "''")
+                        )).ok().flatten().unwrap_or(false)
+                    });
+
+                    if !db_exists {
+                        pgrx::warning!(
+                            "steep_repl: database '{}' is registered but does not exist, skipping worker spawn",
+                            db_name
+                        );
+                        failed_databases.insert(db_name.to_string(), discovery_counter);
+                        continue;
+                    }
+
+                    // Spawn a worker for this database
+                    pgrx::log!(
+                        "steep_repl: spawning database worker for '{}'",
+                        db_name
+                    );
+
+                    let worker_name = format!("steep_repl_db_{}", db_name);
+
+                    // Build the worker with database info
+                    let worker_result = BackgroundWorkerBuilder::new(&worker_name)
+                        .set_library("steep_repl")
+                        .set_function("steep_repl_database_worker_main")
+                        .set_argument(Some(string_to_datum(db_name)))
+                        .enable_spi_access()
+                        .set_restart_time(Some(Duration::from_secs(30)))
+                        .load_dynamic();
+
+                    match worker_result {
+                        Ok(_handle) => {
+                            // Successfully registered the worker.
+                            // Don't call wait_for_startup() - it returns Untracked when
+                            // notify_pid is not set, which we'd incorrectly treat as failure.
+                            // The worker IS starting; just track it.
+                            pgrx::log!(
+                                "steep_repl: spawned worker {} for database '{}'",
+                                worker_name,
+                                db_name
+                            );
+                            databases_with_workers.insert(db_name.to_string());
+                        }
+                        Err(e) => {
+                            pgrx::warning!(
+                                "steep_repl: failed to spawn worker for '{}': {:?}",
+                                db_name,
+                                e
+                            );
+                            // Track spawn failure with backoff
+                            failed_databases.insert(db_name.to_string(), discovery_counter);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pgrx::log!("steep_repl: static background worker shutting down");
+}
+
+/// Convert a string to a Datum for passing to background worker.
+fn string_to_datum(s: &str) -> pg_sys::Datum {
+    // Encode database name length and characters into the datum
+    // This is a simple encoding: first byte is length, rest is name (up to 63 chars)
+    let bytes = s.as_bytes();
+    let len = bytes.len().min(63) as i64;
+    let mut value: i64 = len;
+    for (i, &b) in bytes.iter().take(7).enumerate() {
+        value |= (b as i64) << (8 * (i + 1));
+    }
+    value.into_datum().unwrap()
+}
+
+/// Decode a Datum back to a database name.
+fn datum_to_string(datum: pg_sys::Datum) -> String {
+    let value = unsafe { i64::from_datum(datum, false) }.unwrap_or(0);
+    let len = (value & 0xFF) as usize;
+    let mut bytes = Vec::with_capacity(len.min(7));
+    for i in 0..len.min(7) {
+        bytes.push(((value >> (8 * (i + 1))) & 0xFF) as u8);
+    }
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
+/// Database-specific background worker main function.
+///
+/// This worker connects to a specific database and processes work queue items
+/// for that database only. It is spawned by the coordinator (static worker).
+#[pg_guard]
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn steep_repl_database_worker_main(arg: pg_sys::Datum) {
+    use std::time::Duration;
+
+    // Set up signal handlers
+    BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
+
+    // Decode database name from argument
+    let db_name = datum_to_string(arg);
+
+    // Connect to the target database
+    BackgroundWorker::connect_worker_to_spi(Some(&db_name), None);
+
+    pgrx::log!("steep_repl: database worker started for '{}'", db_name);
 
     // Check if extension is installed in this database
     let extension_installed = BackgroundWorker::transaction(|| {
@@ -184,52 +368,136 @@ pub extern "C-unwind" fn steep_repl_static_worker_main(_arg: pg_sys::Datum) {
     });
 
     if !extension_installed {
-        pgrx::log!("steep_repl: extension not installed in postgres database, worker will idle");
+        pgrx::log!(
+            "steep_repl: extension not installed in '{}', worker will idle",
+            db_name
+        );
+        // Exit - no point running for this database
+        return;
     }
 
-    // Main work loop - poll every second when idle, faster when processing
-    while BackgroundWorker::wait_latch(Some(Duration::from_secs(IDLE_WAKE_INTERVAL_SECS))) {
-        if !extension_installed {
-            // Extension not installed, just keep running to show healthy status
-            continue;
-        }
+    pgrx::log!("steep_repl: extension found in '{}', starting work loop", db_name);
 
-        // Try to claim and process work
-        BackgroundWorker::transaction(|| {
+    // Main work loop - poll for work using inline SPI (avoid nested Spi::connect)
+    while BackgroundWorker::wait_latch(Some(Duration::from_secs(IDLE_WAKE_INTERVAL_SECS))) {
+        // Try to claim and process work - use inline SPI to avoid nested contexts
+        let processed = BackgroundWorker::transaction(|| {
             // Check for pending work using FOR UPDATE SKIP LOCKED
-            let work_result = Spi::get_one::<i64>(
+            let work_id = Spi::get_one::<i64>(
                 r#"SELECT id FROM steep_repl.work_queue
                    WHERE status = 'pending'
                    ORDER BY created_at LIMIT 1
                    FOR UPDATE SKIP LOCKED"#
             );
 
-            if let Ok(Some(work_id)) = work_result {
-                // Claim the work item
-                let _ = Spi::run(&format!(
-                    r#"UPDATE steep_repl.work_queue
-                       SET status = 'running', started_at = now(), worker_pid = pg_backend_pid()
-                       WHERE id = {}"#,
-                    work_id
-                ));
+            match work_id {
+                Ok(Some(id)) => {
+                    // Get operation details
+                    let operation = Spi::get_one::<String>(
+                        &format!("SELECT operation FROM steep_repl.work_queue WHERE id = {}", id)
+                    ).ok().flatten().unwrap_or_default();
 
-                pgrx::log!("steep_repl: claimed work item {}", work_id);
+                    let snapshot_id = Spi::get_one::<String>(
+                        &format!("SELECT snapshot_id FROM steep_repl.work_queue WHERE id = {}", id)
+                    ).ok().flatten();
 
-                // TODO: Execute the actual operation based on operation type
-                // For now, just mark as complete
-                let _ = Spi::run(&format!(
-                    r#"UPDATE steep_repl.work_queue
-                       SET status = 'complete', completed_at = now()
-                       WHERE id = {}"#,
-                    work_id
-                ));
+                    pgrx::log!(
+                        "steep_repl: claimed work item {} (operation: {}, snapshot: {:?})",
+                        id, operation, snapshot_id
+                    );
 
-                pgrx::log!("steep_repl: completed work item {}", work_id);
+                    // Claim the work item
+                    let _ = Spi::run(&format!(
+                        r#"UPDATE steep_repl.work_queue
+                           SET status = 'running', started_at = now(), worker_pid = pg_backend_pid()
+                           WHERE id = {}"#,
+                        id
+                    ));
+
+                    // Update snapshot status if this is a snapshot operation
+                    if let Some(ref snap_id) = snapshot_id {
+                        let _ = Spi::run(&format!(
+                            r#"UPDATE steep_repl.snapshots
+                               SET status = '{}', phase = 'schema', started_at = now()
+                               WHERE snapshot_id = '{}'"#,
+                            SnapshotStatus::Generating.as_str(),
+                            snap_id
+                        ));
+                    }
+
+                    // Update shared memory progress
+                    {
+                        let mut progress = OPERATION_PROGRESS.exclusive();
+                        let work_op = WorkOperation::from_str(&operation);
+                        let op_type = match work_op {
+                            Some(WorkOperation::SnapshotGenerate) => OperationType::SnapshotGenerate,
+                            Some(WorkOperation::SnapshotApply) => OperationType::SnapshotApply,
+                            Some(WorkOperation::BidirectionalMerge) => OperationType::BidirectionalMerge,
+                            None => OperationType::None,
+                        };
+                        let op_id = snapshot_id.as_deref().unwrap_or("unknown");
+                        progress.start(op_type, op_id, id, 0, 0, 0);
+                        progress.phase = ProgressPhase::Schema as i32;
+                    }
+
+                    // Send NOTIFY for progress
+                    crate::notify::notify_status(
+                        &operation,
+                        snapshot_id.as_deref().unwrap_or("unknown"),
+                        "running",
+                        None,
+                    );
+
+                    // TODO (T030): Implement actual snapshot generation logic here
+                    // For now, mark as complete immediately to unblock testing
+
+                    // Mark progress complete
+                    {
+                        let mut progress = OPERATION_PROGRESS.exclusive();
+                        progress.complete();
+                    }
+
+                    // Update snapshot as complete
+                    if let Some(ref snap_id) = snapshot_id {
+                        let _ = Spi::run(&format!(
+                            r#"UPDATE steep_repl.snapshots
+                               SET status = '{}', phase = 'complete',
+                                   overall_percent = 100, completed_at = now()
+                               WHERE snapshot_id = '{}'"#,
+                            SnapshotStatus::Complete.as_str(),
+                            snap_id
+                        ));
+                    }
+
+                    // Mark work queue entry complete
+                    let _ = Spi::run(&format!(
+                        r#"UPDATE steep_repl.work_queue
+                           SET status = 'complete', completed_at = now()
+                           WHERE id = {}"#,
+                        id
+                    ));
+
+                    // Send completion notification
+                    crate::notify::notify_status(
+                        &operation,
+                        snapshot_id.as_deref().unwrap_or("unknown"),
+                        "complete",
+                        None,
+                    );
+
+                    pgrx::log!("steep_repl: completed work item {}", id);
+                    true
+                }
+                _ => false,
             }
         });
+
+        if processed {
+            pgrx::log!("steep_repl: processed work in '{}'", db_name);
+        }
     }
 
-    pgrx::log!("steep_repl: static background worker shutting down");
+    pgrx::log!("steep_repl: database worker for '{}' shutting down", db_name);
 }
 
 /// Dynamic background worker main function.

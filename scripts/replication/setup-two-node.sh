@@ -143,6 +143,7 @@ start_container() {
                 -e POSTGRES_PASSWORD="$PG_PASSWORD" \
                 -e POSTGRES_DB="$PG_DATABASE" \
                 "$DOCKER_IMAGE" \
+                -c shared_preload_libraries=steep_repl \
                 -c wal_level=logical \
                 -c max_wal_senders=10 \
                 -c max_replication_slots=10 \
@@ -175,20 +176,36 @@ wait_for_db() {
     return 1
 }
 
-# Setup extension (nodes are auto-registered by steep-repl daemon)
+# Setup extension and register database in central catalog
 setup_extension() {
     local name=$1
     local port=$2
 
     header "Setting up steep_repl extension on $name..."
 
-    PGPASSWORD="$PG_PASSWORD" psql -h localhost -p "$port" -U "$PG_USER" -d "$PG_DATABASE" <<EOF
--- Create extension
+    # Step 1: Ensure extension is installed in postgres database (central catalog)
+    PGPASSWORD="$PG_PASSWORD" psql -h localhost -p "$port" -U "$PG_USER" -d postgres <<EOF
+-- Create extension in postgres (central catalog)
 CREATE EXTENSION IF NOT EXISTS steep_repl;
--- Nodes are automatically registered when steep-repl daemons start
+EOF
+
+    # Step 2: Register the target database in the central catalog
+    PGPASSWORD="$PG_PASSWORD" psql -h localhost -p "$port" -U "$PG_USER" -d postgres <<EOF
+-- Register $PG_DATABASE in the central catalog
+-- This tells the background worker to spawn a worker for this database
+INSERT INTO steep_repl.databases (datname)
+VALUES ('$PG_DATABASE')
+ON CONFLICT (datname) DO UPDATE SET enabled = true, registered_at = now();
+EOF
+
+    # Step 3: Create extension in the target database
+    PGPASSWORD="$PG_PASSWORD" psql -h localhost -p "$port" -U "$PG_USER" -d "$PG_DATABASE" <<EOF
+-- Create extension in target database
+CREATE EXTENSION IF NOT EXISTS steep_repl;
 EOF
 
     success "Extension setup complete on $name"
+    success "Database $PG_DATABASE registered in central catalog"
 }
 
 # Create test data on source

@@ -31,7 +31,10 @@ pg_test = []
 
 [dependencies]
 pgrx = "=0.16.1"
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# libpq for cross-database registration (register_current_db)
+libpq = { version = "6.0", features = ["v18"] }
 
 [dev-dependencies]
 pgrx-tests = "=0.16.1"

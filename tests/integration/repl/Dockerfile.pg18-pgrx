@@ -45,13 +45,42 @@ COPY --from=builder /usr/lib/postgresql/18/lib/steep_repl.so /usr/lib/postgresql
 # Copy Chinook sample database SQL files
 COPY tests/integration/repl/testdata/chinook/ /docker-entrypoint-initdb.d/chinook/
 
-# Create init script that:
-# 1. Creates steep_repl extension in the default database
-# 2. Loads Chinook sample databases (3 variants for testing different PK strategies)
-RUN echo '-- Create steep_repl extension in default database\n\
-CREATE EXTENSION IF NOT EXISTS steep_repl;\n' > /docker-entrypoint-initdb.d/00-create-steep-repl.sql
+# Init scripts use numeric prefixes for reliable ordering across all locales.
+#
+# Order:
+# 1. 001-init-steep-repl.sh - Create extension in postgres, create testdb, register it
+# 2. 002-init-testdb.sql - Create extension in testdb
+# 3. 003-load-chinook.sh - Load Chinook sample databases
 
-# Script to load Chinook databases
+# Step 1: Bash script to handle conditional database creation
+# This handles both cases: POSTGRES_DB set (testdb exists) or not set (need to create)
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+echo "Creating steep_repl extension in postgres (central catalog)..."\n\
+psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres <<EOF\n\
+CREATE EXTENSION IF NOT EXISTS steep_repl;\n\
+EOF\n\
+\n\
+# Create testdb if it does not exist (POSTGRES_DB may have already created it)\n\
+echo "Creating testdb database if needed..."\n\
+psql -U "$POSTGRES_USER" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '\''testdb'\''" | grep -q 1 || psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE testdb;"\n\
+\n\
+echo "Registering testdb in central catalog..."\n\
+psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres <<EOF\n\
+INSERT INTO steep_repl.databases (datname) VALUES ('\''testdb'\'')\n\
+ON CONFLICT (datname) DO UPDATE SET enabled = true, registered_at = now();\n\
+EOF\n\
+\n\
+echo "steep_repl initialization complete!"\n\
+' > /docker-entrypoint-initdb.d/001-init-steep-repl.sh && chmod +x /docker-entrypoint-initdb.d/001-init-steep-repl.sh
+
+# Step 2: Create extension in testdb (database created by step 1)
+RUN echo '\\c testdb\n\
+-- Install steep_repl extension in testdb\n\
+CREATE EXTENSION IF NOT EXISTS steep_repl;\n' > /docker-entrypoint-initdb.d/002-init-testdb.sql
+
+# Step 3: Load Chinook sample databases
 # Note: SQL files already have correct database names (chinook_serial, chinook_auto_increment, chinook)
 # We only rename chinook_auto_increment -> chinook_identity for clarity
 RUN echo '#!/bin/bash\n\
@@ -71,7 +100,7 @@ echo "Loading Chinook database (plain PKs)..."\n\
 psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/chinook/Chinook_PostgreSql.sql\n\
 \n\
 echo "Chinook databases loaded successfully!"\n\
-' > /docker-entrypoint-initdb.d/01-load-chinook.sh && chmod +x /docker-entrypoint-initdb.d/01-load-chinook.sh
+' > /docker-entrypoint-initdb.d/003-load-chinook.sh && chmod +x /docker-entrypoint-initdb.d/003-load-chinook.sh
 
 USER postgres
 WORKDIR /var/lib/postgresql/data

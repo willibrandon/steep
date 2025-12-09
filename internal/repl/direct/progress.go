@@ -95,6 +95,9 @@ type ProgressListener struct {
 
 	// Done channel
 	done chan struct{}
+
+	// Cancel function for the listener context
+	cancel context.CancelFunc
 }
 
 // NewProgressListener creates a new progress listener.
@@ -111,8 +114,13 @@ func NewProgressListener(client *Client, operationID string) *ProgressListener {
 // Start begins listening for progress notifications.
 // This should be called in a goroutine.
 func (l *ProgressListener) Start(ctx context.Context) error {
+	// Create a cancellable context that Stop() can cancel
+	// This ensures WaitForNotification returns when we want to stop
+	listenerCtx, cancel := context.WithCancel(ctx)
+	l.cancel = cancel
+
 	// Acquire a dedicated connection for LISTEN
-	poolConn, err := l.client.Acquire(ctx)
+	poolConn, err := l.client.Acquire(listenerCtx)
 	if err != nil {
 		return fmt.Errorf("failed to acquire connection: %w", err)
 	}
@@ -122,47 +130,49 @@ func (l *ProgressListener) Start(ctx context.Context) error {
 	conn := poolConn.Conn()
 
 	// Start listening
-	_, err = conn.Exec(ctx, fmt.Sprintf("LISTEN %s", ProgressChannel))
+	_, err = conn.Exec(listenerCtx, fmt.Sprintf("LISTEN %s", ProgressChannel))
 	if err != nil {
 		return fmt.Errorf("failed to LISTEN: %w", err)
 	}
 
-	// Listen loop
+	// Listen loop - use WaitForNotification with our cancellable context
 	for {
+		// Check if we should stop before blocking on notification
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-listenerCtx.Done():
+			return listenerCtx.Err()
 		case <-l.done:
 			return nil
 		default:
-			// Wait for notification with timeout
-			notification, err := conn.WaitForNotification(ctx)
-			if err != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				// Log error but continue
-				continue
-			}
+		}
 
-			// Parse payload
-			progress, err := ParseProgressPayload(notification.Payload)
-			if err != nil {
-				// Log error but continue
-				continue
+		// Wait for notification - this will return when listenerCtx is cancelled
+		notification, err := conn.WaitForNotification(listenerCtx)
+		if err != nil {
+			if listenerCtx.Err() != nil {
+				return nil // Graceful shutdown via Stop()
 			}
+			// Other error, continue
+			continue
+		}
 
-			// Filter by operation ID if specified
-			if l.operationID != "" && progress.OperationID != l.operationID {
-				continue
-			}
+		// Parse payload
+		progress, err := ParseProgressPayload(notification.Payload)
+		if err != nil {
+			// Log error but continue
+			continue
+		}
 
-			// Send to channel (non-blocking)
-			select {
-			case l.notifications <- progress:
-			default:
-				// Channel full, drop notification
-			}
+		// Filter by operation ID if specified
+		if l.operationID != "" && progress.OperationID != l.operationID {
+			continue
+		}
+
+		// Send to channel (non-blocking)
+		select {
+		case l.notifications <- progress:
+		default:
+			// Channel full, drop notification
 		}
 	}
 }
@@ -174,7 +184,17 @@ func (l *ProgressListener) Notifications() <-chan *ProgressNotification {
 
 // Stop stops the listener.
 func (l *ProgressListener) Stop() {
-	close(l.done)
+	// Cancel the context first to unblock WaitForNotification
+	if l.cancel != nil {
+		l.cancel()
+	}
+	// Then close the done channel
+	select {
+	case <-l.done:
+		// Already closed
+	default:
+		close(l.done)
+	}
 }
 
 // ProgressState holds the current state of an operation's progress.
@@ -324,7 +344,7 @@ func (c *Client) StartSnapshot(ctx context.Context, outputPath string, compressi
 	var snapshotID string
 
 	err := c.pool.QueryRow(ctx,
-		"SELECT snapshot_id FROM steep_repl.start_snapshot($1, $2, $3)",
+		"SELECT steep_repl.start_snapshot($1, $2, $3)",
 		outputPath, compression, parallel,
 	).Scan(&snapshotID)
 

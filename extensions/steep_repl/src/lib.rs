@@ -21,6 +21,7 @@ use pgrx::prelude::*;
 // =============================================================================
 
 mod schema;
+mod types;
 mod nodes;
 mod coordinator_state;
 mod audit_log;
@@ -37,6 +38,7 @@ mod progress;
 mod notify;
 mod worker;
 mod health;
+mod databases;
 
 // Re-export utility functions for SQL access
 pub use utils::{steep_repl_version, steep_repl_min_pg_version};
