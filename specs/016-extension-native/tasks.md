@@ -40,13 +40,13 @@
 
 - [X] T007 Implement background worker main loop in extensions/steep_repl/src/worker.rs
 - [X] T008 Implement work queue claim with FOR UPDATE SKIP LOCKED in extensions/steep_repl/src/work_queue.rs
-- [ ] T009 Implement shared memory progress read/write with PgLwLock in extensions/steep_repl/src/progress.rs
-- [ ] T010 Implement pg_notify wrapper for progress updates in extensions/steep_repl/src/notify.rs
-- [ ] T011 [P] Create health.rs with steep_repl.health() function in extensions/steep_repl/src/health.rs
-- [ ] T012 [P] Create internal/repl/direct/client.go for PostgreSQL direct connection
-- [ ] T013 [P] Create internal/repl/direct/progress.go for NOTIFY payload parsing
-- [ ] T014 Update extension Cargo.toml to ensure pgrx bgworker feature enabled in extensions/steep_repl/Cargo.toml
-- [ ] T015 Run cargo pgrx test to verify extension compiles with new modules
+- [X] T009 Implement shared memory progress read/write with PgLwLock in extensions/steep_repl/src/progress.rs
+- [X] T010 Implement pg_notify wrapper for progress updates in extensions/steep_repl/src/notify.rs
+- [X] T011 [P] Create health.rs with steep_repl.health() function in extensions/steep_repl/src/health.rs
+- [X] T012 [P] Create internal/repl/direct/client.go for PostgreSQL direct connection
+- [X] T013 [P] Create internal/repl/direct/progress.go for NOTIFY payload parsing
+- [X] T014 Update extension Cargo.toml to ensure pgrx bgworker feature enabled in extensions/steep_repl/Cargo.toml
+- [X] T015 Run cargo pgrx test to verify extension compiles with new modules
 
 **Checkpoint**: Foundation ready - user story implementation can begin
 

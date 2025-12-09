@@ -5,6 +5,7 @@
 //! SQL functions can read it to report real-time progress without table queries.
 //!
 //! T003: Create shared memory progress struct
+//! T009: Implement shared memory progress read/write with PgLwLock
 
 use pgrx::pg_shmem_init;
 use pgrx::prelude::*;
@@ -430,6 +431,244 @@ fn _steep_repl_get_progress_error() -> Option<String> {
     }
 }
 
+/// Get work queue ID of current operation (internal implementation).
+/// Returns NULL if no operation is active.
+#[pg_extern]
+fn _steep_repl_get_progress_work_queue_id() -> Option<i64> {
+    let progress = OPERATION_PROGRESS.share();
+    if progress.active || progress.phase != ProgressPhase::Idle as i32 {
+        Some(progress.work_queue_id)
+    } else {
+        None
+    }
+}
+
+/// Get operation ID of current operation (internal implementation).
+/// Returns NULL if no operation is active.
+#[pg_extern]
+fn _steep_repl_get_progress_operation_id() -> Option<String> {
+    let progress = OPERATION_PROGRESS.share();
+    if progress.active || progress.phase != ProgressPhase::Idle as i32 {
+        Some(progress.get_operation_id())
+    } else {
+        None
+    }
+}
+
+/// Get operation type of current operation (internal implementation).
+/// Returns NULL if no operation is active.
+#[pg_extern]
+fn _steep_repl_get_progress_operation_type() -> Option<String> {
+    let progress = OPERATION_PROGRESS.share();
+    if progress.active || progress.phase != ProgressPhase::Idle as i32 {
+        Some(progress.get_operation_type().as_str().to_string())
+    } else {
+        None
+    }
+}
+
+/// Get tables completed count (internal implementation).
+/// Returns NULL if no operation is active.
+#[pg_extern]
+fn _steep_repl_get_progress_tables_completed() -> Option<i32> {
+    let progress = OPERATION_PROGRESS.share();
+    if progress.active || progress.phase != ProgressPhase::Idle as i32 {
+        Some(progress.tables_completed)
+    } else {
+        None
+    }
+}
+
+/// Get total tables count (internal implementation).
+/// Returns NULL if no operation is active.
+#[pg_extern]
+fn _steep_repl_get_progress_tables_total() -> Option<i32> {
+    let progress = OPERATION_PROGRESS.share();
+    if progress.active || progress.phase != ProgressPhase::Idle as i32 {
+        Some(progress.tables_total)
+    } else {
+        None
+    }
+}
+
+/// Get bytes processed (internal implementation).
+/// Returns NULL if no operation is active.
+#[pg_extern]
+fn _steep_repl_get_progress_bytes_processed() -> Option<i64> {
+    let progress = OPERATION_PROGRESS.share();
+    if progress.active || progress.phase != ProgressPhase::Idle as i32 {
+        Some(progress.bytes_processed)
+    } else {
+        None
+    }
+}
+
+/// Get total bytes (internal implementation).
+/// Returns NULL if no operation is active.
+#[pg_extern]
+fn _steep_repl_get_progress_bytes_total() -> Option<i64> {
+    let progress = OPERATION_PROGRESS.share();
+    if progress.active || progress.phase != ProgressPhase::Idle as i32 {
+        Some(progress.bytes_total)
+    } else {
+        None
+    }
+}
+
+/// Get rows processed (internal implementation).
+/// Returns NULL if no operation is active.
+#[pg_extern]
+fn _steep_repl_get_progress_rows_processed() -> Option<i64> {
+    let progress = OPERATION_PROGRESS.share();
+    if progress.active || progress.phase != ProgressPhase::Idle as i32 {
+        Some(progress.rows_processed)
+    } else {
+        None
+    }
+}
+
+/// Get total rows (internal implementation).
+/// Returns NULL if no operation is active.
+#[pg_extern]
+fn _steep_repl_get_progress_rows_total() -> Option<i64> {
+    let progress = OPERATION_PROGRESS.share();
+    if progress.active || progress.phase != ProgressPhase::Idle as i32 {
+        Some(progress.rows_total)
+    } else {
+        None
+    }
+}
+
+/// Get throughput in bytes per second (internal implementation).
+/// Returns NULL if no operation is active.
+#[pg_extern]
+fn _steep_repl_get_progress_throughput() -> Option<f32> {
+    let progress = OPERATION_PROGRESS.share();
+    if progress.active {
+        Some(progress.throughput_bytes_sec)
+    } else {
+        None
+    }
+}
+
+// =============================================================================
+// Rust API for Background Worker Progress Updates (T009)
+// =============================================================================
+// These functions allow the background worker to update shared memory progress.
+// They acquire an exclusive lock, so should be called judiciously.
+
+/// Start tracking a new operation in shared memory.
+///
+/// This function is called by the background worker when starting a new operation.
+/// It acquires an exclusive lock and updates the shared memory progress struct.
+///
+/// # Arguments
+/// * `operation_type` - Type of operation (SnapshotGenerate, SnapshotApply, BidirectionalMerge)
+/// * `operation_id` - Unique identifier (snapshot_id or merge_id as string)
+/// * `work_queue_id` - ID from the work_queue table
+/// * `tables_total` - Total number of tables to process
+/// * `bytes_total` - Estimated total bytes to process
+/// * `rows_total` - Estimated total rows to process
+pub fn start_progress(
+    operation_type: OperationType,
+    operation_id: &str,
+    work_queue_id: i64,
+    tables_total: i32,
+    bytes_total: i64,
+    rows_total: i64,
+) {
+    let mut progress = OPERATION_PROGRESS.exclusive();
+    progress.start(
+        operation_type,
+        operation_id,
+        work_queue_id,
+        tables_total,
+        bytes_total,
+        rows_total,
+    );
+}
+
+/// Update progress during an operation.
+///
+/// This function is called periodically by the background worker to report progress.
+/// It acquires an exclusive lock and updates the shared memory progress struct.
+///
+/// # Arguments
+/// * `phase` - Current phase of the operation
+/// * `tables_completed` - Number of tables completed so far
+/// * `bytes_processed` - Bytes processed so far
+/// * `rows_processed` - Rows processed so far
+/// * `current_table` - Name of the table currently being processed
+pub fn update_progress(
+    phase: ProgressPhase,
+    tables_completed: i32,
+    bytes_processed: i64,
+    rows_processed: i64,
+    current_table: &str,
+) {
+    let mut progress = OPERATION_PROGRESS.exclusive();
+    progress.update(
+        phase,
+        tables_completed,
+        bytes_processed,
+        rows_processed,
+        current_table,
+    );
+}
+
+/// Mark the current operation as complete.
+///
+/// This function is called by the background worker when an operation finishes successfully.
+pub fn complete_progress() {
+    let mut progress = OPERATION_PROGRESS.exclusive();
+    progress.complete();
+}
+
+/// Mark the current operation as failed.
+///
+/// This function is called by the background worker when an operation fails.
+///
+/// # Arguments
+/// * `error` - Error message describing the failure
+pub fn fail_progress(error: &str) {
+    let mut progress = OPERATION_PROGRESS.exclusive();
+    progress.fail(error);
+}
+
+/// Reset progress to idle state.
+///
+/// This function is called to clear progress information, typically after
+/// the client has acknowledged completion or failure.
+pub fn reset_progress() {
+    let mut progress = OPERATION_PROGRESS.exclusive();
+    progress.reset();
+}
+
+/// Check if an operation is currently active.
+///
+/// This is a convenience function for the background worker to check
+/// if there's already an operation in progress.
+pub fn is_progress_active() -> bool {
+    let progress = OPERATION_PROGRESS.share();
+    progress.active
+}
+
+/// Get the current work queue ID being processed.
+///
+/// Returns 0 if no operation is active.
+pub fn get_current_work_queue_id() -> i64 {
+    let progress = OPERATION_PROGRESS.share();
+    progress.work_queue_id
+}
+
+/// Get current progress snapshot for reading.
+///
+/// Returns a copy of the progress struct for safe reading without holding locks.
+pub fn get_progress_snapshot() -> OperationProgress {
+    let progress = OPERATION_PROGRESS.share();
+    *progress
+}
+
 // Schema-qualified wrapper functions
 extension_sql!(
     r#"
@@ -452,12 +691,52 @@ CREATE FUNCTION steep_repl.get_progress_eta_seconds() RETURNS integer
 CREATE FUNCTION steep_repl.get_progress_error() RETURNS text
     LANGUAGE sql STABLE AS $$ SELECT _steep_repl_get_progress_error() $$;
 
+CREATE FUNCTION steep_repl.get_progress_work_queue_id() RETURNS bigint
+    LANGUAGE sql STABLE AS $$ SELECT _steep_repl_get_progress_work_queue_id() $$;
+
+CREATE FUNCTION steep_repl.get_progress_operation_id() RETURNS text
+    LANGUAGE sql STABLE AS $$ SELECT _steep_repl_get_progress_operation_id() $$;
+
+CREATE FUNCTION steep_repl.get_progress_operation_type() RETURNS text
+    LANGUAGE sql STABLE AS $$ SELECT _steep_repl_get_progress_operation_type() $$;
+
+CREATE FUNCTION steep_repl.get_progress_tables_completed() RETURNS integer
+    LANGUAGE sql STABLE AS $$ SELECT _steep_repl_get_progress_tables_completed() $$;
+
+CREATE FUNCTION steep_repl.get_progress_tables_total() RETURNS integer
+    LANGUAGE sql STABLE AS $$ SELECT _steep_repl_get_progress_tables_total() $$;
+
+CREATE FUNCTION steep_repl.get_progress_bytes_processed() RETURNS bigint
+    LANGUAGE sql STABLE AS $$ SELECT _steep_repl_get_progress_bytes_processed() $$;
+
+CREATE FUNCTION steep_repl.get_progress_bytes_total() RETURNS bigint
+    LANGUAGE sql STABLE AS $$ SELECT _steep_repl_get_progress_bytes_total() $$;
+
+CREATE FUNCTION steep_repl.get_progress_rows_processed() RETURNS bigint
+    LANGUAGE sql STABLE AS $$ SELECT _steep_repl_get_progress_rows_processed() $$;
+
+CREATE FUNCTION steep_repl.get_progress_rows_total() RETURNS bigint
+    LANGUAGE sql STABLE AS $$ SELECT _steep_repl_get_progress_rows_total() $$;
+
+CREATE FUNCTION steep_repl.get_progress_throughput() RETURNS real
+    LANGUAGE sql STABLE AS $$ SELECT _steep_repl_get_progress_throughput() $$;
+
 COMMENT ON FUNCTION steep_repl.is_operation_active() IS 'Check if an operation is currently running';
 COMMENT ON FUNCTION steep_repl.get_progress_percent() IS 'Get the current operation progress percentage (0-100), NULL if inactive';
 COMMENT ON FUNCTION steep_repl.get_progress_phase() IS 'Get the current operation phase, NULL if inactive';
 COMMENT ON FUNCTION steep_repl.get_progress_current_table() IS 'Get the table currently being processed, NULL if inactive or none';
 COMMENT ON FUNCTION steep_repl.get_progress_eta_seconds() IS 'Get estimated time remaining in seconds, NULL if inactive or unknown';
 COMMENT ON FUNCTION steep_repl.get_progress_error() IS 'Get error message if last operation failed, NULL otherwise';
+COMMENT ON FUNCTION steep_repl.get_progress_work_queue_id() IS 'Get the work queue ID of the current operation';
+COMMENT ON FUNCTION steep_repl.get_progress_operation_id() IS 'Get the operation ID (snapshot_id or merge_id)';
+COMMENT ON FUNCTION steep_repl.get_progress_operation_type() IS 'Get the operation type (snapshot_generate, snapshot_apply, bidirectional_merge)';
+COMMENT ON FUNCTION steep_repl.get_progress_tables_completed() IS 'Get count of tables completed so far';
+COMMENT ON FUNCTION steep_repl.get_progress_tables_total() IS 'Get total count of tables to process';
+COMMENT ON FUNCTION steep_repl.get_progress_bytes_processed() IS 'Get bytes processed so far';
+COMMENT ON FUNCTION steep_repl.get_progress_bytes_total() IS 'Get total bytes to process (estimated)';
+COMMENT ON FUNCTION steep_repl.get_progress_rows_processed() IS 'Get rows processed so far';
+COMMENT ON FUNCTION steep_repl.get_progress_rows_total() IS 'Get total rows to process (estimated)';
+COMMENT ON FUNCTION steep_repl.get_progress_throughput() IS 'Get current throughput in bytes per second';
 "#,
     name = "create_progress_functions",
     requires = [
@@ -467,7 +746,17 @@ COMMENT ON FUNCTION steep_repl.get_progress_error() IS 'Get error message if las
         _steep_repl_get_progress_phase,
         _steep_repl_get_progress_current_table,
         _steep_repl_get_progress_eta_seconds,
-        _steep_repl_get_progress_error
+        _steep_repl_get_progress_error,
+        _steep_repl_get_progress_work_queue_id,
+        _steep_repl_get_progress_operation_id,
+        _steep_repl_get_progress_operation_type,
+        _steep_repl_get_progress_tables_completed,
+        _steep_repl_get_progress_tables_total,
+        _steep_repl_get_progress_bytes_processed,
+        _steep_repl_get_progress_bytes_total,
+        _steep_repl_get_progress_rows_processed,
+        _steep_repl_get_progress_rows_total,
+        _steep_repl_get_progress_throughput
     ],
 );
 
@@ -498,9 +787,37 @@ CREATE TYPE steep_repl.operation_progress_type AS (
 
 COMMENT ON TYPE steep_repl.operation_progress_type IS
     'Composite type for operation progress information from shared memory';
+
+-- Comprehensive function to get all progress fields in one call
+-- Returns NULL if no operation is active and no recent operation completed/failed
+CREATE FUNCTION steep_repl.get_progress() RETURNS steep_repl.operation_progress_type
+LANGUAGE sql STABLE
+AS $$
+    SELECT (
+        steep_repl.get_progress_operation_id(),
+        steep_repl.get_progress_operation_type(),
+        steep_repl.get_progress_phase(),
+        steep_repl.get_progress_percent(),
+        steep_repl.get_progress_tables_completed(),
+        steep_repl.get_progress_tables_total(),
+        steep_repl.get_progress_bytes_processed(),
+        steep_repl.get_progress_bytes_total(),
+        steep_repl.get_progress_rows_processed(),
+        steep_repl.get_progress_rows_total(),
+        steep_repl.get_progress_throughput(),
+        steep_repl.get_progress_eta_seconds(),
+        steep_repl.get_progress_current_table(),
+        steep_repl.get_progress_error(),
+        steep_repl.get_progress_work_queue_id()
+    )::steep_repl.operation_progress_type
+    WHERE steep_repl.get_progress_operation_id() IS NOT NULL
+$$;
+
+COMMENT ON FUNCTION steep_repl.get_progress() IS
+    'Get all progress fields from shared memory as a single composite row, NULL if no operation';
 "#,
     name = "create_progress_type",
-    requires = ["create_schema"],
+    requires = ["create_schema", "create_progress_functions"],
 );
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -629,5 +946,204 @@ mod tests {
         let result = progress.get_current_table();
         assert!(result.len() < 200);
         assert!(result.len() <= TABLE_NAME_LEN - 1);
+    }
+
+    // =========================================================================
+    // Tests for T009: Shared Memory Progress Read/Write with PgLwLock
+    // =========================================================================
+    // NOTE: These tests use global shared memory, so they test the Rust API
+    // directly rather than checking SQL results which could be affected by
+    // other concurrent tests.
+
+    #[pg_test]
+    fn test_get_progress_function_exists() {
+        let result = Spi::get_one::<bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM pg_proc p
+                JOIN pg_namespace n ON p.pronamespace = n.oid
+                WHERE n.nspname = 'steep_repl' AND p.proname = 'get_progress'
+            )"
+        );
+        assert_eq!(result, Ok(Some(true)), "get_progress function should exist");
+    }
+
+    #[pg_test]
+    fn test_rust_api_lifecycle() {
+        // Test complete lifecycle: start -> update -> complete -> reset
+        // Using Rust API directly to avoid race conditions with other tests
+
+        // Start
+        crate::progress::start_progress(
+            crate::progress::OperationType::SnapshotGenerate,
+            "test_lifecycle",
+            999,
+            5,
+            500000,
+            10000,
+        );
+
+        let snapshot = crate::progress::get_progress_snapshot();
+        assert!(snapshot.active);
+        assert_eq!(snapshot.get_operation_id(), "test_lifecycle");
+        assert_eq!(snapshot.work_queue_id, 999);
+        assert_eq!(snapshot.get_operation_type(), crate::progress::OperationType::SnapshotGenerate);
+
+        // Update
+        crate::progress::update_progress(
+            crate::progress::ProgressPhase::Data,
+            3,
+            300000,
+            6000,
+            "public.test_table",
+        );
+
+        let snapshot = crate::progress::get_progress_snapshot();
+        assert_eq!(snapshot.get_phase(), crate::progress::ProgressPhase::Data);
+        assert_eq!(snapshot.tables_completed, 3);
+        assert_eq!(snapshot.bytes_processed, 300000);
+        assert_eq!(snapshot.get_current_table(), "public.test_table");
+        assert!(snapshot.overall_percent > 0.0);
+
+        // Complete
+        crate::progress::complete_progress();
+
+        let snapshot = crate::progress::get_progress_snapshot();
+        assert!(!snapshot.active);
+        assert_eq!(snapshot.get_phase(), crate::progress::ProgressPhase::Complete);
+        assert_eq!(snapshot.overall_percent, 100.0);
+
+        // Reset
+        crate::progress::reset_progress();
+
+        let snapshot = crate::progress::get_progress_snapshot();
+        assert!(!snapshot.active);
+        assert_eq!(snapshot.get_phase(), crate::progress::ProgressPhase::Idle);
+    }
+
+    #[pg_test]
+    fn test_rust_api_fail_lifecycle() {
+        // Test failure lifecycle: start -> fail -> reset
+
+        crate::progress::start_progress(
+            crate::progress::OperationType::BidirectionalMerge,
+            "test_fail_lifecycle",
+            888,
+            2,
+            50000,
+            1000,
+        );
+
+        // Verify started
+        assert!(crate::progress::is_progress_active());
+
+        // Fail with error
+        crate::progress::fail_progress("Test error: connection timeout");
+
+        let snapshot = crate::progress::get_progress_snapshot();
+        assert!(!snapshot.active);
+        assert_eq!(snapshot.get_phase(), crate::progress::ProgressPhase::Failed);
+        assert_eq!(snapshot.get_error_message(), "Test error: connection timeout");
+
+        // Reset
+        crate::progress::reset_progress();
+    }
+
+    #[pg_test]
+    fn test_rust_api_is_progress_active_fn() {
+        // Test the is_progress_active helper function
+
+        crate::progress::reset_progress();
+        let was_active_after_reset = crate::progress::is_progress_active();
+
+        crate::progress::start_progress(
+            crate::progress::OperationType::SnapshotApply,
+            "test_is_active",
+            777,
+            1,
+            1000,
+            100,
+        );
+        let was_active_after_start = crate::progress::is_progress_active();
+
+        crate::progress::complete_progress();
+        let was_active_after_complete = crate::progress::is_progress_active();
+
+        crate::progress::reset_progress();
+
+        // Verify in sequence
+        assert!(!was_active_after_reset, "should not be active after reset");
+        assert!(was_active_after_start, "should be active after start");
+        assert!(!was_active_after_complete, "should not be active after complete");
+    }
+
+    #[pg_test]
+    fn test_rust_api_get_current_work_queue_id() {
+        crate::progress::start_progress(
+            crate::progress::OperationType::SnapshotGenerate,
+            "test_wq_id",
+            12345,
+            1,
+            1000,
+            100,
+        );
+
+        let wq_id = crate::progress::get_current_work_queue_id();
+        assert_eq!(wq_id, 12345);
+
+        crate::progress::reset_progress();
+    }
+
+    #[pg_test]
+    fn test_new_progress_functions_exist() {
+        // Test all new SQL wrapper functions exist
+        let functions = vec![
+            "get_progress_work_queue_id",
+            "get_progress_operation_id",
+            "get_progress_operation_type",
+            "get_progress_tables_completed",
+            "get_progress_tables_total",
+            "get_progress_bytes_processed",
+            "get_progress_bytes_total",
+            "get_progress_rows_processed",
+            "get_progress_rows_total",
+            "get_progress_throughput",
+            "get_progress",
+        ];
+
+        for func in functions {
+            let result = Spi::get_one::<bool>(&format!(
+                "SELECT EXISTS(
+                    SELECT 1 FROM pg_proc p
+                    JOIN pg_namespace n ON p.pronamespace = n.oid
+                    WHERE n.nspname = 'steep_repl' AND p.proname = '{}'
+                )",
+                func
+            ));
+            assert_eq!(result, Ok(Some(true)), "function {} should exist", func);
+        }
+    }
+
+    #[pg_test]
+    fn test_sql_functions_callable() {
+        // Just verify the SQL functions can be called without errors
+        // Don't check exact values due to shared memory race conditions
+
+        // These should work without error even if returning NULL
+        let _ = Spi::get_one::<bool>("SELECT steep_repl.is_operation_active()");
+        let _ = Spi::get_one::<f32>("SELECT steep_repl.get_progress_percent()");
+        let _ = Spi::get_one::<String>("SELECT steep_repl.get_progress_phase()");
+        let _ = Spi::get_one::<String>("SELECT steep_repl.get_progress_current_table()");
+        let _ = Spi::get_one::<i32>("SELECT steep_repl.get_progress_eta_seconds()");
+        let _ = Spi::get_one::<String>("SELECT steep_repl.get_progress_error()");
+        let _ = Spi::get_one::<i64>("SELECT steep_repl.get_progress_work_queue_id()");
+        let _ = Spi::get_one::<String>("SELECT steep_repl.get_progress_operation_id()");
+        let _ = Spi::get_one::<String>("SELECT steep_repl.get_progress_operation_type()");
+        let _ = Spi::get_one::<i32>("SELECT steep_repl.get_progress_tables_completed()");
+        let _ = Spi::get_one::<i32>("SELECT steep_repl.get_progress_tables_total()");
+        let _ = Spi::get_one::<i64>("SELECT steep_repl.get_progress_bytes_processed()");
+        let _ = Spi::get_one::<i64>("SELECT steep_repl.get_progress_bytes_total()");
+        let _ = Spi::get_one::<i64>("SELECT steep_repl.get_progress_rows_processed()");
+        let _ = Spi::get_one::<i64>("SELECT steep_repl.get_progress_rows_total()");
+        let _ = Spi::get_one::<f32>("SELECT steep_repl.get_progress_throughput()");
     }
 }

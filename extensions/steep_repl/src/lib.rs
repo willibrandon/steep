@@ -36,6 +36,7 @@ mod work_queue;
 mod progress;
 mod notify;
 mod worker;
+mod health;
 
 // Re-export utility functions for SQL access
 pub use utils::{steep_repl_version, steep_repl_min_pg_version};

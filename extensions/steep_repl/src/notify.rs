@@ -87,6 +87,66 @@ pub fn notify_work_available() {
     send_notify(WORK_CHANNEL, "new_work");
 }
 
+/// Send a progress notification from shared memory state.
+///
+/// This is the primary function the background worker uses to send progress updates.
+/// It reads the current progress from shared memory and sends a NOTIFY with that data.
+///
+/// T010: pg_notify wrapper for progress updates
+pub fn notify_progress_from_shmem() {
+    use crate::progress::{get_progress_snapshot, ProgressPhase};
+
+    let progress = get_progress_snapshot();
+
+    // Don't send notification if no operation is tracked
+    if progress.phase == ProgressPhase::Idle as i32 {
+        return;
+    }
+
+    let phase = crate::progress::ProgressPhase::from_i32(progress.phase);
+    let operation_type = progress.get_operation_type().as_str();
+    let operation_id = progress.get_operation_id();
+    let current_table = progress.get_current_table();
+
+    // Check if operation completed or failed
+    if phase == ProgressPhase::Complete {
+        notify_status(operation_type, &operation_id, "complete", None);
+    } else if phase == ProgressPhase::Failed {
+        let error = progress.get_error_message();
+        let error_opt = if error.is_empty() { None } else { Some(error.as_str()) };
+        notify_status(operation_type, &operation_id, "failed", error_opt);
+    } else {
+        // Send progress update
+        notify_progress(
+            operation_type,
+            &operation_id,
+            phase.as_str(),
+            progress.overall_percent,
+            progress.tables_completed,
+            progress.tables_total,
+            if current_table.is_empty() { None } else { Some(&current_table) },
+            progress.bytes_processed,
+            if progress.eta_seconds > 0 { Some(progress.eta_seconds) } else { None },
+            None,
+        );
+    }
+}
+
+/// Send a failure notification with an error message.
+///
+/// This is a convenience function for the background worker to report failures
+/// with a specific error message, without going through shared memory.
+pub fn notify_failure(operation_type: &str, operation_id: &str, error: &str) {
+    notify_status(operation_type, operation_id, "failed", Some(error));
+}
+
+/// Send a completion notification.
+///
+/// This is a convenience function for the background worker to report completion.
+pub fn notify_completion(operation_type: &str, operation_id: &str) {
+    notify_status(operation_type, operation_id, "complete", None);
+}
+
 // =============================================================================
 // SQL Functions for Manual NOTIFY
 // =============================================================================
@@ -104,6 +164,14 @@ fn _steep_repl_wake_worker() {
     notify_work_available();
 }
 
+/// Broadcast current progress from shared memory via NOTIFY (internal implementation).
+/// This reads the progress state and sends an appropriate notification.
+/// T010: pg_notify wrapper for progress updates
+#[pg_extern]
+fn _steep_repl_broadcast_progress() {
+    notify_progress_from_shmem();
+}
+
 // Schema-qualified wrapper functions for notify
 extension_sql!(
     r#"
@@ -114,11 +182,15 @@ CREATE FUNCTION steep_repl.send_progress_notify(payload TEXT) RETURNS void
 CREATE FUNCTION steep_repl.wake_worker() RETURNS void
     LANGUAGE sql AS $$ SELECT _steep_repl_wake_worker() $$;
 
+CREATE FUNCTION steep_repl.broadcast_progress() RETURNS void
+    LANGUAGE sql AS $$ SELECT _steep_repl_broadcast_progress() $$;
+
 COMMENT ON FUNCTION steep_repl.send_progress_notify(TEXT) IS 'Send a custom notification on the progress channel';
 COMMENT ON FUNCTION steep_repl.wake_worker() IS 'Send a notification to wake up the background worker';
+COMMENT ON FUNCTION steep_repl.broadcast_progress() IS 'Broadcast current progress from shared memory via NOTIFY (T010)';
 "#,
     name = "create_notify_wrapper_functions",
-    requires = ["create_schema", _steep_repl_send_progress_notify, _steep_repl_wake_worker],
+    requires = ["create_schema", _steep_repl_send_progress_notify, _steep_repl_wake_worker, _steep_repl_broadcast_progress],
 );
 
 // =============================================================================
@@ -332,5 +404,142 @@ mod tests {
             "SELECT steep_repl.wake_worker()"
         );
         assert!(result.is_ok(), "wake_worker should not error");
+    }
+
+    // =========================================================================
+    // Tests for T010: pg_notify wrapper for progress updates
+    // =========================================================================
+
+    #[pg_test]
+    fn test_broadcast_progress_function_exists() {
+        let result = Spi::get_one::<bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM pg_proc p
+                JOIN pg_namespace n ON p.pronamespace = n.oid
+                WHERE n.nspname = 'steep_repl' AND p.proname = 'broadcast_progress'
+            )"
+        );
+        assert_eq!(result, Ok(Some(true)), "broadcast_progress function should exist");
+    }
+
+    #[pg_test]
+    fn test_broadcast_progress_callable() {
+        // broadcast_progress should be callable without error even when no operation is active
+        let result = Spi::run(
+            "SELECT steep_repl.broadcast_progress()"
+        );
+        assert!(result.is_ok(), "broadcast_progress should not error");
+    }
+
+    #[pg_test]
+    fn test_broadcast_progress_with_active_operation() {
+        // Start an operation in shared memory
+        crate::progress::start_progress(
+            crate::progress::OperationType::SnapshotGenerate,
+            "test_broadcast_001",
+            100,
+            10,
+            1000000,
+            50000,
+        );
+
+        // broadcast_progress should send a notification
+        let result = Spi::run(
+            "SELECT steep_repl.broadcast_progress()"
+        );
+        assert!(result.is_ok(), "broadcast_progress should not error with active operation");
+
+        // Clean up
+        crate::progress::reset_progress();
+    }
+
+    #[pg_test]
+    fn test_rust_notify_progress_from_shmem_idle() {
+        // When idle, should not send notification (silent no-op)
+        crate::progress::reset_progress();
+        crate::notify::notify_progress_from_shmem();
+        // No panic means success - notification silently skipped when idle
+    }
+
+    #[pg_test]
+    fn test_rust_notify_progress_from_shmem_active() {
+        // Start operation
+        crate::progress::start_progress(
+            crate::progress::OperationType::SnapshotApply,
+            "test_notify_shmem",
+            200,
+            5,
+            500000,
+            25000,
+        );
+
+        // Update progress
+        crate::progress::update_progress(
+            crate::progress::ProgressPhase::Data,
+            3,
+            300000,
+            15000,
+            "public.orders",
+        );
+
+        // This should send a progress notification
+        crate::notify::notify_progress_from_shmem();
+
+        // Clean up
+        crate::progress::reset_progress();
+    }
+
+    #[pg_test]
+    fn test_rust_notify_progress_from_shmem_complete() {
+        // Start and complete operation
+        crate::progress::start_progress(
+            crate::progress::OperationType::BidirectionalMerge,
+            "test_notify_complete",
+            300,
+            2,
+            100000,
+            5000,
+        );
+        crate::progress::complete_progress();
+
+        // Should send completion notification
+        crate::notify::notify_progress_from_shmem();
+
+        // Clean up
+        crate::progress::reset_progress();
+    }
+
+    #[pg_test]
+    fn test_rust_notify_progress_from_shmem_failed() {
+        // Start and fail operation
+        crate::progress::start_progress(
+            crate::progress::OperationType::SnapshotGenerate,
+            "test_notify_failed",
+            400,
+            3,
+            200000,
+            10000,
+        );
+        crate::progress::fail_progress("Connection timeout");
+
+        // Should send failure notification with error
+        crate::notify::notify_progress_from_shmem();
+
+        // Clean up
+        crate::progress::reset_progress();
+    }
+
+    #[pg_test]
+    fn test_rust_notify_failure_helper() {
+        // Test the notify_failure convenience function
+        crate::notify::notify_failure("snapshot_generate", "test_failure_001", "Disk full");
+        // No panic means success
+    }
+
+    #[pg_test]
+    fn test_rust_notify_completion_helper() {
+        // Test the notify_completion convenience function
+        crate::notify::notify_completion("snapshot_apply", "test_complete_001");
+        // No panic means success
     }
 }
