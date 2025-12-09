@@ -5,8 +5,331 @@
 //! queued here and processed by the background worker.
 //!
 //! T001: Add work_queue table to extension schema
+//! T008: Implement work queue claim with FOR UPDATE SKIP LOCKED
 
 use pgrx::prelude::*;
+
+// =============================================================================
+// Rust Work Queue API (T008)
+// =============================================================================
+// These functions use Spi::get_one() and Spi::run() instead of Spi::connect()
+// because they need to work inside BackgroundWorker::transaction() context.
+
+/// Work queue entry representing a claimed job.
+///
+/// This struct holds all the data needed to process a work item.
+#[derive(Debug)]
+pub struct WorkQueueEntry {
+    /// Primary key ID
+    pub id: i64,
+    /// Operation type: snapshot_generate, snapshot_apply, bidirectional_merge
+    pub operation: String,
+    /// Snapshot ID (for snapshot operations)
+    pub snapshot_id: Option<String>,
+    /// Merge ID (for merge operations)
+    pub merge_id: Option<pgrx::Uuid>,
+    /// Operation parameters as JSON
+    pub params: pgrx::JsonB,
+}
+
+/// Result of attempting to claim work from the queue.
+#[derive(Debug)]
+pub enum ClaimWorkResult {
+    /// Successfully claimed a work item
+    Claimed(WorkQueueEntry),
+    /// No pending work available
+    NoWork,
+    /// Error during claim operation
+    Error(String),
+}
+
+/// Claim the next pending work item using FOR UPDATE SKIP LOCKED.
+///
+/// This function:
+/// 1. Selects the oldest pending job with row-level locking
+/// 2. Marks it as 'running' with current timestamp and worker PID
+/// 3. Returns the work entry for processing
+///
+/// Uses Spi::get_one() and Spi::run() to work inside BackgroundWorker::transaction().
+///
+/// # Example
+///
+/// ```ignore
+/// BackgroundWorker::transaction(|| {
+///     match claim_next_work() {
+///         ClaimWorkResult::Claimed(entry) => {
+///             // Process the work item
+///             process_work(&entry);
+///             complete_work_entry(entry.id);
+///         }
+///         ClaimWorkResult::NoWork => {
+///             // No work available, sleep and retry
+///         }
+///         ClaimWorkResult::Error(e) => {
+///             pgrx::warning!("Failed to claim work: {}", e);
+///         }
+///     }
+/// });
+/// ```
+pub fn claim_next_work() -> ClaimWorkResult {
+    // Step 1: Find and lock the next pending work item
+    // Using FOR UPDATE SKIP LOCKED ensures:
+    // - Row-level lock prevents other workers from claiming the same job
+    // - SKIP LOCKED allows concurrent workers to claim different jobs
+    //
+    // Note: Spi::get_one() returns Err with "SpiTupleTable positioned before..."
+    // when no rows are returned, so we need to check for that specific error.
+    let id = match Spi::get_one::<i64>(
+        r#"SELECT id FROM steep_repl.work_queue
+           WHERE status = 'pending'
+           ORDER BY created_at
+           LIMIT 1
+           FOR UPDATE SKIP LOCKED"#,
+    ) {
+        Ok(Some(work_id)) => work_id,
+        Ok(None) => return ClaimWorkResult::NoWork,
+        // Spi::get_one returns an error when no rows are found
+        Err(e) if e.to_string().contains("positioned before") => return ClaimWorkResult::NoWork,
+        Err(e) => return ClaimWorkResult::Error(format!("failed to query work queue: {}", e)),
+    };
+
+    // Step 2: Mark as running and set worker PID
+    if let Err(e) = Spi::run(&format!(
+        r#"UPDATE steep_repl.work_queue
+           SET status = 'running', started_at = now(), worker_pid = pg_backend_pid()
+           WHERE id = {}"#,
+        id
+    )) {
+        return ClaimWorkResult::Error(format!("failed to mark work as running: {}", e));
+    }
+
+    // Step 3: Fetch the full work entry data
+    let operation = match Spi::get_one::<String>(&format!(
+        "SELECT operation FROM steep_repl.work_queue WHERE id = {}",
+        id
+    )) {
+        Ok(Some(op)) => op,
+        Ok(None) => return ClaimWorkResult::Error("operation is NULL".to_string()),
+        Err(e) => return ClaimWorkResult::Error(format!("failed to get operation: {}", e)),
+    };
+
+    let snapshot_id = Spi::get_one::<String>(&format!(
+        "SELECT snapshot_id FROM steep_repl.work_queue WHERE id = {}",
+        id
+    ))
+    .ok()
+    .flatten();
+
+    let merge_id = Spi::get_one::<pgrx::Uuid>(&format!(
+        "SELECT merge_id FROM steep_repl.work_queue WHERE id = {}",
+        id
+    ))
+    .ok()
+    .flatten();
+
+    let params = Spi::get_one::<pgrx::JsonB>(&format!(
+        "SELECT params FROM steep_repl.work_queue WHERE id = {}",
+        id
+    ))
+    .ok()
+    .flatten()
+    .unwrap_or(pgrx::JsonB(serde_json::json!({})));
+
+    ClaimWorkResult::Claimed(WorkQueueEntry {
+        id,
+        operation,
+        snapshot_id,
+        merge_id,
+        params,
+    })
+}
+
+/// Mark a work queue entry as complete.
+///
+/// Should only be called for entries in 'running' status.
+pub fn complete_work_entry(id: i64) -> Result<(), String> {
+    Spi::run(&format!(
+        r#"UPDATE steep_repl.work_queue
+           SET status = 'complete', completed_at = now()
+           WHERE id = {} AND status = 'running'"#,
+        id
+    ))
+    .map_err(|e| format!("failed to complete work: {}", e))
+}
+
+/// Mark a work queue entry as failed with an error message.
+///
+/// Should only be called for entries in 'running' status.
+pub fn fail_work_entry(id: i64, error_message: &str) -> Result<(), String> {
+    // Escape single quotes in error message for SQL safety
+    let escaped_error = error_message.replace('\'', "''");
+    Spi::run(&format!(
+        r#"UPDATE steep_repl.work_queue
+           SET status = 'failed', completed_at = now(), error_message = '{}'
+           WHERE id = {} AND status = 'running'"#,
+        escaped_error, id
+    ))
+    .map_err(|e| format!("failed to mark work as failed: {}", e))
+}
+
+/// Mark a work queue entry as cancelled.
+///
+/// Can be called for entries in 'pending' or 'running' status.
+pub fn cancel_work_entry(id: i64) -> Result<bool, String> {
+    let result = Spi::get_one::<i64>(&format!(
+        r#"WITH updated AS (
+               UPDATE steep_repl.work_queue
+               SET status = 'cancelled', completed_at = now()
+               WHERE id = {} AND status IN ('pending', 'running')
+               RETURNING 1
+           )
+           SELECT count(*) FROM updated"#,
+        id
+    ))
+    .map_err(|e| format!("failed to cancel work: {}", e))?;
+
+    Ok(result.unwrap_or(0) > 0)
+}
+
+/// Queue a snapshot generate operation.
+///
+/// Returns the work queue entry ID on success.
+pub fn queue_snapshot_generate(
+    snapshot_id: &str,
+    output_path: &str,
+    compression: &str,
+    parallel: i32,
+) -> Result<i64, String> {
+    let escaped_snapshot = snapshot_id.replace('\'', "''");
+    let escaped_path = output_path.replace('\'', "''");
+    let escaped_compression = compression.replace('\'', "''");
+
+    Spi::get_one::<i64>(&format!(
+        r#"INSERT INTO steep_repl.work_queue (operation, snapshot_id, params)
+           VALUES (
+               'snapshot_generate',
+               '{}',
+               jsonb_build_object(
+                   'output_path', '{}',
+                   'compression', '{}',
+                   'parallel', {}
+               )
+           )
+           RETURNING id"#,
+        escaped_snapshot, escaped_path, escaped_compression, parallel
+    ))
+    .map_err(|e| format!("failed to queue snapshot generate: {}", e))?
+    .ok_or_else(|| "no ID returned from insert".to_string())
+}
+
+/// Queue a snapshot apply operation.
+///
+/// Returns the work queue entry ID on success.
+pub fn queue_snapshot_apply(
+    snapshot_id: &str,
+    input_path: &str,
+    parallel: i32,
+    verify: bool,
+) -> Result<i64, String> {
+    let escaped_snapshot = snapshot_id.replace('\'', "''");
+    let escaped_path = input_path.replace('\'', "''");
+
+    Spi::get_one::<i64>(&format!(
+        r#"INSERT INTO steep_repl.work_queue (operation, snapshot_id, params)
+           VALUES (
+               'snapshot_apply',
+               '{}',
+               jsonb_build_object(
+                   'input_path', '{}',
+                   'parallel', {},
+                   'verify', {}
+               )
+           )
+           RETURNING id"#,
+        escaped_snapshot, escaped_path, parallel, verify
+    ))
+    .map_err(|e| format!("failed to queue snapshot apply: {}", e))?
+    .ok_or_else(|| "no ID returned from insert".to_string())
+}
+
+/// Queue a bidirectional merge operation.
+///
+/// Returns the work queue entry ID on success.
+pub fn queue_bidirectional_merge(
+    merge_id: pgrx::Uuid,
+    peer_connstr: &str,
+    tables: &[&str],
+    strategy: &str,
+    dry_run: bool,
+) -> Result<i64, String> {
+    let escaped_connstr = peer_connstr.replace('\'', "''");
+    let escaped_strategy = strategy.replace('\'', "''");
+    let tables_array = tables
+        .iter()
+        .map(|t| format!("'{}'", t.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    Spi::get_one::<i64>(&format!(
+        r#"INSERT INTO steep_repl.work_queue (operation, merge_id, params)
+           VALUES (
+               'bidirectional_merge',
+               '{}',
+               jsonb_build_object(
+                   'peer_connstr', '{}',
+                   'tables', ARRAY[{}]::text[],
+                   'strategy', '{}',
+                   'dry_run', {}
+               )
+           )
+           RETURNING id"#,
+        merge_id, escaped_connstr, tables_array, escaped_strategy, dry_run
+    ))
+    .map_err(|e| format!("failed to queue merge: {}", e))?
+    .ok_or_else(|| "no ID returned from insert".to_string())
+}
+
+/// Get pending work count.
+///
+/// Returns the number of pending work items in the queue.
+pub fn get_pending_work_count() -> Result<i64, String> {
+    Spi::get_one::<i64>("SELECT count(*) FROM steep_repl.work_queue WHERE status = 'pending'")
+        .map_err(|e| format!("failed to count pending work: {}", e))?
+        .ok_or_else(|| "no count returned".to_string())
+}
+
+/// Get running work count.
+///
+/// Returns the number of currently running work items.
+pub fn get_running_work_count() -> Result<i64, String> {
+    Spi::get_one::<i64>("SELECT count(*) FROM steep_repl.work_queue WHERE status = 'running'")
+        .map_err(|e| format!("failed to count running work: {}", e))?
+        .ok_or_else(|| "no count returned".to_string())
+}
+
+/// Recover abandoned work items.
+///
+/// Marks running jobs with dead workers as failed.
+/// Returns the number of recovered items.
+pub fn recover_abandoned_work() -> Result<i64, String> {
+    Spi::get_one::<i64>(
+        r#"WITH recovered AS (
+               UPDATE steep_repl.work_queue wq
+               SET status = 'failed',
+                   completed_at = now(),
+                   error_message = 'Worker process terminated unexpectedly (PID ' || wq.worker_pid || ')'
+               WHERE wq.status = 'running'
+               AND NOT EXISTS (
+                   SELECT 1 FROM pg_stat_activity
+                   WHERE pid = wq.worker_pid
+               )
+               RETURNING 1
+           )
+           SELECT count(*) FROM recovered"#,
+    )
+    .map_err(|e| format!("failed to recover abandoned work: {}", e))?
+    .ok_or_else(|| "no count returned".to_string())
+}
 
 extension_sql!(
     r#"
@@ -646,5 +969,324 @@ mod tests {
             )"
         );
         assert_eq!(result, Ok(Some(true)), "recover_abandoned_work function should exist");
+    }
+
+    // =========================================================================
+    // Tests for Rust API (T008)
+    // =========================================================================
+
+    #[pg_test]
+    fn test_rust_claim_next_work_no_work() {
+        // When queue is empty, should return NoWork
+        let result = crate::work_queue::claim_next_work();
+        match result {
+            crate::work_queue::ClaimWorkResult::NoWork => (),
+            crate::work_queue::ClaimWorkResult::Claimed(_) => {
+                panic!("Expected NoWork, got Claimed");
+            }
+            crate::work_queue::ClaimWorkResult::Error(e) => {
+                panic!("Expected NoWork, got Error: {}", e);
+            }
+        }
+    }
+
+    #[pg_test]
+    fn test_rust_claim_next_work_with_work() {
+        // Create test node and snapshot
+        Spi::run(
+            "INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
+             VALUES ('rust-claim-test-node', 'Rust Claim Test', 'localhost', 5432, 50, 'healthy')"
+        ).expect("node insert should succeed");
+
+        Spi::run(
+            "INSERT INTO steep_repl.snapshots (snapshot_id, source_node_id)
+             VALUES ('snap_rust_claim_test', 'rust-claim-test-node')"
+        ).expect("snapshot insert should succeed");
+
+        // Queue a job using SQL function
+        Spi::run(
+            "SELECT steep_repl.queue_snapshot_generate('snap_rust_claim_test', '/tmp/test', 'none', 1)"
+        ).expect("queue should succeed");
+
+        // Claim using Rust API
+        let result = crate::work_queue::claim_next_work();
+        match result {
+            crate::work_queue::ClaimWorkResult::Claimed(entry) => {
+                assert_eq!(entry.operation, "snapshot_generate");
+                assert_eq!(entry.snapshot_id, Some("snap_rust_claim_test".to_string()));
+
+                // Verify status was updated to running
+                let status = Spi::get_one::<String>(&format!(
+                    "SELECT status FROM steep_repl.work_queue WHERE id = {}",
+                    entry.id
+                ));
+                assert_eq!(status, Ok(Some("running".to_string())));
+            }
+            crate::work_queue::ClaimWorkResult::NoWork => {
+                panic!("Expected Claimed, got NoWork");
+            }
+            crate::work_queue::ClaimWorkResult::Error(e) => {
+                panic!("Expected Claimed, got Error: {}", e);
+            }
+        }
+
+        // Cleanup
+        Spi::run("DELETE FROM steep_repl.work_queue WHERE snapshot_id = 'snap_rust_claim_test'")
+            .expect("cleanup work_queue should succeed");
+        Spi::run("DELETE FROM steep_repl.snapshots WHERE snapshot_id = 'snap_rust_claim_test'")
+            .expect("cleanup snapshots should succeed");
+        Spi::run("DELETE FROM steep_repl.nodes WHERE node_id = 'rust-claim-test-node'")
+            .expect("cleanup nodes should succeed");
+    }
+
+    #[pg_test]
+    fn test_rust_complete_work_entry() {
+        // Create test node and snapshot
+        Spi::run(
+            "INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
+             VALUES ('rust-complete-test-node', 'Rust Complete Test', 'localhost', 5432, 50, 'healthy')"
+        ).expect("node insert should succeed");
+
+        Spi::run(
+            "INSERT INTO steep_repl.snapshots (snapshot_id, source_node_id)
+             VALUES ('snap_rust_complete_test', 'rust-complete-test-node')"
+        ).expect("snapshot insert should succeed");
+
+        // Queue and claim
+        Spi::run(
+            "SELECT steep_repl.queue_snapshot_generate('snap_rust_complete_test', '/tmp/test', 'none', 1)"
+        ).expect("queue should succeed");
+
+        let entry = match crate::work_queue::claim_next_work() {
+            crate::work_queue::ClaimWorkResult::Claimed(e) => e,
+            _ => panic!("Expected to claim work"),
+        };
+
+        // Complete using Rust API
+        let result = crate::work_queue::complete_work_entry(entry.id);
+        assert!(result.is_ok(), "complete_work_entry should succeed");
+
+        // Verify status
+        let status = Spi::get_one::<String>(&format!(
+            "SELECT status FROM steep_repl.work_queue WHERE id = {}",
+            entry.id
+        ));
+        assert_eq!(status, Ok(Some("complete".to_string())));
+
+        // Cleanup
+        Spi::run("DELETE FROM steep_repl.work_queue WHERE snapshot_id = 'snap_rust_complete_test'")
+            .expect("cleanup work_queue should succeed");
+        Spi::run("DELETE FROM steep_repl.snapshots WHERE snapshot_id = 'snap_rust_complete_test'")
+            .expect("cleanup snapshots should succeed");
+        Spi::run("DELETE FROM steep_repl.nodes WHERE node_id = 'rust-complete-test-node'")
+            .expect("cleanup nodes should succeed");
+    }
+
+    #[pg_test]
+    fn test_rust_fail_work_entry() {
+        // Create test node and snapshot
+        Spi::run(
+            "INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
+             VALUES ('rust-fail-test-node', 'Rust Fail Test', 'localhost', 5432, 50, 'healthy')"
+        ).expect("node insert should succeed");
+
+        Spi::run(
+            "INSERT INTO steep_repl.snapshots (snapshot_id, source_node_id)
+             VALUES ('snap_rust_fail_test', 'rust-fail-test-node')"
+        ).expect("snapshot insert should succeed");
+
+        // Queue and claim
+        Spi::run(
+            "SELECT steep_repl.queue_snapshot_generate('snap_rust_fail_test', '/tmp/test', 'none', 1)"
+        ).expect("queue should succeed");
+
+        let entry = match crate::work_queue::claim_next_work() {
+            crate::work_queue::ClaimWorkResult::Claimed(e) => e,
+            _ => panic!("Expected to claim work"),
+        };
+
+        // Fail using Rust API
+        let result = crate::work_queue::fail_work_entry(entry.id, "Test error message");
+        assert!(result.is_ok(), "fail_work_entry should succeed");
+
+        // Verify status and error message
+        let status = Spi::get_one::<String>(&format!(
+            "SELECT status FROM steep_repl.work_queue WHERE id = {}",
+            entry.id
+        ));
+        assert_eq!(status, Ok(Some("failed".to_string())));
+
+        let error_msg = Spi::get_one::<String>(&format!(
+            "SELECT error_message FROM steep_repl.work_queue WHERE id = {}",
+            entry.id
+        ));
+        assert_eq!(error_msg, Ok(Some("Test error message".to_string())));
+
+        // Cleanup
+        Spi::run("DELETE FROM steep_repl.work_queue WHERE snapshot_id = 'snap_rust_fail_test'")
+            .expect("cleanup work_queue should succeed");
+        Spi::run("DELETE FROM steep_repl.snapshots WHERE snapshot_id = 'snap_rust_fail_test'")
+            .expect("cleanup snapshots should succeed");
+        Spi::run("DELETE FROM steep_repl.nodes WHERE node_id = 'rust-fail-test-node'")
+            .expect("cleanup nodes should succeed");
+    }
+
+    #[pg_test]
+    fn test_rust_fail_work_entry_escapes_quotes() {
+        // Create test node and snapshot
+        Spi::run(
+            "INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
+             VALUES ('rust-escape-test-node', 'Rust Escape Test', 'localhost', 5432, 50, 'healthy')"
+        ).expect("node insert should succeed");
+
+        Spi::run(
+            "INSERT INTO steep_repl.snapshots (snapshot_id, source_node_id)
+             VALUES ('snap_rust_escape_test', 'rust-escape-test-node')"
+        ).expect("snapshot insert should succeed");
+
+        // Queue and claim
+        Spi::run(
+            "SELECT steep_repl.queue_snapshot_generate('snap_rust_escape_test', '/tmp/test', 'none', 1)"
+        ).expect("queue should succeed");
+
+        let entry = match crate::work_queue::claim_next_work() {
+            crate::work_queue::ClaimWorkResult::Claimed(e) => e,
+            _ => panic!("Expected to claim work"),
+        };
+
+        // Fail with message containing quotes
+        let result = crate::work_queue::fail_work_entry(entry.id, "Error: can't find file 'test.txt'");
+        assert!(result.is_ok(), "fail_work_entry should handle quotes");
+
+        // Verify error message was stored correctly
+        let error_msg = Spi::get_one::<String>(&format!(
+            "SELECT error_message FROM steep_repl.work_queue WHERE id = {}",
+            entry.id
+        ));
+        assert_eq!(error_msg, Ok(Some("Error: can't find file 'test.txt'".to_string())));
+
+        // Cleanup
+        Spi::run("DELETE FROM steep_repl.work_queue WHERE snapshot_id = 'snap_rust_escape_test'")
+            .expect("cleanup work_queue should succeed");
+        Spi::run("DELETE FROM steep_repl.snapshots WHERE snapshot_id = 'snap_rust_escape_test'")
+            .expect("cleanup snapshots should succeed");
+        Spi::run("DELETE FROM steep_repl.nodes WHERE node_id = 'rust-escape-test-node'")
+            .expect("cleanup nodes should succeed");
+    }
+
+    #[pg_test]
+    fn test_rust_cancel_work_entry() {
+        // Create test node and snapshot
+        Spi::run(
+            "INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
+             VALUES ('rust-cancel-test-node', 'Rust Cancel Test', 'localhost', 5432, 50, 'healthy')"
+        ).expect("node insert should succeed");
+
+        Spi::run(
+            "INSERT INTO steep_repl.snapshots (snapshot_id, source_node_id)
+             VALUES ('snap_rust_cancel_test', 'rust-cancel-test-node')"
+        ).expect("snapshot insert should succeed");
+
+        // Queue a job (don't claim it - cancel while pending)
+        let job_id = Spi::get_one::<i64>(
+            "SELECT id FROM steep_repl.queue_snapshot_generate('snap_rust_cancel_test', '/tmp/test', 'none', 1)"
+        ).expect("queue should succeed").unwrap();
+
+        // Cancel using Rust API
+        let result = crate::work_queue::cancel_work_entry(job_id);
+        assert!(result.is_ok(), "cancel_work_entry should succeed");
+        assert!(result.unwrap(), "cancel should return true");
+
+        // Verify status
+        let status = Spi::get_one::<String>(&format!(
+            "SELECT status FROM steep_repl.work_queue WHERE id = {}",
+            job_id
+        ));
+        assert_eq!(status, Ok(Some("cancelled".to_string())));
+
+        // Cleanup
+        Spi::run("DELETE FROM steep_repl.work_queue WHERE snapshot_id = 'snap_rust_cancel_test'")
+            .expect("cleanup work_queue should succeed");
+        Spi::run("DELETE FROM steep_repl.snapshots WHERE snapshot_id = 'snap_rust_cancel_test'")
+            .expect("cleanup snapshots should succeed");
+        Spi::run("DELETE FROM steep_repl.nodes WHERE node_id = 'rust-cancel-test-node'")
+            .expect("cleanup nodes should succeed");
+    }
+
+    #[pg_test]
+    fn test_rust_get_pending_work_count() {
+        // Create test node and snapshot
+        Spi::run(
+            "INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
+             VALUES ('rust-count-test-node', 'Rust Count Test', 'localhost', 5432, 50, 'healthy')"
+        ).expect("node insert should succeed");
+
+        Spi::run(
+            "INSERT INTO steep_repl.snapshots (snapshot_id, source_node_id)
+             VALUES ('snap_rust_count_test', 'rust-count-test-node')"
+        ).expect("snapshot insert should succeed");
+
+        // Get initial count
+        let initial_count = crate::work_queue::get_pending_work_count();
+        assert!(initial_count.is_ok(), "get_pending_work_count should succeed");
+        let initial = initial_count.unwrap();
+
+        // Queue a job
+        Spi::run(
+            "SELECT steep_repl.queue_snapshot_generate('snap_rust_count_test', '/tmp/test', 'none', 1)"
+        ).expect("queue should succeed");
+
+        // Count should have increased
+        let new_count = crate::work_queue::get_pending_work_count();
+        assert!(new_count.is_ok(), "get_pending_work_count should succeed");
+        assert_eq!(new_count.unwrap(), initial + 1);
+
+        // Cleanup
+        Spi::run("DELETE FROM steep_repl.work_queue WHERE snapshot_id = 'snap_rust_count_test'")
+            .expect("cleanup work_queue should succeed");
+        Spi::run("DELETE FROM steep_repl.snapshots WHERE snapshot_id = 'snap_rust_count_test'")
+            .expect("cleanup snapshots should succeed");
+        Spi::run("DELETE FROM steep_repl.nodes WHERE node_id = 'rust-count-test-node'")
+            .expect("cleanup nodes should succeed");
+    }
+
+    #[pg_test]
+    fn test_rust_queue_functions() {
+        // Create test node and snapshot
+        Spi::run(
+            "INSERT INTO steep_repl.nodes (node_id, node_name, host, port, priority, status)
+             VALUES ('rust-queue-test-node', 'Rust Queue Test', 'localhost', 5432, 50, 'healthy')"
+        ).expect("node insert should succeed");
+
+        Spi::run(
+            "INSERT INTO steep_repl.snapshots (snapshot_id, source_node_id)
+             VALUES ('snap_rust_queue_test', 'rust-queue-test-node')"
+        ).expect("snapshot insert should succeed");
+
+        // Test queue_snapshot_generate
+        let gen_result = crate::work_queue::queue_snapshot_generate(
+            "snap_rust_queue_test",
+            "/tmp/test",
+            "zstd",
+            4
+        );
+        assert!(gen_result.is_ok(), "queue_snapshot_generate should succeed");
+        let gen_id = gen_result.unwrap();
+        assert!(gen_id > 0, "should return positive ID");
+
+        // Verify params
+        let compression = Spi::get_one::<String>(&format!(
+            "SELECT params->>'compression' FROM steep_repl.work_queue WHERE id = {}",
+            gen_id
+        ));
+        assert_eq!(compression, Ok(Some("zstd".to_string())));
+
+        // Cleanup
+        Spi::run("DELETE FROM steep_repl.work_queue WHERE snapshot_id = 'snap_rust_queue_test'")
+            .expect("cleanup work_queue should succeed");
+        Spi::run("DELETE FROM steep_repl.snapshots WHERE snapshot_id = 'snap_rust_queue_test'")
+            .expect("cleanup snapshots should succeed");
+        Spi::run("DELETE FROM steep_repl.nodes WHERE node_id = 'rust-queue-test-node'")
+            .expect("cleanup nodes should succeed");
     }
 }
