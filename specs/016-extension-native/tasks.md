@@ -60,9 +60,9 @@
 
 ### Implementation for User Story 1
 
-- [ ] T016 [US1] Implement steep_repl.start_snapshot() SQL function in extensions/steep_repl/src/snapshots.rs
-- [ ] T017 [US1] Implement steep_repl.snapshot_progress() SQL function reading from shared memory in extensions/steep_repl/src/snapshots.rs
-- [ ] T018 [US1] Implement steep_repl.cancel_snapshot() SQL function in extensions/steep_repl/src/snapshots.rs
+- [X] T016 [US1] Implement steep_repl.start_snapshot() SQL function in extensions/steep_repl/src/snapshots.rs
+- [X] T017 [US1] Implement steep_repl.snapshot_progress() SQL function reading from shared memory in extensions/steep_repl/src/snapshots.rs
+- [X] T018 [US1] Implement steep_repl.cancel_snapshot() SQL function in extensions/steep_repl/src/snapshots.rs
 - [ ] T019 [P] [US1] Implement steep_repl.register_node() SQL function in extensions/steep_repl/src/nodes.rs
 - [ ] T020 [P] [US1] Implement steep_repl.heartbeat() SQL function in extensions/steep_repl/src/nodes.rs
 - [ ] T021 [P] [US1] Implement steep_repl.node_status() SQL function in extensions/steep_repl/src/nodes.rs
