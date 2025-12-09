@@ -63,9 +63,9 @@
 - [X] T016 [US1] Implement steep_repl.start_snapshot() SQL function in extensions/steep_repl/src/snapshots.rs
 - [X] T017 [US1] Implement steep_repl.snapshot_progress() SQL function reading from shared memory in extensions/steep_repl/src/snapshots.rs
 - [X] T018 [US1] Implement steep_repl.cancel_snapshot() SQL function in extensions/steep_repl/src/snapshots.rs
-- [ ] T019 [P] [US1] Implement steep_repl.register_node() SQL function in extensions/steep_repl/src/nodes.rs
-- [ ] T020 [P] [US1] Implement steep_repl.heartbeat() SQL function in extensions/steep_repl/src/nodes.rs
-- [ ] T021 [P] [US1] Implement steep_repl.node_status() SQL function in extensions/steep_repl/src/nodes.rs
+- [X] T019 [P] [US1] Implement steep_repl.register_node() SQL function in extensions/steep_repl/src/nodes.rs
+- [X] T020 [P] [US1] Implement steep_repl.heartbeat() SQL function in extensions/steep_repl/src/nodes.rs
+- [X] T021 [P] [US1] Implement steep_repl.node_status() SQL function in extensions/steep_repl/src/nodes.rs
 - [ ] T022 [US1] Create cmd/steep-repl/direct/executor.go with direct PostgreSQL execution logic
 - [ ] T023 [US1] Create cmd/steep-repl/direct/detector.go with auto-detection logic (FR-012)
 - [ ] T024 [US1] Add --direct and -c flags to cmd/steep-repl/cmd_snapshot.go
