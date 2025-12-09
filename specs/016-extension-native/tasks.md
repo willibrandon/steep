@@ -68,7 +68,7 @@
 - [X] T021 [P] [US1] Implement steep_repl.node_status() SQL function in extensions/steep_repl/src/nodes.rs
 - [X] T022 [US1] Create cmd/steep-repl/direct/executor.go with direct PostgreSQL execution logic
 - [X] T023 [US1] Create cmd/steep-repl/direct/detector.go with auto-detection logic (FR-012)
-- [ ] T024 [US1] Add --direct and -c flags to cmd/steep-repl/cmd_snapshot.go
+- [X] T024 [US1] Add --direct and -c flags to cmd/steep-repl/cmd_snapshot.go
 - [ ] T025 [US1] Implement direct mode snapshot generate in cmd/steep-repl/cmd_snapshot.go
 - [ ] T026 [P] [US1] Add --direct flag to cmd/steep-repl/cmd_schema.go with direct execution
 - [ ] T027 [P] [US1] Add --direct flag to cmd/steep-repl/cmd_node.go with direct execution

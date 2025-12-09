@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/willibrandon/steep/cmd/steep-repl/direct"
+	directpkg "github.com/willibrandon/steep/internal/repl/direct"
 	replgrpc "github.com/willibrandon/steep/internal/repl/grpc"
 	pb "github.com/willibrandon/steep/internal/repl/grpc/proto"
 )
@@ -47,6 +49,7 @@ Examples:
 
 // newSnapshotGenerateCmd creates the snapshot generate subcommand.
 // Implements T085: Add snapshot generate CLI command.
+// T024: Add --direct and -c flags for direct PostgreSQL execution.
 func newSnapshotGenerateCmd() *cobra.Command {
 	var (
 		outputPath      string
@@ -56,6 +59,9 @@ func newSnapshotGenerateCmd() *cobra.Command {
 		caFile          string
 		insecure        bool
 		progress        bool
+		// T024: Direct mode flags
+		directMode bool
+		connString string
 	)
 
 	cmd := &cobra.Command{
@@ -71,15 +77,27 @@ The snapshot includes:
 
 The snapshot captures a consistent point-in-time using a logical replication slot.
 
+Connection modes:
+  --direct    Connect directly to PostgreSQL using the steep_repl extension
+  --remote    Connect to the daemon via gRPC (legacy mode)
+
+If neither is specified, auto-detection tries direct mode first, then daemon.
+
 Examples:
-  # Generate uncompressed snapshot
+  # Generate snapshot using direct mode (preferred)
+  steep-repl snapshot generate node-a --output /snapshots/node-a --direct -c "postgres://user@host/db"
+
+  # Generate snapshot using daemon mode (legacy)
   steep-repl snapshot generate node-a --output /snapshots/node-a --remote localhost:9090 --insecure
 
+  # Auto-detect mode (tries direct first)
+  steep-repl snapshot generate node-a --output /snapshots/node-a
+
   # Generate with gzip compression
-  steep-repl snapshot generate node-a --output /snapshots/node-a --compression gzip --remote localhost:9090 --insecure
+  steep-repl snapshot generate node-a --output /snapshots/node-a --compression gzip --direct
 
   # Generate with 8 parallel workers
-  steep-repl snapshot generate node-a --output /snapshots/node-a --parallel 8 --remote localhost:9090 --insecure`,
+  steep-repl snapshot generate node-a --output /snapshots/node-a --parallel 8 --direct`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sourceNodeID := args[0]
@@ -87,12 +105,45 @@ Examples:
 				return fmt.Errorf("--output flag is required")
 			}
 
+			// Detect execution mode
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			flags := direct.Flags{
+				Direct:     directMode,
+				Remote:     remoteAddr,
+				ConnString: connString,
+			}
+
+			detector := direct.NewDetector(nil) // TODO: Load config if available
+			result, err := detector.DetectForOperation(ctx, flags, "snapshot_generate")
+			if err != nil {
+				return fmt.Errorf("failed to detect execution mode: %w", err)
+			}
+
+			if result.Mode == direct.ModeUnavailable {
+				return fmt.Errorf("no execution mode available: %s", result.Reason)
+			}
+
 			fmt.Printf("Generating snapshot from %s to %s\n", sourceNodeID, outputPath)
+			fmt.Printf("  Mode: %s\n", result.Mode)
 			fmt.Printf("  Compression: %s\n", compression)
 			fmt.Printf("  Parallel workers: %d\n", parallelWorkers)
+			if result.Warning != "" {
+				fmt.Printf("  Warning: %s\n", result.Warning)
+			}
 			fmt.Println()
 
-			return runSnapshotGenerate(sourceNodeID, outputPath, compression, parallelWorkers, remoteAddr, caFile, insecure, progress)
+			switch result.Mode {
+			case direct.ModeDirect:
+				return runSnapshotGenerateDirect(ctx, sourceNodeID, outputPath, compression, parallelWorkers, connString, progress)
+			case direct.ModeDaemon:
+				return runSnapshotGenerate(sourceNodeID, outputPath, compression, parallelWorkers, remoteAddr, caFile, insecure, progress)
+			default:
+				return fmt.Errorf("unexpected mode: %s", result.Mode)
+			}
 		},
 	}
 
@@ -105,16 +156,22 @@ Examples:
 	cmd.Flags().IntVar(&parallelWorkers, "parallel", 4, "number of parallel workers (1-16)")
 	cmd.Flags().BoolVar(&progress, "progress", true, "show progress updates")
 
-	// Connection flags
-	cmd.Flags().StringVar(&remoteAddr, "remote", "", "daemon gRPC address (host:port) - required")
+	// T024: Direct mode flags
+	cmd.Flags().BoolVar(&directMode, "direct", false, "use direct PostgreSQL connection via extension")
+	cmd.Flags().StringVarP(&connString, "connection", "c", "", "PostgreSQL connection string for direct mode")
+
+	// Connection flags (daemon mode)
+	cmd.Flags().StringVar(&remoteAddr, "remote", "", "daemon gRPC address (host:port)")
 	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
-	_ = cmd.MarkFlagRequired("remote")
+
+	// Mark flags as mutually exclusive
+	cmd.MarkFlagsMutuallyExclusive("direct", "remote")
 
 	return cmd
 }
 
-// runSnapshotGenerate executes the snapshot generate via gRPC.
+// runSnapshotGenerate executes the snapshot generate via gRPC (daemon mode).
 func runSnapshotGenerate(sourceNodeID, outputPath, compression string, parallelWorkers int, remoteAddr, caFile string, insecure, showProgress bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour) // Long timeout for large databases
 	defer cancel()
@@ -188,8 +245,68 @@ func runSnapshotGenerate(sourceNodeID, outputPath, compression string, parallelW
 	return nil
 }
 
+// runSnapshotGenerateDirect executes the snapshot generate via direct PostgreSQL connection.
+// T024: Direct mode implementation using the steep_repl extension.
+func runSnapshotGenerateDirect(ctx context.Context, sourceNodeID, outputPath, compression string, parallelWorkers int, connString string, showProgress bool) error {
+	// Create executor with connection string
+	executor, err := direct.NewExecutor(ctx, direct.ExecutorConfig{
+		ConnString:   connString,
+		ShowProgress: showProgress,
+		Timeout:      24 * time.Hour,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create direct executor: %w", err)
+	}
+	defer executor.Close()
+
+	// Start the snapshot
+	snapshotID, err := executor.GenerateSnapshot(ctx, direct.SnapshotGenerateOptions{
+		OutputPath:  outputPath,
+		Compression: compression,
+		Parallel:    parallelWorkers,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to start snapshot: %w", err)
+	}
+
+	fmt.Printf("Started snapshot: %s (source: %s)\n", snapshotID, sourceNodeID)
+
+	if showProgress {
+		// Wait for completion with progress updates
+		finalState, err := executor.WaitForSnapshot(ctx, snapshotID, func(state *directpkg.ProgressState) {
+			if state.Error != "" {
+				fmt.Printf("\rError: %s\n", state.Error)
+			} else if state.IsComplete {
+				fmt.Printf("\rComplete! Snapshot: %s\n", state.OperationID)
+			} else {
+				fmt.Printf("\r[%s] %.1f%% | %s | %d/%d tables | %d bytes",
+					state.Phase,
+					state.Percent,
+					state.CurrentTable,
+					state.TablesCompleted,
+					state.TablesTotal,
+					state.BytesProcessed)
+			}
+		})
+		if err != nil {
+			return fmt.Errorf("snapshot failed: %w", err)
+		}
+
+		if finalState.IsFailed {
+			return fmt.Errorf("snapshot generation failed: %s", finalState.Error)
+		}
+	}
+
+	fmt.Printf("\nSnapshot generated successfully!\n")
+	fmt.Printf("  Snapshot ID: %s\n", snapshotID)
+	fmt.Printf("  Output: %s\n", outputPath)
+
+	return nil
+}
+
 // newSnapshotApplyCmd creates the snapshot apply subcommand.
 // Implements T086: Add snapshot apply CLI command.
+// T024: Add --direct and -c flags for direct PostgreSQL execution.
 func newSnapshotApplyCmd() *cobra.Command {
 	var (
 		inputPath       string
@@ -200,6 +317,9 @@ func newSnapshotApplyCmd() *cobra.Command {
 		caFile          string
 		insecure        bool
 		progress        bool
+		// T024: Direct mode flags
+		directMode bool
+		connString string
 	)
 
 	cmd := &cobra.Command{
@@ -213,15 +333,24 @@ The apply process:
 3. Restores sequence values
 4. Optionally creates a subscription to the source node
 
+Connection modes:
+  --direct    Connect directly to PostgreSQL using the steep_repl extension
+  --remote    Connect to the daemon via gRPC (legacy mode)
+
+If neither is specified, auto-detection tries direct mode first, then daemon.
+
 Examples:
-  # Apply snapshot to target node
+  # Apply snapshot using direct mode (preferred)
+  steep-repl snapshot apply node-b --input /snapshots/node-a --direct -c "postgres://user@host/db"
+
+  # Apply snapshot using daemon mode (legacy)
   steep-repl snapshot apply node-b --input /snapshots/node-a --remote localhost:9091 --insecure
 
   # Apply without checksum verification (faster but less safe)
-  steep-repl snapshot apply node-b --input /snapshots/node-a --verify=false --remote localhost:9091 --insecure
+  steep-repl snapshot apply node-b --input /snapshots/node-a --verify=false --direct
 
   # Apply with source node ID for subscription setup
-  steep-repl snapshot apply node-b --input /snapshots/node-a --source node-a --remote localhost:9091 --insecure`,
+  steep-repl snapshot apply node-b --input /snapshots/node-a --source node-a --direct`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			targetNodeID := args[0]
@@ -234,15 +363,48 @@ Examples:
 				return fmt.Errorf("input path does not exist: %s", inputPath)
 			}
 
+			// Detect execution mode
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			flags := direct.Flags{
+				Direct:     directMode,
+				Remote:     remoteAddr,
+				ConnString: connString,
+			}
+
+			detector := direct.NewDetector(nil) // TODO: Load config if available
+			result, err := detector.DetectForOperation(ctx, flags, "snapshot_apply")
+			if err != nil {
+				return fmt.Errorf("failed to detect execution mode: %w", err)
+			}
+
+			if result.Mode == direct.ModeUnavailable {
+				return fmt.Errorf("no execution mode available: %s", result.Reason)
+			}
+
 			fmt.Printf("Applying snapshot to %s from %s\n", targetNodeID, inputPath)
+			fmt.Printf("  Mode: %s\n", result.Mode)
 			fmt.Printf("  Verify checksums: %v\n", verifyChecksums)
 			fmt.Printf("  Parallel workers: %d\n", parallelWorkers)
 			if sourceNodeID != "" {
 				fmt.Printf("  Source node: %s (for subscription)\n", sourceNodeID)
 			}
+			if result.Warning != "" {
+				fmt.Printf("  Warning: %s\n", result.Warning)
+			}
 			fmt.Println()
 
-			return runSnapshotApply(targetNodeID, inputPath, sourceNodeID, parallelWorkers, verifyChecksums, remoteAddr, caFile, insecure, progress)
+			switch result.Mode {
+			case direct.ModeDirect:
+				return runSnapshotApplyDirect(ctx, targetNodeID, inputPath, sourceNodeID, parallelWorkers, verifyChecksums, connString, progress)
+			case direct.ModeDaemon:
+				return runSnapshotApply(targetNodeID, inputPath, sourceNodeID, parallelWorkers, verifyChecksums, remoteAddr, caFile, insecure, progress)
+			default:
+				return fmt.Errorf("unexpected mode: %s", result.Mode)
+			}
 		},
 	}
 
@@ -256,11 +418,17 @@ Examples:
 	cmd.Flags().BoolVar(&verifyChecksums, "verify", true, "verify checksums before import")
 	cmd.Flags().BoolVar(&progress, "progress", true, "show progress updates")
 
-	// Connection flags
-	cmd.Flags().StringVar(&remoteAddr, "remote", "", "daemon gRPC address (host:port) - required")
+	// T024: Direct mode flags
+	cmd.Flags().BoolVar(&directMode, "direct", false, "use direct PostgreSQL connection via extension")
+	cmd.Flags().StringVarP(&connString, "connection", "c", "", "PostgreSQL connection string for direct mode")
+
+	// Connection flags (daemon mode)
+	cmd.Flags().StringVar(&remoteAddr, "remote", "", "daemon gRPC address (host:port)")
 	cmd.Flags().StringVar(&caFile, "ca", "", "CA certificate file for TLS")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS (not recommended)")
-	_ = cmd.MarkFlagRequired("remote")
+
+	// Mark flags as mutually exclusive
+	cmd.MarkFlagsMutuallyExclusive("direct", "remote")
 
 	return cmd
 }
@@ -338,4 +506,31 @@ func runSnapshotApply(targetNodeID, inputPath, sourceNodeID string, parallelWork
 	fmt.Printf("  Target: %s\n", targetNodeID)
 
 	return nil
+}
+
+// runSnapshotApplyDirect executes the snapshot apply via direct PostgreSQL connection.
+// T024: Direct mode implementation using the steep_repl extension.
+func runSnapshotApplyDirect(ctx context.Context, targetNodeID, inputPath, sourceNodeID string, parallelWorkers int, verifyChecksums bool, connString string, showProgress bool) error {
+	// Create executor with connection string
+	executor, err := direct.NewExecutor(ctx, direct.ExecutorConfig{
+		ConnString:   connString,
+		ShowProgress: showProgress,
+		Timeout:      24 * time.Hour,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create direct executor: %w", err)
+	}
+	defer executor.Close()
+
+	// Note: The start_apply function in the extension is T032, which comes later in US2.
+	// For now, we return an error indicating the function is not yet implemented.
+	// This will be completed in T032.
+	_ = targetNodeID
+	_ = inputPath
+	_ = sourceNodeID
+	_ = parallelWorkers
+	_ = verifyChecksums
+	_ = showProgress
+
+	return fmt.Errorf("direct mode snapshot apply not yet implemented (pending T032: steep_repl.start_apply)")
 }

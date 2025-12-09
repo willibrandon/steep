@@ -73,6 +73,39 @@ type PostgreSQLConfig struct {
 	SSLMode         string `mapstructure:"sslmode"`
 }
 
+// ConnectionParams returns the connection parameters with defaults applied.
+// This is used by direct.Client to create a connection.
+func (c *PostgreSQLConfig) ConnectionParams() (host string, port int, database, user, passwordCommand, sslmode string) {
+	host = c.Host
+	if host == "" {
+		host = "localhost"
+	}
+
+	port = c.Port
+	if port == 0 {
+		port = 5432
+	}
+
+	database = c.Database
+	if database == "" {
+		database = "postgres"
+	}
+
+	user = c.User
+	if user == "" {
+		user = "postgres"
+	}
+
+	passwordCommand = c.PasswordCommand
+
+	sslmode = c.SSLMode
+	if sslmode == "" {
+		sslmode = "prefer"
+	}
+
+	return
+}
+
 // GRPCConfig holds gRPC server configuration for node-to-node communication.
 type GRPCConfig struct {
 	Port int       `mapstructure:"port"`

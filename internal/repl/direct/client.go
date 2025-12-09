@@ -130,6 +130,27 @@ func NewClientFromEnv(ctx context.Context) (*Client, error) {
 	})
 }
 
+// PostgreSQLConfig interface for config integration.
+// This matches the PostgreSQLConfig struct in internal/repl/config.
+type PostgreSQLConfig interface {
+	ConnectionParams() (host string, port int, database, user, passwordCommand, sslmode string)
+}
+
+// NewClientFromConfig creates a client from a PostgreSQL configuration.
+// This integrates with the repl.config.yaml configuration file.
+func NewClientFromConfig(ctx context.Context, cfg PostgreSQLConfig) (*Client, error) {
+	host, port, database, user, passwordCommand, sslmode := cfg.ConnectionParams()
+
+	return NewClient(ctx, ClientOptions{
+		Host:            host,
+		Port:            port,
+		Database:        database,
+		User:            user,
+		PasswordCommand: passwordCommand,
+		SSLMode:         sslmode,
+	})
+}
+
 // connectWithRetry attempts to connect with exponential backoff.
 func (c *Client) connectWithRetry(ctx context.Context, opts ClientOptions) error {
 	maxDelay := 30 * time.Second
