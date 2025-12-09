@@ -70,7 +70,7 @@
 - [X] T023 [US1] Create cmd/steep-repl/direct/detector.go with auto-detection logic (FR-012)
 - [X] T024 [US1] Add --direct and -c flags to cmd/steep-repl/cmd_snapshot.go
 - [X] T025 [US1] Implement direct mode snapshot generate in cmd/steep-repl/cmd_snapshot.go
-- [ ] T026 [P] [US1] Add --direct flag to cmd/steep-repl/cmd_schema.go with direct execution
+- [X] T026 [P] [US1] Add --direct flag to cmd/steep-repl/cmd_schema.go with direct execution
 - [ ] T027 [P] [US1] Add --direct flag to cmd/steep-repl/cmd_node.go with direct execution
 - [ ] T028 [P] [US1] Add --direct flag to cmd/steep-repl/cmd_merge.go with direct execution
 - [ ] T029 [US1] Ensure existing --remote flag continues to work in all modified commands
