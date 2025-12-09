@@ -11,20 +11,26 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
+	"github.com/willibrandon/steep/cmd/steep-repl/direct"
 	replinit "github.com/willibrandon/steep/internal/repl/init"
 )
 
 // newAnalyzeOverlapCmd creates the analyze-overlap command for overlap analysis.
+// T028: Add --direct mode with --conn-a and --conn-b flags.
 func newAnalyzeOverlapCmd() *cobra.Command {
 	var (
 		tables       string
 		outputJSON   bool
 		detailed     bool
 		remoteServer string
+		// T028: Direct mode flags
+		directMode  bool
+		connStringA string
+		connStringB string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "analyze-overlap <node-a-conn> <node-b-conn>",
+		Use:   "analyze-overlap [node-a-conn] [node-b-conn]",
 		Short: "Analyze data overlap between two nodes",
 		Long: `Analyze data overlap between two nodes for bidirectional merge planning.
 
@@ -37,20 +43,27 @@ This command compares tables between two PostgreSQL nodes and reports:
 The analysis uses hash-based comparison for efficiency, transferring only
 primary keys and 8-byte hashes across the network instead of full rows.
 
+Connection modes:
+  --direct    Connect directly to PostgreSQL using --conn-a and --conn-b
+  Positional  Legacy mode: provide connection strings as arguments
+
 Examples:
-  # Analyze specific tables
+  # Analyze using direct mode (preferred)
+  steep-repl analyze-overlap --direct \
+    --conn-a "host=localhost port=5432 dbname=db1 user=test" \
+    --conn-b "host=localhost port=5433 dbname=db2 user=test" \
+    --tables users,orders
+
+  # Legacy: Analyze specific tables
   steep-repl analyze-overlap localhost:5432 remotehost:5432 --tables users,orders
 
   # Output as JSON for scripting
-  steep-repl analyze-overlap localhost:5432 remotehost:5432 --tables users --json
+  steep-repl analyze-overlap --direct --conn-a "..." --conn-b "..." --tables users --json
 
   # Show detailed row-by-row analysis
-  steep-repl analyze-overlap localhost:5432 remotehost:5432 --tables users --detailed`,
-		Args: cobra.ExactArgs(2),
+  steep-repl analyze-overlap --direct --conn-a "..." --conn-b "..." --tables users --detailed`,
+		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeAAddr := args[0]
-			nodeBAddr := args[1]
-
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
@@ -59,6 +72,24 @@ Examples:
 			if len(tableList) == 0 || (len(tableList) == 1 && tableList[0] == "") {
 				return fmt.Errorf("--tables is required")
 			}
+
+			// T028: Direct mode takes precedence
+			if directMode {
+				if connStringA == "" {
+					return fmt.Errorf("--conn-a flag is required for direct mode")
+				}
+				if connStringB == "" {
+					return fmt.Errorf("--conn-b flag is required for direct mode")
+				}
+				return runAnalyzeOverlapDirect(ctx, connStringA, connStringB, tableList, outputJSON, detailed)
+			}
+
+			// Legacy mode: connection strings as positional arguments
+			if len(args) < 2 {
+				return fmt.Errorf("two connection strings required (or use --direct with --conn-a/--conn-b)")
+			}
+			nodeAAddr := args[0]
+			nodeBAddr := args[1]
 
 			// Connect to both nodes
 			localPool, err := connectToNode(ctx, nodeAAddr)
@@ -186,27 +217,97 @@ Examples:
 		},
 	}
 
+	// T028: Direct mode flags
+	cmd.Flags().BoolVar(&directMode, "direct", false, "use direct PostgreSQL connections via extension")
+	cmd.Flags().StringVar(&connStringA, "conn-a", "", "PostgreSQL connection string for node A (direct mode)")
+	cmd.Flags().StringVar(&connStringB, "conn-b", "", "PostgreSQL connection string for node B (direct mode)")
+
+	// Analysis options
 	cmd.Flags().StringVar(&tables, "tables", "", "Comma-separated list of tables to analyze")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Output results as JSON")
 	cmd.Flags().BoolVar(&detailed, "detailed", false, "Show detailed row-by-row analysis")
-	cmd.Flags().StringVar(&remoteServer, "remote-server", "node_b_fdw", "Name of postgres_fdw foreign server")
+	cmd.Flags().StringVar(&remoteServer, "remote-server", "node_b_fdw", "Name of postgres_fdw foreign server (legacy mode)")
 
-	cmd.MarkFlagRequired("tables")
+	_ = cmd.MarkFlagRequired("tables")
 
 	return cmd
 }
 
+// runAnalyzeOverlapDirect runs overlap analysis via direct PostgreSQL connections.
+// T028: Direct mode implementation using the steep_repl extension.
+func runAnalyzeOverlapDirect(ctx context.Context, connStringA, connStringB string, tables []string, outputJSON, detailed bool) error {
+	// Connect to node A (primary connection for extension calls)
+	fmt.Println("Connecting to node A...")
+	executorA, err := direct.NewExecutor(ctx, direct.ExecutorConfig{
+		ConnString:   connStringA,
+		ShowProgress: false,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect to node A: %w", err)
+	}
+	defer executorA.Close()
+
+	fmt.Printf("  Extension: %s\n", executorA.ExtensionVersion())
+	fmt.Printf("  Tables: %v\n", tables)
+	fmt.Println()
+
+	// Call the extension's analyze_overlap function
+	// Note: The extension needs the peer connection string to connect via dblink/FDW
+	analyses, err := executorA.AnalyzeOverlap(ctx, connStringB, tables)
+	if err != nil {
+		return fmt.Errorf("analyze overlap failed: %w", err)
+	}
+
+	if outputJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(analyses)
+	}
+
+	// Print summary
+	fmt.Println("Overlap Analysis Results")
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Printf("%-30s %10s %10s %10s %10s\n",
+		"Table", "Matches", "Conflicts", "LocalOnly", "RemoteOnly")
+	fmt.Println(strings.Repeat("-", 80))
+
+	var totalMatches, totalConflicts, totalLocalOnly, totalRemoteOnly int64
+	for _, a := range analyses {
+		fmt.Printf("%-30s %10d %10d %10d %10d\n",
+			a.TableName, a.MatchCount, a.ConflictCount, a.LocalOnlyCount, a.RemoteOnlyCount)
+		totalMatches += a.MatchCount
+		totalConflicts += a.ConflictCount
+		totalLocalOnly += a.LocalOnlyCount
+		totalRemoteOnly += a.RemoteOnlyCount
+	}
+
+	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("%-30s %10d %10d %10d %10d\n",
+		"TOTAL", totalMatches, totalConflicts, totalLocalOnly, totalRemoteOnly)
+
+	if totalConflicts > 0 {
+		fmt.Printf("\n⚠ %d conflicts detected.\n", totalConflicts)
+	}
+
+	return nil
+}
+
 // newMergeCmd creates the merge command group.
+// T028: Add --direct mode with --conn-a and --conn-b flags.
 func newMergeCmd() *cobra.Command {
 	var (
 		tables       string
 		strategy     string
 		dryRun       bool
 		remoteServer string
+		// T028: Direct mode flags
+		directMode  bool
+		connStringA string
+		connStringB string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "merge <node-a-conn> <node-b-conn>",
+		Use:   "merge [node-a-conn] [node-b-conn]",
 		Short: "Bidirectional merge operations",
 		Long: `Perform bidirectional merge operations between two nodes.
 
@@ -219,6 +320,10 @@ bidirectional replication. It handles:
 4. Transferring unique rows in both directions
 5. Enabling bidirectional replication with origin=none
 
+Connection modes:
+  --direct    Connect directly to PostgreSQL using --conn-a and --conn-b
+  Positional  Legacy mode: provide connection strings as arguments
+
 Conflict Resolution Strategies:
   prefer-local    - Always keep local node's value for conflicts
   prefer-remote   - Always keep remote node's value for conflicts
@@ -226,21 +331,45 @@ Conflict Resolution Strategies:
   manual          - Generate conflict report for manual resolution
 
 Examples:
-  # Merge with prefer-local strategy
-  steep-repl merge localhost:5432 remotehost:5432 --tables users,orders --strategy prefer-local
+  # Merge using direct mode (preferred)
+  steep-repl merge --direct \
+    --conn-a "host=localhost port=5432 dbname=db1 user=test" \
+    --conn-b "host=localhost port=5433 dbname=db2 user=test" \
+    --tables users,orders --strategy prefer-local
 
-  # Dry run to preview changes
-  steep-repl merge localhost:5432 remotehost:5432 --tables users --dry-run
+  # Dry run with direct mode
+  steep-repl merge --direct --conn-a "..." --conn-b "..." --tables users --dry-run
 
-  # Generate manual conflict report
-  steep-repl merge localhost:5432 remotehost:5432 --tables users --strategy manual`,
-		Args: cobra.ExactArgs(2),
+  # Legacy: Merge with prefer-local strategy
+  steep-repl merge localhost:5432 remotehost:5432 --tables users,orders --strategy prefer-local`,
+		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeAAddr := args[0]
-			nodeBAddr := args[1]
-
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			defer cancel()
+
+			// Parse table list
+			tableList := strings.Split(tables, ",")
+			if len(tableList) == 0 || (len(tableList) == 1 && tableList[0] == "") {
+				return fmt.Errorf("--tables is required")
+			}
+
+			// T028: Direct mode takes precedence
+			if directMode {
+				if connStringA == "" {
+					return fmt.Errorf("--conn-a flag is required for direct mode")
+				}
+				if connStringB == "" {
+					return fmt.Errorf("--conn-b flag is required for direct mode")
+				}
+				return runMergeDirect(ctx, connStringA, connStringB, tableList, strategy, dryRun)
+			}
+
+			// Legacy mode: connection strings as positional arguments
+			if len(args) < 2 {
+				return fmt.Errorf("two connection strings required (or use --direct with --conn-a/--conn-b)")
+			}
+			nodeAAddr := args[0]
+			nodeBAddr := args[1]
 
 			// Parse strategy
 			var conflictStrategy replinit.ConflictStrategy
@@ -255,12 +384,6 @@ Examples:
 				conflictStrategy = replinit.StrategyManual
 			default:
 				return fmt.Errorf("invalid strategy: %s (valid: prefer-local, prefer-remote, last-modified, manual)", strategy)
-			}
-
-			// Parse table list
-			tableList := strings.Split(tables, ",")
-			if len(tableList) == 0 || (len(tableList) == 1 && tableList[0] == "") {
-				return fmt.Errorf("--tables is required")
 			}
 
 			// Connect to both nodes
@@ -431,14 +554,97 @@ Examples:
 		},
 	}
 
+	// T028: Direct mode flags
+	cmd.Flags().BoolVar(&directMode, "direct", false, "use direct PostgreSQL connections via extension")
+	cmd.Flags().StringVar(&connStringA, "conn-a", "", "PostgreSQL connection string for node A (direct mode)")
+	cmd.Flags().StringVar(&connStringB, "conn-b", "", "PostgreSQL connection string for node B (direct mode)")
+
+	// Merge options
 	cmd.Flags().StringVar(&tables, "tables", "", "Comma-separated list of tables to merge")
 	cmd.Flags().StringVar(&strategy, "strategy", "prefer-local", "Conflict resolution strategy")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without applying")
-	cmd.Flags().StringVar(&remoteServer, "remote-server", "node_b_fdw", "Name of postgres_fdw foreign server")
+	cmd.Flags().StringVar(&remoteServer, "remote-server", "node_b_fdw", "Name of postgres_fdw foreign server (legacy mode)")
 
-	cmd.MarkFlagRequired("tables")
+	_ = cmd.MarkFlagRequired("tables")
 
 	return cmd
+}
+
+// runMergeDirect runs bidirectional merge via direct PostgreSQL connections.
+// T028: Direct mode implementation using the steep_repl extension.
+func runMergeDirect(ctx context.Context, connStringA, connStringB string, tables []string, strategy string, dryRun bool) error {
+	// Connect to node A (primary connection for extension calls)
+	fmt.Println("Connecting to node A...")
+	executorA, err := direct.NewExecutor(ctx, direct.ExecutorConfig{
+		ConnString:   connStringA,
+		ShowProgress: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect to node A: %w", err)
+	}
+	defer executorA.Close()
+
+	fmt.Printf("  Extension: %s\n", executorA.ExtensionVersion())
+	fmt.Printf("  Tables: %v\n", tables)
+	fmt.Printf("  Strategy: %s\n", strategy)
+	fmt.Printf("  Dry run: %v\n", dryRun)
+	fmt.Println()
+
+	// Start the merge operation via extension
+	mergeOpts := direct.MergeOptions{
+		PeerConnStr: connStringB,
+		Tables:      tables,
+		Strategy:    strategy,
+		DryRun:      dryRun,
+	}
+
+	mergeID, err := executorA.StartMerge(ctx, mergeOpts)
+	if err != nil {
+		return fmt.Errorf("start merge failed: %w", err)
+	}
+
+	fmt.Printf("Merge started: %s\n", mergeID)
+
+	if dryRun {
+		fmt.Println("\n=== DRY RUN ===")
+		fmt.Println("No changes were made. Run without --dry-run to execute.")
+		return nil
+	}
+
+	// Poll for progress until complete
+	fmt.Println("\nExecuting merge...")
+	for {
+		result, err := executorA.MergeProgress(ctx, mergeID)
+		if err != nil {
+			return fmt.Errorf("get merge progress: %w", err)
+		}
+
+		if result.Status == "complete" {
+			fmt.Println()
+			fmt.Println(strings.Repeat("-", 60))
+			fmt.Printf("Merge ID:          %s\n", result.MergeID)
+			fmt.Printf("Tables processed:  %d\n", result.TablesProcessed)
+			fmt.Printf("Conflicts:         %d\n", result.ConflictsDetected)
+			fmt.Printf("Resolved:          %d\n", result.ConflictsResolved)
+			fmt.Printf("Transferred A→B:   %d\n", result.RowsTransferredAB)
+			fmt.Printf("Transferred B→A:   %d\n", result.RowsTransferredBA)
+			fmt.Println("\n✓ Merge completed successfully")
+			return nil
+		}
+
+		if result.Status == "failed" {
+			return fmt.Errorf("merge failed: %s", result.Error)
+		}
+
+		// Still in progress - wait and poll again
+		fmt.Printf("  Progress: %s (%d tables processed)\r", result.Status, result.TablesProcessed)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(1 * time.Second):
+			// continue polling
+		}
+	}
 }
 
 // Helper functions
