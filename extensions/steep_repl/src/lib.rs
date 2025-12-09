@@ -35,6 +35,7 @@ mod utils;
 mod work_queue;
 mod progress;
 mod notify;
+mod worker;
 
 // Re-export utility functions for SQL access
 pub use utils::{steep_repl_version, steep_repl_min_pg_version};
@@ -66,13 +67,10 @@ pub extern "C-unwind" fn _PG_init() {
     // that can be read by SQL functions and written by background workers.
     progress::init_shared_memory();
 
-    // Note: Background worker registration (BackgroundWorkerBuilder) requires
-    // the extension to be loaded via shared_preload_libraries. This will be
-    // implemented in T007 (Phase 2: Foundational).
-    //
-    // For now, direct mode operations will work without background workers.
-    // Operations will be executed synchronously in the client connection
-    // instead of being queued to the work_queue table.
+    // Register background worker for long-running operations.
+    // This only succeeds if the extension is loaded via shared_preload_libraries.
+    // If not, operations will run synchronously in the client connection.
+    worker::register_worker();
 }
 
 // =============================================================================
