@@ -220,14 +220,14 @@ bidirectional replication. It handles:
 5. Enabling bidirectional replication with origin=none
 
 Conflict Resolution Strategies:
-  prefer-node-a   - Always keep node A's value for conflicts
-  prefer-node-b   - Always keep node B's value for conflicts
+  prefer-local    - Always keep local node's value for conflicts
+  prefer-remote   - Always keep remote node's value for conflicts
   last-modified   - Keep the most recently modified value (requires track_commit_timestamp)
   manual          - Generate conflict report for manual resolution
 
 Examples:
-  # Merge with prefer-node-a strategy
-  steep-repl merge localhost:5432 remotehost:5432 --tables users,orders --strategy prefer-node-a
+  # Merge with prefer-local strategy
+  steep-repl merge localhost:5432 remotehost:5432 --tables users,orders --strategy prefer-local
 
   # Dry run to preview changes
   steep-repl merge localhost:5432 remotehost:5432 --tables users --dry-run
@@ -245,16 +245,16 @@ Examples:
 			// Parse strategy
 			var conflictStrategy replinit.ConflictStrategy
 			switch strategy {
-			case "prefer-node-a":
-				conflictStrategy = replinit.StrategyPreferNodeA
-			case "prefer-node-b":
-				conflictStrategy = replinit.StrategyPreferNodeB
+			case "prefer-local":
+				conflictStrategy = replinit.StrategyPreferLocal
+			case "prefer-remote":
+				conflictStrategy = replinit.StrategyPreferRemote
 			case "last-modified":
 				conflictStrategy = replinit.StrategyLastModified
 			case "manual":
 				conflictStrategy = replinit.StrategyManual
 			default:
-				return fmt.Errorf("invalid strategy: %s", strategy)
+				return fmt.Errorf("invalid strategy: %s (valid: prefer-local, prefer-remote, last-modified, manual)", strategy)
 			}
 
 			// Parse table list
@@ -432,7 +432,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&tables, "tables", "", "Comma-separated list of tables to merge")
-	cmd.Flags().StringVar(&strategy, "strategy", "prefer-node-a", "Conflict resolution strategy")
+	cmd.Flags().StringVar(&strategy, "strategy", "prefer-local", "Conflict resolution strategy")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without applying")
 	cmd.Flags().StringVar(&remoteServer, "remote-server", "node_b_fdw", "Name of postgres_fdw foreign server")
 

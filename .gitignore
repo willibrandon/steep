@@ -1,5 +1,6 @@
 # Steep Claude folder (may contain credentials/tokens)
 .claude/commands/steep/
+.claude/settings.local.json
 
 # Specify memory folder (may contain sensitive project context)
 .specify/memory/

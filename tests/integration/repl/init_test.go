@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"testing"
 	"time"
 
@@ -73,6 +75,8 @@ func (s *InitTestSuite) SetupSuite() {
 
 	const testPassword = "test"
 	env := &twoNodeEnv{}
+	// Assign env early so TearDownSuite can clean up even if setup fails partway through
+	s.env = env
 
 	// Create Docker network for inter-container communication
 	net, err := network.New(s.ctx, network.WithCheckDuplicate())
@@ -175,9 +179,9 @@ func (s *InitTestSuite) SetupSuite() {
 	_, err = env.targetPool.Exec(s.ctx, "CREATE EXTENSION IF NOT EXISTS steep_repl")
 	s.Require().NoError(err, "Failed to create extension on target")
 
-	// Start daemons
-	env.sourceGRPCPort = 15460
-	env.targetGRPCPort = 15461
+	// Start daemons with dynamically allocated ports to avoid conflicts
+	env.sourceGRPCPort = getFreePortInit()
+	env.targetGRPCPort = getFreePortInit()
 
 	// Set PGPASSWORD for daemon connections
 	s.T().Setenv("PGPASSWORD", testPassword)
@@ -249,7 +253,6 @@ func (s *InitTestSuite) SetupSuite() {
 	// Wait for daemons to be ready
 	time.Sleep(time.Second)
 
-	s.env = env
 	s.T().Log("InitTestSuite: Shared containers and daemons ready")
 }
 
@@ -1304,4 +1307,19 @@ func (s *InitTestSuite) TestInit_ManualSchemaVerification() {
 	} else {
 		s.T().Log("CompleteInit succeeded with matching schema")
 	}
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// getFreePortInit returns an available TCP port by binding to :0 and releasing it.
+func getFreePortInit() int {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		log.Fatalf("Failed to get free port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	return port
 }

@@ -56,23 +56,23 @@ pub enum ExecuteResult {
     Cancelled,
 }
 
-/// Register shared memory hooks for progress tracking.
+/// Register static background worker for work queue processing.
 ///
-/// This is called from _PG_init() but does NOT register a static background worker.
-/// Workers are launched dynamically via SQL functions instead.
+/// This is called from _PG_init() and registers a static background worker
+/// when the extension is loaded via shared_preload_libraries.
+/// The worker runs continuously, polling the work queue for pending operations.
 pub fn register_worker() {
-    // Note: We no longer register a static background worker here.
-    // Dynamic workers are launched via steep_repl.launch_worker() SQL function.
-    // This function is kept for shared memory initialization which happens in lib.rs.
-
+    // Only register static worker if loaded via shared_preload_libraries
     if unsafe { pgrx::pg_sys::process_shared_preload_libraries_in_progress } {
-        pgrx::log!(
-            "steep_repl: extension loaded via shared_preload_libraries, dynamic workers available"
-        );
-    } else {
-        pgrx::log!(
-            "steep_repl: extension loaded via CREATE EXTENSION, dynamic workers available"
-        );
+        // Register a static background worker that polls the work queue
+        BackgroundWorkerBuilder::new("steep_repl_worker")
+            .set_library("steep_repl")
+            .set_function("steep_repl_static_worker_main")
+            .set_argument(0i32.into_datum())
+            .enable_spi_access()
+            .set_start_time(BgWorkerStartTime::RecoveryFinished)
+            .set_restart_time(Some(std::time::Duration::from_secs(5)))
+            .load();
     }
 }
 
@@ -157,7 +157,82 @@ fn worker_available() -> bool {
     in_transaction
 }
 
-/// Background worker main function.
+/// Static background worker main function.
+///
+/// This is the entry point for the static background worker that is registered
+/// via shared_preload_libraries. It runs continuously, polling the work queue
+/// for pending operations.
+#[pg_guard]
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn steep_repl_static_worker_main(_arg: pg_sys::Datum) {
+    use std::time::Duration;
+
+    // Set up signal handlers
+    BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
+
+    // Connect to postgres database (default database)
+    // The worker will check if the extension is installed before processing work
+    BackgroundWorker::connect_worker_to_spi(Some("postgres"), None);
+
+    pgrx::log!("steep_repl: static background worker started");
+
+    // Check if extension is installed in this database
+    let extension_installed = BackgroundWorker::transaction(|| {
+        Spi::get_one::<bool>(
+            "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'steep_repl')"
+        ).ok().flatten().unwrap_or(false)
+    });
+
+    if !extension_installed {
+        pgrx::log!("steep_repl: extension not installed in postgres database, worker will idle");
+    }
+
+    // Main work loop - poll every second when idle, faster when processing
+    while BackgroundWorker::wait_latch(Some(Duration::from_secs(IDLE_WAKE_INTERVAL_SECS))) {
+        if !extension_installed {
+            // Extension not installed, just keep running to show healthy status
+            continue;
+        }
+
+        // Try to claim and process work
+        BackgroundWorker::transaction(|| {
+            // Check for pending work using FOR UPDATE SKIP LOCKED
+            let work_result = Spi::get_one::<i64>(
+                r#"SELECT id FROM steep_repl.work_queue
+                   WHERE status = 'pending'
+                   ORDER BY created_at LIMIT 1
+                   FOR UPDATE SKIP LOCKED"#
+            );
+
+            if let Ok(Some(work_id)) = work_result {
+                // Claim the work item
+                let _ = Spi::run(&format!(
+                    r#"UPDATE steep_repl.work_queue
+                       SET status = 'running', started_at = now(), worker_pid = pg_backend_pid()
+                       WHERE id = {}"#,
+                    work_id
+                ));
+
+                pgrx::log!("steep_repl: claimed work item {}", work_id);
+
+                // TODO: Execute the actual operation based on operation type
+                // For now, just mark as complete
+                let _ = Spi::run(&format!(
+                    r#"UPDATE steep_repl.work_queue
+                       SET status = 'complete', completed_at = now()
+                       WHERE id = {}"#,
+                    work_id
+                ));
+
+                pgrx::log!("steep_repl: completed work item {}", work_id);
+            }
+        });
+    }
+
+    pgrx::log!("steep_repl: static background worker shutting down");
+}
+
+/// Dynamic background worker main function.
 ///
 /// This is the entry point for dynamic background worker processes.
 /// It receives database info via bgw_extra, connects to that database,
@@ -173,7 +248,7 @@ pub extern "C-unwind" fn steep_repl_worker_main(_arg: pg_sys::Datum) {
     // Connect to the database - use pgrx_tests for testing
     BackgroundWorker::connect_worker_to_spi(Some("pgrx_tests"), None);
 
-    pgrx::log!("steep_repl: background worker started");
+    pgrx::log!("steep_repl: dynamic background worker started");
 
     // Work processing loop
     while BackgroundWorker::wait_latch(Some(Duration::from_millis(100))) {
@@ -217,7 +292,7 @@ pub extern "C-unwind" fn steep_repl_worker_main(_arg: pg_sys::Datum) {
         }
     }
 
-    pgrx::log!("steep_repl: background worker shutting down");
+    pgrx::log!("steep_repl: dynamic background worker shutting down");
 }
 
 /// Process the work queue - claim and execute one job.

@@ -90,6 +90,11 @@ pub mod pg_test {
     pub fn postgresql_conf_options() -> Vec<&'static str> {
         // Load steep_repl via shared_preload_libraries so that shared memory
         // for progress tracking is initialized before tests run.
-        vec!["shared_preload_libraries='steep_repl'"]
+        // Increase max_worker_processes to accommodate the static worker plus
+        // any dynamic workers spawned by tests.
+        vec![
+            "shared_preload_libraries='steep_repl'",
+            "max_worker_processes=16",
+        ]
     }
 }

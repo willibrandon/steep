@@ -828,15 +828,15 @@ func protoMethodToConfig(m pb.InitMethod) config.InitMethod {
 func protoStrategyToConfig(s pb.ConflictStrategy) replinit.ConflictStrategy {
 	switch s {
 	case pb.ConflictStrategy_CONFLICT_STRATEGY_PREFER_NODE_A:
-		return replinit.StrategyPreferNodeA
+		return replinit.StrategyPreferLocal
 	case pb.ConflictStrategy_CONFLICT_STRATEGY_PREFER_NODE_B:
-		return replinit.StrategyPreferNodeB
+		return replinit.StrategyPreferRemote
 	case pb.ConflictStrategy_CONFLICT_STRATEGY_LAST_MODIFIED:
 		return replinit.StrategyLastModified
 	case pb.ConflictStrategy_CONFLICT_STRATEGY_MANUAL:
 		return replinit.StrategyManual
 	default:
-		return replinit.StrategyPreferNodeA // Default
+		return replinit.StrategyPreferLocal // Default
 	}
 }
 

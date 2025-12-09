@@ -350,10 +350,12 @@ func (c *Client) checkExtension(ctx context.Context) error {
 	c.extInstalled = true
 	c.extVersion = extVersion
 
-	// Check if background worker is available
+	// Check if background worker is available.
+	// PostgreSQL sets backend_type to bgw_type (not literal "background worker"),
+	// and for our worker bgw_type = bgw_name = "steep_repl_worker".
 	var bgworkerAvailable bool
 	err = c.pool.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE backend_type = 'background worker' AND application_name LIKE 'steep_repl%')",
+		"SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE backend_type LIKE 'steep_repl%')",
 	).Scan(&bgworkerAvailable)
 	if err != nil {
 		// Non-fatal, just log

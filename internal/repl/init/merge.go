@@ -214,6 +214,16 @@ func (m *Merger) ExecuteMerge(ctx context.Context, config MergeConfig) (*MergeRe
 		result.Tables = append(result.Tables, fmt.Sprintf("%s.%s", t.Schema, t.Name))
 	}
 
+	// Create merge_operations record (required by merge_audit_log FK constraint)
+	_, err := m.localPool.Exec(ctx, `
+		INSERT INTO steep_repl.merge_operations (merge_id, tables, strategy, peer_connstr, dry_run, status, started_at)
+		VALUES ($1, $2, $3, $4, $5, 'running', now())
+	`, result.MergeID, result.Tables, string(config.Strategy), config.RemoteServer, config.DryRun)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("create merge operation: %v", err))
+		return result, err
+	}
+
 	// Sort tables by FK dependencies (parents before children)
 	deps, err := m.GetFKDependencies(ctx, config.Tables)
 	if err != nil {

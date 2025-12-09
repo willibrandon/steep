@@ -769,8 +769,8 @@ synchronized. It:
 Use --dry-run to preview changes without applying them.
 
 Conflict resolution strategies:
-  prefer-node-a    Keep local node's values for conflicts (default)
-  prefer-node-b    Keep remote node's values for conflicts
+  prefer-local     Keep local node's values for conflicts (default)
+  prefer-remote    Keep remote node's values for conflicts
   last-modified    Keep most recently modified row (requires timestamp column)
   manual           Log conflicts for later manual resolution
 
@@ -779,7 +779,7 @@ Examples:
   steep-repl node merge node-1 node-2 \
     --node-b-connstr "host=pg2 port=5432 dbname=app user=repl" \
     --tables public.users,public.orders \
-    --strategy prefer-node-a \
+    --strategy prefer-local \
     --remote localhost:15460 --insecure
 
   # Dry-run to preview changes
@@ -816,7 +816,7 @@ Examples:
 	_ = cmd.MarkFlagRequired("tables")
 
 	// Options
-	cmd.Flags().StringVar(&strategy, "strategy", "prefer-node-a", "conflict resolution: prefer-node-a, prefer-node-b, last-modified, manual")
+	cmd.Flags().StringVar(&strategy, "strategy", "prefer-local", "conflict resolution: prefer-local, prefer-remote, last-modified, manual")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview changes without applying")
 	cmd.Flags().StringVar(&schemaSync, "schema-sync", "strict", "schema sync mode: strict, auto, manual")
 	cmd.Flags().IntVar(&quiesceTimeoutMs, "quiesce-timeout", 5000, "timeout for quiescing writes (ms)")
@@ -852,9 +852,9 @@ func runInitMergeGRPC(nodeAID, nodeBID, nodeBConnStr string, tables []string, st
 	// Convert strategy string to proto enum
 	var pbStrategy pb.ConflictStrategy
 	switch strategy {
-	case "prefer-node-a":
+	case "prefer-local":
 		pbStrategy = pb.ConflictStrategy_CONFLICT_STRATEGY_PREFER_NODE_A
-	case "prefer-node-b":
+	case "prefer-remote":
 		pbStrategy = pb.ConflictStrategy_CONFLICT_STRATEGY_PREFER_NODE_B
 	case "last-modified":
 		pbStrategy = pb.ConflictStrategy_CONFLICT_STRATEGY_LAST_MODIFIED

@@ -9,6 +9,15 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "lib"]
 
+# Suppress warnings for pg version features checked by pgrx macros.
+# We only support pg18, but pgrx's pg_shmem_init! macro internally
+# checks for all versions (pg13-pg17). This tells Rust to expect
+# these cfg values without us actually supporting those versions.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(feature, values("pg13", "pg14", "pg15", "pg16", "pg17"))'
+] }
+
 [[bin]]
 name = "pgrx_embed_steep_repl"
 path = "./src/bin/pgrx_embed.rs"

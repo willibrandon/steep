@@ -25,10 +25,14 @@ const (
 type ConflictStrategy string
 
 const (
-	StrategyPreferNodeA  ConflictStrategy = "prefer-node-a"
-	StrategyPreferNodeB  ConflictStrategy = "prefer-node-b"
+	StrategyPreferLocal  ConflictStrategy = "prefer-local"
+	StrategyPreferRemote ConflictStrategy = "prefer-remote"
 	StrategyLastModified ConflictStrategy = "last-modified"
 	StrategyManual       ConflictStrategy = "manual"
+
+	// Aliases for backward compatibility in code references
+	StrategyPreferNodeA = StrategyPreferLocal
+	StrategyPreferNodeB = StrategyPreferRemote
 )
 
 // OverlapResult represents the result of comparing a single row.

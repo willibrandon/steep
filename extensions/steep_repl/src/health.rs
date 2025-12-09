@@ -32,12 +32,14 @@ impl HealthStatus {
 /// Check if the background worker is running.
 ///
 /// This queries pg_stat_activity for our background worker.
+/// Note: backend_type shows bgw_type (not literal "background worker"),
+/// and for our worker bgw_type = bgw_name = "steep_repl_worker".
 fn is_bgworker_running() -> bool {
+    // Check for our worker by backend_type (which equals bgw_type = "steep_repl_worker")
     let result = Spi::get_one::<bool>(
         "SELECT EXISTS(
             SELECT 1 FROM pg_stat_activity
-            WHERE backend_type = 'background worker'
-            AND application_name LIKE 'steep_repl%'
+            WHERE backend_type LIKE 'steep_repl%'
         )"
     );
     result.ok().flatten().unwrap_or(false)

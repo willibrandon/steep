@@ -75,3 +75,7 @@ echo "Chinook databases loaded successfully!"\n\
 
 USER postgres
 WORKDIR /var/lib/postgresql/data
+
+# Start PostgreSQL with shared_preload_libraries to load steep_repl at server startup
+# This is required for shared memory initialization and background worker functionality
+CMD ["postgres", "-c", "shared_preload_libraries=steep_repl"]
