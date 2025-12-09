@@ -38,7 +38,7 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 Implement background worker main loop in extensions/steep_repl/src/worker.rs
+- [X] T007 Implement background worker main loop in extensions/steep_repl/src/worker.rs
 - [ ] T008 Implement work queue claim with FOR UPDATE SKIP LOCKED in extensions/steep_repl/src/work_queue.rs
 - [ ] T009 Implement shared memory progress read/write with PgLwLock in extensions/steep_repl/src/progress.rs
 - [ ] T010 Implement pg_notify wrapper for progress updates in extensions/steep_repl/src/notify.rs
